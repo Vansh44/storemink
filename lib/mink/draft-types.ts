@@ -23,6 +23,7 @@ export const MINK_DRAFT_KINDS = [
   "offer_create",
   "offer_update",
   "offer_activate",
+  "storefront_custom_code",
 ] as const;
 
 export type MinkDraftKind = (typeof MINK_DRAFT_KINDS)[number];
@@ -248,6 +249,89 @@ export const MINK_DRAFT_CONFIG: Record<
         required: true,
         multiline: false,
         maxLength: 64,
+      },
+    ],
+  },
+  storefront_custom_code: {
+    label: "Storefront code preview",
+    expectedCredits: 5,
+    fields: [
+      {
+        key: "page_slug",
+        label: "Page slug",
+        required: true,
+        multiline: false,
+        maxLength: 60,
+      },
+      {
+        key: "section_id",
+        label: "Section ID",
+        required: true,
+        multiline: false,
+        maxLength: 128,
+      },
+      {
+        key: "expected_page_version",
+        label: "Expected page version",
+        required: true,
+        multiline: false,
+        maxLength: 40,
+      },
+      {
+        key: "expected_section_digest",
+        label: "Expected section digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "patch_digest",
+        label: "Patch digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "html",
+        label: "HTML",
+        required: false,
+        multiline: true,
+        maxLength: 64 * 1024,
+      },
+      {
+        key: "css",
+        label: "CSS",
+        required: false,
+        multiline: true,
+        maxLength: 64 * 1024,
+      },
+      {
+        key: "js",
+        label: "JavaScript",
+        required: false,
+        multiline: true,
+        maxLength: 64 * 1024,
+      },
+      {
+        key: "height_mode",
+        label: "Height mode",
+        required: true,
+        multiline: false,
+        maxLength: 5,
+      },
+      {
+        key: "fixed_height",
+        label: "Fixed height",
+        required: true,
+        multiline: false,
+        maxLength: 4,
+      },
+      {
+        key: "explanation",
+        label: "Explanation",
+        required: true,
+        multiline: true,
+        maxLength: 1_000,
       },
     ],
   },
@@ -512,9 +596,24 @@ export function isMinkDraftKind(value: unknown): value is MinkDraftKind {
   return MINK_DRAFT_KINDS.includes(value as MinkDraftKind);
 }
 
+/**
+ * Normalize one stored draft payload.
+ *
+ * ★ `historicalSnapshot` marks a `before_json` value — a copy of what the
+ * merchant already had, not newly generated output. The generated-patch size
+ * ceiling must NOT be applied to it: `custom_code` legally holds up to
+ * `CODE_MAX_CHARS` (64 KiB) in EACH of html/css/js, so an existing section can
+ * exceed the 96 KiB combined AI-patch limit and still be a valid saved
+ * section. Enforcing the patch limit against that snapshot rejected the whole
+ * proposal after credits had already been charged, with an error that blamed
+ * the proposal's own code. Same reasoning as
+ * `readStoredStorefrontCodeConfig`: validate a historical snapshot's SHAPE,
+ * never retroactively hold it to a limit that only governs new output.
+ */
 export function normalizeMinkDraftContent(
   kind: MinkDraftKind,
   value: unknown,
+  { historicalSnapshot = false }: { historicalSnapshot?: boolean } = {},
 ): MinkDraftContent {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     throw new Error("Draft content must be an object.");
@@ -526,9 +625,20 @@ export function normalizeMinkDraftContent(
     if (input !== undefined && typeof input !== "string") {
       throw new Error(`${field.label} must be text.`);
     }
+    // Code is an immutable byte-for-byte proposal. Unicode normalization or
+    // trimming can change selectors, string literals and the digest the user
+    // is reviewing, so preserve only these three fields exactly. Target and
+    // explanation metadata remain normalized like every other draft field.
+    const preserveCode =
+      kind === "storefront_custom_code" &&
+      (field.key === "html" || field.key === "css" || field.key === "js");
     const text =
-      typeof input === "string" ? input.normalize("NFKC").trim() : "";
-    if (field.required && !text) {
+      typeof input === "string"
+        ? preserveCode
+          ? input
+          : input.normalize("NFKC").trim()
+        : "";
+    if (field.required && !text.trim()) {
       throw new Error(`${field.label} is required.`);
     }
     if (text.length > field.maxLength) {
@@ -573,6 +683,47 @@ export function normalizeMinkDraftContent(
     throw new Error(
       "Target status must be one of: processing, shipped, delivered.",
     );
+  }
+  if (kind === "storefront_custom_code") {
+    if (
+      result.page_slug !== "home" &&
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(result.page_slug)
+    ) {
+      throw new Error("Page slug must be home or an exact normalized slug.");
+    }
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/.test(result.section_id)) {
+      throw new Error("Section ID is invalid.");
+    }
+    if (
+      !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(
+        result.expected_page_version,
+      )
+    ) {
+      throw new Error("Expected page version is invalid.");
+    }
+    if (
+      !/^[a-f0-9]{64}$/.test(result.expected_section_digest) ||
+      !/^[a-f0-9]{64}$/.test(result.patch_digest)
+    ) {
+      throw new Error("Storefront proposal digests are invalid.");
+    }
+    if (result.height_mode !== "auto" && result.height_mode !== "fixed") {
+      throw new Error("Height mode must be auto or fixed.");
+    }
+    const fixedHeight = Number(result.fixed_height);
+    if (
+      !Number.isInteger(fixedHeight) ||
+      fixedHeight < 40 ||
+      fixedHeight > 4000
+    ) {
+      throw new Error("Fixed height must be a whole number from 40 to 4000.");
+    }
+    if (
+      !historicalSnapshot &&
+      result.html.length + result.css.length + result.js.length > 96 * 1024
+    ) {
+      throw new Error("Combined storefront code must be at most 96 KiB.");
+    }
   }
   return result;
 }
@@ -727,59 +878,70 @@ export function estimateMinkDraftIntent(message: string): {
     return null;
   }
   const kind: MinkDraftKind | null =
-    /\b(bulk|multiple|many|all)\b.*\b(price|prices|pricing|mrp)\b|\b(price|prices|pricing|mrp)\b.*\b(bulk|multiple|many|all)\b/.test(
+    // ★ THIS BRANCH IS FIRST, SO IT SHADOWS EVERY MORE SPECIFIC ONE BELOW IT.
+    // It therefore needs an EXPLICIT code-or-design signal, not a generic verb:
+    // pairing `website` with `create` matched "create a new product for my
+    // website" and quoted 5 credits for a 3-credit product draft, and
+    // `homepage` with `generate` swallowed "generate a blog post for the
+    // homepage". `code` is likewise absent on its own — "coupon code",
+    // "promo code" and "discount code" all belong to other branches.
+    /\b(?:storefront|website|home ?page|landing page|page section|hero|banner|carousel)\b[\s\S]{0,80}\b(?:custom code|html|css|javascript|design|redesign|restyle)\b|\b(?:custom code|html|css|javascript|design|redesign|restyle)\b[\s\S]{0,80}\b(?:storefront|website|home ?page|landing page|page section|hero|banner|carousel)\b/.test(
       value,
     )
-      ? "bulk_price_update"
-      : /\b(mark|advance|move|update|set)\b.*\b(order|delivery)\b.*\b(processing|shipped|delivered)\b|\b(order|delivery)\b.*\b(processing|shipped|delivered)\b/.test(
+      ? "storefront_custom_code"
+      : /\b(bulk|multiple|many|all)\b.*\b(price|prices|pricing|mrp)\b|\b(price|prices|pricing|mrp)\b.*\b(bulk|multiple|many|all)\b/.test(
             value,
           )
-        ? "order_status_transition"
-        : /\b(bulk|multiple|many|all)\b.*\b(stock|inventory|skus?|products?|items?)\b|\b(stock|inventory)\b.*\b(bulk|multiple|many|all)\b/.test(
+        ? "bulk_price_update"
+        : /\b(mark|advance|move|update|set)\b.*\b(order|delivery)\b.*\b(processing|shipped|delivered)\b|\b(order|delivery)\b.*\b(processing|shipped|delivered)\b/.test(
               value,
             )
-          ? "bulk_inventory_adjustment"
-          : /\b(adjust|set|restock|remove|add|update)\b.*\b(stock|inventory|units?)\b|\b(stock|inventory)\b.*\b(adjust|set|restock|remove|add|update)\b/.test(
+          ? "order_status_transition"
+          : /\b(bulk|multiple|many|all)\b.*\b(stock|inventory|skus?|products?|items?)\b|\b(stock|inventory)\b.*\b(bulk|multiple|many|all)\b/.test(
                 value,
               )
-            ? "inventory_adjustment"
-            : /\b(coupon|campaign|promo).*\b(email|mail)|\bemail.*\b(coupon|campaign|promo)/.test(
+            ? "bulk_inventory_adjustment"
+            : /\b(adjust|set|restock|remove|add|update)\b.*\b(stock|inventory|units?)\b|\b(stock|inventory)\b.*\b(adjust|set|restock|remove|add|update)\b/.test(
                   value,
                 )
-              ? "coupon_email"
-              : /\b(create|add|new)\b.*\b(customer )?group\b|\b(customer )?group\b.*\b(create|add|new)\b/.test(
+              ? "inventory_adjustment"
+              : /\b(coupon|campaign|promo).*\b(email|mail)|\bemail.*\b(coupon|campaign|promo)/.test(
                     value,
                   )
-                ? "customer_group_create"
-                : /\b(update|edit|rewrite)\b.*\b(customer )?group\b|\b(customer )?group\b.*\b(update|edit|rewrite)\b/.test(
+                ? "coupon_email"
+                : /\b(create|add|new)\b.*\b(customer )?group\b|\b(customer )?group\b.*\b(create|add|new)\b/.test(
                       value,
                     )
-                  ? "customer_group_update"
-                  : /\b(create|add|new)\b.*\b(coupon|promo code)\b|\b(coupon|promo code)\b.*\b(create|add|new)\b/.test(
+                  ? "customer_group_create"
+                  : /\b(update|edit|rewrite)\b.*\b(customer )?group\b|\b(customer )?group\b.*\b(update|edit|rewrite)\b/.test(
                         value,
                       )
-                    ? "coupon_create"
-                    : /\b(update|edit)\b.*\b(coupon|promo code)\b|\b(coupon|promo code)\b.*\b(update|edit)\b/.test(
+                    ? "customer_group_update"
+                    : /\b(create|add|new)\b.*\b(coupon|promo code)\b|\b(coupon|promo code)\b.*\b(create|add|new)\b/.test(
                           value,
                         )
-                      ? "coupon_update"
-                      : /\b(create|add|new)\b.*\bproduct\b|\bproduct\b.*\b(create|add|new)\b/.test(
+                      ? "coupon_create"
+                      : /\b(update|edit)\b.*\b(coupon|promo code)\b|\b(coupon|promo code)\b.*\b(update|edit)\b/.test(
                             value,
-                          ) && !/\b(description|copy|seo|meta)\b/.test(value)
-                        ? "product_create"
-                        : /\b(customer|shopper).*\b(message|reply)|\bmessage.*\b(customer|shopper)/.test(
+                          )
+                        ? "coupon_update"
+                        : /\b(create|add|new)\b.*\bproduct\b|\bproduct\b.*\b(create|add|new)\b/.test(
                               value,
-                            )
-                          ? "customer_message"
-                          : /\b(blog|article|post)\b/.test(value)
-                            ? "blog"
-                            : /\b(seo|meta title|meta description)\b/.test(
-                                  value,
-                                )
-                              ? "product_seo"
-                              : /\b(product|description|copy)\b/.test(value)
-                                ? "product_description"
-                                : null;
+                            ) && !/\b(description|copy|seo|meta)\b/.test(value)
+                          ? "product_create"
+                          : /\b(customer|shopper).*\b(message|reply)|\bmessage.*\b(customer|shopper)/.test(
+                                value,
+                              )
+                            ? "customer_message"
+                            : /\b(blog|article|post)\b/.test(value)
+                              ? "blog"
+                              : /\b(seo|meta title|meta description)\b/.test(
+                                    value,
+                                  )
+                                ? "product_seo"
+                                : /\b(product|description|copy)\b/.test(value)
+                                  ? "product_description"
+                                  : null;
   if (!kind) return null;
   const config = MINK_DRAFT_CONFIG[kind];
   return { kind, label: config.label, expectedCredits: config.expectedCredits };

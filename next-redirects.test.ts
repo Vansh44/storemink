@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import nextConfig from "./next.config";
+import {
+  PHASE_DEVELOPMENT_SERVER,
+  PHASE_PRODUCTION_BUILD,
+  PHASE_PRODUCTION_SERVER,
+} from "next/constants";
+import configForPhase from "./next.config";
 
 /**
  * The dashboard redirects, and which paths they are allowed to swallow.
@@ -23,7 +28,8 @@ import nextConfig from "./next.config";
 
 type Redirect = { source: string; destination: string; permanent: boolean };
 
-async function redirects(): Promise<Redirect[]> {
+async function redirects(phase: string): Promise<Redirect[]> {
+  const nextConfig = configForPhase(phase);
   const fn = nextConfig.redirects;
   if (typeof fn !== "function")
     throw new Error("no redirects() in next.config");
@@ -42,9 +48,13 @@ function matches(source: string, path: string): boolean {
 const firstMatch = (rules: Redirect[], path: string) =>
   rules.find((r) => matches(r.source, path));
 
-describe("dashboard redirects", () => {
+describe.each([
+  PHASE_DEVELOPMENT_SERVER,
+  PHASE_PRODUCTION_BUILD,
+  PHASE_PRODUCTION_SERVER,
+])("dashboard redirects (%s)", (phase) => {
   it("★★ leaves the coupon EMAIL campaign page reachable", async () => {
-    const rules = await redirects();
+    const rules = await redirects(phase);
     expect(
       firstMatch(rules, "/dashboard/marketing/coupons/abc-123/email"),
     ).toBeUndefined();
@@ -53,14 +63,14 @@ describe("dashboard redirects", () => {
   it("★★ leaves a coupon EDIT page reachable, for Mink's own deep links", async () => {
     // `lib/mink/tools/draft-tools.ts` and `lib/mink/domain-actions.ts` hand the
     // merchant this exact path for a coupon Mink proposed.
-    const rules = await redirects();
+    const rules = await redirects(phase);
     expect(
       firstMatch(rules, "/dashboard/marketing/coupons/abc-123/edit"),
     ).toBeUndefined();
   });
 
   it("still retires the destinations that genuinely moved", async () => {
-    const rules = await redirects();
+    const rules = await redirects(phase);
     expect(firstMatch(rules, "/dashboard/marketing/coupons")?.destination).toBe(
       "/dashboard/offers",
     );
@@ -78,7 +88,7 @@ describe("dashboard redirects", () => {
     // These sit behind a login, so there are no SEO signals to consolidate —
     // and a 308 is cached by browsers indefinitely, which is the trap `proxy.ts`
     // already works around with `Cache-Control: no-store` (CODEBASE §30).
-    const rules = await redirects();
+    const rules = await redirects(phase);
     for (const rule of rules.filter((r) => r.source.startsWith("/dashboard"))) {
       expect(rule.permanent).toBe(false);
     }
@@ -86,7 +96,7 @@ describe("dashboard redirects", () => {
 
   it("★ the retired log paths still resolve, because sent emails carry them", async () => {
     // Absolute `/dashboard/activity` links are in inboxes nobody can edit.
-    const rules = await redirects();
+    const rules = await redirects(phase);
     expect(firstMatch(rules, "/dashboard/activity")?.destination).toBe(
       "/dashboard/logs",
     );

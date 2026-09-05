@@ -63,6 +63,7 @@ const DRAFT_PERMISSION: Record<
   offer_create: { section: "promotions", action: "manage" },
   offer_update: { section: "promotions", action: "manage" },
   offer_activate: { section: "promotions", action: "manage" },
+  storefront_custom_code: { section: "builder", action: "manage" },
 };
 
 export interface MinkDraftState {
@@ -282,6 +283,7 @@ export async function saveMinkDraftVersion(input: {
   content: unknown;
 }): Promise<MinkDraftState> {
   return mutateDraft(input.actor, input.draftId, async (db, draft) => {
+    assertEditableDraft(draft.kind);
     assertExpectedVersion(draft.currentVersion, input.expectedVersion);
     const content = normalizeForRequest(draft.kind, input.content);
     const version = draft.currentVersion + 1;
@@ -320,6 +322,7 @@ export async function rollbackMinkDraftVersion(input: {
   targetVersion: number;
 }): Promise<MinkDraftState> {
   return mutateDraft(input.actor, input.draftId, async (db, draft) => {
+    assertEditableDraft(draft.kind);
     assertExpectedVersion(draft.currentVersion, input.expectedVersion);
     if (
       !Number.isInteger(input.targetVersion) ||
@@ -374,6 +377,15 @@ export async function rollbackMinkDraftVersion(input: {
       );
     return draft.id;
   });
+}
+
+function assertEditableDraft(kind: MinkDraftKind): void {
+  if (kind !== "storefront_custom_code") return;
+  throw new MinkRequestError(
+    "mink_storefront_preview_immutable",
+    "This Phase 7B code proposal is preview-only. It cannot be edited, saved or restored.",
+    409,
+  );
 }
 
 async function mutateDraft(

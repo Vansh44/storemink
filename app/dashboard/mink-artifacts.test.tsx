@@ -7,6 +7,176 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
+describe("Mink storefront artifacts", () => {
+  it("renders bounded builder context without inventory-specific truncation copy", () => {
+    const artifact: MinkArtifact = {
+      type: "records",
+      title: "Storefront pages",
+      recordType: "storefront",
+      records: [
+        {
+          id: "home",
+          title: "Home",
+          subtitle: "home · 4 draft sections",
+          value: "Unpublished changes",
+          status: "published",
+          dashboardPath: "/dashboard/builder?page=home",
+        },
+      ],
+      filters: [{ label: "Scope", value: "Current store" }],
+      dashboardPath: "/dashboard/builder",
+      truncated: true,
+    };
+
+    render(<MinkArtifacts artifacts={[artifact]} />);
+    expect(screen.getByText("Storefront pages")).toBeInTheDocument();
+    expect(screen.getByText("Home")).toHaveAttribute(
+      "href",
+      "/dashboard/builder?page=home",
+    );
+    expect(
+      screen.getByText(
+        "Showing a bounded result set. Open the dashboard for the full list.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/lowest-stock matches/i)).not.toBeInTheDocument();
+  });
+
+  it("renders an owner-loaded, network-isolated desktop/mobile code preview with escaped source", async () => {
+    const draftId = "11111111-1111-4111-8111-111111111111";
+    const target = {
+      pageSlug: "home",
+      sectionId: "hero-code",
+      expectedPageVersion: "2026-09-04T10:20:30.123456+00:00",
+      expectedSectionDigest: "a".repeat(64),
+    };
+    const beforeConfig = {
+      html: "<section>Current</section>",
+      css: "section { color: black; }",
+      js: "",
+      height_mode: "auto",
+      fixed_height: 480,
+    };
+    const proposedConfig = {
+      html: "<section>Premium arrivals</section>",
+      css: "section { color: rebeccapurple; }",
+      js: "",
+      height_mode: "auto",
+      fixed_height: 480,
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        json: async () => ({
+          preview: {
+            id: draftId,
+            draftVersion: 0,
+            title: "Storefront code for Home",
+            destinationLabel: "Home · custom code",
+            destinationPath: "/dashboard/builder?page=home&section=hero-code",
+            explanation: "A responsive private hero preview.",
+            target,
+            targetState: "current",
+            targetMessage: "The Website Builder target still matches.",
+            patchDigest: "b".repeat(64),
+            beforeConfig,
+            proposedConfig,
+            changedFields: ["html", "css"],
+            validationChecks: ["Exact target matched", "No write authority"],
+            sandbox: {
+              schemaVersion: 1,
+              phase: "7B",
+              mode: "private_proposal_preview",
+              target: {
+                pageSlug: "exact",
+                sectionId: "exact",
+                pageVersion: "required",
+                sectionDigest: "required",
+              },
+              limits: {
+                maxCharactersPerCodeField: 65_536,
+                maxCharactersPerPatch: 98_304,
+                codeReadChunkCharacters: 8_000,
+                minFixedHeight: 120,
+                maxFixedHeight: 1_200,
+              },
+              iframe: {
+                sandboxAttribute: "allow-scripts",
+                opaqueOrigin: true,
+                sameOrigin: false,
+                topNavigation: false,
+              },
+              prohibitedCapabilities: ["network requests"],
+              authority: {
+                canReadBuilderContext: true,
+                canValidatePatchShape: true,
+                canCreatePrivateProposal: true,
+                canPreviewGeneratedCode: true,
+                canSaveCode: false,
+                canPublish: false,
+                canAccessRepository: false,
+                canDeploy: false,
+              },
+            },
+            authority: {
+              canPreview: true,
+              canEditProposal: false,
+              canSaveBuilderDraft: false,
+              canPublish: false,
+            },
+          },
+        }),
+      }),
+    );
+    const artifact: MinkArtifact = {
+      type: "storefront_code_proposal",
+      draftId,
+      title: "Storefront code for Home",
+      destinationLabel: "Home · custom code",
+      destinationPath: "/dashboard/builder?page=home&section=hero-code",
+      explanation: "A responsive private hero preview.",
+      target,
+      patchDigest: "b".repeat(64),
+      changedFields: ["html", "css"],
+      beforeCharacters: 50,
+      afterCharacters: 70,
+      validationChecks: ["Exact target matched", "No write authority"],
+      status: "private_preview",
+      expectedCredits: 5,
+      chargedCredits: 5,
+      creditSource: "plan",
+    };
+
+    render(<MinkArtifacts artifacts={[artifact]} />);
+    const frame = await screen.findByTitle(
+      "Home · custom code private Mink preview",
+    );
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/mink/drafts/${draftId}/storefront-code-preview`,
+      expect.objectContaining({ cache: "no-store" }),
+    );
+    expect(frame).toHaveAttribute("sandbox", "allow-scripts");
+    expect(frame.getAttribute("srcdoc")).toContain("connect-src 'none'");
+    expect(
+      screen.getByRole("button", { name: /review builder draft save/i }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /publish/i }),
+    ).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /mobile/i }));
+    expect(
+      screen.getByTestId("mink-storefront-preview-viewport"),
+    ).toHaveAttribute("data-viewport", "mobile");
+    fireEvent.click(screen.getByRole("button", { name: /html/i }));
+    expect(screen.getByText("<section>Current</section>")).toBeVisible();
+    expect(
+      screen.getByText("<section>Premium arrivals</section>"),
+    ).toBeVisible();
+  });
+});
+
 describe("Mink catalogue artifact", () => {
   it("renders product and SKU counts with inspectable publication and stock tags", () => {
     const artifact: MinkArtifact = {

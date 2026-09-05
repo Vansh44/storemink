@@ -1,296 +1,160 @@
-# Local dev performance — what's actually slow, measured
+# Local development performance
 
-Measured 2026-08-12 on an **Apple M2, 8 GB RAM**, from India, against the
-staging database. Numbers first, because "dev feels slow" gets blamed on the
-bundler by default and in this project the bundler is not the problem.
+## Evidence from 2026-09-05
 
----
+The machine is an Apple Silicon Mac with **8 GB RAM and 8 CPU cores**.
+The system snapshot showed **6.4 GB swap used**, **3.3 GB RAM occupied by
+compressed pages**, and about **61 GB available disk space**. No listener was
+visible on ports 3000 or 6543 during inspection. Swap usage and cumulative
+page-in counters alone cannot establish current thrashing; use Activity
+Monitor's Memory Pressure and paging deltas during the slow request.
 
-## 1. Compilation is NOT the bottleneck
+The existing `.next/dev/trace` contains:
 
-Twenty consecutive Turbopack compiles from a real session:
+| Operation                        | Duration |
+| -------------------------------- | -------: |
+| `/auth/login` compilation        |   60.1 s |
+| `/auth/login` complete request   |   71.6 s |
+| `/dashboard/builder` compilation |   43.3 s |
+| `/dashboard` complete request    |   21.8 s |
+| `/dashboard` rendering           |   13.0 s |
 
-```
-13ms  97ms  117ms  177ms  232ms  333ms  406ms  414ms  608ms  847ms
-1.1s  1.5s  3.4s   (cold route, first visit)
-```
+These are saved-session timings, not a controlled benchmark. They confirm
+slow compilation and rendering, but do not reproduce the reported 5–10 minute
+homepage wait. Long `/api/mink/stream` requests are streaming lifetimes and must
+not be interpreted as page-load latency.
 
-Turbopack is doing its job. **Do not spend time on `optimizePackageImports`,
-barrel imports or module counts** until something here regresses — the ceiling
-is already ~1.5 s for a cold route and double-digit milliseconds for an edit.
+Earlier August measurements found much faster compilation and roughly 46 ms
+per database round trip through the Mumbai Cloud SQL proxy. Those are historical
+observations, not proof that the bundler or database cannot be the problem now.
 
----
+## What the local runner does
 
-## 2. ★★ THE DOMINANT COST IS THE DATABASE ROUND TRIP
+`npm run dev:all` runs the Cloud SQL Auth Proxy and the Next.js dev
+server. The runner selects Webpack on machines with ≤12 GB RAM and Turbopack
+on larger machines; explicit bundler flags override this choice. It does not run a production build or test suite. Next compiles routes
+on demand; the browser's compiling/rendering indicator reports this work.
+Hiding the indicator will not speed it up.
 
-The dev database is **remote**. `npm run db:proxy` points at
-`storemink-prod:asia-south1:storemink-prod-db` — a Cloud SQL instance in
-**Mumbai** — so every query a page makes crosses the internet:
+The runner sets V8 old-space limits of 2 GB on machines with ≤12 GB RAM,
+3 GB on machines with ≤20 GB, and no explicit limit above that. This is **not
+a total process RAM cap**: native allocations, buffers and Turbopack's Rust
+module graph sit outside it. `dev:lean` is already the default heap policy on
+this 8 GB Mac; `dev:full` removes that protection and is not a speed fix.
 
-| Measurement                        | Result                       |
-| ---------------------------------- | ---------------------------- |
-| `SELECT 1` through the proxy       | **median 46 ms**, p90 111 ms |
-| A real single-row query            | **median 49 ms**             |
-| Raw ICMP ping to Google's frontend | avg 49 ms                    |
+Caches are now preserved across restarts. The previous runner automatically
+removed `.next/dev` over 3 GB and `.next/cache` over 256 MB. Deleting caches
+can force recompilation; disk cache size is not resident memory usage.
+Next 16.2.12 enables Turbopack development filesystem caching by default.
+`DEV_CACHE_MAX_MB=3072 npm run dev:all` restores opt-in dev-cache rotation for
+machines short on disk. `npm run dev:reset` explicitly deletes `.next/dev`;
+stop the server first and use it only for cache recovery or deliberate cleanup.
+Neither operation removes production output. Normal startup no longer deletes
+`.next/cache`.
 
-**The proxy adds nothing — 46 ms _is_ the network.** It is the speed of light
-plus TCP, and no amount of query tuning removes it.
+The runner's swap warning is advisory. Quitting processes does reclaim their
+memory; macOS does not need a reboot to reclaim all process memory. Allocated
+swap-file capacity is different from actively used swap and current paging.
+A reboot may help recover a heavily pressured session, but is not the only fix.
+Spotlight marker files are best effort, not a measured improvement.
 
-### Why this matters more than it looks
-
-Round trips are **sequential** wherever one query's result feeds the next.
-A single authenticated page render walks a chain like:
-
-```
-getCurrentStoreOrNull      (cached 300 s — usually free)
-resolvePosOperator
-  ├─ getAuthorizedDevice        46 ms
-  ├─ getManagerIdentity         46 ms
-  ├─ isStoreSuperadmin          46 ms
-  └─ ownerDisplayName           46 ms
-layout Promise.all (3 concurrent)   46 ms
-the page's own reads             46–140 ms
-```
-
-≈ **300–500 ms of pure network per render**, before React does any work. On a
-local Postgres the same chain is **~3 ms**. That is the single biggest
-available win, it applies to **every developer on every page**, and it is
-invisible in a profiler that only looks at CPU.
-
-### ⚠ THE FIX IS A LOCAL POSTGRES, AND IT IS NOT BUILT YET
-
-This is the right answer and it is deliberately **not** done in passing,
-because a half-working local database is worse than none — everyone would
-debug the environment instead of the product. Doing it properly means:
-
-- a container running the same major Postgres version;
-- applying `supabase/*.sql` in order, which assumes an `auth` schema and the
-  `app_user` / `app_service` roles that `lib/db/client.ts` sets via
-  `SET LOCAL ROLE` — including the `auth.uid()` shim over the
-  `app.current_user_id` GUC (see CODEBASE.md §2, convention #2);
-- seed data, or the whole thing is an empty shop;
-- a documented way to re-sync when a migration lands, or local silently drifts
-  from staging and the drift surfaces as a bug nobody can reproduce.
-
-Until then, `db:proxy` against staging is correct — it is _slow_, not _wrong_,
-and it guarantees you are developing against the real schema.
-
-**Interim mitigations that need no new infrastructure:**
-
-- Prefer `Promise.all` over sequential `await`s wherever reads do not depend on
-  each other. Three concurrent queries cost 46 ms; three sequential ones cost
-  140 ms. (`app/pos/layout.tsx` does this deliberately.)
-- Cache reads that are stable per request with React `cache()` —
-  `resolvePosOperator` already is, which is why `/pos/sell` resolves the
-  operator once instead of the three or four times it used to.
-- A VPN adds to every one of these round trips. If Cloudflare WARP, ProtonVPN
-  or similar is on, it sits between you and Mumbai on every query.
-
----
-
-## 3. Memory — why 8 GB machines feel much worse than the numbers suggest
-
-Same machine, mid-session:
-
-|                   |              |
-| ----------------- | ------------ |
-| RAM               | 8 GB         |
-| Free              | **0.06 GB**  |
-| Compressed        | 2.76 GB      |
-| **Swap used**     | **9.68 GB**  |
-| Pages reactivated | 16.9 billion |
-
-Once the machine swaps, everything above is irrelevant — the work is fast and
-the _waiting_ is disk. The dev server was the largest single process at
-**4.4 GB**, with VS Code (~2.4 GB across helpers), Chrome (~1 GB), and several
-Electron AI apps (~1.9 GB combined) competing for the same 8 GB.
-
-**The dev server's memory grows through a session and never shrinks.** Dev
-compiles routes lazily and keeps every one it has compiled resident, so a long
-session that touches many routes climbs steadily. That is a property of dev
-mode, not a leak to configure away — **restart it when it gets sluggish.**
-
-### The default runner is now memory-aware
+## Working commands
 
 ```bash
-npm run dev             # or dev:all, with the Cloud SQL proxy
+npm run dev:all          # memory-aware bundler choice + proxy, preserves cache
+npm run dev:all:webpack  # explicit Webpack + same proxy and heap policy
+npm run dev:all:turbo    # explicit Turbopack + same proxy and heap policy
+npm run dev -- --webpack # Webpack only, if the proxy is already running
 ```
 
-`scripts/dev-server.mjs` detects physical memory before starting Turbopack:
+Stop the existing server with Ctrl+C before switching. The old runner forced
+`--turbopack` even when `--webpack` was passed; explicit bundler selection now
+works. Webpack is an alternative to measure, not a promise of lower memory or
+faster compilation. Its first compile is cold and can be slow. Do not delete
+caches between ordinary restarts; compare the same routes and both first and
+repeat visits. Production build configuration is unchanged.
 
-| Machine RAM | Next.js V8 heap |
-| ----------- | --------------- |
-| ≤12 GB      | 2 GB            |
-| 12–20 GB    | 3 GB            |
-| >20 GB      | uncapped        |
+## Diagnose a slow session
 
-This keeps the 8 GB Mac from letting one long dev session grow toward 4.4 GB
-and forcing the whole machine into swap, while larger machines keep their
-headroom. `npm run dev:lean` forces 2 GB and `npm run dev:full` explicitly
-removes the cap. A cap trades some extra garbage collection for dramatically
-less swapping; on this machine that is the correct trade.
+1. Check Activity Monitor → Memory. Close unused high-memory apps if pressure
+   is yellow/red. Restart the dev server to release its accumulated allocations,
+   preserving the disk cache. Save work before rebooting if the Mac stays stuck.
+2. Run one server and request one route. Compare the terminal's compile and
+   render durations; a green memory graph does not rule out slow network I/O.
+3. Compare a repeat visit. Fast repeat visits with slow first visits implicate
+   compilation/cache warmup. Slow rendering after compilation needs database,
+   authentication and external-service timing, not just compiler settings.
+4. Try the Webpack command for the same route if Turbopack remains problematic.
+   Record elapsed time and process memory when comparing bundlers.
+5. Inspect proxy errors. It connects to the Mumbai Cloud SQL instance; local
+   `DB_NAME` should select `storemink_staging`. Remote database latency and
+   connection failures can delay rendering independently of compilation.
 
-### `.next/dev` grows without bound
+The root layout also declares nine Google font families. On a cold compile,
+font fetching is another dependency to inspect if logs show network retries;
+it has not been established as the cause of this incident. Heavy editors and
+charts should be assessed via the route's import graph rather than removed
+solely because they appear in package.json.
 
-It reached **4.1 GB** (of a 4.9 GB `.next`) in one session. On a machine
-already writing ~10 GB of swap to the same SSD, that is disk contention on top
-of memory pressure. The resource-aware runner measures `.next/dev` before
-startup and removes it only when it exceeds 3 GB. `npm run dev:reset` performs
-the same generated-cache reset manually. Either path costs one cold compile,
-then warm Turbopack caching resumes.
+For a focused Turbopack trace, use `NEXT_TURBOPACK_TRACING=1 npm run dev:all:turbo`,
+reproduce one slow route, then stop. Trace files may be large; do not enable
+tracing permanently. See the installed Next.js guides in
+`node_modules/next/dist/docs/01-app/02-guides/local-development.md` and
+`memory-usage.md`.
 
-### Dashboard rendering no longer serializes unrelated shell reads
+These changes affect developer tooling only. No merchant/customer flow changes,
+Help Centre migration, POS acceptance updates or roadmap phase changes apply.
 
-The dashboard layout previously awaited location scope, enquiry count, store,
-and POS-location reads one after another. They are now started concurrently
-(with only the store → POS-location dependency kept), and Analytics resolves
-timezone and location options together. This does not remove the Mumbai network
-floor, but it stops paying several independent windows in sequence on every
-page render.
+## Webpack tuning from official guidance
 
-### ★★ Re-measured 2026-08-24 — the machine was out of headroom before dev started
+The development phase of `next.config.ts` now applies these settings:
 
-Same M2 / 8 GB, after **84 days of uptime**, with the dev server **not running**:
+| Setting                     | Value                                           | Purpose / tradeoff                                                                                                                                             |
+| --------------------------- | ----------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `parallelism`               | 8 per compiler on ≤12 GB RAM, 32 above          | Fewer concurrent module builds; can increase cold compile duration while reducing concurrent work.                                                             |
+| `output.pathinfo`           | `false`                                         | Omit module-path comments and their garbage-collection overhead; source maps remain intact.                                                                    |
+| `onDemandEntries` on ≤12 GB | `maxInactiveAge: 25000`, `pagesBufferLength: 2` | Retain fewer inactive entries than Next's 60 s / five-page defaults; revisits may recompile. Active pages stay active. This does not unload every Node module. |
 
-| Measurement              | Value                             |
-| ------------------------ | --------------------------------- |
-| Free RAM                 | **65 MB**                         |
-| Wired                    | 2.05 GB                           |
-| Compressor               | 3.22 GB                           |
-| **Swap used**            | **8.19 GB of 9.22 GB (89% full)** |
-| Total RSS, 556 processes | 4.08 GB                           |
-| Free disk (Data volume)  | 18 GB of 228 GB (**91% full**)    |
+`DEV_WEBPACK_PARALLELISM=16 npm run dev:all:webpack` overrides concurrency with
+a positive integer. This limits module work, not CPU threads or total RSS.
+The values are conservative starting points, not a proven optimum.
 
-So ~6.1 GB of the 8 GB was already committed **with nothing being developed**.
-The remaining ~2 GB is the entire budget a dev server has to fit in.
+Next 16.2.12 already supplies filesystem caching, a garbage-collected memory
+cache (`MemoryWithGcCachePlugin`), and `maxMemoryGenerations: 0` for its filesystem
+cache. Those defaults are preserved, along with cache names, compression,
+invalidation, loaders and chunking. No extra worker pool, polling watcher,
+minification, typecheck process, or new dependency was added. Source maps retain
+Next's defaults: its config builder explicitly reverts custom development
+`devtool` values. `experimental.webpackMemoryOptimizations` is only consumed in
+the installed production webpack build implementation, so it is not enabled as
+a supposed local-dev fix.
 
-Then `npm run dev` was started and eight routes were requested:
+The custom Webpack callback exists only in the development phase. Production
+build configuration and its worker selection remain unchanged. An empty dev
+`turbopack` config acknowledges the explicit alternative bundler; Webpack knobs
+do not tune Turbopack.
 
-| Point                             | Next.js RSS |
-| --------------------------------- | ----------- |
-| Freshly booted (`Ready in 337ms`) | **0.09 GB** |
-| after `/`                         | 0.44 GB     |
-| after `/dashboard`                | 1.12 GB     |
-| after `/dashboard/analytics`      | **1.77 GB** |
+Official sources consulted:
 
-**macOS grew the swap file by 2 GB during that** (9.22 GB → 11.26 GB total,
-8.19 GB → 10.64 GB used; free RAM 57 MB). Three of those eight routes returned
-404 and so never fully compiled — a real session touching the builder, POS and
-products climbs well past this.
+- [Webpack build performance](https://webpack.js.org/guides/build-performance/): persistent caches, incremental compilation, avoiding unnecessary tooling and path comments.
+- [Webpack parallelism](https://webpack.js.org/configuration/other-options/#parallelism): concurrent module limits and the memory/throughput tradeoff.
+- [Webpack cache](https://webpack.js.org/configuration/cache/): cache lifecycle and memory collection.
+- [Next custom Webpack configuration](https://nextjs.org/docs/app/api-reference/config/next-config-js/webpack): extend framework configuration; the callback is invoked for client/server targets.
+- [Next on-demand entries](https://nextjs.org/docs/app/api-reference/config/next-config-js/onDemandEntries): development entry retention.
 
-**That swap growth is the slowdown.** The dev server itself is not slow; every
-page it forces out of RAM has to be read back from the SSD when you next click
-Chrome, VS Code or Slack. That is the beachball, and it is why the machine feels
-bad _everywhere_ rather than just in the terminal.
+### Live verification
 
-Two consequences worth internalising:
+The existing server was already using Webpack (confirmed through webpack
+compilation spans in `.next/dev/trace`). One homepage request before the change
+returned HTTP 200 in **8.91 s** (8.29 s to first byte). After config reload, a
+request returned HTTP 200 in **4.58 s** (4.04 s to first byte), and a repeat
+visit returned HTTP 200 in **0.30 s** (0.297 s to first byte). These are live
+observations with different cache states and other browser tabs making requests,
+not a controlled A/B benchmark or proof of a fixed 5–10 minute delay. Current
+swap usage during the investigation was about **10.7 GB**; this remains an 8 GB
+machine with substantial system-wide memory demands.
 
-- **Killing the dev server does not give the memory back.** Swap used stayed at
-  10.6 GB immediately after the process exited — macOS never shrinks swap files.
-  It only truly resets on **reboot**, which is what 84 days of uptime costs.
-- **The heap cap was never the thing bounding it.** `--max-old-space-size=2048`
-  was in force the whole way to 1.77 GB. Turbopack is Rust, so its module graph,
-  compiled output and source maps are native allocations _outside_ V8's old
-  space, as is every Node buffer. The cap is worth keeping — it stops V8 itself
-  ballooning — but it cannot keep the machine responsive. Restarting the dev
-  server is what actually reclaims memory.
-
-### Disk is not a separate problem from memory
-
-`.next` had grown to **4.7 GB**, of which **1.5 GB was `.next/cache/webpack`,
-last written ten days earlier**. Turbopack dev never reads that directory — it
-is `next build`'s cache — so it was pure dead weight on a volume that was 91%
-full and on which macOS was simultaneously trying to grow a swap file. The
-runner now reclaims it on every start once it passes 256 MB, which costs nothing
-in dev (the next `next build` rebuilds it).
-
-Note also that `.next/dev` sat at **2.96 GB against the runner's 3 GB rotation
-threshold** — so that guard had never once fired in the life of the machine.
-That is correct behaviour (the Turbopack cache is what keeps recompiles at
-13 ms) but worth knowing before assuming the cache is being managed for you.
-
-### Spotlight — checked, and it is NOT currently a cost
-
-Worth writing down because it is the obvious suspect (`.next` is 11,541 files
-that Turbopack rewrites continuously; `node_modules` is another 75,852) and the
-measurement says no.
-
-`mdutil -s` reports indexing enabled on both volumes, but nothing new is being
-ingested:
-
-- A brand-new file written into `~/Documents` — a directory with existing index
-  entries — was **still unindexed after 70 s**. That was the control, so the
-  result is not about this project.
-- `mds` and every `mdworker_shared` sat at **0.0% CPU** throughout.
-- `mdfind -onlyin "$HOME" -name package.json` returns **0**, while
-  `mdfind -onlyin /Applications -name Safari` returns 1 — so `mdfind` works and
-  the index holds old content, but has stopped taking new writes.
-
-⚠ **Do not over-read that into "Desktop is in the Spotlight Privacy list."** An
-equally good explanation is an index that stalled at some point: everything
-older than the stall is present, everything newer is absent, whatever the
-directory. Telling those apart needs `sudo` on
-`/System/Volumes/Data/.Spotlight-V100/VolumeConfiguration.plist`.
-
-**So Spotlight explains none of the slowdown today**, and any fix aimed at it
-would be measuring itself against zero.
-
-The runner writes `.metadata_never_index` into `.next`, `node_modules` and
-`coverage` anyway, for one specific reason: **the recommended fix above is a
-reboot**, and a reboot is exactly what would restart normal indexing — at which
-point those directories become the largest write-churn source on the volume. It
-is insurance placed before the cost arrives, not a fix for a measured problem.
-
-Two implementation notes:
-
-- It is rewritten on **every** start, not once. All three directories are
-  gitignored (so the marker can never be committed) and all three are wiped —
-  `.next` by `dev:reset` and by the 3 GB cache rotation, `node_modules` by
-  `npm ci`. A one-time marker disappears silently.
-- `.metadata_never_index` is a long-standing Spotlight convention rather than a
-  formally documented API, and **it could not be verified on this machine
-  because indexing is stalled**. It is inert if it does nothing. The
-  authoritative alternative is System Settings → Spotlight → Privacy, which
-  requires a human.
-
-### What is _not_ worth tuning
-
-Measured, so it does not get re-litigated:
-
-- Boot is **337 ms**. Not a problem.
-- The runner's recursive `.next/dev` size walk over 11,515 files: **42 ms**.
-  Not worth replacing with `du`.
-- Turbopack compile times are unchanged from §1.
-- Spotlight (see above) — currently ingesting nothing, 0.0% CPU.
-
----
-
-## 4. If you have ten minutes and dev feels slow
-
-**Check swap first** — `sysctl vm.swapusage`. The runner now prints a warning
-at startup when it is ≥60% full, because that single number decides whether any
-of the rest of this list will help.
-
-1. **Reboot, if uptime is measured in weeks.** This is first for a reason and it
-   is the one step that cannot be substituted: macOS never shrinks swap, so a
-   machine carrying 10 GB of it stays slow no matter what you close. `uptime`.
-2. Quit Electron apps you are not using. Measured 2026-08-24: VS Code 0.77 GB,
-   Claude 0.68 GB, Chrome 0.43 GB, ChatGPT/Codex 0.34 GB — **2.2 GB**, which is
-   more than the entire headroom the dev server has to fit into.
-3. **Free disk.** 18 GB of 228 GB was left, and swap grew 2 GB during a single
-   short dev session. Swap competes for the same volume as `.next`,
-   `node_modules` and Xcode/simulator data.
-4. `npm run dev:reset` and restart the dev server. Reclaims the generated dev
-   cache without deleting production build output. Restarting alone is worth it
-   — RSS only ever grows within a session.
-5. Turn off any VPN while developing — it taxes all 46 ms of every query.
-6. `killall NotificationCenter` — a known macOS leak; it was holding 1.1 GB.
-   It restarts itself immediately and nothing is lost.
-
-**The structural point:** an 8 GB machine running a browser, an Electron editor
-and two Electron AI apps does not have room for this dev server, and no flag in
-`scripts/dev-server.mjs` can create room that isn't there. The tuning above buys
-headroom at the margin; steps 1–3 are the ones that decide the outcome.
-
-If it is still slow after that, it is **§2**, and the answer is a local
-Postgres rather than anything you can tune.
+Configuration checks verify the development values, override validation, retained
+source-map/cache settings, and absence of the callback in production. Targeted
+ESLint and formatting checks also pass. No production build is needed for these
+internal development settings.

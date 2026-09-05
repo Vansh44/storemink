@@ -58,6 +58,40 @@ beforeEach(() => {
 });
 
 describe("Mink full view", () => {
+  it("keeps the Builder panel above the fixed canvas without changing ordinary dashboard layout", () => {
+    const css = readFileSync(
+      join(process.cwd(), "app/dashboard/dashboard.css"),
+      "utf8",
+    );
+    const rule = css.match(
+      /\.dashboard-shell:has\(\.sm-builder\) \.dash-chat\s*\{([^}]+)\}/,
+    )?.[1];
+    expect(rule).toContain("position: fixed");
+    expect(rule).toContain("top: 56px");
+    expect(rule).toContain("right: 0");
+    expect(rule).toContain("bottom: 0");
+    expect(rule).toContain("z-index: 45");
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      isExpanded: false,
+      input: "Make this look better on mobile",
+    } as unknown as ReturnType<typeof useChat>);
+    const view = render(createElement(DashboardChat, { variant: "panel" }));
+    expect(screen.getByTestId("mink-chat-surface")).toHaveClass("dash-chat");
+    expect(screen.getByLabelText("Message Mink AI")).toHaveValue(
+      "Make this look better on mobile",
+    );
+    expect(
+      screen.getByRole("separator", { name: "Resize Mink AI panel" }),
+    ).toBeInTheDocument();
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      isChatOpen: false,
+    } as unknown as ReturnType<typeof useChat>);
+    view.rerender(createElement(DashboardChat, { variant: "panel" }));
+    expect(screen.queryByTestId("mink-chat-surface")).not.toBeInTheDocument();
+  });
+
   it("covers the entire viewport above the dashboard chrome", () => {
     render(createElement(DashboardChat, { variant: "overlay" }));
 

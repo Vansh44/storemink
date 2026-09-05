@@ -97,7 +97,7 @@ export type MinkArtifact =
   | {
       type: "records";
       title: string;
-      recordType: "order" | "product" | "inventory";
+      recordType: "order" | "product" | "inventory" | "storefront";
       records: Array<{
         id: string;
         title: string;
@@ -133,6 +133,29 @@ export type MinkArtifact =
       content: MinkDraftContent;
       status: MinkDraftStatus;
       currentVersion: number;
+      expectedCredits: number;
+      chargedCredits: number;
+      creditSource: MinkDraftCreditSource;
+    }
+  | {
+      type: "storefront_code_proposal";
+      draftId: string;
+      title: string;
+      destinationLabel: string;
+      destinationPath: string;
+      explanation: string;
+      target: {
+        pageSlug: string;
+        sectionId: string;
+        expectedPageVersion: string;
+        expectedSectionDigest: string;
+      };
+      patchDigest: string;
+      changedFields: Array<"html" | "css" | "js" | "height">;
+      beforeCharacters: number;
+      afterCharacters: number;
+      validationChecks: string[];
+      status: "private_preview";
       expectedCredits: number;
       chargedCredits: number;
       creditSource: MinkDraftCreditSource;

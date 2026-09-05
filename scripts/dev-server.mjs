@@ -7,13 +7,6 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const projectRoot = path.resolve(scriptDir, "..");
 const devCacheDir = path.join(projectRoot, ".next", "dev");
-// `next build`'s webpack cache. Turbopack dev NEVER reads it, so on a machine
-// that only ever runs `npm run dev` it is pure dead disk that grows to gigabytes
-// and is never reclaimed by anything. Measured 2026-08-24: 1.5 GB, last written
-// ten days earlier. It matters because macOS grows its swap file on the same
-// volume, and this project's dev server pushes an 8 GB machine into swap — so
-// free disk is not a cosmetic concern here, it is what swap competes for.
-const buildCacheDir = path.join(projectRoot, ".next", "cache");
 const nextBin = path.join(
   projectRoot,
   "node_modules",
@@ -68,7 +61,9 @@ if (process.argv.includes("--reset-cache")) {
   process.exit(0);
 }
 
-const cacheLimitMb = Number(process.env.DEV_CACHE_MAX_MB ?? 3072);
+// Preserve warm compiles across restarts. Cache size is not RAM usage.
+// Rotation is opt-in for machines where disk space, rather than RAM, is scarce.
+const cacheLimitMb = Number(process.env.DEV_CACHE_MAX_MB ?? 0);
 if (Number.isFinite(cacheLimitMb) && cacheLimitMb > 0) {
   const cacheBytes = await directoryBytes(devCacheDir);
   if (cacheBytes > cacheLimitMb * MB) {
@@ -76,43 +71,8 @@ if (Number.isFinite(cacheLimitMb) && cacheLimitMb > 0) {
   }
 }
 
-// Drop the webpack build cache whenever it is big enough to matter. Unlike the
-// dev cache above this costs NOTHING to discard in dev — nothing in this process
-// reads it — so it is a plain reclaim, not a speed/space trade. The next
-// `next build` rebuilds it.
-const buildCacheBytes = await directoryBytes(buildCacheDir);
-if (buildCacheBytes > 256 * MB) {
-  console.log(
-    `[dev] reclaiming ${(buildCacheBytes / MB / 1024).toFixed(1)} GB of .next/cache (next build's webpack cache; unused by dev).`,
-  );
-  await rm(buildCacheDir, { recursive: true, force: true });
-}
-
-// Keep Spotlight out of the generated directories.
-//
-// `.next` is 11.5k files that Turbopack REWRITES continuously while you develop,
-// and `node_modules` is another 75.8k. Every write is an event mdworker would
-// otherwise wake up for, on a machine that has no CPU or IO to spare.
-//
-// ⚠ MEASURED HONESTLY (2026-08-24): Spotlight is ingesting NO new files on this
-// machine at all — a brand-new file written into an indexed directory was still
-// unindexed after 70 s, and mds/mdworker sit at 0.0% CPU. So this is a NO-OP
-// today and is NOT part of the current slowdown; do not credit it with one.
-// It is here because the documented fix for that slowdown is a REBOOT (macOS
-// never shrinks swap), and a reboot is exactly what would restart normal
-// indexing — at which point these two directories become the largest churn
-// source on the volume. Cheap insurance, placed before the cost arrives.
-//
-// Written on every start rather than once: `.next` is wiped by `dev:reset` and
-// by the cache rotation above, and `node_modules` by `npm ci`, so a
-// one-time marker silently disappears. Both are gitignored, so the marker
-// cannot be committed — recreating it here is the only thing that makes it
-// durable.
-//
-// `.metadata_never_index` is a long-standing Spotlight convention rather than a
-// formally documented API, and it could not be verified on this machine because
-// indexing is stalled. It is inert if it does nothing. The authoritative
-// alternative is System Settings → Spotlight → Privacy, which needs a human.
+// Best-effort Spotlight markers, not a verified performance fix. Recreate
+// after npm ci / cache reset; failure must not prevent development.
 async function ensureNoIndexMarkers() {
   for (const dir of [".next", "node_modules", "coverage"]) {
     const target = path.join(projectRoot, dir);
@@ -151,20 +111,9 @@ const nextArgs = process.argv
   .slice(2)
   .filter((arg) => !arg.startsWith("--heap-mb=") && arg !== "--reset-cache");
 
-// ★★ THE HEAP CAP IS NOT A CAP ON THE DEV SERVER'S MEMORY, and reading it as
-// one is how "why is my Mac slow?" goes unanswered for weeks.
-// `--max-old-space-size` bounds ONE region: V8's old space. Turbopack is Rust,
-// so its graph, module cache and source maps are NATIVE allocations sitting
-// entirely outside it, as is every Node buffer. Measured on this repo
-// (2026-08-24, M2/8 GB): a freshly booted dev server is ~90 MB RSS, and
-// compiling eight routes takes it to 1.77 GB — while the "2048 MB heap cap" was
-// in force the whole time and never bound anything. A long session that touches
-// the builder, POS and analytics climbs past 4 GB, because dev mode compiles
-// routes lazily and keeps every one it has compiled resident.
-//
-// So the cap is worth keeping (it stops V8 itself ballooning) but it CANNOT be
-// the reason the machine stays responsive. Restarting the dev server
-// periodically is what actually reclaims the memory.
+// V8's old-space cap excludes native allocations and buffers. It is not a
+// process-wide RAM limit, especially with Turbopack's Rust module graph.
+// Swap usage is historical context, not a measurement of current paging rate.
 function memoryPreflight() {
   let swapUsedMb = 0;
   let swapTotalMb = 0;
@@ -172,6 +121,7 @@ function memoryPreflight() {
     const raw = execFileSync("sysctl", ["-n", "vm.swapusage"], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2000,
     });
     swapTotalMb = Number(/total\s*=\s*([\d.]+)M/.exec(raw)?.[1] ?? 0);
     swapUsedMb = Number(/used\s*=\s*([\d.]+)M/.exec(raw)?.[1] ?? 0);
@@ -188,16 +138,10 @@ function memoryPreflight() {
     `[dev] ⚠  Swap is ${(ratio * 100).toFixed(0)}% full (${(swapUsedMb / 1024).toFixed(1)} GB of ${(swapTotalMb / 1024).toFixed(1)} GB) BEFORE this server starts.`,
   );
   console.log(
-    "[dev]    The dev server needs 2-4 GB. On top of a machine already swapping, the",
+    "[dev]    Check Activity Monitor → Memory Pressure; swap usage alone does not prove active thrashing.",
   );
   console.log(
-    "[dev]    slowdown you feel is the SSD paging other apps back in, not Next.js compiling.",
-  );
-  console.log(
-    "[dev]    macOS never shrinks swap, so this only clears on reboot. Quitting memory-heavy",
-  );
-  console.log(
-    "[dev]    apps (Electron editors/browsers) buys back the most headroom right now.",
+    "[dev]    Close unused heavy apps and restart the dev server if pressure is high. Keep the warm cache.",
   );
   console.log("");
 }
@@ -209,7 +153,7 @@ if (heapMb > 0) {
     `[dev] ${memoryGb.toFixed(0)} GB RAM detected; capping V8's old space at ${heapMb} MB.`,
   );
   console.log(
-    "[dev] Note: this bounds V8 only — Turbopack's native memory is outside it, so total",
+    "[dev] Note: this bounds V8 only — native memory and buffers are outside it, so total",
   );
   console.log(
     "[dev] RSS still grows through a session. Restart the server when it feels sluggish.",
@@ -220,9 +164,19 @@ if (heapMb > 0) {
   );
 }
 
+const bundlerArgs = nextArgs.some((arg) =>
+  ["--webpack", "--turbopack", "--turbo"].includes(arg),
+)
+  ? []
+  : [memoryGb <= 12 ? "--webpack" : "--turbopack"];
+
+console.log(
+  `[dev] Bundler: ${[...bundlerArgs, ...nextArgs].includes("--webpack") ? "Webpack" : "Turbopack"}; preserving compilation caches.`,
+);
+
 const child = spawn(
   process.execPath,
-  [nextBin, "dev", "--turbopack", ...nextArgs],
+  [nextBin, "dev", ...bundlerArgs, ...nextArgs],
   {
     cwd: projectRoot,
     env: childEnv,

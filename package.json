@@ -4,6 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "node scripts/dev-server.mjs",
+    "dev:webpack": "node scripts/dev-server.mjs --webpack",
+    "dev:turbo": "node scripts/dev-server.mjs --turbopack",
+    "dev:all:turbo": "concurrently -n proxy,next -c blue,green --kill-others-on-fail \"npm run db:proxy\" \"npm run dev:turbo\"",
+    "dev:all:webpack": "concurrently -n proxy,next -c blue,green --kill-others-on-fail \"npm run db:proxy\" \"npm run dev:webpack\"",
     "dev:lean": "node scripts/dev-server.mjs --heap-mb=2048",
     "dev:full": "node scripts/dev-server.mjs --heap-mb=0",
     "dev:reset": "node scripts/dev-server.mjs --reset-cache",

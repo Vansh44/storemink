@@ -3115,6 +3115,396 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260904_0076_mink_phase_7a_builder_context_help",
+      "description": "Publish the secure read-only Website Builder context and validation-only sandbox contract for Mink Phase 7A",
+      "file": "sql/20260904_0076_mink_phase_7a_builder_context_help.sql",
+      "checksum": "69a3d44d13d3b95a0088e117acf00de40bbc0f254caca82e1eb36d4c1ceae413",
+      "transaction": true,
+      "requires": ["20260904_0075_mink_offer_audit_resource_type"],
+      "verify": {
+        "tables": ["help_articles"],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7A Website Builder guidance is published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Inspect Website Builder context with Mink</h2>%' and body like '%Phase 7A is read-only%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "applyVerify": {
+        "tables": ["help_articles"],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7A builder security contract is complete",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Website Builder View%' and body like '%treated as untrusted data, never as instructions%' and body like '%chunks of at most 8,000 characters%' and body like '%64 KiB per code field and 96 KiB combined%' and body like '%cannot yet create a code proposal%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "adoptVerify": {
+        "tables": ["help_articles"],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7A builder security contract already exists",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Website Builder View%' and body like '%treated as untrusted data, never as instructions%' and body like '%chunks of at most 8,000 characters%' and body like '%64 KiB per code field and 96 KiB combined%' and body like '%cannot yet create a code proposal%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260904_0077_mink_phase_7b_storefront_code_preview",
+      "description": "Add owner-private Mink storefront-code proposals, exact target constraints, isolated preview guidance, and no builder-write authority for Phase 7B",
+      "file": "sql/20260904_0077_mink_phase_7b_storefront_code_preview.sql",
+      "checksum": "21f35186a1022070c3ba6757283a19ddc5f4e943faac5fde09a90858d9fb9b76",
+      "transaction": true,
+      "requires": ["20260904_0076_mink_phase_7a_builder_context_help"],
+      "verify": {
+        "tables": ["mink_drafts", "help_articles"],
+        "constraints": [
+          "mink_drafts_kind_check",
+          "mink_drafts_storefront_code_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7B storefront code draft kind is allowed",
+            "sql": "select count(*)::text from pg_constraint where conname = 'mink_drafts_kind_check' and conrelid = 'public.mink_drafts'::regclass and pg_get_constraintdef(oid) like '%storefront_custom_code%'",
+            "equals": "1"
+          },
+          {
+            "name": "Mink Phase 7B preview-only guidance is published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Phase 7B adds an immutable, private custom-code proposal%' and body like '%sandbox=\"allow-scripts\"%' and body like '%Phase 7B remains preview-only%' and body not like '%cannot yet create a code proposal%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "applyVerify": {
+        "tables": ["mink_drafts", "help_articles"],
+        "constraints": [
+          "mink_drafts_kind_check",
+          "mink_drafts_storefront_code_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7B draft target is fully constrained",
+            "sql": "select count(*)::text from pg_constraint where conname = 'mink_drafts_storefront_code_target_check' and conrelid = 'public.mink_drafts'::regclass and pg_get_constraintdef(oid) like '%expected_page_version%' and pg_get_constraintdef(oid) like '%expected_section_digest%' and pg_get_constraintdef(oid) like '%patch_digest%'",
+            "equals": "1"
+          },
+          {
+            "name": "Mink Phase 7B security and no-write contract is complete",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%costs 5 AI credits%' and body like '%deny-by-default Content Security Policy%' and body like '%The stored before snapshot is never executed%' and body like '%cannot edit that immutable proposal%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "adoptVerify": {
+        "tables": ["mink_drafts", "help_articles"],
+        "constraints": [
+          "mink_drafts_kind_check",
+          "mink_drafts_storefront_code_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7B schema and guidance already exist",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Phase 7B adds an immutable, private custom-code proposal%' and body like '%Phase 7B remains preview-only%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260904_0078_mink_phase_7c_builder_draft_save",
+      "description": "Add a gated five-minute exact-target approval and append-only audit contract for one private Website Builder custom-code draft save",
+      "file": "sql/20260904_0078_mink_phase_7c_builder_draft_save.sql",
+      "checksum": "1b64de0fe91b7a5b488176d15766e518e0b7b6be83a234f9630613cb18df972c",
+      "transaction": true,
+      "requires": ["20260904_0077_mink_phase_7b_storefront_code_preview"],
+      "verify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "mink_drafts",
+          "store_pages",
+          "help_articles"
+        ],
+        "constraints": [
+          "mink_action_tool_access_name_check",
+          "mink_action_approvals_tool_check",
+          "mink_action_approvals_resource_type_check",
+          "mink_action_approvals_draft_version_check",
+          "mink_action_audit_tool_check",
+          "mink_action_audit_resource_type_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7B proposal guidance is ready for the Phase 7C upgrade",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Phase 7B remains preview-only.%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "applyVerify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "mink_drafts",
+          "store_pages",
+          "help_articles"
+        ],
+        "constraints": [
+          "mink_action_tool_access_name_check",
+          "mink_action_approvals_tool_check",
+          "mink_action_approvals_resource_type_check",
+          "mink_action_approvals_draft_version_check",
+          "mink_action_approvals_storefront_code_target_check",
+          "mink_action_audit_tool_check",
+          "mink_action_audit_resource_type_check",
+          "mink_action_audit_storefront_code_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7C action allowlists and version-zero proposal exception are installed",
+            "sql": "select count(*)::text from pg_constraint where conrelid in ('public.mink_action_tool_access'::regclass, 'public.mink_action_approvals'::regclass, 'public.mink_action_audit'::regclass) and conname in ('mink_action_tool_access_name_check', 'mink_action_approvals_tool_check', 'mink_action_audit_tool_check') and pg_get_constraintdef(oid) like '%apply_storefront_code%'",
+            "equals": "3"
+          },
+          {
+            "name": "Mink Phase 7C exact storefront target constraints are installed",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_approvals_storefront_code_target_check', 'mink_action_audit_storefront_code_target_check') and pg_get_constraintdef(oid) like '%storefront_section%' and pg_get_constraintdef(oid) like '%section_digest%' and pg_get_constraintdef(oid) like '%result_id%'",
+            "equals": "2"
+          },
+          {
+            "name": "Mink Phase 7C approvals accept only immutable version-zero storefront proposals",
+            "sql": "select count(*)::text from pg_constraint where conname = 'mink_action_approvals_storefront_code_target_check' and conrelid = 'public.mink_action_approvals'::regclass and pg_get_constraintdef(oid) like '%draft_version = 0%'",
+            "equals": "1"
+          },
+          {
+            "name": "Mink Phase 7C partial action indexes are installed",
+            "sql": "select count(*)::text from pg_indexes where schemaname = 'public' and indexname in ('mink_action_approvals_storefront_code_idx', 'mink_action_audit_storefront_code_idx') and indexdef like '%apply_storefront_code%'",
+            "equals": "2"
+          },
+          {
+            "name": "Mink Phase 7C guarded Builder draft-save guidance is published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Phase 7C can save to the private Website Builder draft only%' and body like '%Review Builder draft save%' and body like '%Approve and save Builder draft%' and body like '%within five minutes%' and body like '%does not add a section%' and body like '%Publication remains a separate future approval%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "adoptVerify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "mink_drafts",
+          "store_pages",
+          "help_articles"
+        ],
+        "constraints": [
+          "mink_action_approvals_storefront_code_target_check",
+          "mink_action_audit_storefront_code_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7C action contract and guidance already exist",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Phase 7C can save to the private Website Builder draft only%' and body like '%every execution, expiry or conflict writes an audit outcome%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260904_0079_mink_phase_7d_storefront_publication",
+      "description": "Add independently gated checked storefront publication and exact human-approved rollback for Phase 7D",
+      "file": "sql/20260904_0079_mink_phase_7d_storefront_publication.sql",
+      "checksum": "55778c5573b3232c45658fc974712ac0b979a0c578751bc9a2236551ae64dd5e",
+      "transaction": true,
+      "requires": ["20260904_0078_mink_phase_7c_builder_draft_save"],
+      "verify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "mink_drafts",
+          "store_pages",
+          "help_articles"
+        ],
+        "constraints": [
+          "mink_action_tool_access_name_check",
+          "mink_action_approvals_tool_check",
+          "mink_action_approvals_resource_type_check",
+          "mink_action_approvals_draft_version_check",
+          "mink_action_approvals_storefront_code_target_check",
+          "mink_action_audit_tool_check",
+          "mink_action_audit_resource_type_check",
+          "mink_action_audit_storefront_code_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7C guidance is ready for the Phase 7D publication upgrade",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Publication remains a separate future approval.%' and body like '%Approve and save Builder draft%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "applyVerify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "mink_drafts",
+          "store_pages",
+          "help_articles"
+        ],
+        "constraints": [
+          "mink_action_tool_access_name_check",
+          "mink_action_approvals_tool_check",
+          "mink_action_approvals_resource_type_check",
+          "mink_action_approvals_draft_version_check",
+          "mink_action_approvals_storefront_code_target_check",
+          "mink_action_approvals_storefront_publish_target_check",
+          "mink_action_audit_tool_check",
+          "mink_action_audit_resource_type_check",
+          "mink_action_audit_storefront_code_target_check",
+          "mink_action_audit_storefront_publish_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7D action allowlists and source-linked snapshots are installed",
+            "sql": "select count(*)::text from pg_constraint where conrelid in ('public.mink_action_tool_access'::regclass, 'public.mink_action_approvals'::regclass, 'public.mink_action_audit'::regclass) and conname in ('mink_action_tool_access_name_check', 'mink_action_approvals_tool_check', 'mink_action_audit_tool_check') and pg_get_constraintdef(oid) like '%publish_storefront_code%'",
+            "equals": "3"
+          },
+          {
+            "name": "Mink Phase 7D exact publication target constraints are installed",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_approvals_storefront_publish_target_check', 'mink_action_audit_storefront_publish_target_check') and pg_get_constraintdef(oid) like '%storefront_page%' and pg_get_constraintdef(oid) like '%sections_digest%' and pg_get_constraintdef(oid) like '%result_id%'",
+            "equals": "2"
+          },
+          {
+            "name": "Mink Phase 7D approvals require source approval and browser evidence",
+            "sql": "select count(*)::text from pg_constraint where conname = 'mink_action_approvals_storefront_publish_target_check' and conrelid = 'public.mink_action_approvals'::regclass and pg_get_constraintdef(oid) like '%source_approval_id IS NOT NULL%' and pg_get_constraintdef(oid) like '%browser_validation%'",
+            "equals": "1"
+          },
+          {
+            "name": "Mink Phase 7D partial publication indexes are installed",
+            "sql": "select count(*)::text from pg_indexes where schemaname = 'public' and indexname in ('mink_action_approvals_storefront_publish_idx', 'mink_action_audit_storefront_publish_idx') and indexdef like '%publish_storefront_code%'",
+            "equals": "2"
+          },
+          {
+            "name": "Mink Phase 7D checked publication and exact rollback guidance is published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Run publication checks%' and body like '%1,280 px desktop and 390 px mobile%' and body like '%Approve and publish storefront%' and body like '%Review exact rollback%' and body like '%never grant Gemini an execution tool%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "adoptVerify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "mink_drafts",
+          "store_pages",
+          "help_articles"
+        ],
+        "constraints": [
+          "mink_action_approvals_storefront_publish_target_check",
+          "mink_action_audit_storefront_publish_target_check"
+        ],
+        "functions": [],
+        "queries": [
+          {
+            "name": "Mink Phase 7D publication contract and guidance already exist",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%Checked storefront publication and rollback%' and body like '%execution, conflict and expiry outcomes are append-only audited%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260905_0080_mink_builder_chat_help",
+      "description": "Document visible Builder chat, natural merchant prompts and unchanged approval boundaries",
+      "file": "sql/20260905_0080_mink_builder_chat_help.sql",
+      "transaction": true,
+      "requires": ["20260904_0079_mink_phase_7d_storefront_publication"],
+      "verify": {
+        "tables": ["help_articles"],
+        "queries": [
+          {
+            "name": "Mink Builder panel and natural-language Help guidance is published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Use Mink while editing your website</h2>%' and body like '%including on wide desktop screens%' and body like '%not unsaved changes in your editor%' and body like '%Opening the chat grants no additional access.%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "adoptVerify": {
+        "tables": ["help_articles"],
+        "queries": [
+          {
+            "name": "Mink Builder panel and natural-language Help guidance is published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Use Mink while editing your website</h2>%' and body like '%including on wide desktop screens%' and body like '%not unsaved changes in your editor%' and body like '%Opening the chat grants no additional access.%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260905_0081_mink_phase_8a_business_briefs",
+      "description": "Add private on-demand business briefs with scoped evidence and fixed attention rules",
+      "file": "sql/20260905_0081_mink_phase_8a_business_briefs.sql",
+      "transaction": true,
+      "requires": ["20260905_0080_mink_builder_chat_help"],
+      "verify": {
+        "tables": ["mink_workflow_runs", "help_articles", "order_returns"],
+        "queries": [
+          {
+            "name": "Business brief workflow template enabled",
+            "sql": "select count(*)::text from pg_constraint where conrelid = 'public.mink_workflow_runs'::regclass and conname = 'mink_workflow_runs_template_check' and pg_get_constraintdef(oid) like '%business_brief%'",
+            "equals": "1"
+          },
+          {
+            "name": "Business brief scope and signal guidance published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Get a daily or weekly business brief</h2>%' and body like '%not a gateway-attempt failure rate%' and body like '%Recurring watches are a later phase.%'",
+            "equals": "1"
+          },
+          {
+            "name": "Business brief historical return index installed",
+            "sql": "select count(*)::text from pg_indexes where schemaname = 'public' and tablename = 'order_returns' and indexname = 'mink_brief_returns_store_created_idx' and indexdef like '%(store_id, created_at)%'",
+            "equals": "1"
+          }
+        ]
+      },
+      "adoptVerify": {
+        "tables": ["mink_workflow_runs", "help_articles", "order_returns"],
+        "queries": [
+          {
+            "name": "Business brief workflow template enabled",
+            "sql": "select count(*)::text from pg_constraint where conrelid = 'public.mink_workflow_runs'::regclass and conname = 'mink_workflow_runs_template_check' and pg_get_constraintdef(oid) like '%business_brief%'",
+            "equals": "1"
+          },
+          {
+            "name": "Business brief scope and signal guidance published",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Get a daily or weekly business brief</h2>%' and body like '%not a gateway-attempt failure rate%' and body like '%Recurring watches are a later phase.%'",
+            "equals": "1"
+          },
+          {
+            "name": "Business brief historical return index installed",
+            "sql": "select count(*)::text from pg_indexes where schemaname = 'public' and tablename = 'order_returns' and indexname = 'mink_brief_returns_store_created_idx' and indexdef like '%(store_id, created_at)%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

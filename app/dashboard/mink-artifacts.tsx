@@ -6,9 +6,11 @@ import {
   CircleHelp,
   MapPin,
   PackageSearch,
+  PanelsTopLeft,
 } from "lucide-react";
 import type { MinkArtifact } from "@/lib/mink/types";
 import { MinkProposalCard } from "./mink-proposal-card";
+import { MinkStorefrontCodeProposalCard } from "./mink-storefront-code-proposal-card";
 import { MinkWorkflowCard } from "./mink-workflow-card";
 
 export function MinkArtifacts({
@@ -63,6 +65,14 @@ export function MinkArtifacts({
         if (artifact.type === "proposal") {
           return (
             <MinkProposalCard
+              key={`${artifact.type}-${artifact.draftId}`}
+              proposal={artifact}
+            />
+          );
+        }
+        if (artifact.type === "storefront_code_proposal") {
+          return (
+            <MinkStorefrontCodeProposalCard
               key={`${artifact.type}-${artifact.draftId}`}
               proposal={artifact}
             />
@@ -448,7 +458,13 @@ function RecordArtifact({
     <section className="overflow-hidden rounded-xl border border-[#e4e0ef] bg-white shadow-sm">
       <ArtifactHeader
         title={artifact.title}
-        icon={<Boxes className="h-3.5 w-3.5" />}
+        icon={
+          artifact.recordType === "storefront" ? (
+            <PanelsTopLeft className="h-3.5 w-3.5" />
+          ) : (
+            <Boxes className="h-3.5 w-3.5" />
+          )
+        }
         href={artifact.dashboardPath}
       />
       <div className="p-3">
@@ -500,8 +516,9 @@ function RecordArtifact({
         </div>
         {artifact.truncated ? (
           <div className="mt-2 text-[10px] text-[#7b7f86]">
-            Showing the lowest-stock matches. Open the dashboard for the full
-            list.
+            {artifact.recordType === "inventory"
+              ? "Showing the lowest-stock matches. Open the dashboard for the full list."
+              : "Showing a bounded result set. Open the dashboard for the full list."}
           </div>
         ) : null}
         <DataAsOf value={artifact.dataAsOf} />

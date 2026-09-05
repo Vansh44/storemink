@@ -4,6 +4,7 @@ import { Inter } from "next/font/google";
 import { HELP_URL } from "@/lib/site";
 import { platformOrganizationSchema } from "@/lib/seo/brand-identity";
 import { SEARCH_INDEXABLE } from "@/lib/store/host";
+import { BrandMark } from "../platform/brand-mark";
 import { HelpAssistant } from "./components/help-assistant";
 import { HelpSearchBox } from "./components/search-box";
 import "./help.css";
@@ -61,9 +62,19 @@ export default function HelpLayout({
         dangerouslySetInnerHTML={{ __html: JSON.stringify(HELP_GRAPH) }}
       />
       <header className="hc-topbar">
-        <div className="hc-wrap hc-topbar-inner">
-          <Link href="/help" className="hc-logo">
-            Store<span>Mink</span> Help
+        <div className="hc-topbar-inner">
+          {/* One brand lockup across all three public hosts: the real mark,
+              the wordmark with Mink in the brand purple, then the section
+              label. storemink.com is bare, pos.storemink.com reads
+              "StoreMink | POS", and this reads "StoreMink | HELP". The Help
+              header had no mark at all and a lighter purple of its own, so it
+              looked like a different product. */}
+          <Link href="/help" className="hc-logo" aria-label="StoreMink Help">
+            <BrandMark size={29} priority />
+            <span aria-hidden="true">
+              Store<em>Mink</em>
+            </span>
+            <i aria-hidden="true">Help Centre</i>
           </Link>
           <HelpSearchBox compact />
           <div className="hc-topbar-actions">

@@ -4,7 +4,9 @@
   --themes-paper: #f4f3ed;
   --themes-surface: #ffffff;
   --themes-line: #dcdcd3;
-  --themes-accent: #5c45f4;
+  /* One brand purple across all four public hosts (--smh-purple,
+     --posx-purple, --hc-purple). */
+  --themes-accent: #573cf0;
   --themes-accent-soft: #e7e2ff;
   --themes-lime: #dfff7c;
   min-height: 100dvh;
@@ -61,40 +63,71 @@
   border-bottom: 1px solid rgb(255 255 255 / 45%);
 }
 
+/* ★ ONE PAGE MEASURE, shared with .smh-nav, .posx-nav and .hc-topbar-inner.
+   This host was 1500px/56px, so its header edge never lined up with the other
+   three at any width — 4px off below 1368px and 36px off at 1440px, because
+   the CAP differed too. The hero and footer share the declaration so the page
+   narrows as one piece rather than the nav drifting away from the content. */
 .themes-nav,
 .themes-footer {
-  width: min(100% - 56px, 1500px);
+  width: min(1320px, calc(100% - 48px));
   margin-inline: auto;
 }
 
-.themes-nav {
-  position: relative;
+/* Matches .smh-header / .posx-nav-shell / .hc-topbar: a full-bleed sticky
+   bar that the inset row lives inside. The translucency is paper-tinted
+   rather than white because this host's page ground is --themes-paper; the
+   behaviour is identical, the colour belongs to the host. */
+.themes-nav-shell {
+  position: sticky;
+  top: 0;
   z-index: 10;
+  border-bottom: 1px solid var(--themes-line);
+  background: rgb(244 243 237 / 90%);
+  -webkit-backdrop-filter: blur(18px);
+  backdrop-filter: blur(18px);
+}
+
+.themes-nav {
   display: flex;
-  min-height: 84px;
+  /* Same row height as the other three public hosts. */
+  min-height: 72px;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--themes-line);
 }
 
 .themes-wordmark {
   display: inline-flex;
   align-items: center;
   gap: 9px;
-  font-size: 1rem;
-  font-weight: 850;
-  letter-spacing: -0.045em;
+  min-width: 0;
+  max-width: 100%;
 }
 
+.themes-wordmark > span {
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+}
+
+/* ★ "Mink" was the only wordmark on the four public hosts that carried NO
+   brand colour at all, so this header read as a different product. */
 .themes-wordmark em {
-  padding: 5px 8px;
-  border: 1px solid var(--themes-line);
-  border-radius: 999px;
-  color: var(--themes-muted);
-  font-size: 0.62rem;
+  color: var(--themes-accent);
+  font-style: normal;
+}
+
+/* The section label, same treatment as "POS" and "HELP CENTRE". It replaces
+   an outlined grey pill that matched nothing else in the estate. */
+.themes-wordmark i {
+  border-left: 1px solid var(--themes-line);
+  padding-left: 10px;
+  color: var(--themes-accent);
+  font-size: 13px;
   font-style: normal;
   font-weight: 800;
-  letter-spacing: 0.13em;
+  letter-spacing: 0.08em;
   text-transform: uppercase;
 }
 
@@ -140,7 +173,7 @@
 
 .themes-hero {
   display: grid;
-  width: min(100% - 56px, 1500px);
+  width: min(1320px, calc(100% - 48px));
   min-height: min(850px, calc(100dvh - 122px));
   margin-inline: auto;
   grid-template-columns: minmax(0, 0.92fr) minmax(520px, 1.08fr);
@@ -1216,15 +1249,21 @@
   .themes-nav,
   .themes-footer,
   .themes-hero {
-    width: min(100% - 32px, 1500px);
+    /* Matches the other hosts' narrow inset. */
+    width: calc(100% - 30px);
   }
 
   .themes-nav {
-    min-height: 72px;
+    min-height: 64px;
   }
 
-  .themes-wordmark em {
+  /* Phones keep the mark and wordmark only, like the other hosts. Targets the
+     section label `i` — NOT `em`, which is now "Mink" inside the wordmark. */
+  .themes-wordmark i {
     display: none;
+  }
+  .themes-wordmark > span {
+    font-size: 18px;
   }
 
   .themes-nav .themes-nav-cta {

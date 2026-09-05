@@ -8,6 +8,7 @@ const MINK_ARTIFACT_TYPES = new Set<MinkArtifact["type"]>([
   "records",
   "sources",
   "proposal",
+  "storefront_code_proposal",
   "workflow",
 ]);
 
@@ -76,6 +77,9 @@ export function readMinkArtifacts(value: unknown): MinkArtifact[] {
           Number(workflow.currentStep) <= Number(workflow.totalSteps)
         );
       }
+      if (type === "storefront_code_proposal") {
+        return isStorefrontCodeProposal(artifact as Record<string, unknown>);
+      }
       if (type !== "catalog") return true;
       const catalog = artifact as Record<string, unknown>;
       return (
@@ -90,4 +94,78 @@ export function readMinkArtifacts(value: unknown): MinkArtifact[] {
       );
     })
     .slice(0, 6);
+}
+
+function isStorefrontCodeProposal(value: Record<string, unknown>): boolean {
+  const target = value.target;
+  const changedFields = value.changedFields;
+  const checks = value.validationChecks;
+  return (
+    isUuid(value.draftId) &&
+    isBoundedText(value.title, 120) &&
+    isBoundedText(value.destinationLabel, 180) &&
+    isSafeBuilderPath(value.destinationPath) &&
+    isBoundedText(value.explanation, 1_000) &&
+    isRecord(target) &&
+    isBoundedText(target.pageSlug, 60) &&
+    isBoundedText(target.sectionId, 128) &&
+    isBoundedText(target.expectedPageVersion, 40) &&
+    typeof target.expectedPageVersion === "string" &&
+    !Number.isNaN(Date.parse(target.expectedPageVersion)) &&
+    typeof target.expectedSectionDigest === "string" &&
+    /^[a-f0-9]{64}$/.test(target.expectedSectionDigest) &&
+    typeof value.patchDigest === "string" &&
+    /^[a-f0-9]{64}$/.test(value.patchDigest) &&
+    Array.isArray(changedFields) &&
+    changedFields.length >= 1 &&
+    changedFields.length <= 4 &&
+    changedFields.every((field) =>
+      ["html", "css", "js", "height"].includes(String(field)),
+    ) &&
+    Number.isInteger(value.beforeCharacters) &&
+    Number(value.beforeCharacters) >= 0 &&
+    Number(value.beforeCharacters) <= 3 * 64 * 1_024 &&
+    Number.isInteger(value.afterCharacters) &&
+    Number(value.afterCharacters) >= 0 &&
+    Number(value.afterCharacters) <= 3 * 64 * 1_024 &&
+    Array.isArray(checks) &&
+    checks.length >= 1 &&
+    checks.length <= 10 &&
+    checks.every((check) => isBoundedText(check, 200)) &&
+    value.status === "private_preview" &&
+    isCreditCount(value.expectedCredits) &&
+    isCreditCount(value.chargedCredits) &&
+    ["plan", "credit", "mixed", "plan_unlimited"].includes(
+      String(value.creditSource),
+    )
+  );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function isBoundedText(value: unknown, max: number): value is string {
+  return typeof value === "string" && value.length >= 1 && value.length <= max;
+}
+
+function isSafeBuilderPath(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 400 &&
+    (value === "/dashboard/builder" || value.startsWith("/dashboard/builder?"))
+  );
+}
+
+function isUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    )
+  );
+}
+
+function isCreditCount(value: unknown): boolean {
+  return Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 20;
 }

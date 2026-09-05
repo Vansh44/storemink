@@ -114,4 +114,39 @@ describe("readMinkArtifacts", () => {
       ]),
     ).toEqual([]);
   });
+
+  it("accepts only a small, integrity-bound storefront preview artifact", () => {
+    const valid = {
+      type: "storefront_code_proposal",
+      draftId: "11111111-1111-4111-8111-111111111111",
+      title: "Storefront code for Home",
+      destinationLabel: "Home · custom code",
+      destinationPath: "/dashboard/builder?page=home&section=hero-code",
+      explanation: "A responsive, private hero preview.",
+      target: {
+        pageSlug: "home",
+        sectionId: "hero-code",
+        expectedPageVersion: "2026-09-04T10:20:30.123456+00:00",
+        expectedSectionDigest: "a".repeat(64),
+      },
+      patchDigest: "b".repeat(64),
+      changedFields: ["html", "css"],
+      beforeCharacters: 120,
+      afterCharacters: 180,
+      validationChecks: ["Exact target matched", "No write authority granted"],
+      status: "private_preview",
+      expectedCredits: 5,
+      chargedCredits: 5,
+      creditSource: "plan",
+    };
+    expect(readMinkArtifacts([valid])).toEqual([valid]);
+    expect(
+      readMinkArtifacts([
+        { ...valid, destinationPath: "https://attacker.example" },
+        { ...valid, patchDigest: "not-a-digest" },
+        { ...valid, changedFields: ["database"] },
+        { ...valid, creditSource: "attacker" },
+      ]),
+    ).toEqual([]);
+  });
 });

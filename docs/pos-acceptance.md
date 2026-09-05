@@ -3973,6 +3973,35 @@ delivery cost in ways one approval screen cannot show honestly.
 
 ---
 
+## 11m. Mink Phase 8A business brief inventory and order evidence
+
+**PS-MINK-8A.1 — Local shortages remain visible.** In Echos, set a tracked
+SKU to zero or negative at Shop and positive at Delhi, then ask for a business
+brief. Expect separate Shop/Delhi low/out counts matching each Inventory view;
+untracked SKUs do not become out-of-stock alerts. Counts are SKU-location
+counts, never claimed to be unique products.
+
+**PS-MINK-8A.2 — Scope and historical time stay explicit.** A daily brief uses
+yesterday in the store timezone, a weekly brief the last 7 completed local
+days. Both compare preceding calendar days. A Shop-only request/admin does
+not include Delhi or unassigned orders. Inventory is explicitly current when
+collected, not yesterday's inventory. Original order location scopes return
+records even when goods were received at another location (BORIS).
+
+**PS-MINK-8A.3 — Sparse data and failures are not healthy zeroes.** With fewer
+than 5 preceding recognized orders or return records, the respective trend is
+insufficient. Failed-payment counts refer to current order status among orders
+created in the window, not gateway attempts. An isolated test-source outage
+retries/fails the run; no completed all-clear is rendered. No stock, return,
+payment, refund or POS lifecycle state changes during the brief.
+
+**PS-MINK-8A.4 — Durable authority.** Remove Orders View or narrow a captured
+two-location scope between worker steps. Expect cancellation; a broader
+checkpoint must not be finalised. A user whose scope has narrowed also cannot
+reopen the old broad result. Completion is private to the requesting admin.
+Cancel, refresh, worker restart and retries do not create duplicate runs or
+notifications. Use ECH-P8A-01–24 in the living prompt suite for merchant checks.
+
 ## 12. Known gaps
 
 Real and deliberate, so nobody files them as bugs:

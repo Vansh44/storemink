@@ -149,6 +149,44 @@ describe("the registry and the content agree", () => {
     }
   });
 
+  // ★ A PLACEHOLDER THAT REACHES PRODUCTION IS A POLICY THAT SAYS NOTHING at
+  // the exact moment someone relies on it — and these bodies are published
+  // verbatim into an immutable table, so it cannot be edited out afterwards,
+  // only superseded. Two clauses are deliberately unfinished (the contracting
+  // entity and the governing-law seat); they keep real v1 wording rather than
+  // a bracket for exactly this reason.
+  it("no policy body contains an unfilled placeholder", () => {
+    for (const content of LEGAL_CONTENT) {
+      for (const pattern of [
+        /\[[^\]]*\]/, // [ENTITY NAME]
+        /\bTODO\b/i,
+        /\bTBD\b/i,
+        /\bXXX\b/,
+        /\bFIXME\b/i,
+        /\{\{/, // an unrendered template token
+      ]) {
+        expect(
+          pattern.test(content.body),
+          `"${content.kind}" body matches ${pattern}`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  // The version a reader SEES has to be the version they accepted. v1 carried
+  // it as hand-written text in the body beside the number in this metadata, so
+  // bumping one without the other would show the wrong version on a document
+  // whose whole purpose is being pinned to a version.
+  it("the version shown in each body matches the version published", () => {
+    for (const content of LEGAL_CONTENT) {
+      const shown = /Version\s+(\d+)/.exec(content.body);
+      expect(shown, `"${content.kind}" body states no version`).not.toBeNull();
+      expect(Number(shown![1]), `"${content.kind}" version mismatch`).toBe(
+        content.version,
+      );
+    }
+  });
+
   it("at least one document is required at signup", () => {
     // A signup checkbox that names nothing is not consent to anything.
     expect(signupRequiredDocs().length).toBeGreaterThan(0);

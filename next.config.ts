@@ -1,4 +1,6 @@
 import type { NextConfig } from "next";
+import { totalmem } from "node:os";
+import { PHASE_DEVELOPMENT_SERVER } from "next/constants";
 
 const nextConfig: NextConfig = {
   // Self-contained server bundle (.next/standalone) for the Cloud Run container
@@ -240,4 +242,32 @@ const nextConfig: NextConfig = {
   },
 };
 
-export default nextConfig;
+export default function configForPhase(phase: string): NextConfig {
+  if (phase !== PHASE_DEVELOPMENT_SERVER) return nextConfig;
+
+  const lowMemory = totalmem() <= 12 * 1024 ** 3;
+  const parallelism = Number(
+    process.env.DEV_WEBPACK_PARALLELISM ?? (lowMemory ? 8 : 32),
+  );
+  if (!Number.isSafeInteger(parallelism) || parallelism < 1) {
+    throw new Error("DEV_WEBPACK_PARALLELISM must be a positive integer.");
+  }
+
+  return {
+    ...nextConfig,
+    // Explicit Turbopack remains available; the callback below is Webpack-only.
+    turbopack: {},
+    ...(lowMemory
+      ? { onDemandEntries: { maxInactiveAge: 25_000, pagesBufferLength: 2 } }
+      : {}),
+    webpack(config) {
+      // Webpack defaults to 100 concurrent modules PER compiler. Next runs
+      // client/server compilers: trade some cold-build throughput for headroom.
+      config.parallelism = parallelism;
+      // Avoid per-module path comments and their GC cost. Keep Next's source
+      // maps, loaders, chunking and filesystem/MemoryWithGc caches intact.
+      config.output = { ...config.output, pathinfo: false };
+      return config;
+    },
+  };
+}

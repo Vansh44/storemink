@@ -18,6 +18,12 @@ describe("Mink system prompt document", () => {
     );
     expect(template).toContain("{{available_tool_names}}");
     expect(template).toContain("{{brand_voice_or_default}}");
+    expect(template).toContain("Use start_business_brief");
+    expect(template).toContain("daily covers yesterday");
+    expect(template).toContain("Never invent a workflow-result lookup tool");
+    expect(template).toContain(
+      "Missing brief permissions must not be bypassed",
+    );
     expect(template).toContain(
       "one exact visible SKU, one exact accessible active location",
     );
@@ -71,6 +77,28 @@ describe("Mink system prompt document", () => {
       "not customer names, email, phone, address, notes or collection codes",
     );
     expect(template).toContain("preserve the duplicate-withheld result");
+    expect(template).toContain(
+      "Phases 7B–7D retain the read-only builder-context rules",
+    );
+    expect(template).toContain("use page_slug=home for the homepage");
+    expect(template).toContain(
+      "custom code, brand voice, header/footer values",
+    );
+    expect(template).toContain(
+      "preserve the returned page version and section digest exactly",
+    );
+    expect(template).toContain(
+      "opaque-origin iframe with a deny-by-default network policy",
+    );
+    expect(template).toContain("Phases 7C–7D expose no model execution tool");
+    expect(template).toContain("1,280 px desktop and 390 px mobile");
+    expect(template).toContain("requires another five-minute human approval");
+    expect(template).toContain(
+      "only the signed-in human can request and approve the exact Builder draft save",
+    );
+    expect(template).toContain(
+      "Never claim that you clicked a button, saved the Builder draft, ran browser checks, published or rolled back the storefront",
+    );
   });
 
   it("renders only trusted actor fields and permission-filtered tool names", () => {

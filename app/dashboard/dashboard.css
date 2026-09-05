@@ -187,6 +187,23 @@
   }
 }
 
+/* Builder is a fixed canvas inside .dash-content, so an in-flow chat column
+   cannot move it aside. Float the existing shared panel above that canvas at
+   desktop widths too. Keep dialog layers above the panel and leave Builder
+   mounted so opening/closing Mink does not discard unsaved editor state. */
+@media (min-width: 640px) {
+  .dashboard-shell:has(.sm-builder) .dash-chat {
+    position: fixed;
+    top: 56px;
+    right: 0;
+    bottom: 0;
+    height: auto;
+    margin: 0;
+    z-index: 45;
+    box-shadow: var(--dash-shadow-lg);
+  }
+}
+
 /* On phones the drawer and expanded variants deliberately share one full-
    screen shape. Leaving an 8vw strip exposed made the dashboard a second
    touch target and let its scroll move behind the conversation. */

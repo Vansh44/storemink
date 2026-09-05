@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { MinkBusinessBrief } from "./mink-business-brief";
+import type { BusinessBriefResult } from "@/lib/mink/business-brief-types";
 import {
   AlertTriangle,
   ArrowUpRight,
@@ -225,6 +227,8 @@ function WorkflowResult({
   template: MinkWorkflowTemplate;
   result: MinkWorkflowResult;
 }) {
+  if (template === "business_brief")
+    return <MinkBusinessBrief result={result as BusinessBriefResult} />;
   if (template === "revenue_decline_investigation") {
     return (
       <RevenueInvestigation

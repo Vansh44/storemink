@@ -24,6 +24,7 @@ import type {
   MinkRunResult,
   MinkToolCall,
 } from "./types";
+import type { MinkThinkingLevel } from "./thinking";
 
 const DISPLAY_MESSAGES = 50;
 export const MINK_CONVERSATION_LIMIT = 10;
@@ -221,6 +222,7 @@ export async function startMinkRun(input: {
   conversationId?: string;
   message: string;
   model: string;
+  thinkingLevel?: MinkThinkingLevel;
 }): Promise<MinkStartedRun> {
   const { actor, message, model } = input;
   const now = new Date().toISOString();
@@ -349,12 +351,13 @@ export async function startMinkRun(input: {
         requestedBy: actor.adminId,
         requestId: actor.requestId,
         model,
+        thinkingLevel: input.thinkingLevel ?? "low",
         promptVersion: actor.draftingEnabled
-          ? "draft-action-beta-v14"
-          : "read-beta-v6",
+          ? "draft-action-beta-v19"
+          : "read-beta-v8",
         toolRegistryVersion: actor.draftingEnabled
-          ? "draft-beta-v11"
-          : "read-beta-v6",
+          ? "draft-beta-v14"
+          : "read-beta-v8",
         riskTier: actor.draftingEnabled ? "R1" : "R0",
         currentPath: actor.currentPath ?? null,
         selectedResourceType: actor.selectedResource?.type ?? null,

@@ -17,6 +17,7 @@ import { rateLimit } from "@/lib/rate-limit";
 import { rejectForeignMinkOrigin } from "@/lib/mink/request-origin";
 import { normalizeMinkPageContext } from "@/lib/mink/page-context";
 import type { MinkRunProgress } from "@/lib/mink/types";
+import { selectMinkThinkingLevel } from "@/lib/mink/thinking";
 
 export const runtime = "nodejs";
 
@@ -75,11 +76,13 @@ export async function POST(request: Request) {
     }
 
     const declarations = minkReadToolRegistry.declarationsFor(actor);
+    const thinkingLevel = selectMinkThinkingLevel(message, declarations);
     const started = await startMinkRun({
       actor,
       conversationId,
       message,
       model: config.model,
+      thinkingLevel,
     });
     const runActor = { ...actor, runId: started.runId };
     const abortController = new AbortController();
@@ -96,6 +99,7 @@ export async function POST(request: Request) {
       session = createVertexMinkSession(config, runActor, declarations, {
         history: started.history,
         abortSignal: abortController.signal,
+        thinkingLevel,
       });
     } catch (error) {
       await failMinkRun({
@@ -194,6 +198,7 @@ export async function POST(request: Request) {
           });
           send("usage", {
             model: result.model,
+            thinkingLevel,
             steps: result.steps,
             toolCalls: result.toolCalls,
             retryCount: result.retryCount,

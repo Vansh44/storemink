@@ -36,6 +36,7 @@ describe("Mink draft contracts", () => {
       // twice for one piece of work. It is a separate APPROVAL, not a separate
       // piece of drafting.
       offer_activate: 0,
+      storefront_custom_code: 5,
     });
   });
 
@@ -212,5 +213,97 @@ describe("Mink draft contracts", () => {
       kind: "order_status_transition",
       expectedCredits: 1,
     });
+    expect(
+      estimateMinkDraftIntent(
+        "Redesign the Echos homepage hero and generate custom code",
+      ),
+    ).toMatchObject({
+      kind: "storefront_custom_code",
+      expectedCredits: 5,
+    });
+  });
+
+  // ★ The storefront branch runs FIRST in the cascade, so an over-broad match
+  // there shadows every more specific branch and quotes the wrong credit count
+  // for it. A generic verb beside "website"/"homepage" is not a code request.
+  it("does not let the storefront branch shadow more specific draft intents", () => {
+    expect(
+      estimateMinkDraftIntent("Create a new product for my website"),
+    ).toMatchObject({ kind: "product_create", expectedCredits: 3 });
+    expect(
+      estimateMinkDraftIntent("Write a blog post for the homepage"),
+    ).toMatchObject({ kind: "blog", expectedCredits: 5 });
+    expect(
+      estimateMinkDraftIntent("Create a coupon code for the website"),
+    ).toMatchObject({ kind: "coupon_create", expectedCredits: 1 });
+    // An explicit code or design signal still reaches the storefront branch.
+    expect(
+      estimateMinkDraftIntent("Update the CSS on my storefront hero"),
+    ).toMatchObject({ kind: "storefront_custom_code", expectedCredits: 5 });
+  });
+
+  it("preserves generated code byte-for-byte while normalizing proposal metadata", () => {
+    const content = normalizeMinkDraftContent("storefront_custom_code", {
+      page_slug: " home ",
+      section_id: " section-1 ",
+      expected_page_version: " 2026-09-04T10:20:30.123456+00:00 ",
+      expected_section_digest: ` ${"a".repeat(64)} `,
+      patch_digest: ` ${"b".repeat(64)} `,
+      html: "  <section>Keep whitespace</section>\n",
+      css: "\n.hero { color: red; }\n",
+      js: "  const label = 'é';\n",
+      height_mode: " auto ",
+      fixed_height: " 480 ",
+      explanation: "  A private preview.  ",
+    });
+    expect(content).toMatchObject({
+      page_slug: "home",
+      section_id: "section-1",
+      html: "  <section>Keep whitespace</section>\n",
+      css: "\n.hero { color: red; }\n",
+      js: "  const label = 'é';\n",
+      height_mode: "auto",
+      fixed_height: "480",
+      explanation: "A private preview.",
+    });
+  });
+
+  // ★★ THE 96 KiB COMBINED CAP GOVERNS GENERATED OUTPUT, NOT THE `before`
+  // SNAPSHOT. `custom_code` legally holds 64 KiB in EACH of html/css/js, so an
+  // existing section can exceed 96 KiB combined and still be a valid saved
+  // section. Enforcing the AI-patch limit against that copy rejected the whole
+  // proposal — after 5 credits had been charged — with an error that blamed the
+  // proposal's own code.
+  it("holds a historical before snapshot to its shape, not the patch size cap", () => {
+    const oversized = {
+      page_slug: "home",
+      section_id: "section-1",
+      expected_page_version: "2026-09-04 10:20:30.123456+00",
+      expected_section_digest: "a".repeat(64),
+      patch_digest: "b".repeat(64),
+      html: "x".repeat(60 * 1024),
+      css: "y".repeat(50 * 1024),
+      js: "",
+      height_mode: "auto",
+      fixed_height: "400",
+      explanation: "Current Website Builder code before this proposal.",
+    };
+    expect(
+      normalizeMinkDraftContent("storefront_custom_code", oversized, {
+        historicalSnapshot: true,
+      }).html.length,
+    ).toBe(60 * 1024);
+    // Newly generated content is still capped.
+    expect(() =>
+      normalizeMinkDraftContent("storefront_custom_code", oversized),
+    ).toThrow("Combined storefront code must be at most 96 KiB.");
+    // A snapshot is still held to its shape.
+    expect(() =>
+      normalizeMinkDraftContent(
+        "storefront_custom_code",
+        { ...oversized, height_mode: "tall" },
+        { historicalSnapshot: true },
+      ),
+    ).toThrow("Height mode must be auto or fixed.");
   });
 });

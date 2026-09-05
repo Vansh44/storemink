@@ -35,6 +35,11 @@ export const MINK_MARKETING_ACTION_TOOLS = ["send_campaign"] as const;
 
 export const MINK_PRICING_ACTION_TOOLS = ["bulk_update_prices"] as const;
 
+export const MINK_STOREFRONT_ACTION_TOOLS = [
+  "apply_storefront_code",
+  "publish_storefront_code",
+] as const;
+
 export const MINK_ACTION_TOOLS = [
   ...MINK_PRODUCT_ACTION_TOOLS,
   ...MINK_DOMAIN_ACTION_TOOLS,
@@ -43,6 +48,7 @@ export const MINK_ACTION_TOOLS = [
   ...MINK_CONTENT_ACTION_TOOLS,
   ...MINK_MARKETING_ACTION_TOOLS,
   ...MINK_PRICING_ACTION_TOOLS,
+  ...MINK_STOREFRONT_ACTION_TOOLS,
 ] as const;
 
 export type MinkProductActionTool = (typeof MINK_PRODUCT_ACTION_TOOLS)[number];
@@ -54,6 +60,8 @@ export type MinkContentActionTool = (typeof MINK_CONTENT_ACTION_TOOLS)[number];
 export type MinkMarketingActionTool =
   (typeof MINK_MARKETING_ACTION_TOOLS)[number];
 export type MinkPricingActionTool = (typeof MINK_PRICING_ACTION_TOOLS)[number];
+export type MinkStorefrontActionTool =
+  (typeof MINK_STOREFRONT_ACTION_TOOLS)[number];
 export type MinkActionTool = (typeof MINK_ACTION_TOOLS)[number];
 export type MinkProductActionOperation = "apply" | "rollback";
 export type MinkProductActionStatus =
@@ -124,6 +132,8 @@ export const MINK_ACTION_TOOL_LABELS: Record<MinkActionTool, string> = {
   create_offer: "Disabled offer creation",
   update_offer: "Disabled offer updates",
   activate_offer: "Turning an offer on",
+  apply_storefront_code: "Website Builder draft code saves",
+  publish_storefront_code: "Checked storefront publication and rollback",
 };
 
 export function actionToolForDraftKind(

@@ -138,25 +138,32 @@ export default async function ThemesPage({
         </a>
       </aside>
 
-      <header className="themes-nav">
-        <Link
-          href={THEMES_URL}
-          className="themes-wordmark"
-          aria-label="StoreMink Themes home"
-        >
-          <BrandMark size={30} priority />
-          <span>StoreMink</span>
-          <em>Themes</em>
-        </Link>
-        <nav aria-label="Theme catalog navigation">
-          <a href="#catalog">Browse themes</a>
-          <a href="#standard">Why StoreMink</a>
-          <a href="https://help.storemink.com">Help</a>
-          <Link href={`${PLATFORM_URL}/signup`} className="themes-nav-cta">
-            Start your store <ArrowUpRight size={15} aria-hidden />
+      {/* Full-bleed shell so the inset row can stick without the page
+          scrolling past either side of it — the same wrapper
+          .smh-header / .posx-nav-shell / .hc-topbar provide. */}
+      <div className="themes-nav-shell">
+        <header className="themes-nav">
+          <Link
+            href={THEMES_URL}
+            className="themes-wordmark"
+            aria-label="StoreMink Themes home"
+          >
+            <BrandMark size={29} priority />
+            <span aria-hidden="true">
+              Store<em>Mink</em>
+            </span>
+            <i aria-hidden="true">Themes</i>
           </Link>
-        </nav>
-      </header>
+          <nav aria-label="Theme catalog navigation">
+            <a href="#catalog">Browse themes</a>
+            <a href="#standard">Why StoreMink</a>
+            <a href="https://help.storemink.com">Help</a>
+            <Link href={`${PLATFORM_URL}/signup`} className="themes-nav-cta">
+              Start your store <ArrowUpRight size={15} aria-hidden />
+            </Link>
+          </nav>
+        </header>
+      </div>
 
       <main>
         <section className="themes-hero">
@@ -364,8 +371,10 @@ export default async function ThemesPage({
         <div>
           <div className="themes-wordmark">
             <BrandMark size={26} />
-            <span>StoreMink</span>
-            <em>Themes</em>
+            <span>
+              Store<em>Mink</em>
+            </span>
+            <i>Themes</i>
           </div>
           <p>Professional storefronts. No code required.</p>
         </div>

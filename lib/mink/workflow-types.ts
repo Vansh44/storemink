@@ -1,4 +1,7 @@
+import type { BusinessBriefResult } from "./business-brief-types";
+
 export const MINK_WORKFLOW_TEMPLATES = [
+  "business_brief",
   "weekly_trading_report",
   "revenue_decline_investigation",
   "product_launch_preparation",
@@ -404,6 +407,7 @@ export interface DelayedPickupReviewResult extends Omit<
 }
 
 export type MinkWorkflowResult =
+  | BusinessBriefResult
   | WeeklyTradingReportResult
   | RevenueDeclineInvestigationResult
   | ProductLaunchPreparationResult

@@ -7,9 +7,12 @@ import { Menu, X } from "lucide-react";
 export function HomepageMobileNav({
   posUrl,
   themesUrl,
+  anchorBase = "",
 }: {
   posUrl: string;
   themesUrl: string;
+  /** "" on the homepage, "/" anywhere the sections are on another route. */
+  anchorBase?: string;
 }) {
   const [open, setOpen] = useState(false);
   const close = () => setOpen(false);
@@ -27,7 +30,7 @@ export function HomepageMobileNav({
       </button>
       {open && (
         <div className="smh-mobile-menu-panel" id="smh-mobile-navigation">
-          <a href="#platform" onClick={close}>
+          <a href={`${anchorBase}#platform`} onClick={close}>
             Platform
           </a>
           <Link href={posUrl} onClick={close}>
@@ -36,7 +39,7 @@ export function HomepageMobileNav({
           <a href={themesUrl} onClick={close}>
             Themes
           </a>
-          <a href="#pricing" onClick={close}>
+          <a href={`${anchorBase}#pricing`} onClick={close}>
             Pricing
           </a>
           <a href="https://help.storemink.com" onClick={close}>

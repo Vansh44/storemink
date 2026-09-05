@@ -1,5 +1,14 @@
 import "server-only";
 
+import { collectBusinessBriefSnapshot } from "./business-brief-data";
+import {
+  buildBusinessBriefResult,
+  type BusinessBriefInput,
+  type BusinessBriefPeriod,
+  type BusinessBriefResult,
+  type BusinessBriefSnapshot,
+} from "./business-brief-types";
+
 import { and, asc, eq, inArray, sql } from "drizzle-orm";
 import { can, normalizePermissions } from "@/app/dashboard/lib/permissions";
 import {
@@ -64,6 +73,7 @@ import {
 } from "./workflow-types";
 
 const WORKFLOW_STEPS: Record<MinkWorkflowTemplate, readonly string[]> = {
+  business_brief: ["snapshot", "analyse", "finalise"],
   weekly_trading_report: ["snapshot", "analyse", "finalise"],
   revenue_decline_investigation: ["snapshot", "diagnose", "finalise"],
   product_launch_preparation: ["snapshot", "assess", "finalise"],
@@ -102,6 +112,27 @@ export interface MinkWorkflowWorkerResult {
 }
 
 class WorkflowCancellationRequestedError extends Error {}
+
+export async function enqueueBusinessBrief(
+  actor: MinkActorContext,
+  options: { period: BusinessBriefPeriod; locationName?: unknown },
+): Promise<MinkWorkflowView> {
+  assertQueueAuthority(actor, "business_brief");
+  if (options.period !== "daily" && options.period !== "weekly")
+    throw new MinkToolInputError(
+      "Choose daily or weekly for a business brief.",
+    );
+  const input: BusinessBriefInput = {
+    ...(await buildAuthorityInput(actor, options.locationName)),
+    period: options.period,
+    defaultLowStockThreshold: actor.defaultLowStockThreshold,
+  };
+  return enqueueWorkflow(actor, {
+    template: "business_brief",
+    input,
+    idempotencyKey: `agent-run:${actor.runId}:business-brief:${input.period}:${input.locationIds.join(",")}:${input.includeUnassigned}:v1`,
+  });
+}
 
 /** Queue one deterministic read-only report. Model retries reuse source run. */
 export async function enqueueWeeklyTradingReport(
@@ -230,6 +261,7 @@ async function enqueueWorkflow(
   options: {
     template: MinkWorkflowTemplate;
     input:
+      | BusinessBriefInput
       | WeeklyTradingReportInput
       | RevenueDeclineInvestigationInput
       | ProductLaunchPreparationInput
@@ -694,6 +726,14 @@ async function revalidateWorkflowAuthority(
       bindings?.map((binding) => binding.locationId) ?? null,
     );
     if (locationIds === null) return null;
+    // A checkpoint can already contain a whole-scope brief. Never reuse it
+    // after authority narrows, even at the finalisation step.
+    if (
+      template === "business_brief" &&
+      (locationIds.length !== input.locationIds.length ||
+        (input.includeUnassigned && bindings !== null && bindings.length > 0))
+    )
+      return null;
     return {
       locationIds,
       locationLabel:
@@ -765,6 +805,14 @@ function hasWorkflowPermissions(
   template: MinkWorkflowTemplate,
   isSuperadmin = false,
 ): boolean {
+  if (template === "business_brief") {
+    return (
+      can(permissions, "analytics", "view", isSuperadmin) &&
+      can(permissions, "products", "view", isSuperadmin) &&
+      can(permissions, "inventory", "view", isSuperadmin) &&
+      can(permissions, "orders", "view", isSuperadmin)
+    );
+  }
   if (template === "product_launch_preparation") {
     return (
       can(permissions, "products", "view", isSuperadmin) &&
@@ -1054,6 +1102,38 @@ async function executeClaimedStep(
   const stepKey = WORKFLOW_STEPS[run.template][run.currentStep];
   if (!stepKey) throw new Error("unsupported_workflow_step");
   await markStepStarted(run, workerId, stepKey);
+  if (run.template === "business_brief") {
+    const input = readBusinessBriefInput(run.inputJson);
+    if (stepKey === "snapshot") {
+      const snapshot = await collectBusinessBriefSnapshot(
+        run.storeId,
+        { uid: run.adminId, email: input.requesterEmail },
+        input,
+        executionScope,
+      );
+      await completeIntermediateStep(run, workerId, stepKey, snapshot);
+      return { completed: false };
+    }
+    if (stepKey === "analyse") {
+      const snapshot = await readStepOutput<BusinessBriefSnapshot>(
+        run,
+        "snapshot",
+      );
+      await completeIntermediateStep(
+        run,
+        workerId,
+        stepKey,
+        buildBusinessBriefResult(snapshot),
+      );
+      return { completed: false };
+    }
+    return finalizeFromStep<BusinessBriefResult>(
+      run,
+      workerId,
+      stepKey,
+      "analyse",
+    );
+  }
   if (run.template === "weekly_trading_report") {
     const input = readWeeklyInput(run.inputJson);
     if (stepKey === "snapshot") {
@@ -1692,15 +1772,35 @@ function readDelayedPickupInput(value: unknown): DelayedPickupReviewInput {
   return authority;
 }
 
+function readBusinessBriefInput(value: unknown): BusinessBriefInput {
+  const authority = readAuthorityInput(value, "invalid_business_brief_input");
+  const row = readObject(value);
+  if (
+    (row.period !== "daily" && row.period !== "weekly") ||
+    !Number.isInteger(row.defaultLowStockThreshold) ||
+    Number(row.defaultLowStockThreshold) < 0 ||
+    Number(row.defaultLowStockThreshold) > 1_000_000
+  ) {
+    throw new Error("invalid_business_brief_input");
+  }
+  return {
+    ...authority,
+    period: row.period,
+    defaultLowStockThreshold: Number(row.defaultLowStockThreshold),
+  };
+}
+
 function readWorkflowInput(
   template: MinkWorkflowTemplate,
   value: unknown,
 ):
+  | BusinessBriefInput
   | WeeklyTradingReportInput
   | RevenueDeclineInvestigationInput
   | ProductLaunchPreparationInput
   | SlowInventoryPromotionInput
   | DelayedPickupReviewInput {
+  if (template === "business_brief") return readBusinessBriefInput(value);
   if (template === "revenue_decline_investigation") {
     return readRevenueInput(value);
   }
@@ -1833,6 +1933,7 @@ function workflowStepKey(
 }
 
 function workflowLabel(template: MinkWorkflowTemplate): string {
+  if (template === "business_brief") return "Business brief";
   if (template === "revenue_decline_investigation") {
     return "Revenue decline investigation";
   }

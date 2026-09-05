@@ -94,7 +94,8 @@
 
 .smh-nav {
   width: min(1320px, calc(100% - 48px));
-  min-height: 76px;
+  /* One header height across the public hosts (.posx-nav, .hc-topbar-inner). */
+  min-height: 72px;
   margin-inline: auto;
   display: grid;
   grid-template-columns: auto 1fr auto;
@@ -111,10 +112,13 @@
   text-decoration: none;
 }
 
+/* Same wordmark scale as pos/themes/help — the apex used 22px/820 while every
+   sub-host used 20px/800, so the four lockups were never the same size. */
 .smh-logo > span {
-  font-size: 22px;
-  font-weight: 820;
-  letter-spacing: -0.045em;
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  white-space: nowrap;
 }
 
 .smh-logo em {
@@ -2121,12 +2125,16 @@
   .smh-container {
     width: min(100% - 30px, 1240px);
   }
+  /* ★ ONE NARROW HEADER TREATMENT across the four public hosts, at ONE
+     breakpoint. These were 620px (help), 640px (pos), 680px (platform,
+     themes) with four row heights (64/66/68), so the four headers changed
+     shape at four different widths and never agreed on a height in between. */
   .smh-nav {
     width: calc(100% - 30px);
-    min-height: 68px;
+    min-height: 64px;
   }
   .smh-logo > span {
-    font-size: 20px;
+    font-size: 18px;
   }
 
   .smh-hero {

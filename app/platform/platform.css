@@ -2146,7 +2146,8 @@
 .posx {
   --posx-ink: #161329;
   --posx-copy: #59576a;
-  --posx-purple: #5639f4;
+  /* One brand purple across all four public hosts (--smh-purple, --hc-purple). */
+  --posx-purple: #573cf0;
   --posx-purple-dark: #3620c6;
   --posx-lilac: #f0edff;
   --posx-mint: #e7fbf2;
@@ -2182,7 +2183,9 @@
   backdrop-filter: blur(18px);
 }
 .posx-nav {
-  width: min(1320px, calc(100% - 40px));
+  /* Same row measure as .smh-nav and .hc-topbar-inner — was 40px, so this
+     header's left edge sat 4px off the other two between 1368px and 1488px. */
+  width: min(1320px, calc(100% - 48px));
   min-height: 72px;
   margin-inline: auto;
   display: flex;
@@ -3663,13 +3666,15 @@
     display: none;
   }
 }
-@media (max-width: 640px) {
-  .posx-container,
+/* ★ ONE NARROW HEADER TREATMENT across the four public hosts, at ONE
+   breakpoint. The header rules below used to sit in this file's 640px block
+   while platform/themes used 680px and help used 620px, so the four headers
+   changed shape at four different widths. Only the header moved out — the
+   rest of the 640px block is this page's own content layout. */
+@media (max-width: 680px) {
   .posx-nav {
-    width: min(100% - 32px, 1240px);
-  }
-  .posx-nav {
-    min-height: 66px;
+    width: calc(100% - 30px);
+    min-height: 64px;
   }
   .posx-brand > span {
     font-size: 18px;
@@ -3685,6 +3690,12 @@
     min-height: 38px;
     padding-inline: 14px;
     font-size: 13px;
+  }
+}
+
+@media (max-width: 640px) {
+  .posx-container {
+    width: min(100% - 32px, 1240px);
   }
   .posx-hero {
     padding-top: 64px;

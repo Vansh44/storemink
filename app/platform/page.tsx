@@ -8,7 +8,6 @@ import {
   CircleCheck,
   Globe2,
   LayoutTemplate,
-  Mail,
   Megaphone,
   Package,
   Receipt,
@@ -19,11 +18,8 @@ import {
   Users,
 } from "lucide-react";
 import { PLATFORM_URL, POS_URL, THEMES_URL } from "@/lib/site";
-import { LEGAL_DOCS } from "@/lib/legal/documents";
 import {
   BRAND_DESCRIPTION,
-  BRAND_TAGLINE,
-  BRAND_SOCIAL_LINKS,
   SUPPORT_EMAIL,
   platformOrganizationSchema,
   platformWebsiteSchema,
@@ -36,9 +32,10 @@ import {
 } from "@/lib/plans";
 import { getPlanPricing } from "@/lib/plans/pricing";
 import { BrandMark } from "./brand-mark";
+import { SiteFooter } from "./site-footer";
+import { SiteHeader } from "./site-header";
 import { PricingCards, type PricingCard } from "./pricing-cards";
 import { BuilderArt, InvoiceArt, StorefrontArt } from "./product-art";
-import { HomepageMobileNav } from "./homepage-mobile-nav";
 import "./homepage.css";
 
 // The homepage stays a server component. The only client JavaScript is the
@@ -505,32 +502,7 @@ export default async function StoreminkLanding() {
           Skip to content
         </a>
 
-        <header className="smh-header">
-          <nav className="smh-nav" aria-label="Main navigation">
-            <Link href="/" className="smh-logo" aria-label="StoreMink home">
-              <BrandMark size={29} priority />
-              <span>
-                Store<em>Mink</em>
-              </span>
-            </Link>
-            <div className="smh-nav-links">
-              <a href="#platform">Platform</a>
-              <Link href={POS_URL}>Point of Sale</Link>
-              <a href={THEMES_URL}>Themes</a>
-              <a href="#pricing">Pricing</a>
-              <a href="https://help.storemink.com">Resources</a>
-            </div>
-            <div className="smh-nav-actions">
-              <Link href="/login" className="smh-link-button">
-                Log in
-              </Link>
-              <Link href="/signup" className="smh-button smh-button-dark">
-                Start free <ArrowRight size={16} />
-              </Link>
-            </div>
-            <HomepageMobileNav posUrl={POS_URL} themesUrl={THEMES_URL} />
-          </nav>
-        </header>
+        <SiteHeader />
 
         <main id="main-content">
           <section className="smh-hero">
@@ -878,75 +850,7 @@ export default async function StoreminkLanding() {
           </section>
         </main>
 
-        <footer className="smh-footer">
-          <div className="smh-container smh-footer-grid">
-            <div className="smh-footer-brand">
-              <Link href="/" className="smh-logo">
-                <BrandMark size={29} />
-                <span>
-                  Store<em>Mink</em>
-                </span>
-              </Link>
-              <p>
-                {BRAND_TAGLINE} One connected platform for online and in-person
-                commerce.
-              </p>
-              <span>
-                Made in India <Globe2 size={14} />
-              </span>
-            </div>
-            <div>
-              <h3>Platform</h3>
-              <nav>
-                <a href="#platform">Overview</a>
-                <Link href={POS_URL}>Point of Sale</Link>
-                <a href={THEMES_URL}>Themes</a>
-                <a href="#pricing">Pricing</a>
-              </nav>
-            </div>
-            <div>
-              <h3>Get started</h3>
-              <nav>
-                <Link href="/signup">Create your store</Link>
-                <Link href="/login">Log in</Link>
-                <a href="https://help.storemink.com">Help Centre</a>
-                <a href={`mailto:${SUPPORT_EMAIL}`}>Contact support</a>
-              </nav>
-            </div>
-            <div>
-              <h3>Company</h3>
-              <nav>
-                {BRAND_SOCIAL_LINKS.map((social) => (
-                  <a
-                    key={social.href}
-                    href={social.href}
-                    rel="me noopener"
-                    target="_blank"
-                  >
-                    {social.label}
-                  </a>
-                ))}
-                <a href={`mailto:${SUPPORT_EMAIL}`}>
-                  <Mail size={13} /> {SUPPORT_EMAIL}
-                </a>
-              </nav>
-            </div>
-            <div>
-              <h3>Legal</h3>
-              <nav>
-                {LEGAL_DOCS.map((document) => (
-                  <Link key={document.slug} href={`/legal/${document.slug}`}>
-                    {document.title}
-                  </Link>
-                ))}
-              </nav>
-            </div>
-          </div>
-          <div className="smh-container smh-footer-base">
-            <span>© {new Date().getFullYear()} StoreMink</span>
-            <span>Your brand. Your customers. Your growth.</span>
-          </div>
-        </footer>
+        <SiteFooter />
       </div>
     </>
   );
