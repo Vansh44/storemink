@@ -66,32 +66,211 @@ steps:
           --build-arg "NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL}" \
           .
 
-  # 2. Deploy to the per-env Cloud Run service (runtime env + secrets + Cloud SQL).
+  # 2. Is this still the newest commit on the branch?
+  #
+  # ★★ THE ONE GUARD THAT MAKES CONCURRENT MERGES SAFE. Cloud Build does not
+  # serialise a trigger, so two merges 30 seconds apart run two builds at once,
+  # and whichever finishes LAST wins the deploy. Two things go wrong without
+  # this check, and neither reports an error:
+  #
+  #   1. The older image is deployed last, so old code ends up running against
+  #      the newer schema — a silent rollback nobody sees, because both builds
+  #      report success.
+  #   2. The older build's migrate step reads a ledger containing a migration
+  #      its own checkout has never heard of, and assertHealthyPlan throws
+  #      "Ledger contains unknown migrations" — a red build for a developer who
+  #      did nothing wrong.
+  #
+  # Both disappear if only the branch tip is allowed to migrate and deploy.
+  #
+  # ⚠ IT MUST RUN AFTER THE IMAGE BUILD, NOT BEFORE. The race is the tip moving
+  # WHILE the slow Docker build runs, so a check at the top of the build answers
+  # a question that was still true when it was asked and false by the time it
+  # mattered. Checking here wastes one image build on a superseded commit, which
+  # is the cheap half of the trade.
+  #
+  # ⚠ Cloud Build cannot end a build early and green, so this writes a marker
+  # and the two steps below no-op on it. A superseded build therefore finishes
+  # SUCCESSFULLY having changed nothing — deliberately, because a routinely red
+  # build is one the team stops reading.
+  - id: tip-check
+    name: gcr.io/cloud-builders/git
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -uo pipefail
+
+        # A manual `gcloud builds submit` ships a tarball with no .git and no
+        # BRANCH_NAME. That is a deliberate human action, so it is never treated
+        # as superseded.
+        if [ ! -d .git ] || [ -z "$BRANCH_NAME" ] || [ -z "$COMMIT_SHA" ]; then
+          echo "No branch context (manual build) — proceeding."
+          exit 0
+        fi
+
+        # ★ A FAILED FETCH MUST NOT SKIP THE DEPLOY. We cannot tell "superseded"
+        # from "GitHub was briefly unreachable", and silently doing nothing is
+        # the worse of the two: the merge would look deployed and would not be.
+        if ! git fetch --depth=1 origin "$BRANCH_NAME"; then
+          echo "Could not reach origin/$BRANCH_NAME — proceeding rather than skipping." >&2
+          exit 0
+        fi
+
+        TIP=$$(git rev-parse FETCH_HEAD)
+        if [ "$$TIP" = "$COMMIT_SHA" ]; then
+          echo "$COMMIT_SHA is the tip of $BRANCH_NAME — releasing."
+          exit 0
+        fi
+
+        echo "Commit $COMMIT_SHA superseded by $$TIP on $BRANCH_NAME."
+        echo "Skipping migrate and deploy; the newer build owns this release."
+
+        # ★ AN UNWRITABLE MARKER MUST FAIL LOUDLY. Without the marker the two
+        # steps below would run, and this build would deploy the OLDER image
+        # over the newer one — the exact silent rollback this step exists to
+        # prevent. A red build is the correct outcome here.
+        if ! touch /workspace/superseded; then
+          echo "Could not write the superseded marker; failing rather than deploying a stale image." >&2
+          exit 1
+        fi
+
+  # 3. Apply pending database migrations, BEFORE the code that needs them.
+  #
+  # ★★ THIS IS WHY NO DEVELOPER NEEDS THE PRODUCTION DATABASE PASSWORD. It used
+  # to be `npm run db:migrate:prod apply` on a laptop, which meant either every
+  # releasing developer held the postgres SUPERUSER credential or one person was
+  # the release bottleneck for the whole team. The build service account already
+  # holds secretAccessor on CLOUDSQL_PROD_POSTGRES_PW and cloudsql.client — both
+  # granted for cloudbuild-drift.yaml — so this needed no new IAM.
+  #
+  # ★ MIGRATE BEFORE DEPLOY, and a failure here stops the deploy. The schema is
+  # therefore never behind the code. It is deliberately allowed to be AHEAD:
+  # every migration must be backward-compatible with the running revision
+  # anyway, because Cloud Run serves old and new containers side by side for the
+  # length of a rollout. See docs/migrations.md (expand/contract).
+  #
+  # ⚠ The runner is the SAME code path a human runs, not a second
+  # implementation — so its checksum, ordering, environment-name and
+  # postcondition guards all still apply here.
+  - id: migrate
+    name: node:20
+    entrypoint: bash
+    secretEnv: ["DB_ADMIN_PASSWORD"]
+    env:
+      - "DB_HOST=127.0.0.1"
+      - "DB_PORT=6543"
+      - "DB_NAME=${_DB_NAME}"
+      - "DB_ADMIN_USER=postgres"
+      - "MIGRATE_ENV=${_MIGRATE_ENV}"
+      - "CLOUDSQL_PROXY_VERSION=${_CLOUDSQL_PROXY_VERSION}"
+      - "DB_CONN=${_DB_CONN}"
+      # Well under this file's 1800s build timeout, so a stuck concurrent run
+      # produces the runner's own actionable message rather than an opaque
+      # "build timed out".
+      - "MIGRATION_LOCK_WAIT_SECONDS=600"
+    args:
+      - -c
+      - |
+        set -euo pipefail
+
+        if [ -f /workspace/superseded ]; then
+          echo "Superseded build — not migrating."
+          exit 0
+        fi
+
+        # Pinned proxy release, not "latest": a release step that silently
+        # changes one of its own components is a step whose failures cannot be
+        # attributed. Same version as cloudbuild-drift.yaml.
+        curl -sSfL -o /workspace/cloud-sql-proxy \
+          "https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v$${CLOUDSQL_PROXY_VERSION}/cloud-sql-proxy.linux.amd64"
+        chmod +x /workspace/cloud-sql-proxy
+
+        # --run-connection-test so an auth or networking failure kills the proxy
+        # at startup instead of leaving it LISTENING and resetting every query.
+        /workspace/cloud-sql-proxy --port "$${DB_PORT}" --run-connection-test "$${DB_CONN}" &
+        PROXY_PID=$$!
+        trap 'kill $${PROXY_PID} 2>/dev/null || true' EXIT
+
+        for _ in $$(seq 1 30); do
+          if (echo > /dev/tcp/127.0.0.1/$${DB_PORT}) 2>/dev/null; then break; fi
+          if ! kill -0 $${PROXY_PID} 2>/dev/null; then
+            echo "cloud-sql-proxy exited before accepting connections" >&2
+            exit 1
+          fi
+          sleep 1
+        done
+
+        npm ci --omit=dev --no-audit --no-fund
+
+        # ★ THE PRODUCTION CONFIRMATION IS DERIVED, NEVER A SECOND TRIGGER VALUE.
+        # The runner demands --confirm-production <database>; making that a
+        # substitution would be a second place the database name has to be right,
+        # and the two could disagree. Deriving it from _DB_NAME means the trigger
+        # sets one value (_MIGRATE_ENV) and cannot half-configure this.
+        CONFIRM=""
+        if [ "$${MIGRATE_ENV}" = "production" ]; then
+          CONFIRM="--confirm-production $${DB_NAME}"
+        fi
+
+        # $COMMIT_SHA is empty on a manual `gcloud builds submit`, and an empty
+        # string would be recorded as the ledger's app_commit — worse than a
+        # NULL, which honestly says "unknown".
+        COMMIT_FLAG=""
+        if [ -n "$COMMIT_SHA" ]; then
+          COMMIT_FLAG="--commit $COMMIT_SHA"
+        fi
+
+        node scripts/db-migrate.mjs status --environment "$${MIGRATE_ENV}"
+        node scripts/db-migrate.mjs apply \
+          --environment "$${MIGRATE_ENV}" \
+          $${COMMIT_FLAG} \
+          $${CONFIRM}
+
+  # 4. Deploy to the per-env Cloud Run service (runtime env + secrets + Cloud SQL).
   #    --set-env-vars / --set-secrets REPLACE the full set, so every runtime value
   #    the app needs is listed here. Server secrets stay in Secret Manager.
   - id: deploy
     name: gcr.io/google.com/cloudsdktool/cloud-sdk
-    entrypoint: gcloud
+    entrypoint: bash
     args:
-      - run
-      - deploy
-      - ${_SERVICE}
-      - --image=${_IMAGE}
-      - --region=${_RUN_REGION}
-      - --service-account=${_RUN_SA}
-      - --allow-unauthenticated
-      - --port=8080
-      - --min-instances=${_MIN_INSTANCES}
-      - --max-instances=${_MAX_INSTANCES}
-      - --add-cloudsql-instances=${_DB_CONN}
-      - --set-env-vars=DOMAIN_ENV=${_DOMAIN_ENV},DOMAIN_CERT_MAP=${_DOMAIN_CERT_MAP},DOMAIN_LB_IP=${_DOMAIN_LB_IP},GCP_PROJECT_ID=${_GCP_PROJECT_ID},GCP_LOCATION=global,GCS_BUCKET=${_GCS_BUCKET},DB_HOST=/cloudsql/${_DB_CONN},DB_USER=app,DB_NAME=${_DB_NAME},DB_POOL_MAX=${_DB_POOL_MAX},FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID},FIREBASE_SERVICE_ACCOUNT_ID=${_FIREBASE_SA_ID},FIREBASE_API_KEY=${_NEXT_PUBLIC_FIREBASE_API_KEY},GOOGLE_SEARCH_CONSOLE_PROPERTY=${_GOOGLE_SEARCH_CONSOLE_PROPERTY},NEXT_PUBLIC_ROOT_DOMAIN=${_NEXT_PUBLIC_ROOT_DOMAIN},NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL},MINK_AI_ENABLED=${_MINK_AI_ENABLED},MINK_BETA_REQUIRE_INVITE=${_MINK_BETA_REQUIRE_INVITE},MINK_VERTEX_MODEL=${_MINK_VERTEX_MODEL},MINK_VERTEX_LOCATION=${_MINK_VERTEX_LOCATION},MINK_MAX_STEPS_PER_RUN=${_MINK_MAX_STEPS_PER_RUN},MINK_MAX_TOOL_CALLS_PER_RUN=${_MINK_MAX_TOOL_CALLS_PER_RUN},MINK_MAX_PARALLEL_READ_TOOLS=${_MINK_MAX_PARALLEL_READ_TOOLS},MINK_MAX_OUTPUT_TOKENS=${_MINK_MAX_OUTPUT_TOKENS},MINK_MAX_MODEL_RETRIES=${_MINK_MAX_MODEL_RETRIES},MINK_RUN_TIMEOUT_SECONDS=${_MINK_RUN_TIMEOUT_SECONDS}
-      # ⚠ EVERY secret named here must EXIST in Secret Manager before the next
-      # deploy — Cloud Run fails the revision outright on a missing one, so
-      # adding a line here without creating the secret takes the service down.
-      - --set-secrets=DB_PASSWORD=${_DB_PASSWORD_SECRET}:latest,CRON_SECRET=CRON_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_WEBHOOK_SECRET=${_RESEND_WEBHOOK_SECRET_SECRET}:latest,PAYMENT_CRED_KEY=${_PAYMENT_CRED_KEY_SECRET}:latest,RAZORPAY_KEY_ID=${_RAZORPAY_KEY_ID_SECRET}:latest,RAZORPAY_KEY_SECRET=${_RAZORPAY_KEY_SECRET_SECRET}:latest,RAZORPAY_WEBHOOK_SECRET=${_RAZORPAY_WEBHOOK_SECRET_SECRET}:latest,POS_SESSION_SECRET=${_POS_SESSION_SECRET_SECRET}:latest
+      - -c
+      - |
+        set -euo pipefail
+
+        if [ -f /workspace/superseded ]; then
+          echo "Superseded build — not deploying; the newer build owns this release."
+          exit 0
+        fi
+
+        # ⚠ EVERY secret named in --set-secrets must EXIST in Secret Manager
+        # before the next deploy — Cloud Run fails the revision outright on a
+        # missing one, so adding one here without creating the secret takes the
+        # service down.
+        gcloud run deploy ${_SERVICE} \
+          --image=${_IMAGE} \
+          --region=${_RUN_REGION} \
+          --service-account=${_RUN_SA} \
+          --allow-unauthenticated \
+          --port=8080 \
+          --min-instances=${_MIN_INSTANCES} \
+          --max-instances=${_MAX_INSTANCES} \
+          --add-cloudsql-instances=${_DB_CONN} \
+          --set-env-vars=DOMAIN_ENV=${_DOMAIN_ENV},DOMAIN_CERT_MAP=${_DOMAIN_CERT_MAP},DOMAIN_LB_IP=${_DOMAIN_LB_IP},GCP_PROJECT_ID=${_GCP_PROJECT_ID},GCP_LOCATION=global,GCS_BUCKET=${_GCS_BUCKET},DB_HOST=/cloudsql/${_DB_CONN},DB_USER=app,DB_NAME=${_DB_NAME},DB_POOL_MAX=${_DB_POOL_MAX},FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID},FIREBASE_SERVICE_ACCOUNT_ID=${_FIREBASE_SA_ID},FIREBASE_API_KEY=${_NEXT_PUBLIC_FIREBASE_API_KEY},GOOGLE_SEARCH_CONSOLE_PROPERTY=${_GOOGLE_SEARCH_CONSOLE_PROPERTY},NEXT_PUBLIC_ROOT_DOMAIN=${_NEXT_PUBLIC_ROOT_DOMAIN},NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL},MINK_AI_ENABLED=${_MINK_AI_ENABLED},MINK_BETA_REQUIRE_INVITE=${_MINK_BETA_REQUIRE_INVITE},MINK_VERTEX_MODEL=${_MINK_VERTEX_MODEL},MINK_VERTEX_LOCATION=${_MINK_VERTEX_LOCATION},MINK_MAX_STEPS_PER_RUN=${_MINK_MAX_STEPS_PER_RUN},MINK_MAX_TOOL_CALLS_PER_RUN=${_MINK_MAX_TOOL_CALLS_PER_RUN},MINK_MAX_PARALLEL_READ_TOOLS=${_MINK_MAX_PARALLEL_READ_TOOLS},MINK_MAX_OUTPUT_TOKENS=${_MINK_MAX_OUTPUT_TOKENS},MINK_MAX_MODEL_RETRIES=${_MINK_MAX_MODEL_RETRIES},MINK_RUN_TIMEOUT_SECONDS=${_MINK_RUN_TIMEOUT_SECONDS} \
+          --set-secrets=DB_PASSWORD=${_DB_PASSWORD_SECRET}:latest,CRON_SECRET=CRON_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_WEBHOOK_SECRET=${_RESEND_WEBHOOK_SECRET_SECRET}:latest,PAYMENT_CRED_KEY=${_PAYMENT_CRED_KEY_SECRET}:latest,RAZORPAY_KEY_ID=${_RAZORPAY_KEY_ID_SECRET}:latest,RAZORPAY_KEY_SECRET=${_RAZORPAY_KEY_SECRET_SECRET}:latest,RAZORPAY_WEBHOOK_SECRET=${_RAZORPAY_WEBHOOK_SECRET_SECRET}:latest,POS_SESSION_SECRET=${_POS_SESSION_SECRET_SECRET}:latest
 
 # buildx --push uploads the image directly, so no `images:` block (it would make
 # Cloud Build try to re-push a non-existent local image).
+
+# The migrate step needs the postgres SUPERUSER login: migration 0018 revoked
+# the app login's grants on schema_migrations, and a durable verify contract
+# asserts they stay revoked. Cloud Build is not internet-facing and already
+# holds run.admin, so it can already deploy code that reaches this database —
+# unlike the Cloud Run runtime, where this credential would be a real downgrade.
+availableSecrets:
+  secretManager:
+    - versionName: projects/${PROJECT_ID}/secrets/CLOUDSQL_PROD_POSTGRES_PW/versions/latest
+      env: DB_ADMIN_PASSWORD
 
 # npm ci + next build is heavy — and slower on the 2-vCPU free-tier machine — so
 # stay well above Cloud Build's 10-min default. Caching (step 1) claws the npm ci
@@ -157,6 +336,21 @@ substitutions:
   # Both triggers therefore set _DB_NAME explicitly (see docs/gcp-ci-cd.md).
   _DB_CONN: storemink-prod:asia-south1:storemink-prod-db
   _DB_NAME: storemink_staging
+  # ★ ONE VALUE SELECTS THE MIGRATION TARGET, and the runner refuses a
+  # mismatch: `--environment staging` will not run against a database named
+  # `storemink`, and `production` will not run against `storemink_staging`
+  # (validateEnvironment, ENV_DATABASES). That guard is load-bearing here,
+  # because dev/staging and production are two databases in ONE instance — so
+  # this step connects to the same instance either way and the NAME is the only
+  # thing separating them. Do not weaken it.
+  #
+  # ⚠ The dev trigger's value is `staging`, not `dev`: dev is a second
+  # front-end onto the staging database, and the runner knows three
+  # environments only.
+  _MIGRATE_ENV: staging
+  # Pinned to match cloudbuild-drift.yaml. Both steps read the same ledger; a
+  # version drift between them makes a disagreement unattributable.
+  _CLOUDSQL_PROXY_VERSION: "2.14.1"
   # One instance ⇒ one cluster-wide `app` role ⇒ one password, so staging
   # authenticates with the prod instance's app secret. (Optional hardening
   # before real customers: a restricted `app_staging` role with its own secret

@@ -348,3 +348,89 @@ export function parseCli(argv) {
   }
   return options;
 }
+
+export const MIGRATION_LOCK_NAME = "storemink:schema-migrations:v1";
+
+// ★★ A MIGRATION MUST NEVER BE ABLE TO FREEZE THE LIVE SITE. An `ALTER TABLE`
+// that cannot take its lock does not fail — it QUEUES, and every later query
+// wanting that table queues behind it. On a busy table that is a full outage
+// caused by a deploy, and it lasts as long as the migration waits.
+//
+// `lock_timeout` converts that outage into a failed build: the migration gives
+// up after a few seconds, its transaction rolls back, nothing is half-applied,
+// and re-running the build usually succeeds. A red deploy is recoverable in a
+// minute; a locked-up storefront is not.
+//
+// ⚠ It is SET LOCAL, so it applies to the migration's own transaction only and
+// cannot leak into the ledger insert's session or the app's connections.
+const LOCK_TIMEOUT_DEFAULT_MS = 5000;
+const LOCK_TIMEOUT_MAX_MS = 120000;
+
+export function lockTimeoutMs() {
+  const raw = Number(
+    process.env.MIGRATION_LOCK_TIMEOUT_MS ?? LOCK_TIMEOUT_DEFAULT_MS,
+  );
+  // ⚠ The value is interpolated into a SET statement, because SET takes no bind
+  // parameters. Returning a bounded integer is what makes that safe — never
+  // pass the raw env string through.
+  if (!Number.isFinite(raw) || raw <= 0) return LOCK_TIMEOUT_DEFAULT_MS;
+  return Math.min(Math.round(raw), LOCK_TIMEOUT_MAX_MS);
+}
+
+// ★★ THE LOCK WAITS, BUT NOT FOREVER. `pg_advisory_lock` blocks with no
+// deadline, which is right for a human at a terminal and wrong inside a build:
+// two triggers firing seconds apart put the second build in an unbounded wait,
+// and the only thing that ends it is Cloud Build's own timeout — an opaque
+// "build timed out" for a developer whose change was fine. A bounded
+// `pg_try_advisory_lock` loop turns the same situation into a sentence that
+// says what happened and what to do.
+//
+// ⚠ THE LOCK IS NOT WHAT MAKES DOUBLE-APPLY IMPOSSIBLE, so shortening the wait
+// is safe: `schema_migrations.id` is a primary key and the ledger insert shares
+// the migration's transaction, so a race loser hits a duplicate key and its DDL
+// rolls back with it. The lock only stops two runners doing redundant work and
+// reading each other's half-finished ledger.
+const LOCK_WAIT_DEFAULT_SECONDS = 300;
+const LOCK_WAIT_MAX_SECONDS = 1800;
+const LOCK_POLL_MS = 2000;
+
+export function lockWaitSeconds() {
+  const raw = Number(
+    process.env.MIGRATION_LOCK_WAIT_SECONDS ?? LOCK_WAIT_DEFAULT_SECONDS,
+  );
+  if (!Number.isFinite(raw) || raw < 0) return LOCK_WAIT_DEFAULT_SECONDS;
+  return Math.min(Math.round(raw), LOCK_WAIT_MAX_SECONDS);
+}
+
+export async function acquireMigrationLock(client, sleep = defaultSleep) {
+  const waitSeconds = lockWaitSeconds();
+  const deadline = Date.now() + waitSeconds * 1000;
+  let announced = false;
+  for (;;) {
+    const result = await client.query(
+      "select pg_try_advisory_lock(hashtext($1)) as held",
+      [MIGRATION_LOCK_NAME],
+    );
+    if (result.rows[0].held) {
+      if (announced) console.log("Acquired the migration lock.");
+      return;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Another migration has held the schema lock for more than ${waitSeconds}s. ` +
+          "A concurrent run is applying migrations; re-run this build once it finishes.",
+      );
+    }
+    if (!announced) {
+      announced = true;
+      console.log(
+        `Another migration is in progress; waiting up to ${waitSeconds}s for the lock.`,
+      );
+    }
+    await sleep(LOCK_POLL_MS);
+  }
+}
+
+function defaultSleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}

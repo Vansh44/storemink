@@ -6,6 +6,9 @@ import path from "node:path";
 import nextEnv from "@next/env";
 import pg from "pg";
 import {
+  MIGRATION_LOCK_NAME,
+  acquireMigrationLock,
+  lockTimeoutMs,
   classifyDrift,
   loadManifest,
   migrationPlan,
@@ -19,7 +22,6 @@ loadEnvConfig(process.cwd());
 
 const { Client } = pg;
 const LEDGER = "public.schema_migrations";
-const LOCK_NAME = "storemink:schema-migrations:v1";
 
 function connectionConfig() {
   const adminUser = process.env.DB_ADMIN_USER;
@@ -534,7 +536,7 @@ async function main() {
     }
 
     if (mutating) {
-      await client.query("select pg_advisory_lock(hashtext($1))", [LOCK_NAME]);
+      await acquireMigrationLock(client);
       if (options.command === "adopt") {
         if (!(await ledgerExists(client))) {
           throw new Error("Migration adoption requires an existing ledger");
@@ -592,6 +594,9 @@ async function main() {
         const started = performance.now();
         await client.query("begin");
         try {
+          // Bounded integer from lockTimeoutMs(), never the raw env string:
+          // SET takes no bind parameters.
+          await client.query(`set local lock_timeout = ${lockTimeoutMs()}`);
           await client.query(migration.sql);
           await verifyMigration(
             client,
@@ -694,7 +699,7 @@ async function main() {
   } finally {
     if (mutating) {
       await client
-        .query("select pg_advisory_unlock(hashtext($1))", [LOCK_NAME])
+        .query("select pg_advisory_unlock(hashtext($1))", [MIGRATION_LOCK_NAME])
         .catch(() => {});
     }
     await client.end();

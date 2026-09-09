@@ -33,6 +33,16 @@ jobs:
       - name: Type Check
         run: npm run typecheck
 
+      # ★ MIGRATION SQL IS REVIEWED BY A MACHINE BEFORE A HUMAN. Every
+      # migration must be backward-compatible with the revision it replaces,
+      # because Cloud Run runs old and new containers against one database for
+      # the length of a rollout. This blocks the mechanical half of that rule —
+      # dropped, renamed or retyped columns, and NOT NULL added with no default
+      # — in the pull request, where the cost is a comment rather than an
+      # outage. See docs/migrations.md.
+      - name: Migration Lint
+        run: npm run db:lint
+
       - name: Run Tests
         run: npm run test
 
