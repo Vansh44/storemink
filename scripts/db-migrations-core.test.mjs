@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
+  acquireMigrationLock,
   canonicalJson,
   loadManifest,
   migrationPlan,
@@ -10,6 +11,9 @@ import {
   validateEnvironment,
   classifyDrift,
   ENV_DATABASES,
+  lockTimeoutMs,
+  lockWaitSeconds,
+  MIGRATION_LOCK_NAME,
 } from "./db-migrations-core.mjs";
 
 const manifest = {
@@ -24,40 +28,57 @@ describe("database migration controls", () => {
   it("loads the repository manifest and checksums the enrolled SQL", async () => {
     const loaded = await loadManifest();
     expect(loaded.baseline.id).toBe("baseline:cloudsql-2026-08-14");
-    // 75 shared + five billing + six offers + nine Mink + two Help fixes
-    // + one POS register-reload guide.
-    expect(loaded.migrations).toHaveLength(98);
+    // ★★ A FLOOR, NOT AN EXACT COUNT, AND NO TAIL ASSERTIONS. This test used
+    // to pin `toHaveLength(98)` and the identity of the last four entries by
+    // position — which made adding a migration require editing this file, so
+    // two developers appending in the same week collided here as well as in
+    // the manifest. The count is now a floor and the tail entries are looked
+    // up by id, so an append touches neither.
+    //
+    // ★ THE FLOOR STILL CATCHES THE DANGEROUS DIRECTION. Removing or renaming
+    // an enrolled migration orphans its ledger row on every environment that
+    // applied it — migrationPlan puts the old id in `unknown` and
+    // assertHealthyPlan throws, which stops apply, adopt AND verify until the
+    // ledger is repaired by hand. An accidental deletion fails here first.
+    expect(loaded.migrations.length).toBeGreaterThanOrEqual(98);
+
+    const byId = new Map(loaded.migrations.map((m) => [m.id, m]));
+
     // ★ PENDING BLOCKS GO LAST, applied ones first, or the planner reports the
     // database out_of_order — an APPLIED migration sitting after an unapplied
-    // one is exactly what `sawGap` catches. The offers block precedes the Mink
-    // one because it merged to `main`, which is what deploys to production, so
-    // it is the block that will be applied first.
+    // one is exactly what `sawGap` catches.
     //
-    // ★★ NEITHER BLOCK WAS REWIRED WHEN THEY MERGED, and that was the point:
-    // `requires` is part of every entry's checksum, so editing one that is
-    // already applied somewhere reads as DRIFT and the runner refuses. Both
-    // chains hang off entries in the shared base rather than off each other,
-    // so concatenating them needed no edit at all.
-    expect(loaded.migrations.at(-4)).toMatchObject({
-      id: "20260907_0084_mink_phase_8d_memories",
-      requires: ["20260906_0083_mink_phase_8c_responses"],
-      transaction: true,
-    });
-    expect(loaded.migrations.at(-3)).toMatchObject({
-      id: "20260908_0087_storemink_logo_help",
-      requires: ["20260826_0020_storefront_domains_help"],
-      transaction: true,
-    });
-    expect(loaded.migrations.at(-2)).toMatchObject({
-      id: "20260908_0088_help_first_visit_recovery",
-      requires: ["20260826_0019_getting_started_account_help"],
-      transaction: true,
-    });
-    expect(loaded.migrations.at(-1)).toMatchObject({
-      id: "20260909_0089_pos_cart_refresh_help",
-      requires: ["20260825_0015_pos_help_documents"],
-      transaction: true,
-    });
+    // ★★ NEITHER OF THE TWO MERGED CHAINS WAS REWIRED WHEN THEY MET, and that
+    // was the point: `requires` is part of every entry's checksum, so editing
+    // one that is already applied somewhere reads as DRIFT and the runner
+    // refuses. Both chains hang off entries in the shared base rather than off
+    // each other, so concatenating them needed no edit at all. These four
+    // assert that wiring, by id rather than by position.
+    for (const [id, requires] of [
+      [
+        "20260907_0084_mink_phase_8d_memories",
+        "20260906_0083_mink_phase_8c_responses",
+      ],
+      [
+        "20260908_0087_storemink_logo_help",
+        "20260826_0020_storefront_domains_help",
+      ],
+      [
+        "20260908_0088_help_first_visit_recovery",
+        "20260826_0019_getting_started_account_help",
+      ],
+      [
+        "20260909_0089_pos_cart_refresh_help",
+        "20260825_0015_pos_help_documents",
+      ],
+    ]) {
+      expect(byId.get(id)).toMatchObject({
+        id,
+        requires: [requires],
+        transaction: true,
+      });
+    }
+
     expect(loaded.migrations[0]).toMatchObject({
       id: "20260814_0001_logistics_shiprocket",
       transaction: true,
@@ -839,6 +860,41 @@ describe("database migration controls", () => {
     });
   });
 
+  it("wires every migration behind something that runs before it", async () => {
+    // ★★ THE APPEND-SAFE REPLACEMENT FOR POSITIONAL ASSERTIONS. What the long
+    // index-by-index list above really guarantees is that no entry depends on
+    // one enrolled later — because `requires` is checked at apply time against
+    // rows already in the ledger, so a forward reference can never be
+    // satisfied and that migration is permanently unappliable. Stating it as an
+    // invariant means a new migration is checked by this test without editing
+    // it.
+    const loaded = await loadManifest();
+    const seenBefore = new Set([loaded.baseline.id]);
+    for (const migration of loaded.migrations) {
+      for (const required of migration.requires) {
+        expect(
+          seenBefore.has(required),
+          `${migration.id} requires ${required}, which is not enrolled before it`,
+        ).toBe(true);
+      }
+      seenBefore.add(migration.id);
+    }
+  });
+
+  it("gives every migration a unique id and a full-length checksum", async () => {
+    const loaded = await loadManifest();
+    const ids = loaded.migrations.map((m) => m.id);
+    expect(new Set(ids).size).toBe(ids.length);
+    for (const migration of loaded.migrations) {
+      expect(migration.checksum).toMatch(/^[0-9a-f]{64}$/);
+      // ⚠ The runner always wraps a migration in a transaction and never reads
+      // this field, so anything other than true is refused by the loader
+      // rather than silently ignored — a CREATE INDEX CONCURRENTLY would
+      // otherwise fail inside Postgres with a confusing message.
+      expect(migration.transaction).toBe(true);
+    }
+  });
+
   it("canonicalizes objects before hashing", () => {
     expect(canonicalJson({ b: 2, a: [3, { z: true }] })).toBe(
       '{"a":[3,{"z":true}],"b":2}',
@@ -1142,6 +1198,114 @@ describe("database migration controls", () => {
   // migrations ahead of their ledgers. Verified end to end against a real
   // database: adding a column by hand gave drift=out_of_band with the ledger
   // unchanged and exit code 1; inserting a ledger row alone gave ledger_only.
+  describe("migration lock", () => {
+    // A client that reports the lock as taken for the first `busyCalls` tries.
+    function lockClient(busyCalls) {
+      const queries = [];
+      let calls = 0;
+      return {
+        queries,
+        async query(sql, params) {
+          queries.push({ sql, params });
+          calls += 1;
+          return { rows: [{ held: calls > busyCalls }] };
+        },
+      };
+    }
+
+    it("takes the lock on the first try when nothing holds it", async () => {
+      const client = lockClient(0);
+      const slept = [];
+      await acquireMigrationLock(client, async (ms) => slept.push(ms));
+      expect(client.queries).toHaveLength(1);
+      expect(client.queries[0].sql).toContain("pg_try_advisory_lock");
+      expect(client.queries[0].params).toEqual([MIGRATION_LOCK_NAME]);
+      // ★ No wait at all on the ordinary path: a sleep here would add latency to
+      // every single deploy to guard against a race that is not happening.
+      expect(slept).toEqual([]);
+    });
+
+    it("waits and retries while a concurrent run holds it", async () => {
+      const client = lockClient(2);
+      const slept = [];
+      await acquireMigrationLock(client, async (ms) => slept.push(ms));
+      expect(client.queries).toHaveLength(3);
+      expect(slept).toHaveLength(2);
+    });
+
+    it("gives up with an actionable message instead of blocking forever", async () => {
+      // ★★ THIS IS THE WHOLE POINT OF NOT USING pg_advisory_lock. The blocking
+      // form has no deadline, so the only thing that ends the wait inside a
+      // build is Cloud Build's own timeout — which reports "build timed out"
+      // and names neither the lock nor the other build.
+      const client = lockClient(Number.POSITIVE_INFINITY);
+      const previous = process.env.MIGRATION_LOCK_WAIT_SECONDS;
+      process.env.MIGRATION_LOCK_WAIT_SECONDS = "0";
+      try {
+        await expect(
+          acquireMigrationLock(client, async () => {}),
+        ).rejects.toThrow(/re-run this build once it finishes/);
+      } finally {
+        if (previous === undefined)
+          delete process.env.MIGRATION_LOCK_WAIT_SECONDS;
+        else process.env.MIGRATION_LOCK_WAIT_SECONDS = previous;
+      }
+      // Exactly one attempt at a zero-second budget: the deadline is checked
+      // after the try, so a zero wait still makes an honest attempt.
+      expect(client.queries).toHaveLength(1);
+    });
+
+    it("bounds the lock timeout to a safe integer for interpolation", () => {
+      // ★ The value reaches Postgres via string interpolation, because SET
+      // takes no bind parameters — so this function IS the injection boundary,
+      // not a convenience.
+      const previous = process.env.MIGRATION_LOCK_TIMEOUT_MS;
+      try {
+        for (const [value, expected] of [
+          [undefined, 5000],
+          ["10000", 10000],
+          ["0", 5000],
+          ["-1", 5000],
+          ["", 5000],
+          ["999999", 120000],
+          ["3000; drop table stores", 5000],
+        ]) {
+          if (value === undefined) delete process.env.MIGRATION_LOCK_TIMEOUT_MS;
+          else process.env.MIGRATION_LOCK_TIMEOUT_MS = value;
+          const result = lockTimeoutMs();
+          expect(result).toBe(expected);
+          expect(Number.isInteger(result)).toBe(true);
+        }
+      } finally {
+        if (previous === undefined)
+          delete process.env.MIGRATION_LOCK_TIMEOUT_MS;
+        else process.env.MIGRATION_LOCK_TIMEOUT_MS = previous;
+      }
+    });
+
+    it("clamps a hostile or unusable wait budget to a sane default", () => {
+      const previous = process.env.MIGRATION_LOCK_WAIT_SECONDS;
+      try {
+        for (const [value, expected] of [
+          [undefined, 300],
+          ["600", 600],
+          ["-5", 300],
+          ["not-a-number", 300],
+          ["99999", 1800],
+        ]) {
+          if (value === undefined)
+            delete process.env.MIGRATION_LOCK_WAIT_SECONDS;
+          else process.env.MIGRATION_LOCK_WAIT_SECONDS = value;
+          expect(lockWaitSeconds()).toBe(expected);
+        }
+      } finally {
+        if (previous === undefined)
+          delete process.env.MIGRATION_LOCK_WAIT_SECONDS;
+        else process.env.MIGRATION_LOCK_WAIT_SECONDS = previous;
+      }
+    });
+  });
+
   describe("schema drift classification", () => {
     const base = {
       fingerprint: "aaa",
