@@ -369,10 +369,24 @@ wholesip/
 │                              # release ritual and the need for anyone to hold the prod
 │                              # postgres password; it needed NO new IAM, because the build
 │                              # SA already had secretAccessor on CLOUDSQL_PROD_POSTGRES_PW
-│                              # and cloudsql.client for cloudbuild-drift.yaml. ONE new
-│                              # trigger value, _MIGRATE_ENV (staging|production) — the
-│                              # --confirm-production flag is DERIVED from _DB_NAME inside
-│                              # the step, so the database name has one place to be right.
+│                              # and cloudsql.client for cloudbuild-drift.yaml — and NO
+│                              # trigger substitution at all: the environment and the
+│                              # --confirm-production flag are both DERIVED from _DB_NAME,
+│                              # which every trigger already sets because it also picks the
+│                              # app's own database. ★★ IT WAS BRIEFLY A _MIGRATE_ENV
+│                              # SUBSTITUTION AND THAT WAS WORSE: the file default is
+│                              # `staging`, so a prod build inherited it and the runner's
+│                              # environment guard refused (correctly) — production simply
+│                              # would not deploy until somebody remembered to set it. A
+│                              # release step that must be remembered per environment is
+│                              # one that gets forgotten (docs/cron-jobs.md's standing
+│                              # lesson). ⚠ Deriving costs the cross-check two
+│                              # independently-set values gave, so the BRANCH is the second
+│                              # opinion: main may only migrate production and dev only
+│                              # staging, so a wrong _DB_NAME is refused instead of quietly
+│                              # migrating the other environment. An unmapped database name
+│                              # is refused too, naming both places to add it. All six
+│                              # combinations are exercised.
 │                              # ★★ `tip-check` IS WHAT MAKES CONCURRENT MERGES SAFE.
 │                              # Cloud Build does not serialise a trigger, so two merges
 │                              # 30s apart run two builds and whichever finishes LAST wins

@@ -233,19 +233,31 @@ Stated plainly so nobody assumes coverage that is not there.
   parser. It will not catch every unsafe change, and expand/contract remains a
   human discipline.
 
-## 8. One-time setup (already done, recorded for a new environment)
+## 8. Trigger configuration: none
 
-The `migrate` step needs two trigger substitutions:
+The `migrate` step needs **no substitution on either trigger**. It derives the
+environment from `_DB_NAME`, which every trigger already sets because it also
+decides which database the app itself talks to:
 
-| Trigger       | `_MIGRATE_ENV` | `_DB_NAME`          |
-| ------------- | -------------- | ------------------- |
-| `dev` branch  | `staging`      | `storemink_staging` |
-| `main` branch | `production`   | `storemink`         |
+| `_DB_NAME`          | migrates     | branch allowed |
+| ------------------- | ------------ | -------------- |
+| `storemink_staging` | `staging`    | `dev`          |
+| `storemink`         | `production` | `main`         |
 
-`_MIGRATE_ENV` is the only new value; the production confirmation flag is
-derived from `_DB_NAME` inside the step, so there is no second place for the
-database name to be wrong. The runner refuses a mismatch between the two.
+It was briefly a `_MIGRATE_ENV` substitution, and that was worse: production
+deploys failed until somebody remembered to set it on the trigger. A release
+step that has to be remembered per environment is one that gets forgotten.
 
-IAM needs nothing new: the build service account already holds `secretAccessor`
-on `CLOUDSQL_PROD_POSTGRES_PW` and `roles/cloudsql.client`, both granted for
-[`cloudbuild-drift.yaml`](../cloudbuild-drift.yaml).
+Deriving it would normally cost a safety property — with two independently-set
+values, the runner's own guard catches a typo in either, because they have to
+agree. So the **branch** is the second opinion instead: a `main` build may only
+migrate production, a `dev` build only staging, and a wrong `_DB_NAME` on either
+trigger is refused rather than quietly migrating the other environment's
+database. An unrecognised database name is refused too, naming the two places to
+add it.
+
+A manual `gcloud builds submit` has no branch, so only the derivation applies.
+
+IAM needs nothing new either: the build service account already holds
+`secretAccessor` on `CLOUDSQL_PROD_POSTGRES_PW` and `roles/cloudsql.client`,
+both granted for [`cloudbuild-drift.yaml`](../cloudbuild-drift.yaml).
