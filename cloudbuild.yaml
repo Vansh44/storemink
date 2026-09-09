@@ -162,7 +162,7 @@ steps:
       - "DB_PORT=6543"
       - "DB_NAME=${_DB_NAME}"
       - "DB_ADMIN_USER=postgres"
-      - "MIGRATE_ENV=${_MIGRATE_ENV}"
+      - "BRANCH=${BRANCH_NAME}"
       - "CLOUDSQL_PROXY_VERSION=${_CLOUDSQL_PROXY_VERSION}"
       - "DB_CONN=${_DB_CONN}"
       # Well under this file's 1800s build timeout, so a stuck concurrent run
@@ -203,11 +203,47 @@ steps:
 
         npm ci --omit=dev --no-audit --no-fund
 
-        # ★ THE PRODUCTION CONFIRMATION IS DERIVED, NEVER A SECOND TRIGGER VALUE.
-        # The runner demands --confirm-production <database>; making that a
-        # substitution would be a second place the database name has to be right,
-        # and the two could disagree. Deriving it from _DB_NAME means the trigger
-        # sets one value (_MIGRATE_ENV) and cannot half-configure this.
+        # ★★ THE ENVIRONMENT IS DERIVED FROM THE DATABASE, NOT CONFIGURED.
+        # It was briefly a _MIGRATE_ENV substitution, which meant production
+        # deploys silently failed until somebody remembered to set it on the
+        # trigger — a release step that has to be remembered per environment is
+        # one that gets forgotten, which is the whole lesson of docs/cron-jobs.md.
+        # _DB_NAME is already set per trigger and already decides which database
+        # the app itself talks to, so it is the value that must be right anyway.
+        case "$${DB_NAME}" in
+          storemink) MIGRATE_ENV=production ;;
+          storemink_staging) MIGRATE_ENV=staging ;;
+          *)
+            echo "No migration environment maps to database '$${DB_NAME}'." >&2
+            echo "Add it here and to ENV_DATABASES in db-migrations-core.mjs." >&2
+            exit 1
+            ;;
+        esac
+
+        # ★★ AND CROSS-CHECKED AGAINST THE BRANCH, which is what deriving would
+        # otherwise cost. With two independently-set values (_MIGRATE_ENV and
+        # _DB_NAME) the runner's own guard catches a typo in either, because
+        # they have to agree. Deriving one from the other loses that — so the
+        # branch, which the trigger also fixes, becomes the second opinion: a
+        # `main` build may only ever migrate production, and a `dev` build only
+        # staging. A wrong _DB_NAME on either trigger is refused here instead of
+        # quietly migrating the other environment's database.
+        #
+        # ⚠ BRANCH is empty on a manual `gcloud builds submit`, which has no
+        # branch to check against; the derivation above still applies.
+        if [ -n "$${BRANCH}" ]; then
+          case "$${BRANCH}:$${MIGRATE_ENV}" in
+            main:production | dev:staging) ;;
+            *)
+              echo "Refusing to migrate $${MIGRATE_ENV} ($${DB_NAME}) from branch $${BRANCH}." >&2
+              echo "Check _DB_NAME on this trigger." >&2
+              exit 1
+              ;;
+          esac
+        fi
+
+        # The runner demands --confirm-production <database> for a production
+        # mutation. Derived from the same one value, so it cannot half-apply.
         CONFIRM=""
         if [ "$${MIGRATE_ENV}" = "production" ]; then
           CONFIRM="--confirm-production $${DB_NAME}"
@@ -336,18 +372,6 @@ substitutions:
   # Both triggers therefore set _DB_NAME explicitly (see docs/gcp-ci-cd.md).
   _DB_CONN: storemink-prod:asia-south1:storemink-prod-db
   _DB_NAME: storemink_staging
-  # ★ ONE VALUE SELECTS THE MIGRATION TARGET, and the runner refuses a
-  # mismatch: `--environment staging` will not run against a database named
-  # `storemink`, and `production` will not run against `storemink_staging`
-  # (validateEnvironment, ENV_DATABASES). That guard is load-bearing here,
-  # because dev/staging and production are two databases in ONE instance — so
-  # this step connects to the same instance either way and the NAME is the only
-  # thing separating them. Do not weaken it.
-  #
-  # ⚠ The dev trigger's value is `staging`, not `dev`: dev is a second
-  # front-end onto the staging database, and the runner knows three
-  # environments only.
-  _MIGRATE_ENV: staging
   # Pinned to match cloudbuild-drift.yaml. Both steps read the same ledger; a
   # version drift between them makes a disagreement unattributable.
   _CLOUDSQL_PROXY_VERSION: "2.14.1"
