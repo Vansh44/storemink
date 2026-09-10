@@ -4277,6 +4277,25 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260911_0096_pos_variant_picker_help",
+      "description": "Document the register's one-tile-per-product catalogue and variant picker",
+      "file": "sql/20260911_0096_pos_variant_picker_help.sql",
+      "transaction": true,
+      "requires": ["20260911_0095_canonical_customer_phone"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Variant picker guidance published",
+            "sql": "select count(*)::text from public.help_articles where slug='process-an-in-store-sale' and status='published' and category_id is not null and body like '%<h2>Finding a product with options</h2>%' and body like '%one tile per product%' and body like '%Searching and scanning skip this step%' and body like '%only greyed out when every option has run out%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

@@ -4,6 +4,7 @@ import {
   fireEvent,
   render,
   screen,
+  waitFor,
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -58,7 +59,11 @@ vi.mock("./parked-panel", () => ({ ParkedPanel: () => null }));
 vi.mock("./receipt-overlay", () => ({ ReceiptOverlay: () => null }));
 vi.mock("./camera-scanner", () => ({ CameraScanner: () => null }));
 
-import { SellClient, shouldRefocusPosSearch } from "./sell-client";
+import {
+  SellClient,
+  shouldBlockPosScan,
+  shouldRefocusPosSearch,
+} from "./sell-client";
 import type {
   PosCatalogItem,
   RegisterConfig,
@@ -473,5 +478,192 @@ describe("Sell cart", () => {
     expect(container.textContent).toContain(
       "Scan or tap a product to start a sale.",
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Parent-product-first catalogue (three fast entry methods).
+// ---------------------------------------------------------------------------
+
+const SHIRT_S: PosCatalogItem = {
+  ...ITEM,
+  productId: "p9",
+  variantId: "v1",
+  name: "Classic T-Shirt",
+  variantName: "Black / S",
+  sku: "TEE-BLK-S",
+  barcode: "9001",
+  price: 499,
+  stock: 2,
+};
+const SHIRT_M: PosCatalogItem = {
+  ...SHIRT_S,
+  variantId: "v2",
+  variantName: "Black / M",
+  sku: "TEE-BLK-M",
+  barcode: "9002",
+  price: 599,
+  stock: 4,
+};
+
+/** One "Remove" button per cart line. */
+const cartLines = () => screen.queryAllByRole("button", { name: "Remove" });
+
+describe("Sell catalogue: parent products, then variants", () => {
+  beforeEach(() => {
+    catalog.all.mockReturnValue([SHIRT_S, SHIRT_M, ITEM]);
+  });
+
+  it("shows one tile per product, not one per variant", () => {
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    // ★ THE POINT. Three SKUs, two things a cashier is looking for.
+    expect(screen.getByText("Classic T-Shirt")).toBeVisible();
+    expect(screen.getByText("2 options")).toBeVisible();
+    expect(screen.queryByText("Black / S")).not.toBeInTheDocument();
+    expect(screen.getByText("Multigrain Bread")).toBeVisible();
+  });
+
+  it("prices the tile as a range and sums the stock at this register", () => {
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    expect(screen.getByText("₹499 – ₹599")).toBeVisible();
+    expect(screen.getByText("6 in stock")).toBeVisible();
+  });
+
+  it("opens a picker showing each variant's price, stock and SKU", () => {
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+
+    const picker = screen.getByRole("dialog", {
+      name: /choose an option for classic t-shirt/i,
+    });
+    expect(picker).toBeVisible();
+    expect(screen.getByText("Black / S")).toBeVisible();
+    expect(screen.getByText(/2 in stock · TEE-BLK-S/)).toBeVisible();
+    expect(screen.getByText(/4 in stock · TEE-BLK-M/)).toBeVisible();
+    // Nothing is in the cart yet: opening the picker is not a decision.
+    expect(cartLines()).toHaveLength(0);
+  });
+
+  it("adds only the chosen variant, and closes", async () => {
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+    fireEvent.click(screen.getByText("Black / M"));
+
+    await waitFor(() =>
+      expect(screen.queryByRole("dialog")).not.toBeInTheDocument(),
+    );
+    expect(cartLines()).toHaveLength(1);
+    // The cart holds the variant, not the parent.
+    expect(screen.getByText(/Black \/ M/)).toBeVisible();
+  });
+
+  it("adds a product with no variants in one tap, with no picker", () => {
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Multigrain Bread"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(cartLines()).toHaveLength(1);
+  });
+
+  it("returns exact variants from a search, with no picker in the way", () => {
+    // ★ Search already resolves an exact SKU, so grouping it would ADD a tap
+    // to one of the two fastest paths in the shop.
+    catalog.search.mockReturnValue([SHIRT_M]);
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.change(screen.getByPlaceholderText(/scan a barcode/i), {
+      target: { value: "black m" },
+    });
+    expect(screen.getByText("Black / M")).toBeVisible();
+    expect(screen.queryByText("2 options")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Black / M"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(cartLines()).toHaveLength(1);
+  });
+
+  it("greys a tile only when every variant is gone", () => {
+    catalog.all.mockReturnValue([
+      { ...SHIRT_S, stock: 0 },
+      { ...SHIRT_M, stock: 0 },
+    ]);
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    expect(screen.getByText("Out of stock")).toBeVisible();
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+    // A disabled tile opens nothing.
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("still sells the product when one variant remains", () => {
+    catalog.all.mockReturnValue([{ ...SHIRT_S, stock: 0 }, SHIRT_M]);
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    // The gone one is offered but not tappable.
+    expect(screen.getByText("Black / S").closest("button")).toBeDisabled();
+    expect(screen.getByText("Black / M").closest("button")).toBeEnabled();
+  });
+
+  it("closes on Escape without adding anything", () => {
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    expect(cartLines()).toHaveLength(0);
+  });
+
+  describe("a scan is the one thing the picker does not swallow", () => {
+    // The wedge reads a burst of keystrokes off `window`, which this harness
+    // does not drive — so the rule is pinned where it lives, as a boolean,
+    // exactly as `shouldRefocusPosSearch` above is.
+    const overlays = {
+      tendering: false,
+      disambiguating: false,
+      cameraOpen: false,
+      layoutOpen: false,
+      receiptOpen: false,
+      variantPickerOpen: false,
+    };
+
+    it("lets a scan through while the variant picker is open", () => {
+      // ★ The cashier has the item in hand: its barcode settles the variant
+      // better than tapping does, and swallowing the digits would leave them
+      // going nowhere on the screen whose purpose is choosing a SKU.
+      expect(shouldBlockPosScan({ ...overlays, variantPickerOpen: true })).toBe(
+        false,
+      );
+    });
+
+    it.each([
+      ["tendering", { tendering: true }],
+      ["disambiguating a shared barcode", { disambiguating: true }],
+      ["the camera scanner", { cameraOpen: true }],
+      ["the layout editor", { layoutOpen: true }],
+      ["a receipt", { receiptOpen: true }],
+    ])("still swallows a scan during %s", (_label, over) => {
+      // Each of these owns a decision a stray burst of digits would corrupt.
+      expect(shouldBlockPosScan({ ...overlays, ...over })).toBe(true);
+    });
+
+    it("blocks when another overlay is open even with the picker up", () => {
+      expect(
+        shouldBlockPosScan({
+          ...overlays,
+          variantPickerOpen: true,
+          tendering: true,
+        }),
+      ).toBe(true);
+    });
+
+    it("allows a scan with nothing open at all", () => {
+      expect(shouldBlockPosScan(overlays)).toBe(false);
+    });
+  });
+
+  it("opens the picker without touching the cart", () => {
+    // Opening it is not a decision: nothing is added until a variant is
+    // chosen, so a mis-tap costs one Escape and no correction at the till.
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+    expect(screen.getByRole("dialog")).toBeVisible();
+    expect(cartLines()).toHaveLength(0);
   });
 });

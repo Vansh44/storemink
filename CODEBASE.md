@@ -1930,7 +1930,8 @@ wholesip/
 │                              # content from published Help guides (docs/help-centre.md);
 │                              # 0094 corrects the in-store sale guide and 0095 makes every
 │                              # customer phone E.164;
-│                              # 0096 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0096 documents the parent-first register catalogue;
+│                              # 0097 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -5237,6 +5238,56 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
         stock and the default gained one it never had, silently, compounding
         per cancellation. Online orders reserve against the default and keep the
         wrapper. Both branches are regression-tested.
+      - **★★ THE CATALOGUE IS PARENT-PRODUCT-FIRST** (`lib/pos/catalog-groups.ts`,
+        pure + tested). The catalogue query is a LEFT JOIN over products and
+        variants, so every sellable SKU came back as its own row and the idle
+        grid rendered each as its own tile: measured on local data, 74 products
+        with 64 variants filled **115 tiles**, and twenty products in five sizes
+        would fill a hundred tiles with twenty things a cashier is looking for.
+        `groupForGrid` folds runs of one product's variants into a single tile
+        carrying the derived name, image, **summed stock at this location** and
+        a price range; tapping it opens a picker showing each option's price,
+        stock and SKU, and one tap adds that exact SKU.
+        - **★★ GROUPING IS PRESENTATION ONLY.** `PosCatalogItem` stays one row
+          per SKU, `itemKey` stays `productId:variantId`, a cart line stays a
+          SKU and `placePosSale` is untouched — so this cannot change what is
+          charged or reserved, and the IndexedDB cache keeps its shape, which
+          means **no `SCHEMA_VERSION` bump and no till forced to re-sync**. A
+          product with variants has NO parent row to show, which is why the
+          tile is derived rather than looked up.
+        - **★★ SEARCH AND SCAN DELIBERATELY BYPASS IT.** `searchLocal` already
+          scores `"${name} ${variantName}"` plus exact SKU and barcode, and
+          `byBarcode` already resolves exact SKUs — both were correct before
+          this change. Grouping them would have ADDED a tap to the two fastest
+          paths in the shop, so `trimmedQuery` is the switch: results stay
+          SKU-level tiles that add on one tap.
+        - **★★ THE PICKER IS THE ONE OVERLAY THAT DOES NOT SWALLOW A SCAN**
+          (`shouldBlockPosScan`, pure + exported for `shouldRefocusPosSearch`'s
+          reason — a single boolean that is easy to get wrong and invisible in
+          a rendered DOM). Every other overlay owns a decision a stray burst of
+          digits would corrupt; here a scan is the cashier taking a faster
+          route to the same end, so `runScan` dismisses the picker and proceeds.
+          ⚠ `overlayOpen` (focus suppression) and `scanBlocked` are therefore
+          SEPARATE — they were one variable, and collapsing them again silently
+          re-breaks this.
+        - **★ SOLD OUT ONLY WHEN EVERYTHING BEHIND THE TILE IS**, reusing
+          `isOutOfStock` so the greying and the sold-out-last ordering agree.
+          One in-stock option keeps the tile live; the gone options are listed
+          but not tappable. ⚠ Group stock is **null when nothing behind it is
+          tracked** and must not render as "0 in stock", which would tell a
+          cashier a made-to-order product had run out; a mixed product sums only
+          the tracked options, so the figure is a floor.
+        - **★★ THE LAYOUT IS THE PER-PRODUCT ESCAPE HATCH, so no setting was
+          added** (owner's decision, 2026-09-11). `pos_layouts` entries are
+          already SKU-level and the editor still receives the flat list, so a
+          manager can say what belongs on the grid: nothing laid out groups
+          everything, ONE placed variant is its own tile, TWO OR MORE group
+          behind one tile. ⚠ The threshold is **two or more, not all**: with
+          "all", a manager who had placed every variant would get a grouped tile
+          until somebody created one more, at which point the layout held five of
+          six and the tile would silently explode into five cards because of an
+          unrelated product edit. `layoutCoverage` still counts SKUs, which is
+          still the right figure — every option behind a tile is reachable.
       - **★★ HOLD A SALE** (`lib/pos/park.ts` pure, `pos-park-actions.ts`,
         `supabase/pos_14_parked_sales.sql`, applied). Suspend the
         cart, serve the next customer, bring it back.
