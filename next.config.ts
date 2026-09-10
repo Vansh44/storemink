@@ -14,7 +14,23 @@ const nextConfig: NextConfig = {
   // into every server trace. This also puts them in .next/standalone for Cloud
   // Run. Harmless on Node hosts.
   outputFileTracingIncludes: {
-    "/**": ["./brand/tasks/**", "./docs/mink-ai-system-prompt.md"],
+    // ★★ `@img/**` IS SHARP'S NATIVE LIBRARY, and tracing misses it on its
+    // own: sharp's `.node` binding dlopens `libvips-cpp.so` from a sibling
+    // package at runtime, so nothing in the import graph mentions it. Left out,
+    // sharp fails at MODULE LOAD — which no route can catch — and takes
+    // /api/upload, the OG-image proxy and Mink's image input with it (observed
+    // on production 2026-09-10). Traced under "/**" because those three live in
+    // unrelated route groups; standalone assembles one node_modules, so this
+    // costs image size once rather than per route.
+    // ⚠ The Dockerfile ALSO copies these from its `npm ci` stage. That is the
+    // fix that cannot be defeated by a tracer heuristic; this one is what
+    // serves a host that builds without the Dockerfile.
+    "/**": [
+      "./brand/tasks/**",
+      "./docs/mink-ai-system-prompt.md",
+      "./node_modules/sharp/**",
+      "./node_modules/@img/**",
+    ],
     "/api/mink/input": [
       "./scripts/mink-pdf-check.cjs",
       "./node_modules/pdf-lib/**",
