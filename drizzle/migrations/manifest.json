@@ -4234,6 +4234,68 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260911_0094_pos_customer_lookup_help",
+      "description": "Correct the in-store sale guide for customer recognition and the new detail fields",
+      "file": "sql/20260911_0094_pos_customer_lookup_help.sql",
+      "transaction": true,
+      "requires": ["20260910_0093_help_centre_operator_content_removal"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "In-store sale guide describes recognition and the detail fields",
+            "sql": "select count(*)::text from public.help_articles where slug='process-an-in-store-sale' and status='published' and category_id is not null and body not like '%creates and attaches a phone-only customer automatically%' and body not like '%Skip%' and body like '%whether that customer was recorded at the till or created their own account online%' and body like '%asks for their first name before you can continue%' and body like '%no longer records a number on its own%' and body like '%joins the existing record instead of starting a new one%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260911_0095_canonical_customer_phone",
+      "description": "Store every customer phone as E.164 and document the register's country code",
+      "file": "sql/20260911_0095_canonical_customer_phone.sql",
+      "transaction": true,
+      "requires": ["20260911_0094_pos_customer_lookup_help"],
+      "verify": {
+        "tables": ["users", "help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Every customer phone without an E.164 twin now carries its country code",
+            "sql": "select count(*)::text from public.users u where u.phone !~ '^[+]' and not exists (select 1 from public.users t where t.store_id = u.store_id and t.phone = '+91' || regexp_replace(u.phone, '^(0|91)', ''))",
+            "equals": "0"
+          },
+          {
+            "name": "In-store sale guide explains the country code",
+            "sql": "select count(*)::text from public.help_articles where slug='process-an-in-store-sale' and status='published' and category_id is not null and body not like '%10-digit mobile number. The box accepts digits only.%' and body like '%change the country code beside it first%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260911_0096_pos_variant_picker_help",
+      "description": "Document the register's one-tile-per-product catalogue and variant picker",
+      "file": "sql/20260911_0096_pos_variant_picker_help.sql",
+      "transaction": true,
+      "requires": ["20260911_0095_canonical_customer_phone"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Variant picker guidance published",
+            "sql": "select count(*)::text from public.help_articles where slug='process-an-in-store-sale' and status='published' and category_id is not null and body like '%<h2>Finding a product with options</h2>%' and body like '%one tile per product%' and body like '%Searching and scanning skip this step%' and body like '%only greyed out when every option has run out%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

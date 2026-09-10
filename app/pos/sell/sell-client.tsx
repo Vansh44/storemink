@@ -21,11 +21,13 @@ import {
   Database,
   LayoutGrid,
   ShoppingCart,
+  ChevronRight,
 } from "lucide-react";
 import {
   confirmPosGatewayPayment,
   lookupProducts,
   placePosSale,
+  createPosCheckoutCustomer,
   resolvePosCustomerByPhone,
   startPosGatewayPayment,
   verifyManagerPin,
@@ -52,6 +54,11 @@ import {
   layoutCoverage,
   type LayoutEntry,
 } from "@/lib/pos/catalog-index";
+import {
+  groupForGrid,
+  groupPriceLabel,
+  type GridEntry,
+} from "@/lib/pos/catalog-groups";
 import {
   getPosLayout,
   resetPosLayout,
@@ -101,6 +108,48 @@ export function shouldRefocusPosSearch(input: {
   );
 }
 
+/**
+ * Which overlays must swallow a hardware scan — and it is not all of them.
+ *
+ * ★★ THE VARIANT PICKER LETS A SCAN THROUGH, deliberately. Every other overlay
+ * owns a decision a stray burst of digits would corrupt: an amount being
+ * tendered, a barcode two SKUs share, a layout being edited. The picker is the
+ * one case where a scan is the cashier taking a FASTER route to the same end —
+ * they have the item in hand, so reading its barcode settles the variant
+ * better than tapping does. Swallowing it would leave the digits going nowhere
+ * on the one screen whose entire purpose is choosing a SKU.
+ *
+ * Pure and exported for the same reason `shouldRefocusPosSearch` is: the rule
+ * is a single boolean that is easy to get wrong and impossible to see in a
+ * rendered DOM.
+ */
+export function shouldBlockPosScan(input: {
+  tendering: boolean;
+  disambiguating: boolean;
+  cameraOpen: boolean;
+  layoutOpen: boolean;
+  receiptOpen: boolean;
+  variantPickerOpen: boolean;
+}): boolean {
+  return (
+    input.tendering ||
+    input.disambiguating ||
+    input.cameraOpen ||
+    input.layoutOpen ||
+    input.receiptOpen
+  );
+}
+
+/** ₹ for the grid and the picker — the cart has its own formatting. */
+const money = (n: number) => `₹${n.toLocaleString("en-IN")}`;
+
+/** A search result is already an exact SKU, so it becomes a tile as-is. */
+const skuEntry = (item: PosCatalogItem): GridEntry => ({
+  kind: "sku",
+  key: `s:${item.productId}:${item.variantId ?? ""}`,
+  item,
+});
+
 export function SellClient({
   config,
   initialItems,
@@ -135,6 +184,13 @@ export function SellClient({
   const [saleId, setSaleId] = useState<string | null>(null);
   // Disambiguation when one barcode maps to several variants.
   const [choices, setChoices] = useState<PosCatalogItem[] | null>(null);
+  // The variant picker. Kept SEPARATE from `choices` above, which disambiguates
+  // a barcode two SKUs share: that one is a mistake to resolve, this one is a
+  // choice to make, and they want different copy.
+  const [variantsFor, setVariantsFor] = useState<Extract<
+    GridEntry,
+    { kind: "group" }
+  > | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
   // Customer is resolved once, by exact mobile, after Charge is selected.
   const [exchangeActive, setExchangeActive] =
@@ -336,7 +392,31 @@ export function SellClient({
   // customer mobile) and pulling focus out from under it 80 ms later would make
   // that field impossible to type in.
   const overlayOpen =
-    tendering || !!choices || cameraOpen || layoutOpen || !!saleId;
+    tendering ||
+    !!choices ||
+    !!variantsFor ||
+    cameraOpen ||
+    layoutOpen ||
+    !!saleId;
+  /**
+   * Overlays that must swallow a scan, which is NOT all of them.
+   *
+   * ★ THE VARIANT PICKER LETS A SCAN THROUGH, deliberately. Every other
+   * overlay owns a decision the scan would corrupt — an amount being tendered,
+   * a barcode two SKUs share. The picker is the one case where a scan is the
+   * cashier choosing a FASTER route to the same end: they have the item in
+   * hand, so reading its barcode settles the variant better than tapping does.
+   * Swallowing it would leave the digits going nowhere on the screen whose
+   * whole purpose is picking a SKU.
+   */
+  const scanBlocked = shouldBlockPosScan({
+    tendering,
+    disambiguating: !!choices,
+    cameraOpen,
+    layoutOpen,
+    receiptOpen: !!saleId,
+    variantPickerOpen: !!variantsFor,
+  });
   const refocus = useCallback(() => {
     // During hydration useSyncExternalStore briefly exposes its server
     // snapshot (`false`). Re-check the live media query before focusing, or a
@@ -410,6 +490,9 @@ export function SellClient({
   const runScan = useCallback(
     async (code: string) => {
       setError(null);
+      // A scan settles the variant question outright, so the picker steps
+      // aside rather than sitting over the cart the scan just changed.
+      setVariantsFor(null);
       // Local first: this is the path that makes a scan land in the cart in
       // <50 ms with no network at all.
       if (catalog.ready && resolveScan(catalog.scan(code))) return;
@@ -438,10 +521,22 @@ export function SellClient({
   // tile is the focused element, and both Space and Enter activate a focused
   // button — so an unhandled scan would ring up the tapped product a second
   // time instead of the scanned one.
+  // Escape closes the variant picker. The other overlays predate this and
+  // each has its own close control; adding it here would change their
+  // behaviour, so this is scoped to the one screen it was added with.
+  useEffect(() => {
+    if (!variantsFor) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setVariantsFor(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [variantsFor]);
+
   useEffect(() => {
     const wedge = createKeyboardWedge();
     const onKey = (e: KeyboardEvent) => {
-      if (overlayOpen) return;
+      if (scanBlocked) return;
       // A shortcut or a paste is not a scan.
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (isEditableTarget(e.target)) return;
@@ -452,7 +547,7 @@ export function SellClient({
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [overlayOpen, runScan]);
+  }, [scanBlocked, runScan]);
 
   // Browse-as-you-type. Against the local index the grid is DERIVED, not
   // stored: recomputing during render costs ~1 ms at a few thousand SKUs and
@@ -483,6 +578,19 @@ export function SellClient({
     serverItems,
     layout,
   ]);
+
+  /**
+   * The tiles the idle grid shows.
+   *
+   * ★★ GROUPED ONLY WHEN IDLE. A search result and a scan both already resolve
+   * an exact SKU, and putting a variant picker in front of a typed "black
+   * medium" or a scanned barcode would add a tap to the two fastest paths in
+   * the shop. `trimmedQuery` is therefore the switch, not a setting.
+   */
+  const entries = useMemo(
+    () => (trimmedQuery ? items.map(skuEntry) : groupForGrid(items)),
+    [items, trimmedQuery],
+  );
 
   const coverage = useMemo(
     () => layoutCoverage(catalog.ready ? catalog.all() : serverItems, layout),
@@ -992,14 +1100,29 @@ export function SellClient({
               )}
 
               <div className="pos-scroll-area grid min-h-0 flex-1 auto-rows-max grid-cols-2 gap-2 overflow-y-auto overscroll-contain sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6">
-                {items.map((it) => {
-                  const out = isOutOfStock(it);
+                {entries.map((entry) => {
+                  const grouped = entry.kind === "group";
+                  const it = grouped ? entry.variants[0] : entry.item;
+                  const out = grouped ? entry.soldOut : isOutOfStock(it);
+                  const name = grouped ? entry.name : it.name;
+                  const image = grouped ? entry.image : it.image;
+                  const stock = grouped ? entry.stock : it.stock;
+                  const tracked = grouped
+                    ? entry.stock !== null
+                    : it.trackInventory;
+                  const price = grouped
+                    ? groupPriceLabel(entry, money)
+                    : money(it.price);
                   return (
                     <button
-                      key={lineKey(it.productId, it.variantId)}
+                      key={entry.key}
                       type="button"
                       disabled={out}
-                      onClick={() => addItem(it)}
+                      // One tap for a product that has nothing to choose;
+                      // a picker only where there is a choice to make.
+                      onClick={() =>
+                        grouped ? setVariantsFor(entry) : addItem(it)
+                      }
                       className="flex flex-col rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] p-2 text-left transition-colors hover:bg-[var(--pos-surface-2)] disabled:opacity-40"
                     >
                       {/* Photos make the grid scannable by eye for items without a
@@ -1008,10 +1131,10 @@ export function SellClient({
                       ~350px and pushed the price below the fold, so the cashier
                       scrolled to find what should be one tap away. */}
                       <div className="mb-2 h-24 w-full overflow-hidden rounded-lg bg-[var(--pos-surface)] sm:h-28">
-                        {it.image ? (
+                        {image ? (
                           // eslint-disable-next-line @next/next/no-img-element
                           <img
-                            src={it.image}
+                            src={image}
                             alt=""
                             loading="lazy"
                             className="h-full w-full object-cover"
@@ -1023,27 +1146,33 @@ export function SellClient({
                         )}
                       </div>
                       <span className="line-clamp-2 text-sm font-medium">
-                        {it.name}
+                        {name}
                       </span>
-                      {it.variantName && (
+                      {grouped ? (
                         <span className="text-xs text-[var(--pos-ink-2)]">
-                          {it.variantName}
+                          {entry.variants.length} options
                         </span>
+                      ) : (
+                        it.variantName && (
+                          <span className="text-xs text-[var(--pos-ink-2)]">
+                            {it.variantName}
+                          </span>
+                        )
                       )}
                       <span className="mt-auto pt-2 font-semibold">
-                        ₹{it.price.toLocaleString("en-IN")}
+                        {price}
                       </span>
                       <span className="text-[11px] text-[var(--pos-ink-3)]">
                         {out
                           ? "Out of stock"
-                          : it.trackInventory
-                            ? `${it.stock} in stock`
+                          : tracked
+                            ? `${stock} in stock`
                             : ""}
                       </span>
                     </button>
                   );
                 })}
-                {items.length === 0 && !searching && (
+                {entries.length === 0 && !searching && (
                   <p className="col-span-full py-10 text-center text-sm text-[var(--pos-ink-3)]">
                     No products match.
                   </p>
@@ -1327,6 +1456,153 @@ export function SellClient({
         </aside>
       </div>
 
+      {/*
+        Variant picker.
+        ★ SEPARATE FROM THE DISAMBIGUATION OVERLAY BELOW, which looks similar
+        and answers a different question. That one resolves a mistake — two
+        SKUs sharing a supplier barcode — and its copy says so. This one is an
+        ordinary choice, and it is the only screen between a grouped tile and
+        the cart, so it shows everything needed to make that choice without a
+        second look: option name, price, stock at this register, and the SKU.
+      */}
+      {variantsFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4"
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Choose an option for ${variantsFor.name}`}
+          onClick={() => setVariantsFor(null)}
+        >
+          <div
+            className="flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-[var(--pos-surface)] shadow-[0_-8px_40px_rgba(0,0,0,0.35)] sm:rounded-2xl sm:shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {/* The product, so a cashier who mis-tapped sees it immediately
+                rather than reading the options to work out where they are. */}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--pos-border)] p-4">
+              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--pos-surface-2)]">
+                {variantsFor.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={variantsFor.image}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-[var(--pos-ink-3)]">
+                    <Package className="h-6 w-6" strokeWidth={1.5} />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-base font-semibold leading-tight">
+                  {variantsFor.name}
+                </h2>
+                <p className="mt-0.5 text-xs text-[var(--pos-ink-2)]">
+                  {variantsFor.variants.length} options ·{" "}
+                  {groupPriceLabel(variantsFor, money)}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setVariantsFor(null)}
+                className="-mr-1 shrink-0 rounded-lg p-2 text-[var(--pos-ink-2)] transition-colors hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-ink)]"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {/* Its own scroller: thirty variants must not push the close
+                button off a till screen. */}
+            <div className="pos-scroll-area min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+              <ul className="space-y-1.5">
+                {variantsFor.variants.map((v) => {
+                  const out = isOutOfStock(v);
+                  return (
+                    <li key={lineKey(v.productId, v.variantId)}>
+                      <button
+                        type="button"
+                        disabled={out}
+                        // One tap adds the exact SKU and closes: the picker is
+                        // a step on the way to the cart, not a place to linger.
+                        onClick={() => {
+                          addItem(v);
+                          setVariantsFor(null);
+                        }}
+                        className="group flex w-full items-center gap-3 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] p-2.5 text-left transition-colors hover:border-[var(--pos-border-strong)] hover:bg-[var(--pos-surface-2)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[var(--pos-border)] disabled:hover:bg-[var(--pos-surface)]"
+                      >
+                        {/* Variants routinely differ by colour or pack size,
+                            which a name alone does not convey. `image` already
+                            falls back to the product's, so every row has one. */}
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[var(--pos-surface-2)]">
+                          {v.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={v.image}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[var(--pos-ink-3)]">
+                              <Package className="h-5 w-5" strokeWidth={1.5} />
+                            </div>
+                          )}
+                        </div>
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">
+                            {v.variantName ?? v.name}
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            {/* Colour is spent only on the answer that stops a
+                                sale. A quiet figure for everything else keeps
+                                the row scannable. */}
+                            {out ? (
+                              <span className="rounded-md bg-[var(--pos-danger-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--pos-danger)]">
+                                Sold out
+                              </span>
+                            ) : v.trackInventory ? (
+                              <span className="text-[11px] text-[var(--pos-ink-2)]">
+                                {v.stock} in stock
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-[var(--pos-ink-3)]">
+                                Stock not tracked
+                              </span>
+                            )}
+                            {v.sku && (
+                              <span className="truncate font-mono text-[10px] uppercase tracking-wide text-[var(--pos-ink-3)]">
+                                {v.sku}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <span className="text-base font-semibold tabular-nums">
+                            {money(v.price)}
+                          </span>
+                          <ChevronRight
+                            className="h-4 w-4 text-[var(--pos-ink-3)] transition-colors group-hover:text-[var(--pos-ink-2)] group-disabled:opacity-0"
+                            strokeWidth={2}
+                          />
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+
+            <p className="shrink-0 border-t border-[var(--pos-border)] px-4 py-2.5 text-center text-[11px] text-[var(--pos-ink-3)]">
+              Scanning the item&apos;s barcode adds it without choosing here.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Duplicate-barcode disambiguation */}
       {choices && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
@@ -1435,12 +1711,20 @@ export function SellClient({
           customer={customer}
           customerLocked={!!exchangeActive}
           onCustomer={setCustomer}
-          onResolveCustomer={async (mobile) => {
-            const result = await resolvePosCustomerByPhone(mobile);
+          onResolveCustomer={async (mobile, dial) => {
+            const result = await resolvePosCustomerByPhone(mobile, dial);
             // ★ Re-price the moment the customer is known. Their per-customer
             // offer caps could not be resolved when the register opened, so
             // without this the till keeps quoting an offer the server will
             // refuse at completion — with the customer watching.
+            setExhaustedOfferIds(result.exhaustedOfferIds ?? []);
+            setIsFirstOrder(result.isFirstOrder ?? null);
+            return result;
+          }}
+          onCreateCustomer={async (input) => {
+            const result = await createPosCheckoutCustomer(input);
+            // Same reason as the lookup above: the quote must know what the
+            // charge will know.
             setExhaustedOfferIds(result.exhaustedOfferIds ?? []);
             setIsFirstOrder(result.isFirstOrder ?? null);
             return result;

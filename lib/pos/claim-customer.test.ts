@@ -44,6 +44,20 @@ describe("claimPosCustomer", () => {
     await expect(claimPosCustomer(INPUT)).resolves.toEqual({ claimed: true });
   });
 
+  it("looks for both phone shapes the code has written", async () => {
+    // ★★ WHY. Website signup wrote Identity Platform's E.164 straight through
+    // while the till writes the national form, so a till row could be stored
+    // in either shape depending on when it was made. Matching only one meant
+    // the claim silently never fired for the other, and the shopper got a
+    // second row with none of their in-store history.
+    execute.mockResolvedValue({ rowCount: 1, rows: [{ id: "pos_abc" }] });
+    await claimPosCustomer(INPUT);
+    const sent = lastSql();
+    // Both shapes are bound, canonical first.
+    expect(sent).toContain("9876543210");
+    expect(sent).toContain("+919876543210");
+  });
+
   it("does nothing when no unclaimed till row exists for that phone", async () => {
     execute.mockResolvedValue({ rowCount: 0, rows: [] });
     await expect(claimPosCustomer(INPUT)).resolves.toEqual({ claimed: false });

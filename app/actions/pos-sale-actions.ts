@@ -45,9 +45,15 @@ import {
 import { withService } from "@/lib/db/client";
 import { dbErrorMessage, isUniqueViolation } from "@/lib/db/errors";
 import {
+  DEFAULT_PHONE_DIAL,
+  phoneLengthHint,
+  resolveEnteredPhone,
+  storedPhoneVariants,
+} from "@/lib/phone";
+import {
   newPosCustomerId,
-  normalizePhone,
   splitName,
+  validatePosCheckoutDetails,
   validatePosCustomer,
   type PosCustomerInput,
 } from "@/lib/pos/customer-claim";
@@ -794,48 +800,120 @@ export interface PosCustomer {
 }
 
 /**
- * Resolve the exact mobile entered at Checkout. This action is deliberately
- * submit-only: typing in the till never runs a query. If the number is new, a
- * claimable mobile-only customer is created immediately; a concurrent insert
- * safely falls through to the existing row via the store/mobile unique key.
+ * The one message for a number that cannot be stored.
+ *
+ * ★ IT NAMES A LENGTH, NOT A COUNTRY. It used to read "Enter a valid 10-digit
+ * Indian mobile number" for every failure, which is wrong as soon as the
+ * register accepts another country's code — and it was also what a cashier saw
+ * for a perfectly well-formed placeholder number that only the courier cared
+ * about.
  */
-export async function resolvePosCustomerByPhone(mobile: string): Promise<{
-  customer?: PosCustomer;
-  created?: boolean;
-  /**
-   * Offers this customer has already used up.
-   *
-   * ★ RIDES ALONG WITH THE LOOKUP RATHER THAN TAKING ITS OWN ROUND TRIP, the
-   * same reasoning as `storeCredit` above. A register opens with nobody
-   * attached, so a per-customer offer cap cannot be resolved then — and
-   * without this the till would keep quoting an offer the server refuses at
-   * completion, in front of the customer.
-   */
+function numberLengthError(dial: string): string {
+  const hint = phoneLengthHint(dial);
+  return hint
+    ? `Enter the ${hint}-digit number for ${dial}.`
+    : "Choose a country code and enter the number.";
+}
+
+/** The extras a resolved customer carries, so the quote matches the charge. */
+type PosCustomerContext = {
   exhaustedOfferIds?: string[];
-  /**
-   * Whether this is the customer's first order here.
-   *
-   * ★ THE SAME REASON `exhaustedOfferIds` RIDES ALONG. A register opens with
-   * nobody attached, so a first-order offer cannot be resolved then — and
-   * without this the till would quote a total WITHOUT the new-customer
-   * discount while `placePosSale` charges WITH it, so the screen and the sale
-   * would disagree. `lib/pos/totals.ts` exists precisely to stop that
-   * (CODEBASE §22), and the fix is to give the quote the same fact the charge
-   * has, not to let the two diverge and hope the difference is favourable.
-   *
-   * `undefined` on a failed read, which the engine treats as not-first — the
-   * fail-closed direction.
-   */
   isFirstOrder?: boolean;
-  error?: string;
-}> {
+};
+
+/**
+ * Read the offer caps and first-order state a resolved customer needs.
+ *
+ * ★ RIDES ALONG WITH THE LOOKUP RATHER THAN TAKING ITS OWN ROUND TRIP. A
+ * register opens with nobody attached, so a per-customer offer cap and a
+ * first-order discount cannot be resolved then — and without these the till
+ * would quote an offer the server refuses at completion, or a total WITHOUT
+ * the new-customer discount while `placePosSale` charges WITH it. That is the
+ * divergence `lib/pos/totals.ts` exists to prevent (CODEBASE §22).
+ *
+ * Both halves fail silently to the closed direction: the atomic reservation
+ * still refuses at completion, and neither may ever block attaching a
+ * customer to a sale.
+ */
+async function posCustomerContext(
+  storeId: string,
+  customerId: string,
+): Promise<PosCustomerContext> {
+  const [exhaustedOfferIds, firstOrder] = await Promise.all([
+    loadExhaustedOfferIds(storeId, customerId),
+    withService((db) => loadFirstOrderState(db, storeId, customerId)).catch(
+      () => false,
+    ),
+  ]);
+  return { exhaustedOfferIds, isFirstOrder: firstOrder === true };
+}
+
+const posCustomerColumns = {
+  id: users.id,
+  phone: users.phone,
+  email: users.email,
+  first_name: users.firstName,
+  last_name: users.lastName,
+  store_credit: customerCreditBalances.balance,
+};
+
+function posCustomerFrom(row: {
+  id: string;
+  phone: string;
+  email: string | null;
+  first_name: string | null;
+  last_name: string | null;
+  store_credit: unknown;
+}): PosCustomer {
+  return {
+    id: row.id,
+    name:
+      [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
+      row.phone,
+    phone: row.phone,
+    email: row.email,
+    storeCredit: Number(row.store_credit) || 0,
+  };
+}
+
+/**
+ * Look up the exact mobile entered at Checkout. Deliberately submit-only:
+ * typing in the till never runs a query.
+ *
+ * ★★ IT NO LONGER CREATES ANYTHING. It used to insert a phone-only customer
+ * the moment a number did not match, which is why a shop ended up with
+ * "Customer / no email" rows beside the same person's real account: the
+ * lookup could not see an account stored in the other phone shape (see
+ * `storedPhoneVariants`), so it invented a duplicate instead of finding them.
+ * Creation now belongs to `createPosCheckoutCustomer`, after the cashier has
+ * had the chance to put a name to the number.
+ *
+ * @returns the customer when the number is known, or `notFound` so the caller
+ * can collect their details. `notFound` is NOT an error: a number nobody has
+ * bought with before is the ordinary case for a new shopper.
+ */
+export async function resolvePosCustomerByPhone(
+  mobile: string,
+  dial: string = DEFAULT_PHONE_DIAL,
+): Promise<
+  {
+    customer?: PosCustomer;
+    /** True when no customer of this store has this number yet. */
+    notFound?: boolean;
+    error?: string;
+  } & PosCustomerContext
+> {
   const op = await resolvePosOperator();
   if (!op) return { error: "Not signed in." };
   if (!posCan(op.role, "sell")) return { error: "Not allowed." };
 
-  const phone = normalizePhone(mobile);
-  if (!phone) {
-    return { error: "Enter a valid 10-digit Indian mobile number." };
+  // Composed here so the lookup asks for the same canonical value a create
+  // would write. Nothing rejects placeholder digits: that is the carrier's
+  // rule (see normalizeIndianMobile), not this counter's.
+  const composed = resolveEnteredPhone(dial, mobile);
+  const phones = composed ? storedPhoneVariants(composed) : [];
+  if (phones.length === 0) {
+    return { error: numberLengthError(dial) };
   }
 
   const limited = await rateLimit(
@@ -846,103 +924,161 @@ export async function resolvePosCustomerByPhone(mobile: string): Promise<{
     return { error: "Too many customer lookups. Wait a moment and retry." };
   }
 
+  try {
+    const rows = await withService((db) =>
+      db
+        .select(posCustomerColumns)
+        .from(users)
+        .leftJoin(
+          customerCreditBalances,
+          and(
+            eq(customerCreditBalances.storeId, users.storeId),
+            eq(customerCreditBalances.customerId, users.id),
+          ),
+        )
+        .where(and(eq(users.storeId, op.storeId), inArray(users.phone, phones)))
+        // ★ A STORE MAY HOLD BOTH SHAPES FOR ONE PERSON, from before the shape
+        // was canonicalised. Prefer their real account over the till-invented
+        // row: it is the one carrying their name, email and online history,
+        // and it is the row a later signup has already claimed. Without an
+        // explicit order the winner would be whatever the planner returned
+        // first, so the same number could attach to a different row on two
+        // consecutive sales.
+        .orderBy(
+          sql`(${users.id} like 'pos\\_%') asc`,
+          sql`(${users.phone} = ${phones[0]}) desc`,
+        )
+        .limit(1),
+    );
+
+    const row = rows[0];
+    if (!row) return { notFound: true };
+    return {
+      customer: posCustomerFrom(row),
+      ...(await posCustomerContext(op.storeId, row.id)),
+    };
+  } catch (err) {
+    return { error: dbErrorMessage(err, "Couldn't resolve that customer.") };
+  }
+}
+
+/**
+ * Record a customer the till has just met, at Checkout.
+ *
+ * ★★ THE DETAILS ARE OPTIONAL, AND THAT IS DELIBERATE. A walk-in who will not
+ * give their name is still a sale (roadmap invariant 6), so the cashier can
+ * skip straight past this and the row is created phone-only exactly as before.
+ * What the fields buy is that a shopper who DOES give a name is recognised by
+ * name on their next visit, and that their later online signup lands on this
+ * row instead of creating a second one.
+ *
+ * ★ THE ROW GETS A `pos_…` ID, which is what makes it adoptable: it matches no
+ * Identity Platform uid, so it is invisible to every customer session until
+ * that person signs up with this number and `claimPosCustomer` rewrites the id
+ * to theirs (CODEBASE §36).
+ */
+export async function createPosCheckoutCustomer(input: {
+  mobile: string;
+  dial?: string;
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+}): Promise<
+  {
+    customer?: PosCustomer;
+    created?: boolean;
+    error?: string;
+  } & PosCustomerContext
+> {
+  const op = await resolvePosOperator();
+  if (!op) return { error: "Not signed in." };
+  if (!posCan(op.role, "sell")) return { error: "Not allowed." };
+
+  const dial = input.dial ?? DEFAULT_PHONE_DIAL;
+  const composed = resolveEnteredPhone(dial, input.mobile);
+  const phones = composed ? storedPhoneVariants(composed) : [];
+  if (!composed || phones.length === 0) {
+    return { error: numberLengthError(dial) };
+  }
+  // ★ THE CANONICAL FORM IS WHAT GETS WRITTEN. Legacy shapes are matched on
+  // the way in (above) but never created, so the column stops diverging.
+  const phone = composed;
+
+  const details = validatePosCheckoutDetails(input);
+  if (!details.ok) return { error: details.error };
+
+  const limited = await rateLimit(
+    `pos-customer-create:${op.storeId}:${op.staffId ?? op.locationId}`,
+    { max: 60, windowSeconds: 60 },
+  );
+  if (!limited.allowed) {
+    return { error: "Too many customer lookups. Wait a moment and retry." };
+  }
+
   const id = newPosCustomerId(() => crypto.randomUUID());
   try {
     const result = await withService(async (db) => {
-      const find = () =>
-        db
-          .select({
-            id: users.id,
-            phone: users.phone,
-            email: users.email,
-            first_name: users.firstName,
-            last_name: users.lastName,
-            store_credit: customerCreditBalances.balance,
-          })
-          .from(users)
-          .leftJoin(
-            customerCreditBalances,
-            and(
-              eq(customerCreditBalances.storeId, users.storeId),
-              eq(customerCreditBalances.customerId, users.id),
-            ),
-          )
-          .where(and(eq(users.storeId, op.storeId), eq(users.phone, phone)))
-          .limit(1);
-
-      const existing = await find();
-      if (existing[0]) return { row: existing[0], created: false };
-
       const inserted = await db
         .insert(users)
         .values({
           id,
           storeId: op.storeId,
           phone,
-          firstName: "",
-          lastName: null,
-          email: null,
+          firstName: details.firstName,
+          lastName: details.lastName,
+          email: details.email,
         } as typeof users.$inferInsert)
         .onConflictDoNothing()
         .returning({ id: users.id });
-      if (inserted[0]) {
-        return { row: null, created: true, createdId: inserted[0].id };
-      }
+      if (inserted[0]) return { createdId: inserted[0].id, row: null };
 
-      // Another till inserted the same phone after our read. The unique key is
-      // the arbiter; read its winner instead of showing a duplicate error.
-      const raced = await find();
-      return { row: raced[0] ?? null, created: false };
+      // Another till recorded the same number between the lookup and here, or
+      // this number already existed in the other phone shape. The unique key
+      // is the arbiter: read its winner rather than showing a duplicate error.
+      const raced = await db
+        .select(posCustomerColumns)
+        .from(users)
+        .leftJoin(
+          customerCreditBalances,
+          and(
+            eq(customerCreditBalances.storeId, users.storeId),
+            eq(customerCreditBalances.customerId, users.id),
+          ),
+        )
+        .where(and(eq(users.storeId, op.storeId), inArray(users.phone, phones)))
+        .orderBy(sql`(${users.id} like 'pos\\_%') asc`)
+        .limit(1);
+      return { createdId: null, row: raced[0] ?? null };
     });
 
-    if (result.created) {
+    if (result.createdId) {
       return {
         created: true,
         customer: {
-          id: result.createdId ?? id,
-          name: phone,
+          id: result.createdId,
+          name:
+            [details.firstName, details.lastName]
+              .filter(Boolean)
+              .join(" ")
+              .trim() || phone,
           phone,
-          email: null,
+          email: details.email,
           storeCredit: 0,
         },
-        // A customer created seconds ago has redeemed nothing and ordered
+        // Someone recorded seconds ago has redeemed nothing and ordered
         // nothing, so neither of these needs a read at all.
         exhaustedOfferIds: [],
         isFirstOrder: true,
       };
     }
-    const row = result.row;
-    if (!row) return { error: "Couldn't resolve that customer. Try again." };
+    if (!result.row)
+      return { error: "Couldn't save that customer. Try again." };
     return {
-      customer: {
-        id: row.id,
-        name:
-          [row.first_name, row.last_name].filter(Boolean).join(" ").trim() ||
-          row.phone,
-        phone: row.phone,
-        email: row.email,
-        storeCredit: Number(row.store_credit) || 0,
-      },
-      // Fails silently to an empty list on its own: the atomic reservation
-      // still refuses at completion, and this must never block attaching a
-      // customer to a sale.
-      // Both fail silently on their own: the atomic reservation still refuses
-      // at completion, and neither must ever block attaching a customer.
-      ...(await (async () => {
-        const [exhaustedOfferIds, firstOrder] = await Promise.all([
-          loadExhaustedOfferIds(op.storeId, row.id),
-          withService((db) =>
-            loadFirstOrderState(db, op.storeId, row.id),
-          ).catch(() => false),
-        ]);
-        return {
-          exhaustedOfferIds,
-          isFirstOrder: firstOrder === true,
-        };
-      })()),
+      customer: posCustomerFrom(result.row),
+      ...(await posCustomerContext(op.storeId, result.row.id)),
     };
   } catch (err) {
-    return { error: dbErrorMessage(err, "Couldn't resolve that customer.") };
+    return { error: dbErrorMessage(err, "Couldn't save that customer.") };
   }
 }
 
@@ -1055,24 +1191,38 @@ export async function createPosCustomer(
 
   const { first, last } = splitName(valid.name);
   const id = newPosCustomerId(() => crypto.randomUUID());
+  // ⚠ The unique key is on the phone STRING, and a number already on file may
+  // be stored in the E.164 shape written by website signup. Inserting the
+  // national form would NOT conflict with it, so without checking every shape
+  // first this creates the very duplicate the conflict path exists to avoid.
+  const phones = storedPhoneVariants(valid.phone);
 
   try {
-    const rows = await withService((db) =>
+    const already = await withService((db) =>
       db
-        .insert(users)
-        .values({
-          id,
-          storeId: op.storeId,
-          phone: valid.phone,
-          email: valid.email,
-          firstName: first,
-          lastName: last,
-        } as typeof users.$inferInsert)
-        // The phone is the identity here, so a conflict on it is "this person
-        // is already on file" — not an error to report.
-        .onConflictDoNothing()
-        .returning({ id: users.id }),
+        .select({ id: users.id })
+        .from(users)
+        .where(and(eq(users.storeId, op.storeId), inArray(users.phone, phones)))
+        .limit(1),
     );
+    const rows = already[0]
+      ? []
+      : await withService((db) =>
+          db
+            .insert(users)
+            .values({
+              id,
+              storeId: op.storeId,
+              phone: valid.phone,
+              email: valid.email,
+              firstName: first,
+              lastName: last,
+            } as typeof users.$inferInsert)
+            // The phone is the identity here, so a conflict on it is "this person
+            // is already on file" — not an error to report.
+            .onConflictDoNothing()
+            .returning({ id: users.id }),
+        );
 
     if (rows[0]) {
       return {
@@ -1098,7 +1248,8 @@ export async function createPosCustomer(
           last_name: users.lastName,
         })
         .from(users)
-        .where(and(eq(users.storeId, op.storeId), eq(users.phone, valid.phone)))
+        .where(and(eq(users.storeId, op.storeId), inArray(users.phone, phones)))
+        .orderBy(sql`(${users.id} like 'pos\\_%') asc`)
         .limit(1),
     );
     const row = existing[0];

@@ -24,17 +24,18 @@ cd "$(dirname "$0")/.."
 say() { printf '\n\033[1m== %s\033[0m\n' "$1"; }
 die() { printf '\n\033[31mFAILED: %s\033[0m\n' "$1" >&2; exit 1; }
 
-# Read ONE value out of .env rather than sourcing it. Two reasons: sourcing
-# executes the file (a value containing backticks or $(...) would run), and 12
-# lines in this .env are written `KEY =value` — dotenv trims the key so Next is
-# fine, but bash reads `KEY` as a command ("RESEND_API_KEY: command not found").
-env_value() {
-  sed -nE "s/^[[:space:]]*$1[[:space:]]*=[[:space:]]*//p" ./.env \
-    | head -1 | sed -E 's/^"(.*)"$/\1/; s/^'"'"'(.*)'"'"'$/\1/'
-}
-DB_PASSWORD=$(env_value DB_PASSWORD)
-[ -n "$DB_PASSWORD" ] || die "DB_PASSWORD not found in .env"
-export PGPASSWORD="$DB_PASSWORD"
+# ★★ NO PASSWORD IS READ FROM .env, and none is needed. This used to require
+# DB_PASSWORD there and export it as PGPASSWORD, which failed the script
+# outright once local dev moved that value into .env.local — for a variable
+# nothing here ever used:
+#
+#   * every STAGING call sets PGPASSWORD="$ADMIN_PW" explicitly, from
+#     CLOUDSQL_PROD_POSTGRES_PW via Secret Manager (step 2 below);
+#   * every LOCAL call is `-w` (never prompt) against :5544, which is a
+#     trust-auth Homebrew cluster — it connects with the wrong password and
+#     with no password at all.
+#
+# So the gate could only ever refuse to run; it could not make anything work.
 
 say "1/8 checking Application Default Credentials"
 gcloud auth application-default print-access-token >/dev/null 2>&1 \

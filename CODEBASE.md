@@ -1928,7 +1928,10 @@ wholesip/
 │                              # 0092 corrects Help for live dictation.
 │                              # 0093 removes operator-only, infrastructure and stale
 │                              # content from published Help guides (docs/help-centre.md);
-│                              # 0094 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0094 corrects the in-store sale guide and 0095 makes every
+│                              # customer phone E.164;
+│                              # 0096 documents the parent-first register catalogue;
+│                              # 0097 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -5235,6 +5238,61 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
         stock and the default gained one it never had, silently, compounding
         per cancellation. Online orders reserve against the default and keep the
         wrapper. Both branches are regression-tested.
+      - **★★ THE CATALOGUE IS PARENT-PRODUCT-FIRST** (`lib/pos/catalog-groups.ts`,
+        pure + tested). The catalogue query is a LEFT JOIN over products and
+        variants, so every sellable SKU came back as its own row and the idle
+        grid rendered each as its own tile: measured on local data, 74 products
+        with 64 variants filled **115 tiles**, and twenty products in five sizes
+        would fill a hundred tiles with twenty things a cashier is looking for.
+        `groupForGrid` folds runs of one product's variants into a single tile
+        carrying the derived name, image, **summed stock at this location** and
+        a price range; tapping it opens a picker showing each option's
+        thumbnail, price, stock and SKU, and one tap adds that exact SKU.
+        ★ The thumbnail matters more than it looks: variants routinely differ
+        by colour or pack size, which a name alone does not convey.
+        `mapCatalogRow` already resolved a variant's own `image_url` with a
+        fallback to the product's, so every row has one and the list does not
+        go ragged — only 2 of 64 local variants carry their own picture.
+        - **★★ GROUPING IS PRESENTATION ONLY.** `PosCatalogItem` stays one row
+          per SKU, `itemKey` stays `productId:variantId`, a cart line stays a
+          SKU and `placePosSale` is untouched — so this cannot change what is
+          charged or reserved, and the IndexedDB cache keeps its shape, which
+          means **no `SCHEMA_VERSION` bump and no till forced to re-sync**. A
+          product with variants has NO parent row to show, which is why the
+          tile is derived rather than looked up.
+        - **★★ SEARCH AND SCAN DELIBERATELY BYPASS IT.** `searchLocal` already
+          scores `"${name} ${variantName}"` plus exact SKU and barcode, and
+          `byBarcode` already resolves exact SKUs — both were correct before
+          this change. Grouping them would have ADDED a tap to the two fastest
+          paths in the shop, so `trimmedQuery` is the switch: results stay
+          SKU-level tiles that add on one tap.
+        - **★★ THE PICKER IS THE ONE OVERLAY THAT DOES NOT SWALLOW A SCAN**
+          (`shouldBlockPosScan`, pure + exported for `shouldRefocusPosSearch`'s
+          reason — a single boolean that is easy to get wrong and invisible in
+          a rendered DOM). Every other overlay owns a decision a stray burst of
+          digits would corrupt; here a scan is the cashier taking a faster
+          route to the same end, so `runScan` dismisses the picker and proceeds.
+          ⚠ `overlayOpen` (focus suppression) and `scanBlocked` are therefore
+          SEPARATE — they were one variable, and collapsing them again silently
+          re-breaks this.
+        - **★ SOLD OUT ONLY WHEN EVERYTHING BEHIND THE TILE IS**, reusing
+          `isOutOfStock` so the greying and the sold-out-last ordering agree.
+          One in-stock option keeps the tile live; the gone options are listed
+          but not tappable. ⚠ Group stock is **null when nothing behind it is
+          tracked** and must not render as "0 in stock", which would tell a
+          cashier a made-to-order product had run out; a mixed product sums only
+          the tracked options, so the figure is a floor.
+        - **★★ THE LAYOUT IS THE PER-PRODUCT ESCAPE HATCH, so no setting was
+          added** (owner's decision, 2026-09-11). `pos_layouts` entries are
+          already SKU-level and the editor still receives the flat list, so a
+          manager can say what belongs on the grid: nothing laid out groups
+          everything, ONE placed variant is its own tile, TWO OR MORE group
+          behind one tile. ⚠ The threshold is **two or more, not all**: with
+          "all", a manager who had placed every variant would get a grouped tile
+          until somebody created one more, at which point the layout held five of
+          six and the tile would silently explode into five cards because of an
+          unrelated product edit. `layoutCoverage` still counts SKUs, which is
+          still the right figure — every option behind a tile is reachable.
       - **★★ HOLD A SALE** (`lib/pos/park.ts` pure, `pos-park-actions.ts`,
         `supabase/pos_14_parked_sales.sql`, applied). Suspend the
         cart, serve the next customer, bring it back.
@@ -9066,117 +9124,204 @@ way — an entry there is a deliberate act, not a way to silence the guard.
 
 36. **Till-created customers, and the claim that adopts them** (roadmap Step 4).
     `lib/pos/customer-claim.ts` (pure) + `lib/pos/claim-customer.ts`
-    (server-only) + `supabase/pos_13_customer_claim.sql`.
-    - **★ THE PROBLEM WAS THE PRIMARY KEY.** `users.id` IS the Firebase uid and
-      uniqueness is `(store_id, phone)`, so a row the till invents for a walk-in
-      has no natural key — and that person's later online signup COLLIDES with
-      it. The register was therefore search-only: it could attach an existing
-      customer and never record a new one, so every walk-in was anonymous.
-    - **★ A `pos_<uuid>` ID IS THE WHOLE MECHANISM, AND IT DOES TWO JOBS.** It is
-      an id a signup can ADOPT — and because customer RLS is
-      `auth.uid() = users.id`, a `pos_…` id matches no Firebase uid, so the row
-      is invisible to every session with **no policy written for it**. Don't add
-      one; the id shape already does it.
-    - **★★ SIX FOREIGN KEYS, AND THAT IS WHY THERE IS A MIGRATION AT ALL.**
-      `orders`, `customer_addresses`, `product_reviews`, `blog_comments`,
-      `blogs.submitted_by` and `user_group_members` all reference `users.id`, all
-      NOT DEFERRABLE with ON UPDATE NO ACTION — so updating the parent first
-      orphans the children and updating the children first references an id that
-      does not exist yet. **Neither ordering works.** And the schema-free
-      alternative is worse: "insert the new row, repoint the children, delete the
-      `pos_` row" runs into **five of those six being ON DELETE CASCADE**, so
-      missing one table doesn't fail — it silently CASCADE-DELETES that
-      customer's ORDERS. `ON UPDATE CASCADE` makes adoption ONE statement and
-      makes a seventh FK added next year either cascade correctly or fail LOUDLY.
-      The migration ends with a guard that FAILS if any FK to `users.id` still
-      lacks it.
-    - **⚠ THREE CONSTRAINTS ARE NAMED AFTER A COLUMN THEY DO NOT USE.**
-      `product_reviews_customer_id_fkey`, `blog_comments_customer_id_fkey` and
-      `user_group_members_customer_id_fkey` all sit on **`user_id`** — leftovers
-      from the customers→users rename. Reading the column off the constraint NAME
-      is how the first version of this migration failed. Query
-      `pg_constraint.conkey`; never infer it from the name.
-    - **★★ THE CLAIM IS ONE STATEMENT WITH EVERY GUARD IN THE `WHERE`** —
-      store scope, the VERIFIED phone, `id LIKE 'pos\_%'`, `claimed_at IS NULL`,
-      and `NOT EXISTS` a row for this uid. Two signups racing on one walk-in row:
-      the loser matches zero rows and falls through to an ordinary insert. No
-      lock, no window. **`claimed_at IS NULL` alone is not enough** — a real
-      signup row has it NULL too (nothing backfills it), so without the id check
-      one account could take over another's history.
-    - **★★ THE CASCADE ONLY REACHES TABLES WITH A FOREIGN KEY, AND THREE THAT
-      HOLD A CUSTOMER ID HAVE NONE.** `customer_credit_balances`,
-      `customer_credit_ledger` and `notifications`/`notification_email_queue`
-      (plus `orders.collected_by`) carry a customer id with no FK, so the rewrite
-      sails straight past them. **The credit tables are the serious one: they
-      hold MONEY.** A walk-in refunded to store credit at the till (§29) and then
-      signing up would have their balance orphaned BY THEIR OWN SIGNUP — the
-      store's books still say it is owed and their profile shows zero, silently,
-      discovered by a complaint. `repointUnreferencedTables` moves them in the
-      SAME transaction, so a failed repoint rolls the whole claim back: no claim
-      at all beats one that moved the person and left their balance behind.
-      ⚠ That is a hand-written list, which is what `pos_13` exists to avoid —
-      keep it honest. A new table holding a customer id belongs behind a real FK,
-      or in that function; `claim-customer.test.ts` pins every table named there.
-      The risk is narrower than the one the migration replaced (these are
-      UPDATEs, so forgetting one orphans data rather than cascade-DELETING
-      somebody's orders) but orphaned money is still money.
-      `notification_preferences` is deliberately absent — the customer audience
-      has no preference layer (§24), so a `pos_` customer can never have a row.
-    - **★ AN EXISTING CUSTOMER ALREADY GETS AN EMAILED RECEIPT.**
-      `placePosSale` emits `order.placed`, and the fan-out resolves the attached
-      customer's saved address from `users`.
-    - **★★ A PHONE-ONLY CUSTOMER CAN GET ONE TOO**
-      (`lib/email/pos-receipt.ts`, Shopify's receipt-option idea). The optional
-      box is collapsed behind **Add receipt email or GSTIN** on Payment, and its
-      copy explicitly says that a receipt contact does not create or modify a
-      customer profile.
-      **It does NOT go through the notification spine**, deliberately: the spine
-      routes an EVENT to an identified customer's saved destination and cannot
-      represent a one-sale address. It is still a `sendEmail` call, so it lands in `email_logs`
-      like everything else and `send-coverage.test.ts` stays satisfied.
-      - **★ ONE RECEIPT, NEVER TWO.** `shouldSendDirectReceipt` (pure) fires
-        only where the fan-out will not — no attached customer, or an attached
-        customer with no address on file. `placePosSale` reads that address in
-        the SAME query as the ownership check, so it costs no extra round trip.
-      - **★ NEVER GATED ON, AND NEVER GATING.** A bad address is dropped, not
-        refused: this runs after the money is taken and the stock has moved, so
-        failing a sale over a typo in an optional field is the worst available
-        trade (invariant 6). Deferred with `after()` and never throws.
-      - **★ FROM THE STORE'S OWN SENDING DOMAIN** (`fromAddress`), not a
-        hardcoded one — a merchant on a custom domain would otherwise send from
-        an address Resend has no permission for and every receipt would bounce.
-      - **★ THE FIELD IS OPT-IN VIA ITS HANDLER**, so the collection counter —
-        which shares `TenderPanel` — is untouched: that order was placed online
-        and already carries an address.
-      - ⚠ **Not stored on the order.** `email_logs` is the record of what was
-        sent and to whom, and the subject carries the order ref. A future
-        "resend receipt" button would want `orders.receipt_email`; nothing needs
-        it yet.
-    - **★ THE PHONE COMES FROM THE VERIFIED AUTH IDENTITY, NEVER A FORM.** That
-      is the entire security boundary: a form-supplied phone would let anyone
-      type a stranger's number and inherit their in-store order history.
-      `normalizePhone` is shared by both ends, because if the till stores
-      "+91 98765 43210" and signup stores "9876543210" the claim never fires and
-      the customer silently gets two rows.
-    - **★ IT RUNS BEFORE THE UPSERT IN `updateCustomerProfile`, AND HAS TO.**
-      `(store_id, phone)` is UNIQUE, so without the claim first, signup fails
-      with a duplicate key for exactly the customers who have shopped here
-      before. Claiming turns that collision into the feature. A claimed row is
-      then an UPDATE, so `customer.signed_up` does NOT fire — correct: the store
-      already knows this person; what is new is the ACCOUNT.
-    - **★ NEVER THROWS, at both layers.** A failed claim costs a link to in-store
-      history; a thrown one would cost the shopper their signup.
-    - **★ A DUPLICATE PHONE ATTACHES, IT DOES NOT FAIL.** The submit-only action
-      reads an exact match before insert and catches a concurrent unique-key race
-      by re-reading its winner. The cashier never sees a duplicate error or has
-      to repeat a search.
-    - **★ `sell`, NOT A MANAGER GRANT.** Charge requires a submitted 10-digit
-      mobile and automatically resolves or creates the attached customer before
-      Payment. That identity is the basis for receipt history and store credit;
-      recording it is part of ringing up a sale.
-    - **Backfill: none.** Every existing row came from a real signup and is
-      claimed by definition, but `claimed_at` stays NULL rather than being
-      invented — nothing reads it to decide who may log in; the id shape does.
+    (server-only) + `supabase/pos_13_customer_claim.sql`. - **★★ AND FOR MONTHS THE PHONE WAS STORED IN TWO SHAPES, so none of the
+    machinery below could fire** (found in prod 2026-09-11 from a merchant
+    report). `upsertCustomerProfile` wrote Identity Platform's **E.164**
+    (`+919877542162`) straight through, while the till writes and searches for
+    `normalizeIndianMobile`'s **national** form (`9877542162`) —
+    and `(store_id, phone)` is UNIQUE on the STRING, so both happily coexist.
+    `lib/pos/customer-claim.ts` had documented the invariant this broke since
+    the day it was written — "★ IT MUST MATCH WHAT SIGNUP STORES, or the claim
+    never fires" — and signup did not match. Three consequences, and the third
+    is what made it self-sustaining:
+    (1) the till could not see a shopper who already had an account, so it
+    recorded a second, nameless `Customer` row for them (observed: `Rohan
+Sharma / +919877542162` beside `Customer / 9877542162`);
+    (2) that shopper's saved name, email and **store credit** were invisible at
+    the counter, so credit they had could not be spent;
+    (3) `claimPosCustomer` DID adopt a till row on signup — and then the very
+    next line of `upsertCustomerProfile` rewrote its phone back to E.164, so
+    the next in-store visit missed again and minted another duplicate. The
+    claim worked exactly once and then undid its own precondition.
+    **Fixed on both sides.** Signup now stores
+    `normalizeIndianMobile(user.phone) ?? user.phone` — the canonical form,
+    **falling back to the raw value rather than null**, because that helper
+    recognises Indian mobiles only and normalising unconditionally would drop
+    the phone of anyone who verified a foreign number (which cannot be typed
+    at an Indian till anyway, since the field caps at ten digits). And
+    `storedPhoneVariants` (`lib/phone.ts`) matches BOTH shapes wherever a
+    customer is looked up by phone — `resolvePosCustomerByPhone`,
+    `createPosCheckoutCustomer`, the legacy `createPosCustomer` and
+    `claimPosCustomer` — because rows written before the fix cannot be
+    rewritten in place: a store may already hold both shapes for one person,
+    so a migration normalising them would violate the unique key.
+    ⚠ **It deliberately carries only the two shapes the code actually
+    produced.** A matching rule is a claim that two strings are the same
+    person, so widening it on speculation is how one customer's history
+    reaches another's account.
+    ⚠ **EXISTING DUPLICATES ARE NOT MERGED**, and the claim cannot do it:
+    its guard is `not exists (select 1 from users u2 where u2.id = uid)`, so
+    it refuses precisely when the shopper already has an account — which is
+    this case. The till now attaches to the real account (the lookup orders
+    `pos_…` ids LAST, so a real account wins when both exist) and the stale
+    row goes inert, but merging one that already carries orders or credit is
+    a separate PK-rewrite operation that nobody has asked for yet. - **★ THE CHECKOUT ASKS WHO A NEW NUMBER BELONGS TO.**
+    `resolvePosCustomerByPhone` no longer INSERTS on a miss — that is what
+    filled a shop's customer list with nameless rows — it reports
+    `notFound`, and `createPosCheckoutCustomer` records the row after the
+    cashier has had the chance to add a first name, last name and email.
+    ★★ **E.164 IS THE ONE STORED SHAPE** (owner's decision, 2026-09-11).
+    The first fix chose the bare ten digits, because
+    `lib/pos/customer-claim.ts` described the column that way; the owner
+    reversed it on seeing the dashboard, and E.164 is the better answer — a
+    number carrying its country code is unambiguous, it is what a merchant
+    should read in the customer list, and **it is the only shape that can hold
+    a number from outside India at all**, so the ten digits would have capped
+    the product at one country. `lib/phone.ts` owns it: `PHONE_COUNTRIES` (a
+    curated 20-entry list, India first and default — a 240-entry picker is
+    slower than typing at a counter, and every entry needs a correct length
+    rule to be worth having), `toStoredPhone`, `parseStoredPhone`,
+    `resolveEnteredPhone`, `formatStoredPhone`, `storedPhoneVariants`.
+    ⚠ `parseStoredPhone` matches dial codes **LONGEST FIRST**: `+1` is a prefix
+    of every `+91…` string, so shortest-first would read an Indian number as a
+    North American one. ⚠ `resolveEnteredPhone` **composes before it parses**,
+    because a bare number looks Indian — parsing first would file a Singapore
+    customer under `+91` whenever their local number happened to be ten
+    digits. Migration `20260911_0095` folds the legacy rows over, **skipping
+    any row whose store already holds the E.164 twin**: those are the duplicate
+    customers, and rewriting one onto the other would either violate the unique
+    key or silently merge two people's history. It reports how many are left.
+    ★ **The register takes a country code**, defaulted to `+91`, with the
+    expected length following that choice; changing it clears the field,
+    because keeping ten digits under an eight-digit country leaves an OK button
+    that refuses without saying why.
+    ★★ **A PLACEHOLDER LIKE 8888888888 IS NOW ACCEPTED** (owner's decision,
+    2026-09-11). It was refused because `normalizeIndianMobile` refuses it —
+    but that is the **COURIER's** rule (Shiprocket cannot book one), borrowed
+    for customer identity where it does not belong: a shop recording a walk-in
+    is not booking a parcel. `normalizeIndianMobile` is UNCHANGED and still
+    refuses it at the shipping boundary; `parseStoredPhone` deliberately does
+    not, or a row already holding such a number could never be parsed, matched
+    or migrated. ⚠ The hazard the rejection guarded is real and has not
+    vanished — `(store_id, phone)` is UNIQUE, so two walk-ins both entered as
+    8888888888 land on ONE record — but the till now **shows the first
+    customer's name** when the number resolves, so a cashier sees they have the
+    wrong person instead of silently inheriting their history.
+    ★ **The error names a length, not a country.** "Enter a valid 10-digit
+    Indian mobile number" was shown for every failure, which is wrong the
+    moment another code is selectable, and was also what a cashier saw for a
+    well-formed number only the courier objected to.
+    ★ **A new number is announced as a customer gained**, not as a lookup that
+    failed: the details step leads with "New customer!" and the number, which
+    is also what makes the two extra fields read as a reason rather than a
+    chore.
+    ★★ **A FIRST NAME IS REQUIRED AND THERE IS NO SKIP** (owner's decision,
+    2026-09-11). A DELIBERATE OVERRIDE of roadmap invariant 6 — "a walk-in who
+    will not give their name is still a sale" — for the register only. It
+    shipped skippable on invariant 6's reasoning and the owner reversed it
+    after seeing the screen: a phone-only row is what filled customer lists
+    with anonymous `Customer` entries, so the counter should always ask.
+    ⚠ **The consequence is real and intended: a new number cannot be charged
+    until it has a name**, so a customer who refuses one is turned away rather
+    than recorded blank, and the only escape is closing Checkout. Enforced in
+    `validatePosCheckoutDetails`, not merely by disabling the button — a
+    server action is reachable without the UI. The last name stays optional
+    (`users.last_name` is nullable, and plenty of customers give one name) and
+    the email stays optional but is validated when given: a typo there is
+    silent, since nothing bounces back while the customer is still in the
+    shop. `validatePosCustomer` remains the separate validator for a record
+    the cashier deliberately set out to create. - **★ THE PROBLEM WAS THE PRIMARY KEY.** `users.id` IS the Firebase uid and
+    uniqueness is `(store_id, phone)`, so a row the till invents for a walk-in
+    has no natural key — and that person's later online signup COLLIDES with
+    it. The register was therefore search-only: it could attach an existing
+    customer and never record a new one, so every walk-in was anonymous. - **★ A `pos_<uuid>` ID IS THE WHOLE MECHANISM, AND IT DOES TWO JOBS.** It is
+    an id a signup can ADOPT — and because customer RLS is
+    `auth.uid() = users.id`, a `pos_…` id matches no Firebase uid, so the row
+    is invisible to every session with **no policy written for it**. Don't add
+    one; the id shape already does it. - **★★ SIX FOREIGN KEYS, AND THAT IS WHY THERE IS A MIGRATION AT ALL.**
+    `orders`, `customer_addresses`, `product_reviews`, `blog_comments`,
+    `blogs.submitted_by` and `user_group_members` all reference `users.id`, all
+    NOT DEFERRABLE with ON UPDATE NO ACTION — so updating the parent first
+    orphans the children and updating the children first references an id that
+    does not exist yet. **Neither ordering works.** And the schema-free
+    alternative is worse: "insert the new row, repoint the children, delete the
+    `pos_` row" runs into **five of those six being ON DELETE CASCADE**, so
+    missing one table doesn't fail — it silently CASCADE-DELETES that
+    customer's ORDERS. `ON UPDATE CASCADE` makes adoption ONE statement and
+    makes a seventh FK added next year either cascade correctly or fail LOUDLY.
+    The migration ends with a guard that FAILS if any FK to `users.id` still
+    lacks it. - **⚠ THREE CONSTRAINTS ARE NAMED AFTER A COLUMN THEY DO NOT USE.**
+    `product_reviews_customer_id_fkey`, `blog_comments_customer_id_fkey` and
+    `user_group_members_customer_id_fkey` all sit on **`user_id`** — leftovers
+    from the customers→users rename. Reading the column off the constraint NAME
+    is how the first version of this migration failed. Query
+    `pg_constraint.conkey`; never infer it from the name. - **★★ THE CLAIM IS ONE STATEMENT WITH EVERY GUARD IN THE `WHERE`** —
+    store scope, the VERIFIED phone, `id LIKE 'pos\_%'`, `claimed_at IS NULL`,
+    and `NOT EXISTS` a row for this uid. Two signups racing on one walk-in row:
+    the loser matches zero rows and falls through to an ordinary insert. No
+    lock, no window. **`claimed_at IS NULL` alone is not enough** — a real
+    signup row has it NULL too (nothing backfills it), so without the id check
+    one account could take over another's history. - **★★ THE CASCADE ONLY REACHES TABLES WITH A FOREIGN KEY, AND THREE THAT
+    HOLD A CUSTOMER ID HAVE NONE.** `customer_credit_balances`,
+    `customer_credit_ledger` and `notifications`/`notification_email_queue`
+    (plus `orders.collected_by`) carry a customer id with no FK, so the rewrite
+    sails straight past them. **The credit tables are the serious one: they
+    hold MONEY.** A walk-in refunded to store credit at the till (§29) and then
+    signing up would have their balance orphaned BY THEIR OWN SIGNUP — the
+    store's books still say it is owed and their profile shows zero, silently,
+    discovered by a complaint. `repointUnreferencedTables` moves them in the
+    SAME transaction, so a failed repoint rolls the whole claim back: no claim
+    at all beats one that moved the person and left their balance behind.
+    ⚠ That is a hand-written list, which is what `pos_13` exists to avoid —
+    keep it honest. A new table holding a customer id belongs behind a real FK,
+    or in that function; `claim-customer.test.ts` pins every table named there.
+    The risk is narrower than the one the migration replaced (these are
+    UPDATEs, so forgetting one orphans data rather than cascade-DELETING
+    somebody's orders) but orphaned money is still money.
+    `notification_preferences` is deliberately absent — the customer audience
+    has no preference layer (§24), so a `pos_` customer can never have a row. - **★ AN EXISTING CUSTOMER ALREADY GETS AN EMAILED RECEIPT.**
+    `placePosSale` emits `order.placed`, and the fan-out resolves the attached
+    customer's saved address from `users`. - **★★ A PHONE-ONLY CUSTOMER CAN GET ONE TOO**
+    (`lib/email/pos-receipt.ts`, Shopify's receipt-option idea). The optional
+    box is collapsed behind **Add receipt email or GSTIN** on Payment, and its
+    copy explicitly says that a receipt contact does not create or modify a
+    customer profile.
+    **It does NOT go through the notification spine**, deliberately: the spine
+    routes an EVENT to an identified customer's saved destination and cannot
+    represent a one-sale address. It is still a `sendEmail` call, so it lands in `email_logs`
+    like everything else and `send-coverage.test.ts` stays satisfied. - **★ ONE RECEIPT, NEVER TWO.** `shouldSendDirectReceipt` (pure) fires
+    only where the fan-out will not — no attached customer, or an attached
+    customer with no address on file. `placePosSale` reads that address in
+    the SAME query as the ownership check, so it costs no extra round trip. - **★ NEVER GATED ON, AND NEVER GATING.** A bad address is dropped, not
+    refused: this runs after the money is taken and the stock has moved, so
+    failing a sale over a typo in an optional field is the worst available
+    trade (invariant 6). Deferred with `after()` and never throws. - **★ FROM THE STORE'S OWN SENDING DOMAIN** (`fromAddress`), not a
+    hardcoded one — a merchant on a custom domain would otherwise send from
+    an address Resend has no permission for and every receipt would bounce. - **★ THE FIELD IS OPT-IN VIA ITS HANDLER**, so the collection counter —
+    which shares `TenderPanel` — is untouched: that order was placed online
+    and already carries an address. - ⚠ **Not stored on the order.** `email_logs` is the record of what was
+    sent and to whom, and the subject carries the order ref. A future
+    "resend receipt" button would want `orders.receipt_email`; nothing needs
+    it yet. - **★ THE PHONE COMES FROM THE VERIFIED AUTH IDENTITY, NEVER A FORM.** That
+    is the entire security boundary: a form-supplied phone would let anyone
+    type a stranger's number and inherit their in-store order history.
+    `normalizePhone` is shared by both ends, because if the till stores
+    "+91 98765 43210" and signup stores "9876543210" the claim never fires and
+    the customer silently gets two rows. - **★ IT RUNS BEFORE THE UPSERT IN `updateCustomerProfile`, AND HAS TO.**
+    `(store_id, phone)` is UNIQUE, so without the claim first, signup fails
+    with a duplicate key for exactly the customers who have shopped here
+    before. Claiming turns that collision into the feature. A claimed row is
+    then an UPDATE, so `customer.signed_up` does NOT fire — correct: the store
+    already knows this person; what is new is the ACCOUNT. - **★ NEVER THROWS, at both layers.** A failed claim costs a link to in-store
+    history; a thrown one would cost the shopper their signup. - **★ A DUPLICATE PHONE ATTACHES, IT DOES NOT FAIL.** The submit-only action
+    reads an exact match before insert and catches a concurrent unique-key race
+    by re-reading its winner. The cashier never sees a duplicate error or has
+    to repeat a search. - **★ `sell`, NOT A MANAGER GRANT.** Charge requires a submitted 10-digit
+    mobile and automatically resolves or creates the attached customer before
+    Payment. That identity is the basis for receipt history and store credit;
+    recording it is part of ringing up a sale. - **Backfill: none.** Every existing row came from a real signup and is
+    claimed by definition, but `claimed_at` stays NULL rather than being
+    invented — nothing reads it to decide who may log in; the id shape does.
 
 37. **SMS — India's DLT rules, and why this is not a switch** (roadmap Step 5,
     SHIPPED; nothing has been sent against a real carrier yet). `lib/sms/` —

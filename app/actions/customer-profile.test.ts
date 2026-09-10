@@ -112,6 +112,36 @@ describe("updateCustomerProfile", () => {
     expect(dbHolder.current.calls.values[0].phone).toBe("+11234567890");
   });
 
+  it("stores the number in the canonical E.164 shape", async () => {
+    // ★★ THE REPORTED DEFECT. Identity Platform returns E.164 and this wrote
+    // it through untouched, while the register writes and searches for the
+    // national form. `(store_id, phone)` is UNIQUE on the STRING, so the same
+    // person held two rows: the till could not find a shopper who had an
+    // account, and the claim above adopted a till row only for this upsert to
+    // rewrite its phone back to E.164 — so the next in-store visit missed
+    // again and minted another duplicate.
+    vi.mocked(getServerUser).mockResolvedValue(
+      serverUser({ phone: "+919877542162" }) as any,
+    );
+    await updateCustomerProfile(makeFormData({ firstName: "Rohan" }));
+    expect(dbHolder.current.calls.values[0].phone).toBe("+919877542162");
+  });
+
+  it("leaves a number it does not recognise exactly as it came", async () => {
+    // ⚠ `normalizeIndianMobile` recognises Indian mobiles only, so
+    // canonicalising unconditionally would DROP the phone of a shopper who
+    // verified a foreign number. Theirs cannot be typed at an Indian till
+    // anyway — the field caps at ten digits — so there is nothing to match
+    // and nothing lost by leaving it.
+    // A dial code the register does not offer, so it cannot be parsed — and
+    // dropping the phone would be worse than storing what was verified.
+    vi.mocked(getServerUser).mockResolvedValue(
+      serverUser({ phone: "+3581234567" }) as any,
+    );
+    await updateCustomerProfile(makeFormData({ firstName: "Ada" }));
+    expect(dbHolder.current.calls.values[0].phone).toBe("+3581234567");
+  });
+
   it("omits phone entirely when auth has no phone", async () => {
     vi.mocked(getServerUser).mockResolvedValue(
       serverUser({ phone: null }) as any,
