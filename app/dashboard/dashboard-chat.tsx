@@ -28,7 +28,7 @@ import { useChat } from "./chat-context";
 import { MinkAnswer } from "./mink-answer";
 import { ASSISTANT_NAME, type MinkConversationSummary } from "./mink-ai";
 import { MinkMark } from "./mink-mark";
-import { MinkDocumentInput } from "./mink-document-input";
+import { MinkMultimodalInput } from "./mink-multimodal-input";
 import { MinkArtifacts } from "./mink-artifacts";
 import { MinkFeedbackControls } from "./mink-feedback";
 import { estimateMinkDraftIntent } from "@/lib/mink/draft-types";
@@ -65,6 +65,16 @@ export function isMinkScrollNearBottom(input: {
 }) {
   const distance = input.scrollHeight - input.scrollTop - input.clientHeight;
   return distance <= (input.threshold ?? 56);
+}
+
+export function latestMinkUserMessageId(
+  messages: Array<{ id: number | string; role: "user" | "assistant" }>,
+) {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = messages[index];
+    if (message?.role === "user") return message.id;
+  }
+  return null;
 }
 
 export function shouldSubmitMinkComposer(input: {
@@ -111,6 +121,10 @@ export function DashboardChat({
   const isOverlay = variant === "overlay";
   const scrollRef = useRef<HTMLDivElement>(null);
   const followLatestRef = useRef(true);
+  const latestUserMessageIdRef = useRef<number | string | null>(null);
+  const anchoredUserMessageIdRef = useRef<number | string | null>(null);
+  const autoAnchorSubmissionRef = useRef(true);
+  const turnAnchorSpaceRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const deleteButtonRef = useRef<HTMLButtonElement>(null);
   const resizeRef = useRef<{
@@ -170,9 +184,51 @@ export function DashboardChat({
 
   useEffect(() => {
     const scroller = scrollRef.current;
-    if (!scroller || !followLatestRef.current) return;
+    if (!scroller) return;
+    const latestUserId = latestMinkUserMessageId(messages);
+    const receivedNewUserMessage =
+      latestUserId !== null && latestUserId !== latestUserMessageIdRef.current;
+    latestUserMessageIdRef.current = latestUserId;
+
+    if (isReplying && receivedNewUserMessage) {
+      followLatestRef.current = false;
+      autoAnchorSubmissionRef.current = true;
+      anchoredUserMessageIdRef.current = latestUserId;
+      if (turnAnchorSpaceRef.current) {
+        turnAnchorSpaceRef.current.style.minHeight = "calc(100% - 5rem)";
+      }
+    }
+
     const frame = window.requestAnimationFrame(() => {
-      scroller.scrollTop = scroller.scrollHeight;
+      const anchoredUserMessageId = anchoredUserMessageIdRef.current;
+      if (anchoredUserMessageId !== null) {
+        if (autoAnchorSubmissionRef.current) {
+          const userRows = scroller.querySelectorAll<HTMLElement>(
+            '[data-mink-message-role="user"]',
+          );
+          const latestUserRow = userRows.item(userRows.length - 1);
+          if (
+            latestUserRow?.dataset.minkMessageId ===
+            String(anchoredUserMessageId)
+          ) {
+            latestUserRow.scrollIntoView?.({
+              block: "start",
+              behavior: "smooth",
+            });
+          }
+        }
+        // Keep one viewport of temporary tail room until the completed answer
+        // has been positioned. Without it the browser cannot place a newly
+        // submitted question at the top while only the Thinking row exists.
+        if (!isReplying) {
+          anchoredUserMessageIdRef.current = null;
+          if (turnAnchorSpaceRef.current) {
+            turnAnchorSpaceRef.current.style.minHeight = "0px";
+          }
+        }
+        return;
+      }
+      if (followLatestRef.current) scroller.scrollTop = scroller.scrollHeight;
     });
     return () => window.cancelAnimationFrame(frame);
   }, [messages, isReplying, error, statusText]);
@@ -206,7 +262,11 @@ export function DashboardChat({
 
   const sendFromChat = useCallback(
     (raw?: string) => {
-      followLatestRef.current = true;
+      // A new turn belongs at the top of the reading viewport. The completed
+      // answer may be much taller than the panel, so chasing its bottom would
+      // make the reader lose the question and the beginning of Mink's answer.
+      followLatestRef.current = false;
+      autoAnchorSubmissionRef.current = true;
       send(raw);
     },
     [send],
@@ -385,11 +445,21 @@ export function DashboardChat({
             deletingConversationId={deletingConversationId}
             onNewConversation={() => {
               followLatestRef.current = true;
+              latestUserMessageIdRef.current = null;
+              anchoredUserMessageIdRef.current = null;
+              if (turnAnchorSpaceRef.current) {
+                turnAnchorSpaceRef.current.style.minHeight = "0px";
+              }
               reset();
               if (!isOverlay) setHistoryOpen(false);
             }}
             onSelect={(conversation) => {
               followLatestRef.current = true;
+              latestUserMessageIdRef.current = null;
+              anchoredUserMessageIdRef.current = null;
+              if (turnAnchorSpaceRef.current) {
+                turnAnchorSpaceRef.current.style.minHeight = "0px";
+              }
               void loadConversation(conversation.id);
               if (!isOverlay) setHistoryOpen(false);
             }}
@@ -430,12 +500,26 @@ export function DashboardChat({
                 if (!scroller) return;
                 followLatestRef.current = isMinkScrollNearBottom(scroller);
               }}
+              onPointerDown={() => {
+                autoAnchorSubmissionRef.current = false;
+              }}
+              onTouchStart={() => {
+                autoAnchorSubmissionRef.current = false;
+              }}
+              onWheel={() => {
+                autoAnchorSubmissionRef.current = false;
+              }}
               className="mink-message-scroll min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-4"
             >
               <div className={`${columnClass} space-y-4`}>
                 {messages.map((message) =>
                   message.role === "user" ? (
-                    <div key={message.id} className="flex justify-end">
+                    <div
+                      key={message.id}
+                      data-mink-message-id={String(message.id)}
+                      data-mink-message-role="user"
+                      className="flex scroll-mt-4 justify-end"
+                    >
                       <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-[#f4f0ff] px-3.5 py-2.5 text-sm text-[#1a1a1a]">
                         {message.text}
                       </div>
@@ -494,6 +578,14 @@ export function DashboardChat({
                     </div>
                   </div>
                 )}
+
+                <div
+                  ref={turnAnchorSpaceRef}
+                  aria-hidden="true"
+                  data-testid="mink-turn-anchor-space"
+                  className="shrink-0"
+                  style={{ minHeight: 0 }}
+                />
               </div>
             </div>
           )}
@@ -509,67 +601,77 @@ export function DashboardChat({
                   </span>
                 </div>
               ) : null}
-              <MinkDocumentInput
-                key={activeConversationId ?? "new"}
+              <MinkMultimodalInput
+                key={`multimodal:${activeConversationId ?? "new"}`}
                 message={input}
-                onAdd={setInput}
-                disabled={isReplying || isHistoryLoading}
-              />
-              <form
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  sendFromChat();
+                onAdd={(value) => {
+                  setInput(value);
+                  composerRef.current?.focus();
                 }}
-                className="flex w-full min-w-0 max-w-full items-end rounded-2xl border border-[#e5e5e5] bg-white px-3 py-2 shadow-sm transition-all focus-within:border-[#6d4dff] focus-within:ring-1 focus-within:ring-[#6d4dff]"
+                disabled={isReplying || isHistoryLoading}
               >
-                <textarea
-                  ref={composerRef}
-                  rows={1}
-                  maxLength={4000}
-                  value={input}
-                  onChange={(event) => setInput(event.target.value)}
-                  onKeyDown={composerKeyDown}
-                  placeholder="Ask anything..."
-                  aria-label={`Message ${ASSISTANT_NAME}`}
-                  // ★ THESE FOUR SHAPE THE PHONE KEYBOARD, and without them iOS
-                  // guesses. A field inside a <form> with no autocomplete hint
-                  // gets the AUTOFILL accessory bar — passwords, cards,
-                  // addresses — above the keys instead of QuickType word
-                  // suggestions: useless for a chat, and the reason the composer
-                  // reads as unfinished next to a native messaging app.
-                  //
-                  // `enterKeyHint` is honest rather than decorative. A phone has
-                  // no Shift, so shouldSubmitMinkComposer means Return ALWAYS
-                  // sends here, and the key should say so instead of showing a
-                  // generic newline arrow.
-                  enterKeyHint="send"
-                  autoComplete="off"
-                  autoCapitalize="sentences"
-                  autoCorrect="on"
-                  className="min-h-6 max-h-40 min-w-0 flex-1 resize-none border-none bg-transparent py-0.5 text-base leading-6 text-[#1a1a1a] outline-none placeholder:text-[#8c9196] sm:text-sm sm:leading-5"
-                />
-                <div className="ml-1 flex shrink-0 items-center gap-1 self-end text-[#8c9196] sm:ml-2">
-                  {isReplying ? (
-                    <button
-                      type="button"
-                      onClick={cancel}
-                      className="rounded-md bg-[#1a1a1a] p-1.5 text-white"
-                      aria-label="Stop Mink AI"
-                    >
-                      <Square className="h-4 w-4 fill-current" />
-                    </button>
-                  ) : (
-                    <button
-                      type="submit"
-                      disabled={!input.trim() || isHistoryLoading}
-                      className="rounded-md bg-[#6d4dff] p-1.5 text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
-                      aria-label="Send message"
-                    >
-                      <ArrowUp className="h-4 w-4" />
-                    </button>
-                  )}
-                </div>
-              </form>
+                {({ attach, voice }) => (
+                  <form
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      sendFromChat();
+                    }}
+                    className="flex w-full min-w-0 max-w-full flex-col gap-2 rounded-3xl border border-[#e5e5e5] bg-white px-3 py-3 shadow-sm transition-all focus-within:border-[#6d4dff] focus-within:ring-1 focus-within:ring-[#6d4dff]"
+                  >
+                    <textarea
+                      ref={composerRef}
+                      rows={1}
+                      maxLength={4000}
+                      value={input}
+                      onChange={(event) => setInput(event.target.value)}
+                      onKeyDown={composerKeyDown}
+                      placeholder="Ask anything..."
+                      aria-label={`Message ${ASSISTANT_NAME}`}
+                      // ★ THESE FOUR SHAPE THE PHONE KEYBOARD, and without them iOS
+                      // guesses. A field inside a <form> with no autocomplete hint
+                      // gets the AUTOFILL accessory bar — passwords, cards,
+                      // addresses — above the keys instead of QuickType word
+                      // suggestions: useless for a chat, and the reason the composer
+                      // reads as unfinished next to a native messaging app.
+                      //
+                      // `enterKeyHint` is honest rather than decorative. A phone has
+                      // no Shift, so shouldSubmitMinkComposer means Return ALWAYS
+                      // sends here, and the key should say so instead of showing a
+                      // generic newline arrow.
+                      enterKeyHint="send"
+                      autoComplete="off"
+                      autoCapitalize="sentences"
+                      autoCorrect="on"
+                      className="min-h-6 max-h-40 w-full min-w-0 resize-none border-none bg-transparent px-2 py-0.5 text-base leading-6 text-[#1a1a1a] outline-none placeholder:text-[#8c9196] sm:text-sm sm:leading-5"
+                    />
+                    <div className="flex w-full items-center justify-between">
+                      {attach}
+                      <div className="flex items-center gap-2">
+                        {voice}
+                        {isReplying ? (
+                          <button
+                            type="button"
+                            onClick={cancel}
+                            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#1a1a1a] text-white"
+                            aria-label="Stop Mink AI"
+                          >
+                            <Square className="h-4 w-4 fill-current" />
+                          </button>
+                        ) : (
+                          <button
+                            type="submit"
+                            disabled={!input.trim() || isHistoryLoading}
+                            className="flex h-9 w-9 items-center justify-center rounded-full bg-[#6d4dff] text-white transition-opacity disabled:cursor-not-allowed disabled:opacity-30"
+                            aria-label="Send message"
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </form>
+                )}
+              </MinkMultimodalInput>
             </div>
           </div>
         </main>

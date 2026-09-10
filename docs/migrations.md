@@ -47,15 +47,14 @@ Consequences worth knowing:
 
 One new file in `drizzle/migrations/sql/`, named `YYYYMMDD_NNNN_short_name.sql`.
 
-> **The next free sequence number is `0091`, not `0090`.** `0090` is claimed by
-> `20260909_0090_mink_phase_8e_inputs`, which is not in this branch's manifest
-> but **is already recorded in the local database's ledger** — in-flight work on
-> the `minkai` branch. So the manifest alone does not tell you which numbers are
-> taken. Before picking one, check both:
+> **The next free sequence number is `0093`.** `0090`–`0092` are claimed by the
+> Mink Phase 8E input, unified-access and live-dictation migrations. The manifest
+> is authoritative for this branch, but also check other branches and the local
+> ledger before picking a number:
 >
 > ```bash
 > npm run db:migrate:local status   # `unknown` lists ids other branches applied
-> git log --all -S"_0091_" -- drizzle/migrations
+> git log --all -S"_0093_" -- drizzle/migrations
 > ```
 >
 > Numbers 0076–0089 contain nine

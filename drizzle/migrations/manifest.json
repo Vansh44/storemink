@@ -4139,6 +4139,67 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260909_0090_mink_phase_8e_inputs",
+      "description": "Document consented image, PDF and voice extraction with separate human review",
+      "file": "sql/20260909_0090_mink_phase_8e_inputs.sql",
+      "transaction": true,
+      "requires": ["20260907_0084_mink_phase_8d_memories"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Multimodal input review guide published",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body like '%<h2>Review an image, PDF or voice note with Mink AI</h2>%' and body like '%MINK_MULTIMODAL_ENABLED%' and body like '%does not save the raw file%' and body like '%not the original image, PDF or audio%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260909_0091_mink_unified_access_composer",
+      "description": "Unify Mink capability access and document the plus/mic/drop composer",
+      "file": "sql/20260909_0091_mink_unified_access_composer.sql",
+      "transaction": true,
+      "requires": ["20260909_0090_mink_phase_8e_inputs"],
+      "verify": {
+        "tables": [
+          "mink_store_access",
+          "mink_action_tool_access",
+          "help_articles"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Single-switch composer guide published",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body like '%<h2>One Mink AI switch and a simpler message box</h2>%' and body like '%microphone button%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260910_0092_mink_live_dictation_help",
+      "description": "Correct Mink guidance for immediate browser live dictation and local credential recovery",
+      "file": "sql/20260910_0092_mink_live_dictation_help.sql",
+      "transaction": true,
+      "requires": ["20260909_0091_mink_unified_access_composer"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Live dictation guide published",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body like '%<h2>Live microphone dictation</h2>%' and body like '%recognised words into the message box in real time%' and body like '%does not create, upload or save a microphone audio file%' and body like '%gcloud auth application-default login%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

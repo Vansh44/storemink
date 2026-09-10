@@ -128,12 +128,12 @@ both the table and the operating picture. The cards also show the number of
 currently invited stores and feedback totals, so support can correlate a poor
 rating to a safe run ID without opening the merchant's conversation.
 
-The store detail screen owns the Phase 2 invitation control. **Invite to Mink
-beta** upserts an enabled `mink_store_access` row; **Remove Mink invitation**
-disables it. Both actions require a platform operator and record the actor in
-the access row. This gate is independent of `MINK_AI_ENABLED`: the global flag
-can stop every run, while `MINK_BETA_REQUIRE_INVITE=true` prevents an enabled
-deployment from silently exposing Mink to all stores.
+The store detail screen owns one superadmin-only Mink control. **Enable Mink
+AI** atomically enables the store, private drafting and all implemented action
+capabilities; **Disable Mink AI** shuts those gates together. The actor is
+recorded in the access rows. Staff permissions, credits, plan limits and each
+exact human action approval still apply. This store switch is independent of
+`MINK_AI_ENABLED`, which remains the deployment-wide emergency shutdown.
 
 ## Phases
 

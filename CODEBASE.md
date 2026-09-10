@@ -92,6 +92,98 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
+### Mink Phase 8E — Reviewed multimodal input (2026-09-09)
+
+`app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
+controller: one plus button handles text/image/PDF attachments and one-file
+drag-and-drop; a separate mic dictates speech into editable message text.
+Attachment review is hidden until needed. Files stay local until explicit
+Vertex-processing consent; .txt/.md imports are decoded locally.
+`lib/mink/speech-recognition.ts` wraps supported browser SpeechRecognition with
+continuous interim results. One mic click starts after browser permission and
+recognised words appear in the controlled composer while the user speaks, which
+enables Send immediately. Finish/60 seconds keeps visible text; Cancel restores
+the exact pre-dictation message. User typing around the live phrase is preserved.
+Every newly submitted turn is anchored with its user question near the top of
+the contained message viewport while Mink works, with temporary tail room so
+the browser can establish that position before a long answer exists. The final
+answer grows below the question instead of forcing the reader to its bottom;
+pointer, touch and wheel movement disables automatic re-anchoring, and restored
+history still opens at its latest message. The composer remains outside the
+message scroller and fixed in view.
+StoreMink does not create, upload or retain microphone audio; the browser speech
+service can process it under its own privacy terms. Dictation is not a voice
+conversation and never grants action authority. Extracted image/PDF references
+still require separate editing/review before addition to the composer. Closing,
+discarding, conversation changes, unmounting, hiding the page or a new chat turn
+cancel pending local work. Blob previews are revoked.
+
+The older `voice-recorder.ts`/AudioWorklet and canonical WAV server validation
+remain compatibility code for the Phase 8E input API, but the dashboard composer
+does not expose WAV attachment or recorded-audio transcription. New microphone
+UX must use live browser dictation only.
+
+`/api/mink/input` requires global runtime and store/dashboard permission;
+there is no separate multimodal feature flag.
+`input-policy.ts`/`input-validation.ts` enforce one 2 MiB file, exact fields,
+canonical base64, actual bytes, image format/extension agreement, 12 MP/single
+frame, metadata stripping and 1600 px resizing. PDFs are limited to 10 pages;
+`scripts/mink-pdf-check.cjs` uses pinned pdf-lib in a child process with a 96 MiB
+V8 heap, five-second kill deadline and no inherited secrets. Encrypted, active,
+form and embedded-file PDFs fail closed. Decoder buffers additionally cap at
+8 MiB per stream and 32 MiB cumulative growth, outside the V8 heap budget.
+PDF actions are never executed; the
+child is resource isolation, not an OS security sandbox. Next standalone tracing
+includes checker dependencies. WAV validation accepts only canonical mono
+16 kHz/16-bit PCM up to 60 seconds, not claimed MIME or duration metadata.
+
+`input-limits.ts` uses database rate limits directly, failing closed: 5/owner/
+minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay keys.
+There are at most two concurrent local processing requests. Bounded body reads
+honour abort/deadline. `input-provider.ts` counts tokens then extracts once with
+the configured Vertex model/location, no tools/memory/history/URL fetching.
+8192 counted input tokens, 2048 output tokens, 3000 output characters and a
+45-second deadline; incomplete/safety-blocked output is rejected, not truncated.
+No automatic retry or model fallback. Beta extraction deducts no credits;
+content-free logs report modality and provider tokens/unknown failure usage,
+not filenames/bytes/transcripts. Audio is not priced using the text estimator.
+Limits are consumed on failure/cancellation too. Provider billing still applies.
+
+Raw attachment files are transient, never database/GCS/Media/memory objects. Reviewed text
+follows chat retention only after Send; provider retention still applies.
+Follow-up chat has only text, not original visuals. No generation/placement of
+images, audio attachment, video, spreadsheets, live voice conversation or
+long-document ingestion is included.
+Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
+`20260910_0092_mink_live_dictation_help.sql` supersedes the recorded-audio Help
+flow with live dictation and documents expired local ADC recovery. The roadmap,
+system prompt and Echos tests describe rollout and limitations.
+Prompt versions are `read-beta-v14` / `draft-action-beta-v25`; no new agent
+tools or tool-registry version are introduced by input extraction.
+
+### Single Mink AI operator switch (2026-09-09)
+
+`app/actions/mink-operator-actions.ts` atomically upserts store enablement,
+drafting and all 18 registered `MINK_ACTION_TOOLS` in one service transaction,
+locking the parent before child gates. Disable shuts all down together.
+The platform store management page renders only Enable/Disable Mink AI;
+granular mutation actions are removed. Migration
+`20260909_0091_mink_unified_access_composer.sql` aligns already-enabled stores,
+preserves disabled stores, and updates Help with plus/drop/dictation guidance.
+New tools must remain enrolled in the master registry and migration backfill.
+Existing staff permissions, plan rules, credits, exact human approvals and
+watch/memory opt-ins are unchanged. Current config always enforces store
+enablement regardless of legacy MINK_BETA_REQUIRE_INVITE; explicit read/delete
+memory access remains available. MINK_AI_ENABLED remains the global emergency
+switch. Legacy MINK_MULTIMODAL_ENABLED has no effect in current revisions.
+
+Latest verification (2026-09-10): 6,459 full-suite tests passed (39 opt-in tests
+skipped), including 67 focused composer/provider/migration checks. Four
+unified-access and live-dictation migration checks passed against a disposable
+PostgreSQL database, including two forward-only replays. Typecheck, lint,
+migration lint, formatting and the production build passed. Live Echos browser
+dictation and the renewed local ADC login remain rollout QA.
+
 ### Mink Phase 8D — Approved memories and reviewed text input (2026-09-07)
 
 `/dashboard/mink-memories` and `/api/mink/memories` provide private per-store,
@@ -115,7 +207,8 @@ Deletion/expiry affect future turns, not in-flight provider context or existing
 conversation mentions. Saves have no separate AI-credit charge; context adds
 normal input tokens. No new environment variables, model or scheduled job.
 
-`mink-document-input.tsx` reads one .txt/.md file locally (UTF-8, 8 KiB,
+`mink-document-input.tsx` is the legacy local-only importer; its .txt/.md
+decoding/review behavior now lives in the unified composer (UTF-8, 8 KiB,
 3,000 characters), requires review/consent, then adds labelled reference text
 to the editable composer within its existing 4,000-character total. Nothing
 uploads before Send; text follows existing conversation persistence/deletion.
@@ -1826,12 +1919,14 @@ wholesip/
 │                              # computed checksum) across 27 ledger rows including
 │                              # production, for no functional gain — the ids are
 │                              # already unique. It is a naming wart, not a defect.
-│                              # ★ THE NEXT MIGRATION TAKES 0090. 0085 and 0086 are
+│                              # ★ THE NEXT MIGRATION TAKES 0093. 0085 and 0086 are
 │                              # used by the offers series, so those collide too;
 │                              # 0087 documents the StoreMink logo refresh,
 │                              # 0088 Help first-visit/error recovery, and 0089 the
 │                              # POS register keeping its basket across a reload.
-│                              # 0090 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0090 adds Mink input Help; 0091 unifies its access/composer;
+│                              # 0092 corrects Help for live dictation.
+│                              # 0093 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -3492,13 +3587,13 @@ amountPaise}` for the modal. `confirmOnlinePayment` verifies the HMAC
       fake period delta. The old unimported hard-coded performance, inventory
       and operational demo widgets were deleted.
 
-20a. **Mink AI dashboard agent — invited read, private drafting and guarded Phase 4/5D action beta.** This is separate
+20a. **Mink AI dashboard agent — store-enabled read, private drafting and guarded actions.** This is separate
 from the public Help Centre assistant. `MINK_AI_ENABLED` is a private,
 server-read kill switch that defaults enabled and can be set explicitly false;
-`MINK_BETA_REQUIRE_INVITE` defaults true and requires an enabled
-`mink_store_access` row. Either an explicit global disable or a missing invite
-keeps the original canned drawer. An operator can add/remove the invitation from the store detail
-page; invited stores connect Home, the side panel and expanded view to
+an enabled `mink_store_access` row is always required. Either an explicit global
+disable or a disabled store keeps the original canned drawer. A superadmin uses
+one Enable/Disable Mink AI button; it atomically aligns drafting and every
+registered action gate. Enabled stores connect Home, the side panel and expanded view to
 `POST /api/mink/stream`. The route authenticates the dashboard request,
 derives host store/admin/RBAC/effective plan out of band, rejects foreign
 origins, rate-limits by store + actor and never accepts a tenant or

@@ -429,13 +429,13 @@ drawer is open.
 manifest, a direct call is rejected at execution, and no order/customer row is
 read.
 
-**PS-3.9 — Invited beta access fails closed per store**
-With `MINK_AI_ENABLED=true` and `MINK_BETA_REQUIRE_INVITE=true`, remove the
-store's invitation from its operator detail page, then add it again.
-**Expect:** the uninvited store receives the canned assistant and cannot call
-stream/history/feedback endpoints. The invited store receives the read-only
-agent; another store remains unchanged. The global flag can still stop all
-stores independently.
+**PS-3.9 — Single Mink AI access fails closed per store**
+With `MINK_AI_ENABLED=true`, disable Mink AI on the store's operator detail
+page, then enable it again.
+**Expect:** the disabled store receives the canned assistant and cannot call
+stream/history/feedback endpoints. One enable action restores all implemented
+capabilities, subject to normal staff permissions/credits/approvals; another
+store remains unchanged. The global flag can still stop all stores independently.
 
 **PS-3.10 ★★ — A displayed location type is a safe alias, not a wider scope**
 Keep **Delhi** as a Warehouse and ask Mink for “today's sales for Delhi
@@ -4129,6 +4129,25 @@ scheduler timing or model routing accuracy.
 
 These require Echos acceptance after migration 0084 and deployment; deterministic
 tests do not establish live-model instruction-following quality.
+
+## 11q. Mink Phase 8E reference-input acceptance
+
+This phase does not alter inventory/POS calculations or grant mutation authority.
+
+| ID       | Acceptance story                                                                                                                                                                                                                                                                                                                                                                                                             |
+| -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| PS-M8E.1 | A Shop screenshot is a dated, potentially misread reference; a current Shop or Delhi question still requires live location-scoped tools.                                                                                                                                                                                                                                                                                     |
+| PS-M8E.2 | PDF text claiming stock or prices cannot silently replace database values, trigger a transfer, or approve publication.                                                                                                                                                                                                                                                                                                       |
+| PS-M8E.3 | A spoken stock-adjustment request is transcribed for human review; Send and the existing exact-target approval remain separate.                                                                                                                                                                                                                                                                                              |
+| PS-M8E.4 | Plus/file drop does not upload. File extraction and reference review require consent. One mic click starts supported-browser live dictation after browser permission; interim words appear in editable text and enable Send immediately. Finish keeps them, Cancel restores prior text, and no microphone audio is uploaded or retained by StoreMink. Conversation changes stop local work and prevent late composer writes. |
+| PS-M8E.5 | Tenant/admin permissions, store/global gates, fail-closed quotas and hostile/malformed/oversized files are enforced before provider generation.                                                                                                                                                                                                                                                                              |
+| PS-M8E.6 | Raw files are not retained in Media/memory/history; only reviewed text sent in chat follows conversation retention. No promise retracts an already-started provider request.                                                                                                                                                                                                                                                 |
+| PS-M8E.7 | One operator Enable Mink AI button enables all implemented tools together, including inventory and storefront capabilities. Disable stops new authorized operations at access checks; neither toggle changes staff permissions, grants approval, or deletes records.                                                                                                                                                         |
+| PS-M8E.8 | Dictating “Change Tomatoes at Shop to ten” only fills the message box. No lookup or write happens until Send, and no inventory write happens without its existing exact-target approval.                                                                                                                                                                                                                                     |
+| PS-M8E.9 | Expired local Google Application Default Credentials produce an actionable development-only recovery message. Production continues to use its service account and never instructs a merchant to authenticate an operator account.                                                                                                                                                                                            |
+
+Validate these on Echos with real supported browsers and the deployed Vertex model
+before enabling production. Unit tests do not verify microphone UX or OCR accuracy.
 
 ## 12. Known gaps
 

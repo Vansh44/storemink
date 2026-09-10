@@ -30,11 +30,6 @@ describe("getMinkConfig", () => {
   });
 
   it("requires a store invitation unless a controlled environment opts out", () => {
-    delete process.env.MINK_BETA_REQUIRE_INVITE;
-    expect(getMinkConfig().betaRequireInvite).toBe(true);
-    process.env.MINK_BETA_REQUIRE_INVITE = "false";
-    expect(getMinkConfig().betaRequireInvite).toBe(false);
-    process.env.MINK_BETA_REQUIRE_INVITE = "FALSE";
     expect(getMinkConfig().betaRequireInvite).toBe(true);
   });
 
