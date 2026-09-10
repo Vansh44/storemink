@@ -1069,6 +1069,33 @@ wholesip/
 │           │                  # (GCS-only; requires GCS_BUCKET). Auth = Firebase session;
 │           │                  # store-host files live under stores/{storeId}/uploads/
 │           │                  # so permanent deletion also removes abandoned uploads
+│           │                  # ★★ SHARP'S NATIVE LIBRARY MUST BE COPIED EXPLICITLY —
+│           │                  # file tracing CANNOT see it (fixed 2026-09-11). sharp's
+│           │                  # `.node` binding dlopens `libvips-cpp.so` from a SIBLING
+│           │                  # package (@img/sharp-libvips-linux-x64), so nothing in the
+│           │                  # import graph mentions it and Next left it out of
+│           │                  # .next/standalone. Production answered every upload with
+│           │                  # ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open
+│           │                  # shared object file. ⚠ THAT IS A MODULE-LOAD FAILURE, so NO
+│           │                  # route could catch it: /api/upload returned a bare framework
+│           │                  # 500 in 6 ms whose body was not JSON, which is why the client
+│           │                  # showed "Upload failed (500)" and no reason — and it took the
+│           │                  # OG-image proxy AND Mink's image input down with it, since all
+│           │                  # three import sharp. Fixed in TWO places deliberately: the
+│           │                  # Dockerfile copies node_modules/sharp + @img from its `npm ci`
+│           │                  # stage (the fix a tracer heuristic cannot defeat, and from
+│           │                  # `deps` so the binary is this image's platform, never a host's
+│           │                  # darwin build), and next.config.ts traces them for a host that
+│           │                  # builds without the Dockerfile. lib/storage/process-image.ts
+│           │                  # now imports sharp LAZILY so the fault is legible: a missing
+│           │                  # library returns 503 "Image processing is unavailable".
+│           │                  # ⚠ IT FAILS CLOSED rather than reusing the store-the-original
+│           │                  # fallback beside it — right for one awkward file, wrong for a
+│           │                  # broken install, where every upload would keep its EXIF (a
+│           │                  # photo carries GPS) and skip the SVG rasterisation that module
+│           │                  # exists to enforce, silently. ⚠ og-image and input-validation
+│           │                  # still import it at the top level: the packaging fix covers
+│           │                  # them, but their failure mode is still a bare 500.
 │           └── sign-video/    # v4 signed-URL minting for VIDEO uploads (≤50MB, GCS;
 │                              # client PUTs DIRECTLY to storage — serverless routes
 │                              # can't proxy large bodies)
