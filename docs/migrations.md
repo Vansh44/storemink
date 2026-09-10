@@ -139,6 +139,19 @@ Two mistakes here have each jammed the whole queue before:
    phase legitimately removes ("remains preview-only") becomes a permanent
    failure in every environment. There is no "before" hook, so a precondition
    has no home at all.
+3. **`verify` must never assert published Help Centre wording** — the rule
+   above, in the case where it has already cost the most. Durable `verify` is
+   re-checked forever AND is part of the migration's checksum, so copy it names
+   can afterwards be neither edited nor removed: editing the block makes the
+   runner refuse every later migration. Seven migrations (`0076`, `0077`,
+   `0080`–`0084`) did this, freezing **21 substrings** into
+   `use-mink-ai-in-your-dashboard`, six of them `<h2>` headings. One of them is
+   `Phase 7B adds an immutable, private custom-code proposal`, which means
+   nothing to a merchant and cannot be deleted — `20260910_0093` had to hide it
+   in an HTML comment. Rule 2 was already written down here when all seven
+   shipped, which is why it is now **mechanically enforced**:
+   `npm run help:lint` fails on a durable-`verify` copy assertion. Put exact
+   wording in `applyVerify`. See `docs/help-centre.md`.
 
 ### Test it locally
 
@@ -147,6 +160,8 @@ npm run db:local:start
 npm run db:local:sync          # rebuild local from the dev/staging database
 npm run db:migrate:local apply
 npm run db:lint
+npm run help:lint              # if the migration writes Help content
+npm run help:audit:local       # ...and check the assembled published result
 npm run test
 ```
 

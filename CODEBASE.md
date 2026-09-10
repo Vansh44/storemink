@@ -1919,14 +1919,16 @@ wholesip/
 │                              # computed checksum) across 27 ledger rows including
 │                              # production, for no functional gain — the ids are
 │                              # already unique. It is a naming wart, not a defect.
-│                              # ★ THE NEXT MIGRATION TAKES 0093. 0085 and 0086 are
+│                              # ★ THE NEXT MIGRATION TAKES 0094. 0085 and 0086 are
 │                              # used by the offers series, so those collide too;
 │                              # 0087 documents the StoreMink logo refresh,
 │                              # 0088 Help first-visit/error recovery, and 0089 the
 │                              # POS register keeping its basket across a reload.
 │                              # 0090 adds Mink input Help; 0091 unifies its access/composer;
 │                              # 0092 corrects Help for live dictation.
-│                              # 0093 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0093 removes operator-only, infrastructure and stale
+│                              # content from published Help guides (docs/help-centre.md);
+│                              # 0094 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -2074,6 +2076,36 @@ wholesip/
 │                              # missing/draft/empty guide drift is repaired before publication.
 │                              # It follows the 0049/0050 UX migrations.
 ├── scripts/
+│   ├── help-content-lint.mjs  # ★★ THE HELP CENTRE GATE (docs/help-centre.md).
+│   │                          # AGENTS.md used to require a Help update for EVERY
+│   │                          # change, so the cheapest way to comply was to append
+│   │                          # one more <h2>: 85 of the first 98 migrations wrote to
+│   │                          # help_articles and use-mink-ai-in-your-dashboard became
+│   │                          # 69 KB / 36 sections ordered by engineering phase,
+│   │                          # publishing a platform-only switch, MINK_AI_ENABLED,
+│   │                          # a local `gcloud` command, Cloud Run + worker-lease
+│   │                          # internals and a "this alpha is read only" paragraph
+│   │                          # the sections beneath it contradicted. Lints the
+│   │                          # literals of any migration touching help_articles
+│   │                          # (comments stripped, so explaining internals to the
+│   │                          # next reader is free; `$old$`-tagged literals skipped,
+│   │                          # so a CLEANUP migration is not flagged for the text it
+│   │                          # deletes). ★★ IT ALSO BLOCKS DURABLE-`verify` COPY:
+│   │                          # that block is re-checked for every applied migration
+│   │                          # on every status run AND is part of the checksum, so
+│   │                          # wording it names can never be edited again — seven
+│   │                          # migrations did it, which is why `Phase 7B adds an
+│   │                          # immutable, private custom-code proposal` is permanent.
+│   │                          # `npm run help:lint`, in CI; 45 historical violations
+│   │                          # GRANDFATHERED (applied SQL cannot be edited).
+│   ├── help-content-audit.mjs # ★ The same rules against the rows a DATABASE serves —
+│   │                          # catches Help-console operator edits and the ASSEMBLED
+│   │                          # result of many migrations appending to one guide, which
+│   │                          # a per-migration lint cannot see. Also reports length /
+│   │                          # section count (25,000 chars / 14 <h2> = split it).
+│   │                          # `npm run help:audit:local|:staging|:prod`; NOT in CI,
+│   │                          # for db:drift's reason — needs credentials, and a PR
+│   │                          # cannot cause published-content drift.
 │   ├── dev-server.mjs         # ★ resource-aware Next dev runner: 2 GB heap on ≤12 GB
 │   │                          # machines, 3 GB on ≤20 GB, uncapped above; rotates
 │   │                          # generated .next/dev caches over 3 GB, ALWAYS reclaims
@@ -4155,23 +4187,56 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      `use-mink-ai-in-your-dashboard` aligned with these capabilities and limits.
 
 21. **Help Centre (`help.storemink.com`) — platform-global, operator-managed
-    docs (Shopify-style).** StoreMink's OWN product docs, NOT per-store data, so
-    there is **no `store_id`** anywhere — the model mirrors `platform_admins` (a
-    global, operator-managed table). Two tables in `supabase/help_centre.sql`
-    (run as `postgres` via the Cloud SQL proxy, like every migration):
-    `help_categories` + `help_articles` (sanitized HTML `body`, `status`
-    draft/published, weighted **generated `search` tsvector** column + GIN index
-    — the first real FTS in the codebase; plus `view_count`/`helpful_yes`/
-    `helpful_no`). RLS: anon reads published only; writes gated on
-    `is_platform_admin()`. Public feedback/view counters are narrow atomic
-    `SECURITY DEFINER` RPCs (`help_article_view`, `help_article_vote`) so no
-    write policy opens to anon (hardened to `search_path=''` +
-    schema-qualified refs in `help_centre_02_rpc_search_path.sql`; the public
-    `voteHelpArticle` action deliberately does NOT invalidate the Help tag — an
-    anon-triggerable global cache bust — so helpful counts are
-    eventual-consistency). Drizzle tables added to `drizzle/schema.ts`
-    (`helpCategories`, `helpArticles`; the generated `search` column is
-    intentionally absent — search uses a raw `sql` predicate).
+    docs (Shopify-style).**
+    - **★★ WHAT BELONGS IN A GUIDE IS NOW A WRITTEN CONTRACT:
+      `docs/help-centre.md`, enforced by `npm run help:lint` (CI) and
+      `npm run help:audit:*` (a database).** AGENTS.md required every change to
+      update the Help Centre; the cheapest way to comply was to append one more
+      `<h2>`, so **85 of the first 98 migrations wrote to `help_articles`** and
+      `use-mink-ai-in-your-dashboard` grew to 69 KB / 36 sections ordered by
+      engineering phase. It published a switch only StoreMink staff can see,
+      `MINK_AI_ENABLED` / `MINK_BETA_REQUIRE_INVITE` /
+      `MINK_MULTIMODAL_ENABLED`, a local-development `gcloud` command, Cloud Run
+      and worker-lease internals, and — worst — "This alpha is read only. It
+      cannot create or edit a product, change stock, inspect orders…" directly
+      above the sections explaining how Mink does each of those. Eleven other
+      guides carried a "Controlled live verification required:" rubric
+      addressed to a StoreMink "test team". `20260910_0093` deleted all of it.
+      The AGENTS.md rule is now a GATE — update Help only when a
+      **merchant-visible** flow changes — and it requires `replace()`ing the
+      section that is wrong instead of appending beside it.
+    - **★★ NEVER ASSERT PUBLISHED WORDING IN A DURABLE `verify` BLOCK.** It is
+      re-checked for every applied migration on every status/verify/drift run
+      in every environment, and it is part of that migration's checksum — so
+      the wording can afterwards be neither edited nor removed. Seven
+      migrations (0076, 0077, 0080–0084) did it, freezing **21 substrings**
+      into `use-mink-ai-in-your-dashboard`, six of them `<h2>` headings — which
+      is also why that guide cannot simply be split into task-shaped articles.
+      `Phase 7B adds an immutable, private custom-code proposal` is meaningless
+      to a merchant and undeletable, so `20260910_0093` keeps it verbatim in an
+      **HTML comment**: `body LIKE` still matches, while `sanitize-html` strips
+      it from the rendered page (`sanitizeBlogContent`) and from Mink's
+      retrieval chunks (`allowedTags: []`), and the `search` tsvector's
+      `regexp_replace(body,'<[^>]+>',' ','g')` keeps it out of the index.
+      ⚠ Such a comment must contain **no `>`**, or the regex ends early and the
+      text reaches search. Exact copy belongs in `applyVerify` (once, at apply
+      time); `verify` is for tables, columns, constraints and indexes. StoreMink's OWN product docs, NOT per-store data, so
+      there is **no `store_id`** anywhere — the model mirrors `platform_admins` (a
+      global, operator-managed table). Two tables in `supabase/help_centre.sql`
+      (run as `postgres` via the Cloud SQL proxy, like every migration):
+      `help_categories` + `help_articles` (sanitized HTML `body`, `status`
+      draft/published, weighted **generated `search` tsvector** column + GIN index
+      — the first real FTS in the codebase; plus `view_count`/`helpful_yes`/
+      `helpful_no`). RLS: anon reads published only; writes gated on
+      `is_platform_admin()`. Public feedback/view counters are narrow atomic
+      `SECURITY DEFINER` RPCs (`help_article_view`, `help_article_vote`) so no
+      write policy opens to anon (hardened to `search_path=''` +
+      schema-qualified refs in `help_centre_02_rpc_search_path.sql`; the public
+      `voteHelpArticle` action deliberately does NOT invalidate the Help tag — an
+      anon-triggerable global cache bust — so helpful counts are
+      eventual-consistency). Drizzle tables added to `drizzle/schema.ts`
+      (`helpCategories`, `helpArticles`; the generated `search` column is
+      intentionally absent — search uses a raw `sql` predicate).
     - **Public site** (`app/help/*`, request-rendered with tagged data caching, fully
       crawlable): `/help` (search + category grid + popular).
       **First-visit reliability (2026-09-08):** the home page and category page/
