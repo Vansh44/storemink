@@ -38,7 +38,9 @@ export function getMinkConfig(): MinkConfig {
     enabled: enabled(process.env.MINK_AI_ENABLED),
     // Phase 2 is an invited beta. An explicit false is required to retain the
     // all-store internal-alpha behavior in a controlled environment.
-    betaRequireInvite: process.env.MINK_BETA_REQUIRE_INVITE !== "false",
+    // The operator's single store switch must not be bypassed by an old
+    // deployment's beta flag. Explicit read/delete-only actor options remain.
+    betaRequireInvite: true,
     projectId: process.env.GCP_PROJECT_ID?.trim() || null,
     location:
       process.env.MINK_VERTEX_LOCATION?.trim() ||

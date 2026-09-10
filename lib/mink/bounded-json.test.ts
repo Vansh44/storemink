@@ -1,6 +1,20 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { readMinkBoundedJson } from "./bounded-json";
 describe("bounded Mink JSON", () => {
+  it("cancels a stalled body when its processing deadline expires", async () => {
+    const cancelled = vi.fn();
+    const body = new ReadableStream({ cancel: cancelled });
+    const controller = new AbortController();
+    const promise = readMinkBoundedJson(
+      { body } as Request,
+      100,
+      controller.signal,
+    );
+    controller.abort();
+    await expect(promise).rejects.toThrow();
+    expect(cancelled).toHaveBeenCalled();
+    expect(body.locked).toBe(false);
+  });
   it("accepts bounded objects without trusting a length header", async () => {
     expect(
       await readMinkBoundedJson(

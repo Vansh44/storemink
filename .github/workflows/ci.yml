@@ -43,6 +43,17 @@ jobs:
       - name: Migration Lint
         run: npm run db:lint
 
+      # ★ HELP CENTRE GUIDES ARE FOR MERCHANTS. AGENTS.md used to require that
+      # every change update the Help Centre, so 85 of the first 98 migrations
+      # appended to a guide and one reached 69 KB of engineering phases,
+      # environment-variable names, a platform-only switch and a `gcloud`
+      # command. This blocks that vocabulary, and blocks published wording
+      # asserted in a DURABLE verify block — which freezes the copy forever,
+      # because that block is re-checked every run and is part of the
+      # migration's checksum. See docs/help-centre.md.
+      - name: Help Content Lint
+        run: npm run help:lint
+
       - name: Run Tests
         run: npm run test
 

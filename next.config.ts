@@ -15,6 +15,13 @@ const nextConfig: NextConfig = {
   // Run. Harmless on Node hosts.
   outputFileTracingIncludes: {
     "/**": ["./brand/tasks/**", "./docs/mink-ai-system-prompt.md"],
+    "/api/mink/input": [
+      "./scripts/mink-pdf-check.cjs",
+      "./node_modules/pdf-lib/**",
+      "./node_modules/@pdf-lib/**",
+      "./node_modules/pako/**",
+      "./node_modules/tslib/**",
+    ],
   },
   images: {
     // Serve modern formats — AVIF (~50% smaller than JPEG) with WebP fallback.

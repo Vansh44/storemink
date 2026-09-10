@@ -901,7 +901,7 @@
         "queries": [
           {
             "name": "plan guide contains exact product tiers and no-data-loss downgrade contract",
-            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>\u2014</td><td>\u2014</td><td>Included%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>—</td><td>—</td><td>Included%'",
             "equals": "1"
           },
           {
@@ -915,7 +915,7 @@
         "queries": [
           {
             "name": "plan guide contains exact product tiers and no-data-loss downgrade contract",
-            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>\u2014</td><td>\u2014</td><td>Included%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>—</td><td>—</td><td>Included%'",
             "equals": "1"
           },
           {
@@ -1188,7 +1188,7 @@
         "queries": [
           {
             "name": "the dashboard Mink AI alpha guide is published with limits and permissions",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%This alpha is read only.%' and body like '%Products \u2192 View%' and body like '%does not debit AI credits%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%This alpha is read only.%' and body like '%Products → View%' and body like '%does not debit AI credits%'",
             "equals": "1"
           }
         ]
@@ -1298,7 +1298,7 @@
         "queries": [
           {
             "name": "the Mink dashboard guide documents Phase 1B tools permissions and reliability",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics \u2192 View%' and body like '%Inventory \u2192 View%' and body like '%retries a transient model failure at most once%' and body like '%never displays prompts, answers, tool arguments, tool results or model reasoning%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics → View%' and body like '%Inventory → View%' and body like '%retries a transient model failure at most once%' and body like '%never displays prompts, answers, tool arguments, tool results or model reasoning%'",
             "equals": "1"
           }
         ]
@@ -1307,7 +1307,7 @@
         "queries": [
           {
             "name": "the Mink dashboard guide includes sales and low-stock permissions",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics \u2192 View%' and body like '%Inventory \u2192 View%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics → View%' and body like '%Inventory → View%'",
             "equals": "1"
           }
         ]
@@ -1344,7 +1344,7 @@
         "queries": [
           {
             "name": "the Mink dashboard guide documents the invited beta cards privacy compaction feedback and shadow metering",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Cards, filters and dashboard context%' and body like '%Customers \u2192 View%' and body like '%bounded extractive summary%' and body like '%Shadow credits%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Cards, filters and dashboard context%' and body like '%Customers → View%' and body like '%bounded extractive summary%' and body like '%Shadow credits%'",
             "equals": "1"
           }
         ]
@@ -1762,7 +1762,7 @@
           },
           {
             "name": "the Mink guide documents guarded delivery order-status transitions",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Advance one delivery order</h2>%' and body like '%pending \u2192 processing%' and body like '%Delivery order-status transitions%' and body like '%Pending or approved cancellation states and any refund activity block advancement%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Advance one delivery order</h2>%' and body like '%pending → processing%' and body like '%Delivery order-status transitions%' and body like '%Pending or approved cancellation states and any refund activity block advancement%'",
             "equals": "1"
           }
         ]
@@ -4136,6 +4136,101 @@
             "name": "POS register reload guidance published",
             "sql": "select count(*)::text from public.help_articles where slug = 'process-an-in-store-sale' and status = 'published' and category_id is not null and body like '%<h2>If the register page reloads</h2>%' and body like '%kept in the browser tab it was started in%' and body like '%cleared when the till locks or anyone signs out%' and body like '%a held sale is saved to your store, not to the browser%'",
             "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260909_0090_mink_phase_8e_inputs",
+      "description": "Document consented image, PDF and voice extraction with separate human review",
+      "file": "sql/20260909_0090_mink_phase_8e_inputs.sql",
+      "transaction": true,
+      "requires": ["20260907_0084_mink_phase_8d_memories"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Multimodal input review guide published",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body like '%<h2>Review an image, PDF or voice note with Mink AI</h2>%' and body like '%MINK_MULTIMODAL_ENABLED%' and body like '%does not save the raw file%' and body like '%not the original image, PDF or audio%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260909_0091_mink_unified_access_composer",
+      "description": "Unify Mink capability access and document the plus/mic/drop composer",
+      "file": "sql/20260909_0091_mink_unified_access_composer.sql",
+      "transaction": true,
+      "requires": ["20260909_0090_mink_phase_8e_inputs"],
+      "verify": {
+        "tables": [
+          "mink_store_access",
+          "mink_action_tool_access",
+          "help_articles"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Single-switch composer guide published",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body like '%<h2>One Mink AI switch and a simpler message box</h2>%' and body like '%microphone button%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260910_0092_mink_live_dictation_help",
+      "description": "Correct Mink guidance for immediate browser live dictation and local credential recovery",
+      "file": "sql/20260910_0092_mink_live_dictation_help.sql",
+      "transaction": true,
+      "requires": ["20260909_0091_mink_unified_access_composer"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Live dictation guide published",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body like '%<h2>Live microphone dictation</h2>%' and body like '%recognised words into the message box in real time%' and body like '%does not create, upload or save a microphone audio file%' and body like '%gcloud auth application-default login%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260910_0093_help_centre_operator_content_removal",
+      "description": "Remove operator-only, infrastructure and stale content from published Help guides",
+      "file": "sql/20260910_0093_help_centre_operator_content_removal.sql",
+      "transaction": true,
+      "requires": ["20260910_0092_mink_live_dictation_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Operator-only and infrastructure content removed from the Mink guide",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body not like '%One Mink AI switch and a simpler message box%' and body not like '%Platform superadmins%' and body not like '%store management page%' and body not like '%MINK_AI_ENABLED%' and body not like '%MINK_MULTIMODAL_ENABLED%' and body not like '%MINK_BETA_REQUIRE_INVITE%' and body not like '%gcloud auth application-default login%' and body not like '%Cloud Run restarts%' and body not like '%Vertex%'",
+            "equals": "1"
+          },
+          {
+            "name": "Self-contradictory read-only limits paragraph replaced",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body not like '%This alpha is read only%' and body not like '%alpha usage does not debit AI credits%' and body not like '%invited read-only beta%' and body like '%Everything that changes your store is prepared as a private proposal%'",
+            "equals": "1"
+          },
+          {
+            "name": "Earlier durable Help postconditions still hold after the cleanup",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Phase 7B adds an immutable, private custom-code proposal%' and body like '%sandbox=\"allow-scripts\"%' and body not like '%cannot yet create a code proposal%' and body like '%<h2>Inspect Website Builder context with Mink</h2>%' and body like '%<h2>Use Mink while editing your website</h2>%' and body like '%<h2>Get a daily or weekly business brief</h2>%' and body like '%<h2>Enable private recurring Mink watches</h2>%' and body like '%<h2>Review and approve a response to a watch alert</h2>%' and body like '%<h2>Approve private memories and review text documents</h2>%'",
+            "equals": "1"
+          },
+          {
+            "name": "Release-checklist language removed from the other guides",
+            "sql": "select count(*)::text from public.help_articles where status='published' and (body ilike '%controlled live%' or body ilike '%release checklist%' or body ilike '%the test team%')",
+            "equals": "0"
           }
         ]
       }

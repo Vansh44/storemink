@@ -1,12 +1,13 @@
 import { createElement } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   clampMinkPanelWidth,
   DashboardChat,
   isMinkScrollNearBottom,
+  latestMinkUserMessageId,
   minkComposerHeight,
   minkHistoryStartsOpen,
   shouldSubmitMinkComposer,
@@ -43,6 +44,8 @@ const baseChatState = {
   submitFeedback: vi.fn(),
 };
 
+const scrollIntoView = vi.fn();
+
 beforeEach(() => {
   Object.defineProperty(window, "innerWidth", {
     configurable: true,
@@ -51,6 +54,11 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "scrollTo", {
     configurable: true,
     value: vi.fn(),
+  });
+  scrollIntoView.mockReset();
+  Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+    configurable: true,
+    value: scrollIntoView,
   });
   vi.mocked(useChat).mockReturnValue(
     baseChatState as unknown as ReturnType<typeof useChat>,
@@ -143,6 +151,83 @@ describe("Mink full view", () => {
       "sm:text-sm",
     );
   });
+
+  it("keeps a submitted question at the top while a long answer grows below it", async () => {
+    const send = vi.fn();
+    const previousMessages = [
+      { id: "user-1", role: "user" as const, text: "Hi" },
+      {
+        id: "assistant-1",
+        role: "assistant" as const,
+        text: "How can I help?",
+      },
+    ];
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      messages: previousMessages,
+      input: "How can I add my own domain?",
+      send,
+    } as unknown as ReturnType<typeof useChat>);
+    const view = render(createElement(DashboardChat, { variant: "overlay" }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(send).toHaveBeenCalledTimes(1);
+
+    const submittedMessages = [
+      ...previousMessages,
+      {
+        id: "user-2",
+        role: "user" as const,
+        text: "How can I add my own domain?",
+      },
+    ];
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      messages: submittedMessages,
+      input: "",
+      isReplying: true,
+      statusText: "Thinking…",
+      send,
+    } as unknown as ReturnType<typeof useChat>);
+    view.rerender(createElement(DashboardChat, { variant: "overlay" }));
+
+    const submittedRow = screen
+      .getByText("How can I add my own domain?")
+      .closest<HTMLElement>('[data-mink-message-role="user"]');
+    await waitFor(() =>
+      expect(scrollIntoView).toHaveBeenLastCalledWith({
+        block: "start",
+        behavior: "smooth",
+      }),
+    );
+    expect(scrollIntoView.mock.instances.at(-1)).toBe(submittedRow);
+    expect(screen.getByTestId("mink-turn-anchor-space")).toHaveStyle({
+      minHeight: "calc(100% - 5rem)",
+    });
+
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      messages: [
+        ...submittedMessages,
+        {
+          id: "assistant-2",
+          role: "assistant" as const,
+          text: "Start in Settings, then open Domain.",
+        },
+      ],
+      input: "",
+      isReplying: false,
+      send,
+    } as unknown as ReturnType<typeof useChat>);
+    view.rerender(createElement(DashboardChat, { variant: "overlay" }));
+
+    await waitFor(() =>
+      expect(screen.getByTestId("mink-turn-anchor-space")).toHaveStyle({
+        minHeight: "0px",
+      }),
+    );
+    expect(scrollIntoView.mock.instances).toContain(submittedRow);
+  });
 });
 
 describe("minkHistoryStartsOpen", () => {
@@ -170,6 +255,20 @@ describe("isMinkScrollNearBottom", () => {
         clientHeight: 400,
       }),
     ).toBe(false);
+  });
+});
+
+describe("latestMinkUserMessageId", () => {
+  it("selects the question that owns the newest answer", () => {
+    expect(
+      latestMinkUserMessageId([
+        { id: "u1", role: "user" },
+        { id: "a1", role: "assistant" },
+        { id: "u2", role: "user" },
+        { id: "a2", role: "assistant" },
+      ]),
+    ).toBe("u2");
+    expect(latestMinkUserMessageId([])).toBeNull();
   });
 });
 

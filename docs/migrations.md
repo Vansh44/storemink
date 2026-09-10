@@ -47,15 +47,14 @@ Consequences worth knowing:
 
 One new file in `drizzle/migrations/sql/`, named `YYYYMMDD_NNNN_short_name.sql`.
 
-> **The next free sequence number is `0091`, not `0090`.** `0090` is claimed by
-> `20260909_0090_mink_phase_8e_inputs`, which is not in this branch's manifest
-> but **is already recorded in the local database's ledger** — in-flight work on
-> the `minkai` branch. So the manifest alone does not tell you which numbers are
-> taken. Before picking one, check both:
+> **The next free sequence number is `0093`.** `0090`–`0092` are claimed by the
+> Mink Phase 8E input, unified-access and live-dictation migrations. The manifest
+> is authoritative for this branch, but also check other branches and the local
+> ledger before picking a number:
 >
 > ```bash
 > npm run db:migrate:local status   # `unknown` lists ids other branches applied
-> git log --all -S"_0091_" -- drizzle/migrations
+> git log --all -S"_0093_" -- drizzle/migrations
 > ```
 >
 > Numbers 0076–0089 contain nine
@@ -140,6 +139,19 @@ Two mistakes here have each jammed the whole queue before:
    phase legitimately removes ("remains preview-only") becomes a permanent
    failure in every environment. There is no "before" hook, so a precondition
    has no home at all.
+3. **`verify` must never assert published Help Centre wording** — the rule
+   above, in the case where it has already cost the most. Durable `verify` is
+   re-checked forever AND is part of the migration's checksum, so copy it names
+   can afterwards be neither edited nor removed: editing the block makes the
+   runner refuse every later migration. Seven migrations (`0076`, `0077`,
+   `0080`–`0084`) did this, freezing **21 substrings** into
+   `use-mink-ai-in-your-dashboard`, six of them `<h2>` headings. One of them is
+   `Phase 7B adds an immutable, private custom-code proposal`, which means
+   nothing to a merchant and cannot be deleted — `20260910_0093` had to hide it
+   in an HTML comment. Rule 2 was already written down here when all seven
+   shipped, which is why it is now **mechanically enforced**:
+   `npm run help:lint` fails on a durable-`verify` copy assertion. Put exact
+   wording in `applyVerify`. See `docs/help-centre.md`.
 
 ### Test it locally
 
@@ -148,6 +160,8 @@ npm run db:local:start
 npm run db:local:sync          # rebuild local from the dev/staging database
 npm run db:migrate:local apply
 npm run db:lint
+npm run help:lint              # if the migration writes Help content
+npm run help:audit:local       # ...and check the assembled published result
 npm run test
 ```
 
