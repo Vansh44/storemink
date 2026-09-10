@@ -26,6 +26,7 @@ import {
   confirmPosGatewayPayment,
   lookupProducts,
   placePosSale,
+  createPosCheckoutCustomer,
   resolvePosCustomerByPhone,
   startPosGatewayPayment,
   verifyManagerPin,
@@ -1435,12 +1436,20 @@ export function SellClient({
           customer={customer}
           customerLocked={!!exchangeActive}
           onCustomer={setCustomer}
-          onResolveCustomer={async (mobile) => {
-            const result = await resolvePosCustomerByPhone(mobile);
+          onResolveCustomer={async (mobile, dial) => {
+            const result = await resolvePosCustomerByPhone(mobile, dial);
             // ★ Re-price the moment the customer is known. Their per-customer
             // offer caps could not be resolved when the register opened, so
             // without this the till keeps quoting an offer the server will
             // refuse at completion — with the customer watching.
+            setExhaustedOfferIds(result.exhaustedOfferIds ?? []);
+            setIsFirstOrder(result.isFirstOrder ?? null);
+            return result;
+          }}
+          onCreateCustomer={async (input) => {
+            const result = await createPosCheckoutCustomer(input);
+            // Same reason as the lookup above: the quote must know what the
+            // charge will know.
             setExhaustedOfferIds(result.exhaustedOfferIds ?? []);
             setIsFirstOrder(result.isFirstOrder ?? null);
             return result;

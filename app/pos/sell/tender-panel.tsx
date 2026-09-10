@@ -8,6 +8,7 @@ import {
   Loader2,
   QrCode,
   ShieldCheck,
+  Sparkles,
   UserRound,
   WalletCards,
   X,
@@ -18,6 +19,13 @@ import type {
   PosTenderMethod,
 } from "@/app/actions/pos-sale-actions";
 import { changeDue, coversTotal, paise } from "@/lib/pos/totals";
+import {
+  DEFAULT_PHONE_DIAL,
+  PHONE_COUNTRIES,
+  formatStoredPhone,
+  phoneCountry,
+  phoneLengthHint,
+} from "@/lib/phone";
 
 // The panel follows the same three decisions a cashier makes in the real world:
 // who is buying, how they are paying, and (only for cash or a split) how much.
@@ -107,6 +115,7 @@ export function TenderPanel({
   customerLocked = false,
   onCustomer,
   onResolveCustomer,
+  onCreateCustomer,
   gstin,
   onGstin,
   gstEnabled,
@@ -135,7 +144,21 @@ export function TenderPanel({
   /** One explicit server round-trip after a complete number, never per key. */
   onResolveCustomer?: (
     mobile: string,
-  ) => Promise<{ customer?: PosCustomer; created?: boolean; error?: string }>;
+    dial: string,
+  ) => Promise<{
+    customer?: PosCustomer;
+    /** The number is new here, so the cashier is offered the detail fields. */
+    notFound?: boolean;
+    error?: string;
+  }>;
+  /** Records a number the till has just met, with the name the cashier took. */
+  onCreateCustomer?: (input: {
+    mobile: string;
+    dial: string;
+    firstName?: string;
+    lastName?: string;
+    email?: string;
+  }) => Promise<{ customer?: PosCustomer; created?: boolean; error?: string }>;
   gstin?: string;
   onGstin?: (value: string) => void;
   gstEnabled?: boolean;
@@ -156,8 +179,15 @@ export function TenderPanel({
   const [error, setError] = useState<string | null>(null);
   const [managerPin, setManagerPin] = useState<string | null>(null);
   const [pin, setPin] = useState("");
-  const [mobile, setMobile] = useState(customer?.phone ?? "");
+  const [dial, setDial] = useState(DEFAULT_PHONE_DIAL);
+  const [mobile, setMobile] = useState("");
   const [customerWasCreated, setCustomerWasCreated] = useState(false);
+  // Set when a looked-up number matched nobody: the cashier is then offered
+  // the detail fields for it, and may skip them.
+  const [newMobile, setNewMobile] = useState<string | null>(null);
+  const [newFirst, setNewFirst] = useState("");
+  const [newLast, setNewLast] = useState("");
+  const [newEmail, setNewEmail] = useState("");
   const [detailsOpen, setDetailsOpen] = useState(
     Boolean((gstin ?? "").trim() || (receiptEmail ?? "").trim()),
   );
@@ -174,11 +204,16 @@ export function TenderPanel({
     .reduce((sum, tender) => sum + tender.amount, 0);
   const creditLeft = Math.max(0, creditAvailable - creditStaged);
 
+  /** Lengths accepted for the chosen country — 10 for +91, 8 for +65. */
+  const dialDigits = phoneCountry(dial)?.digits ?? [10];
+  const mobileComplete = dialDigits.includes(mobile.length);
+  const maxMobileDigits = Math.max(...dialDigits);
+
   const resolveCustomer = async () => {
     if (
       !onResolveCustomer ||
       !onCustomer ||
-      mobile.length !== 10 ||
+      !mobileComplete ||
       resolvingCustomer.current
     ) {
       return;
@@ -187,13 +222,24 @@ export function TenderPanel({
     setBusy(true);
     setError(null);
     try {
-      const result = await onResolveCustomer(mobile);
-      if (result.error || !result.customer) {
-        setError(result.error ?? "Couldn't resolve that customer.");
+      const result = await onResolveCustomer(mobile, dial);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      // A number nobody has bought with before is the ordinary case for a new
+      // shopper, not an error. Offer the fields rather than silently recording
+      // a nameless row, which is what left a shop full of "Customer" entries.
+      if (result.notFound || !result.customer) {
+        if (!onCreateCustomer) {
+          setError("Couldn't resolve that customer.");
+          return;
+        }
+        setNewMobile(mobile);
         return;
       }
       onCustomer(result.customer);
-      setCustomerWasCreated(result.created === true);
+      setCustomerWasCreated(false);
       // The identity remains visible on Payment, so making the cashier confirm
       // it with a second button buys no safety and adds a click to every sale.
       setScreen("methods");
@@ -203,6 +249,59 @@ export function TenderPanel({
       );
     } finally {
       resolvingCustomer.current = false;
+      setBusy(false);
+    }
+  };
+
+  /**
+   * Record the new number with the details the cashier collected.
+   *
+   * ★★ A FIRST NAME IS REQUIRED, AND THERE IS NO SKIP (owner's decision,
+   * 2026-09-11). This deliberately overrides roadmap invariant 6 ("a walk-in
+   * who will not give a name is still a sale") for the till: a nameless row
+   * is what filled the customer list with anonymous "Customer" entries, and
+   * the owner would rather the counter always ask. The consequence is real
+   * and intended — a new number cannot be charged until it has a name, so a
+   * customer who refuses one has to be turned away or served against a
+   * colleague's judgement. The escape is to close Checkout, not to record a
+   * blank.
+   *
+   * ⚠ The server enforces it too (`validatePosCheckoutDetails`). A disabled
+   * button is an affordance, not a boundary, and this action is reachable
+   * without the UI.
+   */
+  const newNameGiven = newFirst.trim().length > 0;
+
+  const createCustomer = async () => {
+    if (!onCreateCustomer || !onCustomer || !newMobile || busy) return;
+    if (!newNameGiven) {
+      setError("Enter the customer's first name.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await onCreateCustomer({
+        mobile: newMobile,
+        dial,
+        firstName: newFirst,
+        lastName: newLast,
+        email: newEmail,
+      });
+      if (result.error || !result.customer) {
+        setError(result.error ?? "Couldn't save that customer.");
+        return;
+      }
+      onCustomer(result.customer);
+      setCustomerWasCreated(result.created === true);
+      setNewMobile(null);
+      setNewFirst("");
+      setNewLast("");
+      setNewEmail("");
+      setScreen("methods");
+    } catch {
+      setError("Couldn't save that customer. Check the connection and retry.");
+    } finally {
       setBusy(false);
     }
   };
@@ -483,6 +582,7 @@ export function TenderPanel({
                       onCustomer?.(null);
                       setMobile("");
                       setCustomerWasCreated(false);
+                      setNewMobile(null);
                       setError(null);
                     }}
                     className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--pos-ink-2)] transition-colors hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-ink)]"
@@ -503,11 +603,90 @@ export function TenderPanel({
                         : customer.name}
                     </span>
                     <span className="block truncate text-xs text-[var(--pos-ink-2)]">
-                      +91 {customer.phone}
+                      {formatStoredPhone(customer.phone)}
                       {customer.email ? ` · ${customer.email}` : ""}
                     </span>
                   </span>
                 </div>
+              ) : newMobile ? (
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void createCustomer();
+                  }}
+                >
+                  {/* ★ THE ONE MOMENT WORTH CELEBRATING AT A TILL. A number
+                      nobody has bought with is a customer the shop did not
+                      have this morning, and the screen used to report it as a
+                      lookup that had failed. Naming it is also what makes the
+                      two extra fields read as a reason rather than a chore. */}
+                  <div className="mb-3 flex items-center gap-3 rounded-xl border border-[var(--pos-ok-border)] bg-[var(--pos-ok-soft)] p-3">
+                    <span className="rounded-full bg-[var(--pos-surface)] p-2 text-[var(--pos-ok)]">
+                      <Sparkles className="h-5 w-5" />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-[var(--pos-ok)]">
+                        New customer!
+                      </span>
+                      <span className="block truncate text-xs text-[var(--pos-ink-2)]">
+                        First visit from {formatStoredPhone(dial + newMobile)} —
+                        add their name so you can greet them next time.
+                      </span>
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <input
+                      autoFocus
+                      aria-label="Customer first name"
+                      value={newFirst}
+                      placeholder="First name"
+                      autoComplete="off"
+                      onChange={(event) => {
+                        setNewFirst(event.target.value.slice(0, 60));
+                        setError(null);
+                      }}
+                      className="min-w-0 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
+                    />
+                    <input
+                      aria-label="Customer last name"
+                      value={newLast}
+                      placeholder="Last name"
+                      autoComplete="off"
+                      onChange={(event) => {
+                        setNewLast(event.target.value.slice(0, 60));
+                        setError(null);
+                      }}
+                      className="min-w-0 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
+                    />
+                  </div>
+                  <input
+                    aria-label="Customer email"
+                    value={newEmail}
+                    placeholder="Email (optional)"
+                    inputMode="email"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    autoComplete="off"
+                    onChange={(event) => {
+                      setNewEmail(event.target.value.slice(0, 160));
+                      setError(null);
+                    }}
+                    className="mt-2 w-full rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
+                  />
+                  <button
+                    type="submit"
+                    disabled={busy || !newNameGiven}
+                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--pos-accent)] px-4 py-3 text-sm font-semibold text-[var(--pos-on-accent)] hover:opacity-90 disabled:opacity-40"
+                  >
+                    {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+                    Save and continue
+                  </button>
+                  <p className="mt-1.5 text-xs text-[var(--pos-ink-3)]">
+                    If they create an account online with this number later, it
+                    joins this record instead of starting a new one.
+                  </p>
+                </form>
               ) : (
                 <form
                   onSubmit={(event) => {
@@ -516,34 +695,55 @@ export function TenderPanel({
                   }}
                 >
                   <div className="flex items-stretch gap-2">
-                    <label className="flex min-w-0 flex-1 items-center rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] focus-within:border-[var(--pos-border-strong)]">
-                      <span className="border-r border-[var(--pos-border)] px-3 text-sm font-medium text-[var(--pos-ink-2)]">
-                        +91
-                      </span>
+                    <div className="flex min-w-0 flex-1 items-center rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] focus-within:border-[var(--pos-border-strong)]">
+                      {/* The code is part of the stored number, not decoration:
+                          `users.phone` keeps the composed E.164 value. India is
+                          the default, so the common sale is unchanged. */}
+                      <select
+                        aria-label="Country code"
+                        value={dial}
+                        onChange={(event) => {
+                          setDial(event.target.value);
+                          // Lengths differ per country, so a number typed for
+                          // the previous one is no longer meaningful.
+                          setMobile("");
+                          setError(null);
+                        }}
+                        className="max-w-[7.5rem] shrink-0 cursor-pointer truncate border-r border-[var(--pos-border)] bg-transparent py-3 pl-3 pr-2 text-sm font-medium text-[var(--pos-ink-2)] outline-none"
+                      >
+                        {PHONE_COUNTRIES.map((country) => (
+                          <option key={country.dial} value={country.dial}>
+                            {country.dial} {country.iso}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         autoFocus
                         aria-label="Customer mobile number"
                         autoComplete="off"
                         inputMode="numeric"
-                        pattern="[0-9]{10}"
-                        maxLength={10}
+                        maxLength={maxMobileDigits}
                         value={mobile}
-                        placeholder="10-digit mobile"
+                        placeholder={`${phoneLengthHint(dial)}-digit mobile`}
                         onChange={(event) => {
                           const digits = event.target.value.replace(/\D/g, "");
-                          const national =
-                            digits.length > 10 && digits.startsWith("91")
-                              ? digits.slice(2, 12)
-                              : digits.slice(0, 10);
-                          setMobile(national);
+                          const code = dial.slice(1);
+                          // Someone pasting a full international number should
+                          // not have its country code counted as local digits.
+                          const local =
+                            digits.length > maxMobileDigits &&
+                            digits.startsWith(code)
+                              ? digits.slice(code.length)
+                              : digits;
+                          setMobile(local.slice(0, maxMobileDigits));
                           setError(null);
                         }}
                         className="min-w-0 flex-1 bg-transparent px-3 py-3 text-base outline-none"
                       />
-                    </label>
+                    </div>
                     <button
                       type="submit"
-                      disabled={busy || mobile.length !== 10}
+                      disabled={busy || !mobileComplete}
                       className="inline-flex min-w-20 items-center justify-center gap-2 rounded-xl bg-[var(--pos-accent)] px-4 text-sm font-semibold text-[var(--pos-on-accent)] hover:opacity-90 disabled:opacity-40"
                     >
                       {busy && <Loader2 className="h-4 w-4 animate-spin" />}
@@ -551,8 +751,8 @@ export function TenderPanel({
                     </button>
                   </div>
                   <p className="mt-1.5 text-xs text-[var(--pos-ink-3)]">
-                    We check only after OK. A new number creates the customer
-                    automatically.
+                    We check only after OK. A number we already have brings up
+                    that customer.
                   </p>
                 </form>
               )}
@@ -591,7 +791,7 @@ export function TenderPanel({
                       {customerWasCreated ? "New customer" : customer.name}
                     </span>
                     <span className="block truncate text-xs text-[var(--pos-ink-2)]">
-                      +91 {customer.phone}
+                      {formatStoredPhone(customer.phone)}
                       {customer.email ? ` · ${customer.email}` : ""}
                     </span>
                   </span>

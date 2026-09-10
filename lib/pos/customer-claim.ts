@@ -12,7 +12,7 @@
 // of the feature, not a side effect of it.
 // ---------------------------------------------------------------------------
 
-import { normalizeIndianMobile } from "@/lib/phone";
+import { parseStoredPhone } from "@/lib/phone";
 
 /** Prefix marking a row the till invented rather than a signup creating. */
 export const POS_CUSTOMER_PREFIX = "pos_";
@@ -108,29 +108,81 @@ export function validatePosCustomer(
   return { ok: true, name, phone, email };
 }
 
+export type PosCheckoutDetails =
+  | {
+      ok: true;
+      firstName: string;
+      lastName: string | null;
+      email: string | null;
+    }
+  | { ok: false; error: string };
+
 /**
- * Indian mobile numbers, reduced to the 10 digits the `users` table stores.
+ * The details the till must put to a number it has just met.
+ *
+ * ★★ A FIRST NAME IS REQUIRED (owner's decision, 2026-09-11), which
+ * DELIBERATELY OVERRIDES roadmap invariant 6 for the register — "a walk-in who
+ * will not give their name is still a sale". The register used to record a
+ * phone-only row instead of asking, and that is what filled merchants'
+ * customer lists with anonymous "Customer" entries; the owner would rather the
+ * counter always ask. The consequence is intended and worth stating: a new
+ * number cannot be charged until it has a name.
+ *
+ * ★ ENFORCED HERE, NOT ONLY IN THE UI. The checkout disables its button until
+ * a name is typed, but a disabled button is an affordance and this action is
+ * reachable without it.
+ *
+ * ★ THE LAST NAME STAYS OPTIONAL. Plenty of customers give one name, and
+ * `users.last_name` is nullable precisely for that; requiring it would refuse
+ * a sale over a field the schema never wanted.
+ *
+ * ★ THE EMAIL STAYS OPTIONAL, but is CHECKED when given, because a typo there
+ * is silent: it becomes the address a receipt is sent to, and nothing bounces
+ * back to the cashier while the customer is still in the shop.
+ */
+export function validatePosCheckoutDetails(input: {
+  firstName?: string;
+  lastName?: string;
+  email?: string;
+}): PosCheckoutDetails {
+  const firstName = (input.firstName ?? "").trim().slice(0, 60);
+  const lastName = (input.lastName ?? "").trim().slice(0, 60) || null;
+  const email = (input.email ?? "").trim().toLowerCase().slice(0, 160) || null;
+
+  if (!firstName) {
+    return { ok: false, error: "Enter the customer's first name." };
+  }
+  if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return { ok: false, error: "That email doesn't look right." };
+  }
+  return { ok: true, firstName, lastName, email };
+}
+
+/**
+ * A customer's number, reduced to the ONE shape `users.phone` stores: E.164.
  *
  * ★ IT MUST MATCH WHAT SIGNUP STORES, or the claim never fires. Someone whose
- * number the till took as "+91 98765 43210" and who later signs up as
- * "9876543210" is the SAME person, and if the two strings differ they get two
- * rows and lose their history. Returns "" when it isn't a recognisable mobile,
- * rather than storing something that can never be matched.
+ * number the till took and who later signs up is the SAME person, and if the
+ * two strings differ they get two rows and lose their history. That invariant
+ * was written here from the start and was broken for months anyway, because
+ * signup wrote Identity Platform's E.164 while this returned the bare ten
+ * digits. E.164 is now canonical on both sides (owner's decision,
+ * 2026-09-11), and `storedPhoneVariants` matches the legacy shape for rows
+ * written before that.
  *
- * ★★ IT DELEGATES TO `normalizeIndianMobile` RATHER THAN REIMPLEMENTING IT.
- * A second copy would drift, and this one already had: it accepted repeated-digit
- * placeholders like 8888888888, which the shared one rejects. That is not
- * cosmetic — `(store_id, phone)` is UNIQUE, so the SECOND cashier who typed
- * 8888888888 to get past the field would have silently ATTACHED their walk-in to
- * the FIRST one's record, merging two unrelated customers' order history. The
- * shared helper exists because Shiprocket rejects those numbers; the reason to
- * reject them here is different and stronger.
+ * ★★ IT DELEGATES TO `parseStoredPhone` RATHER THAN REIMPLEMENTING IT. A
+ * second copy would drift, and this one already had: it accepted repeated-digit
+ * placeholders that its previous delegate rejected. ⚠ Note the reason for that
+ * rejection was always the CARRIER's — Shiprocket cannot book 8888888888 —
+ * which is a different question from who was at the counter, so recording one
+ * is now allowed (owner's decision, 2026-09-11) while `normalizeIndianMobile`
+ * still refuses it at the courier boundary.
  *
- * ⚠ The return type differs deliberately — "" rather than null — because every
- * caller here feeds a NOT NULL text column and a falsy check reads the same.
+ * ⚠ The return type is "" rather than null because every caller feeds a NOT
+ * NULL text column and a falsy check reads the same.
  */
 export function normalizePhone(raw: unknown): string {
-  return normalizeIndianMobile(raw) ?? "";
+  return parseStoredPhone(raw)?.e164 ?? "";
 }
 
 /** Split a single typed name into the two columns `users` actually has. */

@@ -9,6 +9,7 @@ import { users } from "@/drizzle/schema";
 import { getCurrentStoreId } from "@/lib/store/resolve";
 import { recordStorePolicyConsent } from "@/lib/legal/store-consent";
 import { claimPosCustomer } from "@/lib/pos/claim-customer";
+import { parseStoredPhone } from "@/lib/phone";
 
 export interface MyCustomer {
   id: string;
@@ -115,6 +116,28 @@ export async function updateCustomerProfile(formData: FormData) {
   const trimmedLast = lastName?.trim() || null;
   const trimmedEmail = email?.trim() || null;
 
+  // ★★ STORE THE PHONE IN ONE CANONICAL SHAPE, so the till can find it.
+  // Identity Platform hands back E.164 and this used to write it through
+  // untouched, while the register wrote the bare national number.
+  // `(store_id, phone)` is UNIQUE on the STRING, so the same person held two
+  // rows: the till could not find a shopper who had an account, and the claim
+  // below adopted a till row only for this upsert to rewrite its phone into
+  // the other shape — so the next in-store visit missed again and minted
+  // another duplicate.
+  //
+  // E.164 is the canonical shape (owner's decision, 2026-09-11): a number
+  // carrying its country code is unambiguous, it is what a merchant should see
+  // in the dashboard, and it is the only shape that can hold a number from
+  // outside India at all.
+  //
+  // ⚠ FALLS BACK TO THE RAW VALUE, never to null. `parseStoredPhone` knows the
+  // dial codes the register offers, and a shopper may have verified a number
+  // from somewhere else entirely; dropping their phone would be worse than
+  // storing exactly what Identity Platform verified.
+  const storedPhone = user.phone
+    ? (parseStoredPhone(user.phone)?.e164 ?? user.phone)
+    : null;
+
   const storeId = await getCurrentStoreId();
   const insertRow = {
     id: user.id,
@@ -122,7 +145,7 @@ export async function updateCustomerProfile(formData: FormData) {
     lastName: trimmedLast,
     email: trimmedEmail,
     storeId,
-    ...(user.phone ? { phone: user.phone } : {}),
+    ...(storedPhone ? { phone: storedPhone } : {}),
   };
   // Columns overwritten on conflict — never `id`, and only touch `phone` when
   // we actually have a verified one to write.
@@ -130,7 +153,7 @@ export async function updateCustomerProfile(formData: FormData) {
     firstName: trimmedFirst,
     lastName: trimmedLast,
     email: trimmedEmail,
-    ...(user.phone ? { phone: user.phone } : {}),
+    ...(storedPhone ? { phone: storedPhone } : {}),
   };
 
   // ★ THE CLAIM RUNS BEFORE THE UPSERT, AND IT HAS TO.
