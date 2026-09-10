@@ -547,9 +547,11 @@ describe("country codes at the counter", () => {
     fireEvent.click(button(/^ok$/i));
 
     // A new number is a customer gained, not a lookup that failed.
-    expect(await screen.findByText(/new customer!/i)).toBeVisible();
-    expect(
-      screen.getByText(/first visit from \+91 98122 79923/i),
-    ).toBeVisible();
+    expect(await screen.findByText(/^new customer$/i)).toBeVisible();
+    expect(screen.getByText(/first visit from/i)).toBeVisible();
+    // ⚠ NOT TRUNCATED. On a till screen this read "add their name so you can
+    // gree…" — the sentence explaining why the fields are there was the part
+    // being cut off, and the number itself has to be readable aloud.
+    expect(screen.getByText("+91 98122 79923")).toBeVisible();
   });
 });

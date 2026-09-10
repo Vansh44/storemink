@@ -5,6 +5,7 @@ import {
   ArrowLeft,
   Banknote,
   CreditCard,
+  Link2,
   Loader2,
   QrCode,
   ShieldCheck,
@@ -619,72 +620,114 @@ export function TenderPanel({
                       nobody has bought with is a customer the shop did not
                       have this morning, and the screen used to report it as a
                       lookup that had failed. Naming it is also what makes the
-                      two extra fields read as a reason rather than a chore. */}
-                  <div className="mb-3 flex items-center gap-3 rounded-xl border border-[var(--pos-ok-border)] bg-[var(--pos-ok-soft)] p-3">
-                    <span className="rounded-full bg-[var(--pos-surface)] p-2 text-[var(--pos-ok)]">
-                      <Sparkles className="h-5 w-5" />
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block text-sm font-semibold text-[var(--pos-ok)]">
-                        New customer!
+                      two fields below read as a reason rather than a chore. */}
+                  <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--pos-ok-border)] bg-[var(--pos-ok-soft)]">
+                    <div className="flex items-center gap-3 p-3.5">
+                      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--pos-surface)] text-[var(--pos-ok)] shadow-sm">
+                        <Sparkles className="h-5 w-5" strokeWidth={2} />
                       </span>
-                      <span className="block truncate text-xs text-[var(--pos-ink-2)]">
-                        First visit from {formatStoredPhone(dial + newMobile)} —
-                        add their name so you can greet them next time.
+                      <span className="min-w-0">
+                        <span className="block text-sm font-semibold text-[var(--pos-ok)]">
+                          New customer
+                        </span>
+                        {/* ⚠ NOT TRUNCATED. This read "add their name so you
+                            can gree…" on a till screen: the sentence that
+                            explains WHY the fields are there was the part cut
+                            off. It wraps instead. */}
+                        <span className="block text-xs leading-snug text-[var(--pos-ink-2)]">
+                          First visit from{" "}
+                          <strong className="font-semibold text-[var(--pos-ink)]">
+                            {formatStoredPhone(dial + newMobile)}
+                          </strong>
+                        </span>
                       </span>
-                    </span>
+                    </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <input
-                      autoFocus
-                      aria-label="Customer first name"
-                      value={newFirst}
-                      placeholder="First name"
-                      autoComplete="off"
-                      onChange={(event) => {
-                        setNewFirst(event.target.value.slice(0, 60));
-                        setError(null);
-                      }}
-                      className="min-w-0 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
-                    />
-                    <input
-                      aria-label="Customer last name"
-                      value={newLast}
-                      placeholder="Last name"
-                      autoComplete="off"
-                      onChange={(event) => {
-                        setNewLast(event.target.value.slice(0, 60));
-                        setError(null);
-                      }}
-                      className="min-w-0 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
-                    />
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="block">
+                        <span className="mb-1.5 block text-xs font-medium text-[var(--pos-ink-2)]">
+                          First name
+                        </span>
+                        <input
+                          autoFocus
+                          aria-label="Customer first name"
+                          value={newFirst}
+                          placeholder="Rohan"
+                          autoComplete="off"
+                          autoCapitalize="words"
+                          onChange={(event) => {
+                            setNewFirst(event.target.value.slice(0, 60));
+                            setError(null);
+                          }}
+                          className="w-full min-w-0 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none transition-colors placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
+                        />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1.5 flex items-baseline gap-1 text-xs font-medium text-[var(--pos-ink-2)]">
+                          Last name
+                          <span className="text-[10px] font-normal text-[var(--pos-ink-3)]">
+                            optional
+                          </span>
+                        </span>
+                        <input
+                          aria-label="Customer last name"
+                          value={newLast}
+                          placeholder="Sharma"
+                          autoComplete="off"
+                          autoCapitalize="words"
+                          onChange={(event) => {
+                            setNewLast(event.target.value.slice(0, 60));
+                            setError(null);
+                          }}
+                          className="w-full min-w-0 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none transition-colors placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
+                        />
+                      </label>
+                    </div>
+                    <label className="block">
+                      <span className="mb-1.5 flex items-baseline gap-1 text-xs font-medium text-[var(--pos-ink-2)]">
+                        Email
+                        <span className="text-[10px] font-normal text-[var(--pos-ink-3)]">
+                          optional · for the receipt
+                        </span>
+                      </span>
+                      <input
+                        aria-label="Customer email"
+                        value={newEmail}
+                        placeholder="rohan@example.com"
+                        inputMode="email"
+                        autoCapitalize="off"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        autoComplete="off"
+                        onChange={(event) => {
+                          setNewEmail(event.target.value.slice(0, 160));
+                          setError(null);
+                        }}
+                        className="w-full rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none transition-colors placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
+                      />
+                    </label>
                   </div>
-                  <input
-                    aria-label="Customer email"
-                    value={newEmail}
-                    placeholder="Email (optional)"
-                    inputMode="email"
-                    autoCapitalize="off"
-                    autoCorrect="off"
-                    spellCheck={false}
-                    autoComplete="off"
-                    onChange={(event) => {
-                      setNewEmail(event.target.value.slice(0, 160));
-                      setError(null);
-                    }}
-                    className="mt-2 w-full rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] px-3 py-3 text-base outline-none placeholder:text-[var(--pos-ink-3)] focus:border-[var(--pos-border-strong)]"
-                  />
+
                   <button
                     type="submit"
                     disabled={busy || !newNameGiven}
-                    className="mt-2 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--pos-accent)] px-4 py-3 text-sm font-semibold text-[var(--pos-on-accent)] hover:opacity-90 disabled:opacity-40"
+                    className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-[var(--pos-accent)] px-4 py-3.5 text-sm font-semibold text-[var(--pos-on-accent)] transition-opacity hover:opacity-90 disabled:opacity-40"
                   >
                     {busy && <Loader2 className="h-4 w-4 animate-spin" />}
                     Save and continue
                   </button>
-                  <p className="mt-1.5 text-xs text-[var(--pos-ink-3)]">
-                    If they create an account online with this number later, it
-                    joins this record instead of starting a new one.
+
+                  <p className="mt-3 flex items-start gap-2 rounded-xl bg-[var(--pos-surface-2)] p-3 text-[11px] leading-snug text-[var(--pos-ink-2)]">
+                    <Link2
+                      className="mt-px h-3.5 w-3.5 shrink-0"
+                      strokeWidth={2}
+                    />
+                    <span>
+                      If they create an account online with this number later,
+                      it joins this record instead of starting a new one.
+                    </span>
                   </p>
                 </form>
               ) : (

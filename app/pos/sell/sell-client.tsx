@@ -21,6 +21,7 @@ import {
   Database,
   LayoutGrid,
   ShoppingCart,
+  ChevronRight,
 } from "lucide-react";
 import {
   confirmPosGatewayPayment,
@@ -1466,20 +1467,38 @@ export function SellClient({
       */}
       {variantsFor && (
         <div
-          className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 p-0 sm:items-center sm:p-4"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 backdrop-blur-sm sm:items-center sm:p-4"
           role="dialog"
           aria-modal="true"
           aria-label={`Choose an option for ${variantsFor.name}`}
           onClick={() => setVariantsFor(null)}
         >
           <div
-            className="max-h-[85dvh] w-full max-w-md overflow-hidden rounded-t-2xl border border-[var(--pos-border)] bg-[var(--pos-surface)] shadow-2xl sm:rounded-2xl"
+            className="flex max-h-[88dvh] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl bg-[var(--pos-surface)] shadow-[0_-8px_40px_rgba(0,0,0,0.35)] sm:rounded-2xl sm:shadow-2xl"
             onClick={(event) => event.stopPropagation()}
           >
-            <div className="flex items-start justify-between gap-3 border-b border-[var(--pos-border)] p-4">
-              <div className="min-w-0">
-                <h2 className="truncate font-semibold">{variantsFor.name}</h2>
-                <p className="text-xs text-[var(--pos-ink-2)]">
+            {/* The product, so a cashier who mis-tapped sees it immediately
+                rather than reading the options to work out where they are. */}
+            <div className="flex shrink-0 items-center gap-3 border-b border-[var(--pos-border)] p-4">
+              <div className="h-14 w-14 shrink-0 overflow-hidden rounded-xl bg-[var(--pos-surface-2)]">
+                {variantsFor.image ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={variantsFor.image}
+                    alt=""
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <div className="flex h-full w-full items-center justify-center text-[var(--pos-ink-3)]">
+                    <Package className="h-6 w-6" strokeWidth={1.5} />
+                  </div>
+                )}
+              </div>
+              <div className="min-w-0 flex-1">
+                <h2 className="truncate text-base font-semibold leading-tight">
+                  {variantsFor.name}
+                </h2>
+                <p className="mt-0.5 text-xs text-[var(--pos-ink-2)]">
                   {variantsFor.variants.length} options ·{" "}
                   {groupPriceLabel(variantsFor, money)}
                 </p>
@@ -1487,50 +1506,99 @@ export function SellClient({
               <button
                 type="button"
                 onClick={() => setVariantsFor(null)}
-                className="shrink-0 rounded p-1 text-[var(--pos-ink-2)] hover:bg-[var(--pos-surface-2)]"
+                className="-mr-1 shrink-0 rounded-lg p-2 text-[var(--pos-ink-2)] transition-colors hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-ink)]"
                 aria-label="Close"
               >
-                <X className="h-4 w-4" />
+                <X className="h-5 w-5" />
               </button>
             </div>
-            {/* Its own scroller: a product with thirty variants must not push
-                the close button off a till screen. */}
-            <div className="pos-scroll-area max-h-[60dvh] space-y-2 overflow-y-auto overscroll-contain p-4">
-              {variantsFor.variants.map((v) => {
-                const out = isOutOfStock(v);
-                return (
-                  <button
-                    key={lineKey(v.productId, v.variantId)}
-                    type="button"
-                    disabled={out}
-                    // One tap adds the exact SKU and closes: the picker is a
-                    // step on the way to the cart, not a place to linger.
-                    onClick={() => {
-                      addItem(v);
-                      setVariantsFor(null);
-                    }}
-                    className="flex w-full items-center justify-between gap-3 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] p-3 text-left hover:bg-[var(--pos-surface-2)] disabled:opacity-40"
-                  >
-                    <span className="min-w-0">
-                      <span className="block truncate text-sm font-medium">
-                        {v.variantName ?? v.name}
-                      </span>
-                      <span className="block truncate text-xs text-[var(--pos-ink-2)]">
-                        {out
-                          ? "Out of stock"
-                          : v.trackInventory
-                            ? `${v.stock} in stock`
-                            : "In stock"}
-                        {v.sku ? ` · ${v.sku}` : ""}
-                      </span>
-                    </span>
-                    <span className="shrink-0 font-semibold">
-                      {money(v.price)}
-                    </span>
-                  </button>
-                );
-              })}
+
+            {/* Its own scroller: thirty variants must not push the close
+                button off a till screen. */}
+            <div className="pos-scroll-area min-h-0 flex-1 overflow-y-auto overscroll-contain p-3">
+              <ul className="space-y-1.5">
+                {variantsFor.variants.map((v) => {
+                  const out = isOutOfStock(v);
+                  return (
+                    <li key={lineKey(v.productId, v.variantId)}>
+                      <button
+                        type="button"
+                        disabled={out}
+                        // One tap adds the exact SKU and closes: the picker is
+                        // a step on the way to the cart, not a place to linger.
+                        onClick={() => {
+                          addItem(v);
+                          setVariantsFor(null);
+                        }}
+                        className="group flex w-full items-center gap-3 rounded-xl border border-[var(--pos-border)] bg-[var(--pos-surface)] p-2.5 text-left transition-colors hover:border-[var(--pos-border-strong)] hover:bg-[var(--pos-surface-2)] disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:border-[var(--pos-border)] disabled:hover:bg-[var(--pos-surface)]"
+                      >
+                        {/* Variants routinely differ by colour or pack size,
+                            which a name alone does not convey. `image` already
+                            falls back to the product's, so every row has one. */}
+                        <div className="h-12 w-12 shrink-0 overflow-hidden rounded-lg bg-[var(--pos-surface-2)]">
+                          {v.image ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img
+                              src={v.image}
+                              alt=""
+                              loading="lazy"
+                              className="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center text-[var(--pos-ink-3)]">
+                              <Package className="h-5 w-5" strokeWidth={1.5} />
+                            </div>
+                          )}
+                        </div>
+
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate text-sm font-semibold">
+                            {v.variantName ?? v.name}
+                          </span>
+                          <span className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1">
+                            {/* Colour is spent only on the answer that stops a
+                                sale. A quiet figure for everything else keeps
+                                the row scannable. */}
+                            {out ? (
+                              <span className="rounded-md bg-[var(--pos-danger-soft)] px-1.5 py-0.5 text-[11px] font-medium text-[var(--pos-danger)]">
+                                Sold out
+                              </span>
+                            ) : v.trackInventory ? (
+                              <span className="text-[11px] text-[var(--pos-ink-2)]">
+                                {v.stock} in stock
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-[var(--pos-ink-3)]">
+                                Stock not tracked
+                              </span>
+                            )}
+                            {v.sku && (
+                              <span className="truncate font-mono text-[10px] uppercase tracking-wide text-[var(--pos-ink-3)]">
+                                {v.sku}
+                              </span>
+                            )}
+                          </span>
+                        </span>
+
+                        <span className="flex shrink-0 items-center gap-1.5">
+                          <span className="text-base font-semibold tabular-nums">
+                            {money(v.price)}
+                          </span>
+                          <ChevronRight
+                            className="h-4 w-4 text-[var(--pos-ink-3)] transition-colors group-hover:text-[var(--pos-ink-2)] group-disabled:opacity-0"
+                            strokeWidth={2}
+                          />
+                        </span>
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
             </div>
+
+            <p className="shrink-0 border-t border-[var(--pos-border)] px-4 py-2.5 text-center text-[11px] text-[var(--pos-ink-3)]">
+              Scanning the item&apos;s barcode adds it without choosing here.
+            </p>
           </div>
         </div>
       )}

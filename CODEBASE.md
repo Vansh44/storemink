@@ -5246,8 +5246,13 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
         would fill a hundred tiles with twenty things a cashier is looking for.
         `groupForGrid` folds runs of one product's variants into a single tile
         carrying the derived name, image, **summed stock at this location** and
-        a price range; tapping it opens a picker showing each option's price,
-        stock and SKU, and one tap adds that exact SKU.
+        a price range; tapping it opens a picker showing each option's
+        thumbnail, price, stock and SKU, and one tap adds that exact SKU.
+        ★ The thumbnail matters more than it looks: variants routinely differ
+        by colour or pack size, which a name alone does not convey.
+        `mapCatalogRow` already resolved a variant's own `image_url` with a
+        fallback to the product's, so every row has one and the list does not
+        go ragged — only 2 of 64 local variants carry their own picture.
         - **★★ GROUPING IS PRESENTATION ONLY.** `PosCatalogItem` stays one row
           per SKU, `itemKey` stays `productId:variantId`, a cart line stays a
           SKU and `placePosSale` is untouched — so this cannot change what is

@@ -538,10 +538,48 @@ describe("Sell catalogue: parent products, then variants", () => {
     });
     expect(picker).toBeVisible();
     expect(screen.getByText("Black / S")).toBeVisible();
-    expect(screen.getByText(/2 in stock · TEE-BLK-S/)).toBeVisible();
-    expect(screen.getByText(/4 in stock · TEE-BLK-M/)).toBeVisible();
+    // Price, stock and SKU are each their own element, so a cashier can answer
+    // a customer without leaving the screen.
+    expect(screen.getByText("2 in stock")).toBeVisible();
+    expect(screen.getByText("TEE-BLK-S")).toBeVisible();
+    expect(screen.getByText("4 in stock")).toBeVisible();
+    expect(screen.getByText("TEE-BLK-M")).toBeVisible();
+    expect(screen.getByText("₹499")).toBeVisible();
+    expect(screen.getByText("₹599")).toBeVisible();
     // Nothing is in the cart yet: opening the picker is not a decision.
     expect(cartLines()).toHaveLength(0);
+  });
+
+  it("shows a picture for every option, falling back to the product's", () => {
+    // ★ Variants routinely differ by colour or pack size, which a name alone
+    // does not convey. The catalogue already resolves a variant's own image
+    // with a fallback to the product's, so every row has one.
+    catalog.all.mockReturnValue([
+      { ...SHIRT_S, image: null },
+      { ...SHIRT_M, image: "/tee-m.webp" },
+    ]);
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+
+    const dialog = screen.getByRole("dialog");
+    const images = dialog.querySelectorAll("img");
+    // One for the product in the header, one for the option that has a picture.
+    expect(images.length).toBeGreaterThanOrEqual(2);
+    expect(
+      Array.from(images).some((i) => i.getAttribute("src") === "/tee-m.webp"),
+    ).toBe(true);
+    // The option with no picture of its own still gets a placeholder rather
+    // than a ragged row.
+    expect(dialog.querySelectorAll("svg").length).toBeGreaterThan(0);
+  });
+
+  it("tells the cashier a scan skips the picker", () => {
+    // The fastest route is not discoverable from the screen otherwise.
+    render(<SellClient config={CONFIG} initialItems={[]} />);
+    fireEvent.click(screen.getByText("Classic T-Shirt"));
+    expect(
+      screen.getByText(/scanning the item's barcode adds it/i),
+    ).toBeVisible();
   });
 
   it("adds only the chosen variant, and closes", async () => {
