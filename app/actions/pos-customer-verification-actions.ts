@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
 import { users } from "@/drizzle/schema";
 import { getFirebaseAdminAuth } from "@/lib/auth/firebase-admin";
-import { normalizeIndianMobile } from "@/lib/phone";
+import { textablePhone } from "@/lib/phone";
 import { resolvePosOperator, type PosOperator } from "@/lib/pos/operator";
 import { posCan } from "@/lib/pos/permissions";
 import {
@@ -65,7 +65,7 @@ async function cleanupTemporaryPhoneIdentity(
     if (
       justCreated &&
       phoneOnly &&
-      normalizeIndianMobile(record.phoneNumber) === phone
+      textablePhone(record.phoneNumber) === phone
     ) {
       await auth.deleteUser(uid);
     }
@@ -136,8 +136,11 @@ export async function beginCustomerPhoneVerification(
         "Phone verification isn't configured on this server. Contact support.",
     };
   }
+  // ★ SENT AS-IS. `loadVerificationTarget` returns full E.164 precisely so
+  // nothing here reassembles a country code; prefixing "+91" is what texted a
+  // Singapore customer's code to an unrelated Indian number.
   return {
-    phone: `+91${target.phone}`,
+    phone: target.phone,
     maskedPhone: `••••••${target.phone.slice(-4)}`,
   };
 }
@@ -183,13 +186,16 @@ export async function confirmCustomerPhoneVerification(input: {
   if (!auth) return { error: "Phone verification isn't configured." };
   try {
     const decoded = await auth.verifyIdToken(input.idToken, true);
-    const tokenPhone = normalizeIndianMobile(decoded.phone_number);
+    // Both sides through the SAME normaliser, so the comparison cannot be
+    // satisfied by two different renderings of two different numbers.
+    const tokenPhone = textablePhone(decoded.phone_number);
     const recent =
       typeof decoded.auth_time === "number" &&
       Math.floor(Date.now() / 1000) - decoded.auth_time <= 5 * 60;
     if (
       decoded.firebase?.sign_in_provider !== "phone" ||
       !recent ||
+      !tokenPhone ||
       tokenPhone !== target.phone
     ) {
       return { error: "That code didn't verify this order's mobile number." };

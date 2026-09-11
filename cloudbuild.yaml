@@ -46,6 +46,20 @@ steps:
       - -c
       - |
         set -e
+        # ★★ COMPATIBILITY SHIM — DELETE ONCE EVERY TRIGGER IS CLEAN.
+        # `_MINK_BETA_REQUIRE_INVITE` no longer exists in the app: the store
+        # switch is the only Mink access boundary and lib/mink/config.ts pins
+        # the flag to true. But this file has no `substitution_option:
+        # ALLOW_LOOSE`, so a trigger that still SUPPLIES the key fails the whole
+        # build against a template that never mentions it — production would
+        # simply stop deploying until somebody remembered a manual step, which
+        # is exactly the failure docs/cron-jobs.md keeps recording. Declaring it
+        # (empty, below) and reading it here keeps the merge safe on its own and
+        # nags in the build log instead of stopping the release.
+        if [ -n "${_MINK_BETA_REQUIRE_INVITE}" ]; then
+          echo "WARNING: this trigger still sets _MINK_BETA_REQUIRE_INVITE, which does nothing." >&2
+          echo "  Clear it with --remove-substitutions (docs/gcp-ci-cd.md), then delete this block." >&2
+        fi
         IMAGE="${_IMAGE}"
         CACHE="$${IMAGE%:*}:buildcache-$${IMAGE##*:}"
         docker buildx create --use --name sm --driver docker-container 2>/dev/null \
@@ -339,6 +353,12 @@ substitutions:
   # the model and bounded-loop limits declarative here because --set-env-vars
   # replaces the complete Cloud Run environment on every deploy.
   _MINK_AI_ENABLED: "true"
+  # ⚠ RETIRED, and declared only so a stale trigger cannot fail the build — see
+  # the shim at the top of build-push. Empty is the honest default: nothing
+  # reads this value, in this file or in the app. Delete both halves once
+  # `--remove-substitutions=_MINK_BETA_REQUIRE_INVITE` has been applied to the
+  # dev, staging and prod triggers.
+  _MINK_BETA_REQUIRE_INVITE: ""
   _MINK_VERTEX_MODEL: gemini-3.7-flash
   _MINK_VERTEX_LOCATION: global
   _MINK_MAX_STEPS_PER_RUN: "8"

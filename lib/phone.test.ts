@@ -9,6 +9,7 @@ import {
   phoneLengthHint,
   resolveEnteredPhone,
   storedPhoneVariants,
+  textablePhone,
   toStoredPhone,
 } from "./phone";
 
@@ -181,5 +182,41 @@ describe("resolveEnteredPhone", () => {
     expect(resolveEnteredPhone("+91", "12345")).toBeNull();
     expect(resolveEnteredPhone("+91", "+999 123")).toBeNull();
     expect(resolveEnteredPhone("+91", null)).toBeNull();
+  });
+});
+
+describe("★★ textablePhone — the number an OTP can actually reach", () => {
+  // ★★ THE COLLISION THIS EXISTS FOR. `normalizeIndianMobile` reads each of
+  // these as ten digits starting 6-9 and returns a bare national number, so a
+  // caller that prefixes "+91" texts a code to an unrelated Indian subscriber.
+  it.each([
+    ["+6591234567", "Singapore"],
+    ["+6581234567", "Singapore"],
+    ["+6421234567", "New Zealand"],
+    ["+9607712345", "Maldives"],
+  ])("keeps %s (%s) whole instead of reading it as Indian", (stored) => {
+    expect(normalizeIndianMobile(stored)).toMatch(/^\d{10}$/);
+    expect(textablePhone(stored)).toBe(stored);
+  });
+
+  it("returns E.164 for both stored Indian shapes", () => {
+    expect(textablePhone("9877542162")).toBe("+919877542162");
+    expect(textablePhone("+919877542162")).toBe("+919877542162");
+  });
+
+  // ★ The till may deliberately record one (it is noting who was at the
+  // counter, not booking a courier) and `parseStoredPhone` must keep
+  // recognising it — but nothing can text it, so the counter has to fall to
+  // its manager override rather than to a code that never arrives.
+  it("★ refuses a placeholder even though parseStoredPhone accepts it", () => {
+    expect(parseStoredPhone("+918888888888")?.e164).toBe("+918888888888");
+    expect(textablePhone("+918888888888")).toBeNull();
+    expect(textablePhone("8888888888")).toBeNull();
+  });
+
+  it("returns null for anything unparseable", () => {
+    expect(textablePhone("123")).toBeNull();
+    expect(textablePhone(null)).toBeNull();
+    expect(textablePhone("+999123456")).toBeNull();
   });
 });

@@ -965,12 +965,24 @@ export async function resolvePosCustomerByPhone(
 /**
  * Record a customer the till has just met, at Checkout.
  *
- * ★★ THE DETAILS ARE OPTIONAL, AND THAT IS DELIBERATE. A walk-in who will not
- * give their name is still a sale (roadmap invariant 6), so the cashier can
- * skip straight past this and the row is created phone-only exactly as before.
- * What the fields buy is that a shopper who DOES give a name is recognised by
- * name on their next visit, and that their later online signup lands on this
- * row instead of creating a second one.
+ * ★★ A FIRST NAME IS REQUIRED, AND THIS REFUSES WITHOUT ONE (owner's decision,
+ * 2026-09-11). It shipped skippable on roadmap invariant 6 — "a walk-in who
+ * will not give their name is still a sale" — and the owner reversed that for
+ * the register after seeing the screen: a phone-only row is what filled
+ * customer lists with anonymous `Customer` entries, so the counter should
+ * always ask. ⚠ The consequence is intended: a number the till has not met
+ * cannot be charged until it has a name.
+ *
+ * ★ THE REFUSAL IS HERE, not only in the disabled button. A server action is
+ * reachable without its UI, so `validatePosCheckoutDetails` is the boundary.
+ * The last name stays optional (`users.last_name` is nullable and plenty of
+ * customers give one name); the email stays optional but is validated when
+ * given, because a typo there is silent — nothing bounces back while the
+ * customer is still in the shop.
+ *
+ * ★ A MISTYPED NUMBER IS NOT A REASON TO RECORD A BLANK. The counter's escape
+ * is `Change number` on the details step, which hands the digits back for
+ * correction (CODEBASE §36) — not a skip that writes a nameless row.
  *
  * ★ THE ROW GETS A `pos_…` ID, which is what makes it adoptable: it matches no
  * Identity Platform uid, so it is invisible to every customer session until

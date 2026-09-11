@@ -215,6 +215,35 @@ gcloud builds triggers update github storemink-web-prod \
   --update-substitutions=_MINK_AI_ENABLED=true
 ```
 
+### ⚠ `_MINK_BETA_REQUIRE_INVITE` is retired — clear it from the triggers
+
+The invitation flag is gone from the application (`lib/mink/config.ts` pins it
+to true; the store switch is the only access boundary). All three triggers were
+told to set it, and **`--update-substitutions` cannot remove a key** — it only
+writes the ones you name. Clear it explicitly:
+
+```bash
+for t in storemink-web-dev storemink-web storemink-web-prod; do
+  gcloud builds triggers update github "$t" \
+    --project=storemink-prod --region=global \
+    --remove-substitutions=_MINK_BETA_REQUIRE_INVITE
+done
+```
+
+**Why it is worth doing rather than leaving.** `cloudbuild.yaml` sets no
+`substitution_option: ALLOW_LOOSE`, so Cloud Build rejects a build whose
+substitution data carries a key the template never references, with
+`key in the substitution data is not matched in the template`.
+A trigger still setting this against a file that had dropped it would fail
+every build on that branch, so production would stop deploying until somebody
+remembered this step. That is the failure `docs/cron-jobs.md` keeps recording,
+so it is not left to memory: `cloudbuild.yaml` declares the key empty and reads
+it in a shim at the top of `build-push`, which keeps the merge safe on its own
+and prints a warning naming this section for as long as a trigger still sets
+it. **Once the loop above has run for all three triggers, delete the shim and
+the `_MINK_BETA_REQUIRE_INVITE: ""` default** — the warning is the reminder,
+and a shim nobody removes is a substitution nobody can explain a year later.
+
 For local Mink development, the Vertex-only agent uses Application Default
 Credentials. If chat or image/PDF processing reports an expired local login and
 the server log contains `invalid_grant`, `invalid_rapt` or reauthentication,

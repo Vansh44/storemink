@@ -10,6 +10,7 @@ import {
   latestMinkUserMessageId,
   minkComposerHeight,
   minkHistoryStartsOpen,
+  minkTurnAnchorSpace,
   shouldSubmitMinkComposer,
 } from "./dashboard-chat";
 import { useChat } from "./chat-context";
@@ -59,6 +60,13 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
     value: scrollIntoView,
+  });
+  // ⚠ jsdom reports 0 for every clientHeight, and the tail room is now measured
+  // from the scroller rather than expressed as a percentage — so without this
+  // the reservation is a truthful "0px" and the assertion below proves nothing.
+  Object.defineProperty(HTMLElement.prototype, "clientHeight", {
+    configurable: true,
+    value: 600,
   });
   vi.mocked(useChat).mockReturnValue(
     baseChatState as unknown as ReturnType<typeof useChat>,
@@ -201,8 +209,13 @@ describe("Mink full view", () => {
       }),
     );
     expect(scrollIntoView.mock.instances.at(-1)).toBe(submittedRow);
+    // ★★ A REAL PIXEL RESERVATION, not `calc(100% - 5rem)`. That percentage
+    // resolved against the message column, whose height is its own content, so
+    // it behaved as `auto` — 0 — and the tail room the anchor depends on never
+    // existed. This assertion used to pin that broken string, proving only that
+    // a string had been written. 600px scroller − 5rem (80px) = 520px.
     expect(screen.getByTestId("mink-turn-anchor-space")).toHaveStyle({
-      minHeight: "calc(100% - 5rem)",
+      minHeight: "520px",
     });
 
     vi.mocked(useChat).mockReturnValue({
@@ -227,6 +240,35 @@ describe("Mink full view", () => {
       }),
     );
     expect(scrollIntoView.mock.instances).toContain(submittedRow);
+  });
+});
+
+describe("★★ minkTurnAnchorSpace", () => {
+  it("reserves the scroller's height less the kept strip", () => {
+    expect(minkTurnAnchorSpace({ viewportHeight: 600, reservePx: 80 })).toBe(
+      "520px",
+    );
+    // A larger root font keeps proportionally more of the question in view.
+    expect(minkTurnAnchorSpace({ viewportHeight: 600, reservePx: 100 })).toBe(
+      "500px",
+    );
+  });
+
+  it("★ never returns a negative reservation", () => {
+    // A panel shorter than the kept strip, or one measured while hidden, must
+    // reserve nothing rather than emit an invalid negative min-height.
+    expect(minkTurnAnchorSpace({ viewportHeight: 40, reservePx: 80 })).toBe(
+      "0px",
+    );
+    expect(minkTurnAnchorSpace({ viewportHeight: 0, reservePx: 80 })).toBe(
+      "0px",
+    );
+  });
+
+  it("★ emits whole pixels, so a fractional font size cannot produce junk", () => {
+    expect(
+      minkTurnAnchorSpace({ viewportHeight: 611.5, reservePx: 82.5 }),
+    ).toBe("529px");
   });
 });
 

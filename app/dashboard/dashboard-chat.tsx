@@ -77,6 +77,45 @@ export function latestMinkUserMessageId(
   return null;
 }
 
+/** How much of the viewport the anchored question is allowed to keep. */
+export const MINK_TURN_ANCHOR_RESERVE_REM = 5;
+
+/**
+ * The temporary tail room under a newly submitted question, IN PIXELS.
+ *
+ * ★★ PIXELS, BECAUSE THE PERCENTAGE RESOLVED TO NOTHING. This was written as
+ * `min-height: calc(100% - 5rem)`, and the spacer's containing block is the
+ * message column — a plain block whose height is its own content. A percentage
+ * min-height against an indefinite containing-block height behaves as `auto`,
+ * which is 0 for a block box (CSS Sizing 3; CSS 2.1 §10.7). So the reserved
+ * space the anchor depends on never existed: `scrollIntoView({block:"start"})`
+ * just clamped at the end of the content, and a question submitted into a short
+ * conversation stayed wherever it was — the exact case the reservation is for
+ * ("the browser cannot place a newly submitted question at the top while only
+ * the Thinking row exists"). The SCROLLER has a definite height, because it is
+ * a flex child with `min-h-0 flex-1`, so measuring that is what makes the
+ * reservation real.
+ *
+ * ⚠ A TEST MUST STUB `clientHeight`: jsdom reports 0 for every element, so it
+ * yields "0px" there. Asserting the old `calc()` string proved only that a
+ * string had been written to the attribute, never that any space resulted.
+ */
+export function minkTurnAnchorSpace(input: {
+  viewportHeight: number;
+  reservePx: number;
+}) {
+  const space = Math.round(input.viewportHeight - input.reservePx);
+  return `${Math.max(0, space)}px`;
+}
+
+/** `rem` is only meaningful against the root font size, so read it. */
+function rootFontSizePx() {
+  const size = Number.parseFloat(
+    getComputedStyle(document.documentElement).fontSize,
+  );
+  return Number.isFinite(size) && size > 0 ? size : 16;
+}
+
 export function shouldSubmitMinkComposer(input: {
   key: string;
   shiftKey: boolean;
@@ -195,7 +234,10 @@ export function DashboardChat({
       autoAnchorSubmissionRef.current = true;
       anchoredUserMessageIdRef.current = latestUserId;
       if (turnAnchorSpaceRef.current) {
-        turnAnchorSpaceRef.current.style.minHeight = "calc(100% - 5rem)";
+        turnAnchorSpaceRef.current.style.minHeight = minkTurnAnchorSpace({
+          viewportHeight: scroller.clientHeight,
+          reservePx: MINK_TURN_ANCHOR_RESERVE_REM * rootFontSizePx(),
+        });
       }
     }
 

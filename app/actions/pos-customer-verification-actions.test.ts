@@ -80,6 +80,44 @@ describe("beginCustomerPhoneVerification", () => {
     expect(dbHolder.current.calls.leftJoin).toHaveLength(1);
   });
 
+  // ★★ THE REGISTER RECORDS A COUNTRY CODE NOW (lib/phone PHONE_COUNTRIES), and
+  // the number is texted EXACTLY as stored. This used to resolve through
+  // `normalizeIndianMobile`, which reads a stored "+6591234567" as the ten
+  // digits "6591234567" — so the caller's "+91" prefix sent the code to
+  // "+916591234567", a real but unrelated Indian subscriber, while the non-null
+  // phone also suppressed the manager override and stranded the handover.
+  describe("★★ a customer whose number is not Indian", () => {
+    const foreign = (customerPhone: string) =>
+      makeDbMock({
+        selectQueue: [[{ shippingAddress: {}, customerPhone }]],
+      });
+
+    it.each([
+      ["+6591234567", "Singapore"],
+      ["+6421234567", "New Zealand"],
+      ["+9607712345", "Maldives"],
+    ])("texts %s (%s) as stored, never as an Indian number", async (stored) => {
+      dbHolder.current = foreign(stored);
+      const result = await beginCustomerPhoneVerification("order-1", "pickup");
+      expect(result.phone).toBe(stored);
+      expect(result.phone).not.toMatch(/^\+91/);
+      expect(result.maskedPhone).toBe(`••••••${stored.slice(-4)}`);
+    });
+  });
+
+  // ★ A number the till may deliberately record but nothing can text. The
+  // counter must fall to the manager override rather than to an OTP that can
+  // never arrive — `parseStoredPhone` recognises these on purpose, so the
+  // rejection has to live at this boundary.
+  it("★ treats a placeholder number as unverifiable, not as a target", async () => {
+    dbHolder.current = makeDbMock({
+      selectQueue: [[{ shippingAddress: {}, customerPhone: "+918888888888" }]],
+    });
+    const result = await beginCustomerPhoneVerification("order-1", "pickup");
+    expect(result.phone).toBeUndefined();
+    expect(result).toMatchObject({ unverifiable: true, canOverride: true });
+  });
+
   it("reuses a matching proof without another order read or SMS", async () => {
     proof.has.mockResolvedValue(true);
     const result = await beginCustomerPhoneVerification("order-1", "return");
@@ -163,7 +201,7 @@ describe("confirmCustomerPhoneVerification", () => {
       expect.objectContaining({
         orderId: "order-1",
         purpose: "return",
-        phone: "9876543210",
+        phone: "+919876543210",
         op: OP,
       }),
     );

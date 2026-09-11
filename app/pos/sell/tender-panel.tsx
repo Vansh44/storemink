@@ -576,17 +576,46 @@ export function TenderPanel({
             <div className="mb-4">
               <div className="mb-2 flex items-center justify-between">
                 <p className="text-sm font-semibold">Customer mobile</p>
-                {customer && !customerLocked && (
+                {/*
+                  ★★ IT COVERS THE DETAILS STEP TOO, and that is not a
+                  refinement. This used to be gated on `customer` alone, so once
+                  a lookup came back `notFound` the panel showed the new-customer
+                  form for that number with NO way back: the header offered
+                  nothing, the panel's back arrow only renders on the amount
+                  screen, and a first name is now required with no skip. A
+                  cashier who mistyped one digit could only save a record under
+                  the wrong number or press Close, which cancels the whole
+                  checkout. A mistyped digit is the commonest error there is at a
+                  phone field, so the one screen that follows it must have an
+                  exit.
+                */}
+                {(customer || newMobile) && !customerLocked && (
                   <button
                     type="button"
+                    disabled={busy}
                     onClick={() => {
+                      // ★ TWO INTENTS, TWO RESULTS, from one expression.
+                      // From an attached customer this means "different
+                      // person", so the box is blanked as it always was. From
+                      // the details step it means "I mistyped that", so the
+                      // number comes BACK for correction — retyping ten digits
+                      // to fix one of them is the friction this exists to
+                      // remove.
                       onCustomer?.(null);
-                      setMobile("");
+                      setMobile(newMobile ?? "");
                       setCustomerWasCreated(false);
                       setNewMobile(null);
+                      // ⚠ The details MUST go with it. They were unreachable
+                      // while this button never rendered on that step; leaving
+                      // them would prefill the next number with the previous
+                      // customer's name, which a cashier correcting a digit
+                      // would not think to re-check.
+                      setNewFirst("");
+                      setNewLast("");
+                      setNewEmail("");
                       setError(null);
                     }}
-                    className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--pos-ink-2)] transition-colors hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-ink)]"
+                    className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--pos-ink-2)] transition-colors hover:bg-[var(--pos-surface-2)] hover:text-[var(--pos-ink)] disabled:opacity-40"
                   >
                     Change number
                   </button>
@@ -851,7 +880,14 @@ export function TenderPanel({
                       }}
                       className="rounded-lg px-2 py-1 text-xs font-medium text-[var(--pos-ink-2)] hover:bg-[var(--pos-surface)] disabled:opacity-40"
                     >
-                      Change
+                      {/* ★ ONE LABEL FOR ONE ACTION. This said "Change" while
+                          the identical escape on the customer screen said
+                          "Change number" and the published guide said "Change
+                          number" too — so the guide named a control that did
+                          not exist by that name, and a till showed two words
+                          for one act. "Change" alone is also ambiguous beside a
+                          customer card: change what? */}
+                      Change number
                     </button>
                   )}
                 </div>

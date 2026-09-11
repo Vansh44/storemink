@@ -4296,6 +4296,44 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260911_0097_pos_wrong_number_help",
+      "description": "Document correcting a mistyped customer mobile at the register",
+      "file": "sql/20260911_0097_pos_wrong_number_help.sql",
+      "transaction": true,
+      "requires": ["20260911_0096_pos_variant_picker_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "In-store sale guide explains how to correct a mistyped mobile",
+            "sql": "select count(*)::text from public.help_articles where slug='process-an-in-store-sale' and status='published' and category_id is not null and body like '%The digits come back for you to correct%' and body like '%if the mobile itself is wrong%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260911_0098_mink_composer_no_wav_help",
+      "description": "Stop the Mink guide offering an audio attachment the composer refuses",
+      "file": "sql/20260911_0098_mink_composer_no_wav_help.sql",
+      "transaction": true,
+      "requires": ["20260910_0093_help_centre_operator_content_removal"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "Mink guide no longer offers a WAV attachment",
+            "sql": "select count(*)::text from public.help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and category_id is not null and body not like '%PCM WAV%' and body like '%the microphone is live dictation, not an attachment%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }
