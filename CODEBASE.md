@@ -65,7 +65,7 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 | AI        | Gemini (`lib/ai/gemini.ts`); per-store brand voice (`lib/ai/brand-voice.ts` + `store_brand_profiles`) with plan-capped usage metering (`lib/ai/quota.ts`); task prompts in `brand/tasks/`. The dashboard Mink drawer has a default-on, invitation-gated Vertex/Gemini 3.7 beta in `lib/mink/` + `app/api/mink/`: its marked runtime system prompt is `docs/mink-ai-system-prompt.md`, validated and rendered by `lib/mink/system-prompt.ts`. Phase 2 streams permission/location-aware store, catalogue, sales, order, inventory and Help reads; vague multi-location catalogue-stock questions now produce permission-safe multiple-choice clarification instead of silently using a combined total, while explicit comparison returns shelf-level counts. Phase 3 adds separately opted-in private proposals. Phase 4A adds independently gated product description/SEO actions; 4B adds unpublished, untracked draft-product creation; 4C adds disabled/hidden coupon create/update; and 4D adds customer-group metadata create/update. Phase 5A adds an independently gated, human-approved adjustment for one exact tracked SKU at one exact active accessible location; Phase 5B adds a separate 5-credit, maximum-20-line bulk inventory proposal and atomic approval; Phase 5C adds a separate one-credit, one-order, one-forward-step online-delivery status proposal/approval for pending → processing → shipped → delivered; Phase 5D adds a separate immediate/scheduled publication approval for one exact saved blog proposal plus a bounded conflict-safe worker; Phase 5E adds independently gated coupon-email audience selection, exact non-PII preview, final confirmation and immediate/scheduled queueing; Phase 5F adds an independently gated 1–20 exact-SKU bulk price proposal, one-unit basket impact review and atomic conflict-safe execution. Phase 6A adds a durable leased workflow runtime and an idempotent, read-only weekly trading report with persisted steps/events, safe cancellation, token-free waiting and background completion notification. Phase 6B adds a bounded, read-only 7/30/90-day revenue-decline investigation across exact channels, locations and leading products; Phase 6C adds a private exact-SKU product-launch readiness package covering catalogue, media, SEO, valid pricing, scoped inventory and shipping without live changes; Phase 6D adds a bounded location-aware slow-inventory workflow and a private, margin-guarded promotion recommendation that cannot create or activate an offer; Phase 6E adds a bounded PII-minimized delayed-pickup review, staff-confirmed preparation-delay copy and duplicate-safe handoff to the existing one-time reminder sweep. Phase 7A adds permission-gated current-store Website Builder page/section/design readers and strict code validation; Phase 7B adds one immutable 5-credit exact-section proposal with an isolated desktop/mobile preview; Phase 7C adds a separate default-off, human-only five-minute exact-diff approval that transactionally saves only that reviewed replacement to the private Builder draft with idempotency, conflict checks and audit. Every live action uses exact short-lived human approval, tenant/permission/tool/version rechecks, idempotent transactional execution and append-only outcomes; Phase 4 supports checkpointed safe rollback, while inventory, order-status, blog-publication, campaign, price and Builder corrections use fresh/manual domain workflows. Gemini receives checkpoint/proposal tools but no live execute tool; its durable workflow tools queue deterministic internal read work only. Transfers, cancellation/refunds/payment/shipment changes, pickup/POS lifecycle mutations, product/bulk publication, arbitrary customer contact/group membership, unbounded catalogue repricing and arbitrary repository coding remain unavailable; Phase 7D adds separately gated human publication checks, approval and exact rollback after a completed Phase 7C save. Mink cannot add sections, edit header/footer, access shell/repository or deploy. Operators control every gate and inspect redacted metrics at `/dashboard/mink`; the live harness is `npm run mink:eval`, and the phase-wise manual catalogue is `docs/mink-ai-test-prompts.md`. An explicit global disable or missing invite retains the canned coming-soon response. Architecture and phased rollout are tracked in `docs/mink-ai-dashboard-plan.md`. |
 | Testing   | Vitest + Testing Library + jsdom, coverage via v8 (`coverage/` is generated output — never edit)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Browsers  | **`browserslist` in package.json is the stated floor: Chrome/Edge 111, Firefox 128, Safari/iOS 16.4.** Not a preference — Tailwind v4 depends on `@property` and `color-mix()` and does not work below it, so this records a constraint a dependency already imposed rather than inventing one. Two authored CSS features sit BELOW that floor and so are always available: `:has()` (Chrome 105+/Safari 15.4+/Firefox 121+) and container queries (Chrome 105+/Safari 16+/Firefox 110+), both used by the dashboard table compaction, which is nonetheless wrapped in `@supports selector(:has(+ *)) and (container-type: inline-size)` so the dependency is stated where it is used and stays graceful if the floor is ever lowered. **⚠ There is NO cross-browser test infrastructure** — vitest runs in jsdom, which renders nothing. Chrome is the only browser this has been exercised in                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Deploy    | **Google Cloud Run** via branch-specific Cloud Build triggers (`dev` → `storemink-web-dev`, `main` → `storemink-web-prod`; Dockerfile + `cloudbuild.yaml`). ⚠ The STAGING DEPLOYMENT was removed 2026-09-08 — no `staging` branch, no `storemink-web` service, no `staging.storemink.com`; **dev is the only pre-production environment**. The `storemink_staging` DATABASE remains and is dev's, so `db:migrate:staging` and `db:drift:staging` still target a live database despite the name. The Cloud Build deploy owns the complete runtime environment; Mink's model/limit settings and separate invited-beta requirement are declared as substitutions. The global runtime defaults enabled, while the per-store invitation requirement defaults on and remains the fail-closed merchant boundary. CI on GitHub Actions (`.github/workflows/ci.yml`: lint → typecheck → **db:lint** → test → test:shuffle → prettier → build); `npm run typecheck` runs `next typegen` before `tsc --noEmit` because the Next-managed `next-env.d.ts` is deliberately gitignored and a clean checkout otherwise has no static-image or route declarations. **★★ DATABASE DDL IS NO LONGER A MANUAL GATE (2026-09-09): `cloudbuild.yaml` applies it, in the pipeline, before the deploy** — `build-push` → `tip-check` → `migrate` → `deploy`, with a failed migration stopping the deploy. No developer needs the production superuser credential, and the schema can no longer be behind the code. `npm run db:migrate:prod apply` still works and is now the emergency path only. Full contract, authoring rules and troubleshooting: **`docs/migrations.md`** (read it before writing a migration); the recovery tools stay in `drizzle/manual/README.md`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Deploy    | **Google Cloud Run** via branch-specific Cloud Build triggers (`dev` → `storemink-web-dev`, `main` → `storemink-web-prod`; Dockerfile + `cloudbuild.yaml`). ⚠ The STAGING DEPLOYMENT was removed 2026-09-08 — no `staging` branch, no `storemink-web` service, no `staging.storemink.com`; **dev is the only pre-production environment**. The `storemink_staging` DATABASE remains and is dev's, so `db:migrate:staging` and `db:drift:staging` still target a live database despite the name. The Cloud Build deploy owns the complete runtime environment; Mink's model and limit settings are declared as substitutions. The global runtime defaults enabled, and the operator's per-store Mink AI switch is the fail-closed merchant boundary. ⚠ `_MINK_BETA_REQUIRE_INVITE` is RETIRED but still declared (empty) and read by a shim at the top of `build-push`: this file sets no `substitution_option: ALLOW_LOOSE`, so a trigger that still supplies the key would fail every build against a template that no longer mentions it — i.e. production would stop deploying until somebody remembered a manual step. The shim keeps the merge safe and warns in the build log; delete it and the default once all three triggers have had `--remove-substitutions` applied (**docs/gcp-ci-cd.md**). CI on GitHub Actions (`.github/workflows/ci.yml`: lint → typecheck → **db:lint** → **help:lint** → test → test:shuffle → prettier → build); `npm run typecheck` runs `next typegen` before `tsc --noEmit` because the Next-managed `next-env.d.ts` is deliberately gitignored and a clean checkout otherwise has no static-image or route declarations. **★★ DATABASE DDL IS NO LONGER A MANUAL GATE (2026-09-09): `cloudbuild.yaml` applies it, in the pipeline, before the deploy** — `build-push` → `tip-check` → `migrate` → `deploy`, with a failed migration stopping the deploy. No developer needs the production superuser credential, and the schema can no longer be behind the code. `npm run db:migrate:prod apply` still works and is now the emergency path only. Full contract, authoring rules and troubleshooting: **`docs/migrations.md`** (read it before writing a migration); the recovery tools stay in `drizzle/manual/README.md`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 > **Mink Phase 7D map update (2026-09-05):** With drafting plus Builder
 > Manage, Mink may create one 5-credit immutable private generated-code
@@ -92,6 +92,126 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
+### Mink Phase 8E — Reviewed multimodal input (2026-09-09)
+
+`app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
+controller: one plus button handles text/image/PDF attachments and one-file
+drag-and-drop; a separate mic dictates speech into editable message text.
+Attachment review is hidden until needed. Files stay local until explicit
+Vertex-processing consent; .txt/.md imports are decoded locally.
+`lib/mink/speech-recognition.ts` wraps supported browser SpeechRecognition with
+continuous interim results. One mic click starts after browser permission and
+recognised words appear in the controlled composer while the user speaks, which
+enables Send immediately. Finish/60 seconds keeps visible text; Cancel restores
+the exact pre-dictation message. User typing around the live phrase is preserved.
+Every newly submitted turn is anchored with its user question near the top of
+the contained message viewport while Mink works, with temporary tail room so
+the browser can establish that position before a long answer exists.
+★★ THAT TAIL ROOM IS MEASURED IN PIXELS FROM THE SCROLLER, and it has to be
+(`minkTurnAnchorSpace`). It shipped as `min-height: calc(100% - 5rem)` on a
+spacer whose containing block is the message column — a plain block sized by
+its own content — and a percentage min-height against an indefinite
+containing-block height behaves as `auto`, i.e. 0 for a block box (CSS Sizing
+3; CSS 2.1 §10.7). So the reservation the anchor depends on never existed and
+`scrollIntoView({block:"start"})` clamped at the end of the content: measured
+in a browser on that exact DOM, the spacer rendered 0px and the question sat
+107px down instead of at the top, while the same reservation in px rendered
+240px and put it at 0px. The SCROLLER is the thing with a definite height
+(`min-h-0 flex-1`), so it is what gets measured; the 5rem kept in view is read
+from the root font size rather than assumed to be 80px. ⚠ jsdom reports every
+`clientHeight` as 0, so its test must stub one — the previous test asserted the
+`calc()` string itself and therefore proved only that a string had been
+written, never that any space resulted. The final
+answer grows below the question instead of forcing the reader to its bottom;
+pointer, touch and wheel movement disables automatic re-anchoring, and restored
+history still opens at its latest message. The composer remains outside the
+message scroller and fixed in view.
+StoreMink does not create, upload or retain microphone audio; the browser speech
+service can process it under its own privacy terms. Dictation is not a voice
+conversation and never grants action authority. Extracted image/PDF references
+still require separate editing/review before addition to the composer. Closing,
+discarding, conversation changes, unmounting, hiding the page or a new chat turn
+cancel pending local work. Blob previews are revoked.
+
+The older `voice-recorder.ts`/AudioWorklet and canonical WAV server validation
+remain compatibility code for the Phase 8E input API, but the dashboard composer
+does not expose WAV attachment or recorded-audio transcription. New microphone
+UX must use live browser dictation only.
+★★ THAT SPLIT LEAKED WAV INTO TWO MERCHANT-FACING PLACES, and both are fixed.
+(1) The guide 20260910_0093 republished still read "Voice accepts canonical mono
+16 kHz, 16-bit PCM WAV up to 60 seconds" — contradicting the paragraph three
+above it, which already said audio files are unsupported. Two answers to one
+question in one guide is the defect 0093 exists to remove;
+`20260911_0098_mink_composer_no_wav_help` replaces that sentence forward-only
+(0093 is applied on `dev`, so its SQL is immutable). (2) `inputKind` is SHARED
+with the input API, so its throw names a WAV file — and `mink-multimodal-input`
+surfaced that message for any unsupported extension, telling a merchant to
+attach something the same function would then refuse. The classifier stays
+shared; the composer now words its own refusal. ⚠ `MINK_INPUT_ACCEPT` still
+lists `.wav` because the API validates one; `COMPOSER_FILE_ACCEPT` is the
+merchant-facing list and must not.
+
+`/api/mink/input` requires global runtime and store/dashboard permission;
+there is no separate multimodal feature flag.
+`input-policy.ts`/`input-validation.ts` enforce one 2 MiB file, exact fields,
+canonical base64, actual bytes, image format/extension agreement, 12 MP/single
+frame, metadata stripping and 1600 px resizing. PDFs are limited to 10 pages;
+`scripts/mink-pdf-check.cjs` uses pinned pdf-lib in a child process with a 96 MiB
+V8 heap, five-second kill deadline and no inherited secrets. Encrypted, active,
+form and embedded-file PDFs fail closed. Decoder buffers additionally cap at
+8 MiB per stream and 32 MiB cumulative growth, outside the V8 heap budget.
+PDF actions are never executed; the
+child is resource isolation, not an OS security sandbox. Next standalone tracing
+includes checker dependencies. WAV validation accepts only canonical mono
+16 kHz/16-bit PCM up to 60 seconds, not claimed MIME or duration metadata.
+
+`input-limits.ts` uses database rate limits directly, failing closed: 5/owner/
+minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay keys.
+There are at most two concurrent local processing requests. Bounded body reads
+honour abort/deadline. `input-provider.ts` counts tokens then extracts once with
+the configured Vertex model/location, no tools/memory/history/URL fetching.
+8192 counted input tokens, 2048 output tokens, 3000 output characters and a
+45-second deadline; incomplete/safety-blocked output is rejected, not truncated.
+No automatic retry or model fallback. Beta extraction deducts no credits;
+content-free logs report modality and provider tokens/unknown failure usage,
+not filenames/bytes/transcripts. Audio is not priced using the text estimator.
+Limits are consumed on failure/cancellation too. Provider billing still applies.
+
+Raw attachment files are transient, never database/GCS/Media/memory objects. Reviewed text
+follows chat retention only after Send; provider retention still applies.
+Follow-up chat has only text, not original visuals. No generation/placement of
+images, audio attachment, video, spreadsheets, live voice conversation or
+long-document ingestion is included.
+Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
+`20260910_0092_mink_live_dictation_help.sql` supersedes the recorded-audio Help
+flow with live dictation and documents expired local ADC recovery. The roadmap,
+system prompt and Echos tests describe rollout and limitations.
+Prompt versions are `read-beta-v14` / `draft-action-beta-v25`; no new agent
+tools or tool-registry version are introduced by input extraction.
+
+### Single Mink AI operator switch (2026-09-09)
+
+`app/actions/mink-operator-actions.ts` atomically upserts store enablement,
+drafting and all 18 registered `MINK_ACTION_TOOLS` in one service transaction,
+locking the parent before child gates. Disable shuts all down together.
+The platform store management page renders only Enable/Disable Mink AI;
+granular mutation actions are removed. Migration
+`20260909_0091_mink_unified_access_composer.sql` aligns already-enabled stores,
+preserves disabled stores, and updates Help with plus/drop/dictation guidance.
+New tools must remain enrolled in the master registry and migration backfill.
+Existing staff permissions, plan rules, credits, exact human approvals and
+watch/memory opt-ins are unchanged. Current config always enforces store
+enablement regardless of legacy MINK_BETA_REQUIRE_INVITE; explicit read/delete
+memory access remains available. MINK_AI_ENABLED remains the global emergency
+switch. Legacy MINK_MULTIMODAL_ENABLED has no effect in current revisions.
+
+Latest verification (2026-09-10): 6,459 full-suite tests passed (39 opt-in tests
+skipped), including 67 focused composer/provider/migration checks. Four
+unified-access and live-dictation migration checks passed against a disposable
+PostgreSQL database, including two forward-only replays. Typecheck, lint,
+migration lint, formatting and the production build passed. Live Echos browser
+dictation and the renewed local ADC login remain rollout QA.
+
 ### Mink Phase 8D — Approved memories and reviewed text input (2026-09-07)
 
 `/dashboard/mink-memories` and `/api/mink/memories` provide private per-store,
@@ -115,7 +235,8 @@ Deletion/expiry affect future turns, not in-flight provider context or existing
 conversation mentions. Saves have no separate AI-credit charge; context adds
 normal input tokens. No new environment variables, model or scheduled job.
 
-`mink-document-input.tsx` reads one .txt/.md file locally (UTF-8, 8 KiB,
+`mink-document-input.tsx` is the legacy local-only importer; its .txt/.md
+decoding/review behavior now lives in the unified composer (UTF-8, 8 KiB,
 3,000 characters), requires review/consent, then adds labelled reference text
 to the editable composer within its existing 4,000-character total. Nothing
 uploads before Send; text follows existing conversation persistence/deletion.
@@ -976,6 +1097,33 @@ wholesip/
 │           │                  # (GCS-only; requires GCS_BUCKET). Auth = Firebase session;
 │           │                  # store-host files live under stores/{storeId}/uploads/
 │           │                  # so permanent deletion also removes abandoned uploads
+│           │                  # ★★ SHARP'S NATIVE LIBRARY MUST BE COPIED EXPLICITLY —
+│           │                  # file tracing CANNOT see it (fixed 2026-09-11). sharp's
+│           │                  # `.node` binding dlopens `libvips-cpp.so` from a SIBLING
+│           │                  # package (@img/sharp-libvips-linux-x64), so nothing in the
+│           │                  # import graph mentions it and Next left it out of
+│           │                  # .next/standalone. Production answered every upload with
+│           │                  # ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open
+│           │                  # shared object file. ⚠ THAT IS A MODULE-LOAD FAILURE, so NO
+│           │                  # route could catch it: /api/upload returned a bare framework
+│           │                  # 500 in 6 ms whose body was not JSON, which is why the client
+│           │                  # showed "Upload failed (500)" and no reason — and it took the
+│           │                  # OG-image proxy AND Mink's image input down with it, since all
+│           │                  # three import sharp. Fixed in TWO places deliberately: the
+│           │                  # Dockerfile copies node_modules/sharp + @img from its `npm ci`
+│           │                  # stage (the fix a tracer heuristic cannot defeat, and from
+│           │                  # `deps` so the binary is this image's platform, never a host's
+│           │                  # darwin build), and next.config.ts traces them for a host that
+│           │                  # builds without the Dockerfile. lib/storage/process-image.ts
+│           │                  # now imports sharp LAZILY so the fault is legible: a missing
+│           │                  # library returns 503 "Image processing is unavailable".
+│           │                  # ⚠ IT FAILS CLOSED rather than reusing the store-the-original
+│           │                  # fallback beside it — right for one awkward file, wrong for a
+│           │                  # broken install, where every upload would keep its EXIF (a
+│           │                  # photo carries GPS) and skip the SVG rasterisation that module
+│           │                  # exists to enforce, silently. ⚠ og-image and input-validation
+│           │                  # still import it at the top level: the packaging fix covers
+│           │                  # them, but their failure mode is still a bare 500.
 │           └── sign-video/    # v4 signed-URL minting for VIDEO uploads (≤50MB, GCS;
 │                              # client PUTs DIRECTLY to storage — serverless routes
 │                              # can't proxy large bodies)
@@ -1034,7 +1182,17 @@ wholesip/
 │   │                          # 8888888888, and (store_id, phone) is UNIQUE —
 │   │                          # so the second cashier who typed one to skip the
 │   │                          # field would have silently attached their walk-in
-│   │                          # to the first one's record
+│   │                          # to the first one's record.
+│   │                          # ★★ THREE BOUNDARIES NOW, and mixing them is a
+│   │                          # live defect: normalizeIndianMobile = "can a
+│   │                          # courier book this" (national digits),
+│   │                          # parseStoredPhone = "what identity is stored"
+│   │                          # (any PHONE_COUNTRIES dial, placeholders and
+│   │                          # legacy shapes included), textablePhone = "will
+│   │                          # an SMS reach this" (E.164, placeholders
+│   │                          # refused). The first one read a stored
+│   │                          # +6591234567 as the ten digits 6591234567, so
+│   │                          # the POS OTP texted +916591234567 — see §23
 │   ├── csv/                   # ★ §31: PURE RFC 4180 codec. parse.ts (BOM, CRLF/LF/CR,
 │   │                          # quoted fields w/ embedded delimiters+newlines, quote-
 │   │                          # aware delimiter sniffing for Excel's semicolons, ragged
@@ -1826,12 +1984,21 @@ wholesip/
 │                              # computed checksum) across 27 ledger rows including
 │                              # production, for no functional gain — the ids are
 │                              # already unique. It is a naming wart, not a defect.
-│                              # ★ THE NEXT MIGRATION TAKES 0090. 0085 and 0086 are
+│                              # ★ THE NEXT MIGRATION TAKES 0094. 0085 and 0086 are
 │                              # used by the offers series, so those collide too;
 │                              # 0087 documents the StoreMink logo refresh,
 │                              # 0088 Help first-visit/error recovery, and 0089 the
 │                              # POS register keeping its basket across a reload.
-│                              # 0090 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0090 adds Mink input Help; 0091 unifies its access/composer;
+│                              # 0092 corrects Help for live dictation.
+│                              # 0093 removes operator-only, infrastructure and stale
+│                              # content from published Help guides (docs/help-centre.md);
+│                              # 0094 corrects the in-store sale guide and 0095 makes every
+│                              # customer phone E.164;
+│                              # 0096 documents the parent-first register catalogue;
+│                              # 0097 documents correcting a mistyped customer mobile;
+│                              # 0098 stops the Mink guide offering a WAV attachment;
+│                              # 0099 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -1979,6 +2146,36 @@ wholesip/
 │                              # missing/draft/empty guide drift is repaired before publication.
 │                              # It follows the 0049/0050 UX migrations.
 ├── scripts/
+│   ├── help-content-lint.mjs  # ★★ THE HELP CENTRE GATE (docs/help-centre.md).
+│   │                          # AGENTS.md used to require a Help update for EVERY
+│   │                          # change, so the cheapest way to comply was to append
+│   │                          # one more <h2>: 85 of the first 98 migrations wrote to
+│   │                          # help_articles and use-mink-ai-in-your-dashboard became
+│   │                          # 69 KB / 36 sections ordered by engineering phase,
+│   │                          # publishing a platform-only switch, MINK_AI_ENABLED,
+│   │                          # a local `gcloud` command, Cloud Run + worker-lease
+│   │                          # internals and a "this alpha is read only" paragraph
+│   │                          # the sections beneath it contradicted. Lints the
+│   │                          # literals of any migration touching help_articles
+│   │                          # (comments stripped, so explaining internals to the
+│   │                          # next reader is free; `$old$`-tagged literals skipped,
+│   │                          # so a CLEANUP migration is not flagged for the text it
+│   │                          # deletes). ★★ IT ALSO BLOCKS DURABLE-`verify` COPY:
+│   │                          # that block is re-checked for every applied migration
+│   │                          # on every status run AND is part of the checksum, so
+│   │                          # wording it names can never be edited again — seven
+│   │                          # migrations did it, which is why `Phase 7B adds an
+│   │                          # immutable, private custom-code proposal` is permanent.
+│   │                          # `npm run help:lint`, in CI; 45 historical violations
+│   │                          # GRANDFATHERED (applied SQL cannot be edited).
+│   ├── help-content-audit.mjs # ★ The same rules against the rows a DATABASE serves —
+│   │                          # catches Help-console operator edits and the ASSEMBLED
+│   │                          # result of many migrations appending to one guide, which
+│   │                          # a per-migration lint cannot see. Also reports length /
+│   │                          # section count (25,000 chars / 14 <h2> = split it).
+│   │                          # `npm run help:audit:local|:staging|:prod`; NOT in CI,
+│   │                          # for db:drift's reason — needs credentials, and a PR
+│   │                          # cannot cause published-content drift.
 │   ├── dev-server.mjs         # ★ resource-aware Next dev runner: 2 GB heap on ≤12 GB
 │   │                          # machines, 3 GB on ≤20 GB, uncapped above; rotates
 │   │                          # generated .next/dev caches over 3 GB, ALWAYS reclaims
@@ -3492,13 +3689,13 @@ amountPaise}` for the modal. `confirmOnlinePayment` verifies the HMAC
       fake period delta. The old unimported hard-coded performance, inventory
       and operational demo widgets were deleted.
 
-20a. **Mink AI dashboard agent — invited read, private drafting and guarded Phase 4/5D action beta.** This is separate
+20a. **Mink AI dashboard agent — store-enabled read, private drafting and guarded actions.** This is separate
 from the public Help Centre assistant. `MINK_AI_ENABLED` is a private,
 server-read kill switch that defaults enabled and can be set explicitly false;
-`MINK_BETA_REQUIRE_INVITE` defaults true and requires an enabled
-`mink_store_access` row. Either an explicit global disable or a missing invite
-keeps the original canned drawer. An operator can add/remove the invitation from the store detail
-page; invited stores connect Home, the side panel and expanded view to
+an enabled `mink_store_access` row is always required. Either an explicit global
+disable or a disabled store keeps the original canned drawer. A superadmin uses
+one Enable/Disable Mink AI button; it atomically aligns drafting and every
+registered action gate. Enabled stores connect Home, the side panel and expanded view to
 `POST /api/mink/stream`. The route authenticates the dashboard request,
 derives host store/admin/RBAC/effective plan out of band, rejects foreign
 origins, rate-limits by store + actor and never accepts a tenant or
@@ -4060,23 +4257,56 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      `use-mink-ai-in-your-dashboard` aligned with these capabilities and limits.
 
 21. **Help Centre (`help.storemink.com`) — platform-global, operator-managed
-    docs (Shopify-style).** StoreMink's OWN product docs, NOT per-store data, so
-    there is **no `store_id`** anywhere — the model mirrors `platform_admins` (a
-    global, operator-managed table). Two tables in `supabase/help_centre.sql`
-    (run as `postgres` via the Cloud SQL proxy, like every migration):
-    `help_categories` + `help_articles` (sanitized HTML `body`, `status`
-    draft/published, weighted **generated `search` tsvector** column + GIN index
-    — the first real FTS in the codebase; plus `view_count`/`helpful_yes`/
-    `helpful_no`). RLS: anon reads published only; writes gated on
-    `is_platform_admin()`. Public feedback/view counters are narrow atomic
-    `SECURITY DEFINER` RPCs (`help_article_view`, `help_article_vote`) so no
-    write policy opens to anon (hardened to `search_path=''` +
-    schema-qualified refs in `help_centre_02_rpc_search_path.sql`; the public
-    `voteHelpArticle` action deliberately does NOT invalidate the Help tag — an
-    anon-triggerable global cache bust — so helpful counts are
-    eventual-consistency). Drizzle tables added to `drizzle/schema.ts`
-    (`helpCategories`, `helpArticles`; the generated `search` column is
-    intentionally absent — search uses a raw `sql` predicate).
+    docs (Shopify-style).**
+    - **★★ WHAT BELONGS IN A GUIDE IS NOW A WRITTEN CONTRACT:
+      `docs/help-centre.md`, enforced by `npm run help:lint` (CI) and
+      `npm run help:audit:*` (a database).** AGENTS.md required every change to
+      update the Help Centre; the cheapest way to comply was to append one more
+      `<h2>`, so **85 of the first 98 migrations wrote to `help_articles`** and
+      `use-mink-ai-in-your-dashboard` grew to 69 KB / 36 sections ordered by
+      engineering phase. It published a switch only StoreMink staff can see,
+      `MINK_AI_ENABLED` / `MINK_BETA_REQUIRE_INVITE` /
+      `MINK_MULTIMODAL_ENABLED`, a local-development `gcloud` command, Cloud Run
+      and worker-lease internals, and — worst — "This alpha is read only. It
+      cannot create or edit a product, change stock, inspect orders…" directly
+      above the sections explaining how Mink does each of those. Eleven other
+      guides carried a "Controlled live verification required:" rubric
+      addressed to a StoreMink "test team". `20260910_0093` deleted all of it.
+      The AGENTS.md rule is now a GATE — update Help only when a
+      **merchant-visible** flow changes — and it requires `replace()`ing the
+      section that is wrong instead of appending beside it.
+    - **★★ NEVER ASSERT PUBLISHED WORDING IN A DURABLE `verify` BLOCK.** It is
+      re-checked for every applied migration on every status/verify/drift run
+      in every environment, and it is part of that migration's checksum — so
+      the wording can afterwards be neither edited nor removed. Seven
+      migrations (0076, 0077, 0080–0084) did it, freezing **21 substrings**
+      into `use-mink-ai-in-your-dashboard`, six of them `<h2>` headings — which
+      is also why that guide cannot simply be split into task-shaped articles.
+      `Phase 7B adds an immutable, private custom-code proposal` is meaningless
+      to a merchant and undeletable, so `20260910_0093` keeps it verbatim in an
+      **HTML comment**: `body LIKE` still matches, while `sanitize-html` strips
+      it from the rendered page (`sanitizeBlogContent`) and from Mink's
+      retrieval chunks (`allowedTags: []`), and the `search` tsvector's
+      `regexp_replace(body,'<[^>]+>',' ','g')` keeps it out of the index.
+      ⚠ Such a comment must contain **no `>`**, or the regex ends early and the
+      text reaches search. Exact copy belongs in `applyVerify` (once, at apply
+      time); `verify` is for tables, columns, constraints and indexes. StoreMink's OWN product docs, NOT per-store data, so
+      there is **no `store_id`** anywhere — the model mirrors `platform_admins` (a
+      global, operator-managed table). Two tables in `supabase/help_centre.sql`
+      (run as `postgres` via the Cloud SQL proxy, like every migration):
+      `help_categories` + `help_articles` (sanitized HTML `body`, `status`
+      draft/published, weighted **generated `search` tsvector** column + GIN index
+      — the first real FTS in the codebase; plus `view_count`/`helpful_yes`/
+      `helpful_no`). RLS: anon reads published only; writes gated on
+      `is_platform_admin()`. Public feedback/view counters are narrow atomic
+      `SECURITY DEFINER` RPCs (`help_article_view`, `help_article_vote`) so no
+      write policy opens to anon (hardened to `search_path=''` +
+      schema-qualified refs in `help_centre_02_rpc_search_path.sql`; the public
+      `voteHelpArticle` action deliberately does NOT invalidate the Help tag — an
+      anon-triggerable global cache bust — so helpful counts are
+      eventual-consistency). Drizzle tables added to `drizzle/schema.ts`
+      (`helpCategories`, `helpArticles`; the generated `search` column is
+      intentionally absent — search uses a raw `sql` predicate).
     - **Public site** (`app/help/*`, request-rendered with tagged data caching, fully
       crawlable): `/help` (search + category grid + popular).
       **First-visit reliability (2026-09-08):** the home page and category page/
@@ -5075,6 +5305,61 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
         stock and the default gained one it never had, silently, compounding
         per cancellation. Online orders reserve against the default and keep the
         wrapper. Both branches are regression-tested.
+      - **★★ THE CATALOGUE IS PARENT-PRODUCT-FIRST** (`lib/pos/catalog-groups.ts`,
+        pure + tested). The catalogue query is a LEFT JOIN over products and
+        variants, so every sellable SKU came back as its own row and the idle
+        grid rendered each as its own tile: measured on local data, 74 products
+        with 64 variants filled **115 tiles**, and twenty products in five sizes
+        would fill a hundred tiles with twenty things a cashier is looking for.
+        `groupForGrid` folds runs of one product's variants into a single tile
+        carrying the derived name, image, **summed stock at this location** and
+        a price range; tapping it opens a picker showing each option's
+        thumbnail, price, stock and SKU, and one tap adds that exact SKU.
+        ★ The thumbnail matters more than it looks: variants routinely differ
+        by colour or pack size, which a name alone does not convey.
+        `mapCatalogRow` already resolved a variant's own `image_url` with a
+        fallback to the product's, so every row has one and the list does not
+        go ragged — only 2 of 64 local variants carry their own picture.
+        - **★★ GROUPING IS PRESENTATION ONLY.** `PosCatalogItem` stays one row
+          per SKU, `itemKey` stays `productId:variantId`, a cart line stays a
+          SKU and `placePosSale` is untouched — so this cannot change what is
+          charged or reserved, and the IndexedDB cache keeps its shape, which
+          means **no `SCHEMA_VERSION` bump and no till forced to re-sync**. A
+          product with variants has NO parent row to show, which is why the
+          tile is derived rather than looked up.
+        - **★★ SEARCH AND SCAN DELIBERATELY BYPASS IT.** `searchLocal` already
+          scores `"${name} ${variantName}"` plus exact SKU and barcode, and
+          `byBarcode` already resolves exact SKUs — both were correct before
+          this change. Grouping them would have ADDED a tap to the two fastest
+          paths in the shop, so `trimmedQuery` is the switch: results stay
+          SKU-level tiles that add on one tap.
+        - **★★ THE PICKER IS THE ONE OVERLAY THAT DOES NOT SWALLOW A SCAN**
+          (`shouldBlockPosScan`, pure + exported for `shouldRefocusPosSearch`'s
+          reason — a single boolean that is easy to get wrong and invisible in
+          a rendered DOM). Every other overlay owns a decision a stray burst of
+          digits would corrupt; here a scan is the cashier taking a faster
+          route to the same end, so `runScan` dismisses the picker and proceeds.
+          ⚠ `overlayOpen` (focus suppression) and `scanBlocked` are therefore
+          SEPARATE — they were one variable, and collapsing them again silently
+          re-breaks this.
+        - **★ SOLD OUT ONLY WHEN EVERYTHING BEHIND THE TILE IS**, reusing
+          `isOutOfStock` so the greying and the sold-out-last ordering agree.
+          One in-stock option keeps the tile live; the gone options are listed
+          but not tappable. ⚠ Group stock is **null when nothing behind it is
+          tracked** and must not render as "0 in stock", which would tell a
+          cashier a made-to-order product had run out; a mixed product sums only
+          the tracked options, so the figure is a floor.
+        - **★★ THE LAYOUT IS THE PER-PRODUCT ESCAPE HATCH, so no setting was
+          added** (owner's decision, 2026-09-11). `pos_layouts` entries are
+          already SKU-level and the editor still receives the flat list, so a
+          manager can say what belongs on the grid: nothing laid out groups
+          everything, ONE placed variant is its own tile, TWO OR MORE group
+          behind one tile. ⚠ The threshold is **two or more, not all**: with
+          "all", a manager who had placed every variant would get a grouped tile
+          until somebody created one more, at which point the layout held five of
+          six and the tile would silently explode into five cards because of an
+          unrelated product edit. `layoutCoverage` still counts SKUs, which is
+          still the right figure — every option behind a tile is reachable.
       - **★★ HOLD A SALE** (`lib/pos/park.ts` pure, `pos-park-actions.ts`,
         `supabase/pos_14_parked_sales.sql`, applied). Suspend the
         cart, serve the next customer, bring it back.
@@ -5831,6 +6116,32 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
         proof the server deletes only a just-created, phone-only identity with no
         StoreMink `users` row, so counter verification cannot reserve the phone
         and break the shopper's later signup.
+      - **★★ THE TARGET IS FULL E.164, AND `normalizeIndianMobile` MUST NOT
+        RESOLVE IT** (`textablePhone`, `lib/phone.ts`). `loadVerificationTarget`
+        returned the ten NATIONAL digits and the action prefixed `+91`, which was
+        safe only while every customer was Indian. Once the register began
+        recording a country code (§36), the Indian normaliser read a stored
+        `+6591234567` as the ten digits `6591234567` — a Singapore mobile whose
+        country code and local number happen to form ten digits starting 6-9 —
+        so the counter texted `+916591234567`, an unrelated Indian subscriber.
+        ⚠ And because a non-null phone SUPPRESSES the manager override, the
+        collection could not be handed over or taken back at all: the escape
+        hatch below is offered only when there is provably nothing to text.
+        Same collision for every `+65` number, 8-digit `+64` and `+960`.
+        **THREE BOUNDARIES, THREE FUNCTIONS, and they are not
+        interchangeable**: `normalizeIndianMobile` answers "can a courier book
+        this" (national digits, Shiprocket), `parseStoredPhone` answers "what
+        identity is stored here" (accepts anything the till may record),
+        `textablePhone` answers "will an SMS reach this person" and returns
+        E.164 so no caller reassembles a country code. ⚠ It is the only one of
+        the three that must BOTH accept a foreign number AND refuse a
+        placeholder: `parseStoredPhone` has to keep recognising `8888888888`
+        (§36 — the till may deliberately record one, and a row holding one must
+        stay matchable and migratable), but nothing can text it, so returning it
+        would replace an honest override with an OTP that never arrives. The
+        delivery address keeps `formatIndianMobile`: it is free text typed into
+        an Indian checkout, and its placeholder rejection is what makes a junk
+        address phone fall through to the customer record.
       - **★★ AN ORDER THE OTP CANNOT REACH IS NOT A DEAD END** (`override_verification`,
         `gateCustomerVerification`). "Missing order phone fails closed" was true
         and, on its own, unrecoverable: an order whose stored phone yields no
@@ -8906,117 +9217,224 @@ way — an entry there is a deliberate act, not a way to silence the guard.
 
 36. **Till-created customers, and the claim that adopts them** (roadmap Step 4).
     `lib/pos/customer-claim.ts` (pure) + `lib/pos/claim-customer.ts`
-    (server-only) + `supabase/pos_13_customer_claim.sql`.
-    - **★ THE PROBLEM WAS THE PRIMARY KEY.** `users.id` IS the Firebase uid and
-      uniqueness is `(store_id, phone)`, so a row the till invents for a walk-in
-      has no natural key — and that person's later online signup COLLIDES with
-      it. The register was therefore search-only: it could attach an existing
-      customer and never record a new one, so every walk-in was anonymous.
-    - **★ A `pos_<uuid>` ID IS THE WHOLE MECHANISM, AND IT DOES TWO JOBS.** It is
-      an id a signup can ADOPT — and because customer RLS is
-      `auth.uid() = users.id`, a `pos_…` id matches no Firebase uid, so the row
-      is invisible to every session with **no policy written for it**. Don't add
-      one; the id shape already does it.
-    - **★★ SIX FOREIGN KEYS, AND THAT IS WHY THERE IS A MIGRATION AT ALL.**
-      `orders`, `customer_addresses`, `product_reviews`, `blog_comments`,
-      `blogs.submitted_by` and `user_group_members` all reference `users.id`, all
-      NOT DEFERRABLE with ON UPDATE NO ACTION — so updating the parent first
-      orphans the children and updating the children first references an id that
-      does not exist yet. **Neither ordering works.** And the schema-free
-      alternative is worse: "insert the new row, repoint the children, delete the
-      `pos_` row" runs into **five of those six being ON DELETE CASCADE**, so
-      missing one table doesn't fail — it silently CASCADE-DELETES that
-      customer's ORDERS. `ON UPDATE CASCADE` makes adoption ONE statement and
-      makes a seventh FK added next year either cascade correctly or fail LOUDLY.
-      The migration ends with a guard that FAILS if any FK to `users.id` still
-      lacks it.
-    - **⚠ THREE CONSTRAINTS ARE NAMED AFTER A COLUMN THEY DO NOT USE.**
-      `product_reviews_customer_id_fkey`, `blog_comments_customer_id_fkey` and
-      `user_group_members_customer_id_fkey` all sit on **`user_id`** — leftovers
-      from the customers→users rename. Reading the column off the constraint NAME
-      is how the first version of this migration failed. Query
-      `pg_constraint.conkey`; never infer it from the name.
-    - **★★ THE CLAIM IS ONE STATEMENT WITH EVERY GUARD IN THE `WHERE`** —
-      store scope, the VERIFIED phone, `id LIKE 'pos\_%'`, `claimed_at IS NULL`,
-      and `NOT EXISTS` a row for this uid. Two signups racing on one walk-in row:
-      the loser matches zero rows and falls through to an ordinary insert. No
-      lock, no window. **`claimed_at IS NULL` alone is not enough** — a real
-      signup row has it NULL too (nothing backfills it), so without the id check
-      one account could take over another's history.
-    - **★★ THE CASCADE ONLY REACHES TABLES WITH A FOREIGN KEY, AND THREE THAT
-      HOLD A CUSTOMER ID HAVE NONE.** `customer_credit_balances`,
-      `customer_credit_ledger` and `notifications`/`notification_email_queue`
-      (plus `orders.collected_by`) carry a customer id with no FK, so the rewrite
-      sails straight past them. **The credit tables are the serious one: they
-      hold MONEY.** A walk-in refunded to store credit at the till (§29) and then
-      signing up would have their balance orphaned BY THEIR OWN SIGNUP — the
-      store's books still say it is owed and their profile shows zero, silently,
-      discovered by a complaint. `repointUnreferencedTables` moves them in the
-      SAME transaction, so a failed repoint rolls the whole claim back: no claim
-      at all beats one that moved the person and left their balance behind.
-      ⚠ That is a hand-written list, which is what `pos_13` exists to avoid —
-      keep it honest. A new table holding a customer id belongs behind a real FK,
-      or in that function; `claim-customer.test.ts` pins every table named there.
-      The risk is narrower than the one the migration replaced (these are
-      UPDATEs, so forgetting one orphans data rather than cascade-DELETING
-      somebody's orders) but orphaned money is still money.
-      `notification_preferences` is deliberately absent — the customer audience
-      has no preference layer (§24), so a `pos_` customer can never have a row.
-    - **★ AN EXISTING CUSTOMER ALREADY GETS AN EMAILED RECEIPT.**
-      `placePosSale` emits `order.placed`, and the fan-out resolves the attached
-      customer's saved address from `users`.
-    - **★★ A PHONE-ONLY CUSTOMER CAN GET ONE TOO**
-      (`lib/email/pos-receipt.ts`, Shopify's receipt-option idea). The optional
-      box is collapsed behind **Add receipt email or GSTIN** on Payment, and its
-      copy explicitly says that a receipt contact does not create or modify a
-      customer profile.
-      **It does NOT go through the notification spine**, deliberately: the spine
-      routes an EVENT to an identified customer's saved destination and cannot
-      represent a one-sale address. It is still a `sendEmail` call, so it lands in `email_logs`
-      like everything else and `send-coverage.test.ts` stays satisfied.
-      - **★ ONE RECEIPT, NEVER TWO.** `shouldSendDirectReceipt` (pure) fires
-        only where the fan-out will not — no attached customer, or an attached
-        customer with no address on file. `placePosSale` reads that address in
-        the SAME query as the ownership check, so it costs no extra round trip.
-      - **★ NEVER GATED ON, AND NEVER GATING.** A bad address is dropped, not
-        refused: this runs after the money is taken and the stock has moved, so
-        failing a sale over a typo in an optional field is the worst available
-        trade (invariant 6). Deferred with `after()` and never throws.
-      - **★ FROM THE STORE'S OWN SENDING DOMAIN** (`fromAddress`), not a
-        hardcoded one — a merchant on a custom domain would otherwise send from
-        an address Resend has no permission for and every receipt would bounce.
-      - **★ THE FIELD IS OPT-IN VIA ITS HANDLER**, so the collection counter —
-        which shares `TenderPanel` — is untouched: that order was placed online
-        and already carries an address.
-      - ⚠ **Not stored on the order.** `email_logs` is the record of what was
-        sent and to whom, and the subject carries the order ref. A future
-        "resend receipt" button would want `orders.receipt_email`; nothing needs
-        it yet.
-    - **★ THE PHONE COMES FROM THE VERIFIED AUTH IDENTITY, NEVER A FORM.** That
-      is the entire security boundary: a form-supplied phone would let anyone
-      type a stranger's number and inherit their in-store order history.
-      `normalizePhone` is shared by both ends, because if the till stores
-      "+91 98765 43210" and signup stores "9876543210" the claim never fires and
-      the customer silently gets two rows.
-    - **★ IT RUNS BEFORE THE UPSERT IN `updateCustomerProfile`, AND HAS TO.**
-      `(store_id, phone)` is UNIQUE, so without the claim first, signup fails
-      with a duplicate key for exactly the customers who have shopped here
-      before. Claiming turns that collision into the feature. A claimed row is
-      then an UPDATE, so `customer.signed_up` does NOT fire — correct: the store
-      already knows this person; what is new is the ACCOUNT.
-    - **★ NEVER THROWS, at both layers.** A failed claim costs a link to in-store
-      history; a thrown one would cost the shopper their signup.
-    - **★ A DUPLICATE PHONE ATTACHES, IT DOES NOT FAIL.** The submit-only action
-      reads an exact match before insert and catches a concurrent unique-key race
-      by re-reading its winner. The cashier never sees a duplicate error or has
-      to repeat a search.
-    - **★ `sell`, NOT A MANAGER GRANT.** Charge requires a submitted 10-digit
-      mobile and automatically resolves or creates the attached customer before
-      Payment. That identity is the basis for receipt history and store credit;
-      recording it is part of ringing up a sale.
-    - **Backfill: none.** Every existing row came from a real signup and is
-      claimed by definition, but `claimed_at` stays NULL rather than being
-      invented — nothing reads it to decide who may log in; the id shape does.
+    (server-only) + `supabase/pos_13_customer_claim.sql`. - **★★ AND FOR MONTHS THE PHONE WAS STORED IN TWO SHAPES, so none of the
+    machinery below could fire** (found in prod 2026-09-11 from a merchant
+    report). `upsertCustomerProfile` wrote Identity Platform's **E.164**
+    (`+919877542162`) straight through, while the till writes and searches for
+    `normalizeIndianMobile`'s **national** form (`9877542162`) —
+    and `(store_id, phone)` is UNIQUE on the STRING, so both happily coexist.
+    `lib/pos/customer-claim.ts` had documented the invariant this broke since
+    the day it was written — "★ IT MUST MATCH WHAT SIGNUP STORES, or the claim
+    never fires" — and signup did not match. Three consequences, and the third
+    is what made it self-sustaining:
+    (1) the till could not see a shopper who already had an account, so it
+    recorded a second, nameless `Customer` row for them (observed: `Rohan
+Sharma / +919877542162` beside `Customer / 9877542162`);
+    (2) that shopper's saved name, email and **store credit** were invisible at
+    the counter, so credit they had could not be spent;
+    (3) `claimPosCustomer` DID adopt a till row on signup — and then the very
+    next line of `upsertCustomerProfile` rewrote its phone back to E.164, so
+    the next in-store visit missed again and minted another duplicate. The
+    claim worked exactly once and then undid its own precondition.
+    **Fixed on both sides.** Signup now stores
+    `normalizeIndianMobile(user.phone) ?? user.phone` — the canonical form,
+    **falling back to the raw value rather than null**, because that helper
+    recognises Indian mobiles only and normalising unconditionally would drop
+    the phone of anyone who verified a foreign number (which cannot be typed
+    at an Indian till anyway, since the field caps at ten digits). And
+    `storedPhoneVariants` (`lib/phone.ts`) matches BOTH shapes wherever a
+    customer is looked up by phone — `resolvePosCustomerByPhone`,
+    `createPosCheckoutCustomer`, the legacy `createPosCustomer` and
+    `claimPosCustomer` — because rows written before the fix cannot be
+    rewritten in place: a store may already hold both shapes for one person,
+    so a migration normalising them would violate the unique key.
+    ⚠ **It deliberately carries only the two shapes the code actually
+    produced.** A matching rule is a claim that two strings are the same
+    person, so widening it on speculation is how one customer's history
+    reaches another's account.
+    ⚠ **EXISTING DUPLICATES ARE NOT MERGED**, and the claim cannot do it:
+    its guard is `not exists (select 1 from users u2 where u2.id = uid)`, so
+    it refuses precisely when the shopper already has an account — which is
+    this case. The till now attaches to the real account (the lookup orders
+    `pos_…` ids LAST, so a real account wins when both exist) and the stale
+    row goes inert, but merging one that already carries orders or credit is
+    a separate PK-rewrite operation that nobody has asked for yet. - **★ THE CHECKOUT ASKS WHO A NEW NUMBER BELONGS TO.**
+    `resolvePosCustomerByPhone` no longer INSERTS on a miss — that is what
+    filled a shop's customer list with nameless rows — it reports
+    `notFound`, and `createPosCheckoutCustomer` records the row after the
+    cashier has had the chance to add a first name, last name and email.
+    ★★ **E.164 IS THE ONE STORED SHAPE** (owner's decision, 2026-09-11).
+    The first fix chose the bare ten digits, because
+    `lib/pos/customer-claim.ts` described the column that way; the owner
+    reversed it on seeing the dashboard, and E.164 is the better answer — a
+    number carrying its country code is unambiguous, it is what a merchant
+    should read in the customer list, and **it is the only shape that can hold
+    a number from outside India at all**, so the ten digits would have capped
+    the product at one country. `lib/phone.ts` owns it: `PHONE_COUNTRIES` (a
+    curated 20-entry list, India first and default — a 240-entry picker is
+    slower than typing at a counter, and every entry needs a correct length
+    rule to be worth having), `toStoredPhone`, `parseStoredPhone`,
+    `resolveEnteredPhone`, `formatStoredPhone`, `storedPhoneVariants`.
+    ⚠ `parseStoredPhone` matches dial codes **LONGEST FIRST**: `+1` is a prefix
+    of every `+91…` string, so shortest-first would read an Indian number as a
+    North American one. ⚠ `resolveEnteredPhone` **composes before it parses**,
+    because a bare number looks Indian — parsing first would file a Singapore
+    customer under `+91` whenever their local number happened to be ten
+    digits. Migration `20260911_0095` folds the legacy rows over, **skipping
+    any row whose store already holds the E.164 twin**: those are the duplicate
+    customers, and rewriting one onto the other would either violate the unique
+    key or silently merge two people's history. It reports how many are left.
+    ★ **The register takes a country code**, defaulted to `+91`, with the
+    expected length following that choice; changing it clears the field,
+    because keeping ten digits under an eight-digit country leaves an OK button
+    that refuses without saying why.
+    ★★ **A PLACEHOLDER LIKE 8888888888 IS NOW ACCEPTED** (owner's decision,
+    2026-09-11). It was refused because `normalizeIndianMobile` refuses it —
+    but that is the **COURIER's** rule (Shiprocket cannot book one), borrowed
+    for customer identity where it does not belong: a shop recording a walk-in
+    is not booking a parcel. `normalizeIndianMobile` is UNCHANGED and still
+    refuses it at the shipping boundary; `parseStoredPhone` deliberately does
+    not, or a row already holding such a number could never be parsed, matched
+    or migrated. ⚠ The hazard the rejection guarded is real and has not
+    vanished — `(store_id, phone)` is UNIQUE, so two walk-ins both entered as
+    8888888888 land on ONE record — but the till now **shows the first
+    customer's name** when the number resolves, so a cashier sees they have the
+    wrong person instead of silently inheriting their history.
+    ★ **The error names a length, not a country.** "Enter a valid 10-digit
+    Indian mobile number" was shown for every failure, which is wrong the
+    moment another code is selectable, and was also what a cashier saw for a
+    well-formed number only the courier objected to.
+    ★ **A new number is announced as a customer gained**, not as a lookup that
+    failed: the details step leads with "New customer!" and the number, which
+    is also what makes the two extra fields read as a reason rather than a
+    chore.
+    ★★ **A FIRST NAME IS REQUIRED AND THERE IS NO SKIP** (owner's decision,
+    2026-09-11). A DELIBERATE OVERRIDE of roadmap invariant 6 — "a walk-in who
+    will not give their name is still a sale" — for the register only. It
+    shipped skippable on invariant 6's reasoning and the owner reversed it
+    after seeing the screen: a phone-only row is what filled customer lists
+    with anonymous `Customer` entries, so the counter should always ask.
+    ⚠ **The consequence is real and intended: a new number cannot be charged
+    until it has a name**, so a customer who refuses one is turned away rather
+    than recorded blank, and the only escape is closing Checkout. Enforced in
+    `validatePosCheckoutDetails`, not merely by disabling the button — a
+    server action is reachable without the UI. The last name stays optional
+    (`users.last_name` is nullable, and plenty of customers give one name) and
+    the email stays optional but is validated when given: a typo there is
+    silent, since nothing bounces back while the customer is still in the
+    shop. `validatePosCustomer` remains the separate validator for a record
+    the cashier deliberately set out to create.
+    ★★ **AND "THE ONLY ESCAPE IS CLOSING CHECKOUT" WAS A DEAD END, SO IT IS
+    NOT THE ONLY ESCAPE ANY MORE.** With a required name and no skip, the
+    details step is the screen a MISTYPED DIGIT lands on — the commonest error
+    there is at a phone field — and it had no way back: `Change number` was
+    gated on an ATTACHED customer, the panel's back arrow renders only on the
+    amount screen, so a cashier could either save a record under the wrong
+    number or press Close and cancel the whole checkout. That control now
+    covers the details step too, and **hands the digits BACK for correction**
+    (`setMobile(newMobile ?? "")`) rather than blanking the box: retyping ten
+    digits to fix one of them is the friction it exists to remove. ⚠ It clears
+    the typed name/email with it — those were unreachable while the button
+    never rendered there, and leaving them would prefill the NEXT number with
+    the previous customer's name, which somebody correcting a digit would not
+    think to re-check. The asymmetry with the Payment screen's own control is
+    deliberate: from an attached customer, `Change number` means "a different
+    person" and still blanks the box. Both now carry the SAME label — that one
+    said `Change`, which is ambiguous beside a customer card and did not match
+    the published guide. Migration `20260911_0097_pos_wrong_number_help`
+    documents the escape; three properties are mutation-pinned in
+    `tender-panel.test.tsx`. - **★ THE PROBLEM WAS THE PRIMARY KEY.** `users.id` IS the Firebase uid and
+    uniqueness is `(store_id, phone)`, so a row the till invents for a walk-in
+    has no natural key — and that person's later online signup COLLIDES with
+    it. The register was therefore search-only: it could attach an existing
+    customer and never record a new one, so every walk-in was anonymous. - **★ A `pos_<uuid>` ID IS THE WHOLE MECHANISM, AND IT DOES TWO JOBS.** It is
+    an id a signup can ADOPT — and because customer RLS is
+    `auth.uid() = users.id`, a `pos_…` id matches no Firebase uid, so the row
+    is invisible to every session with **no policy written for it**. Don't add
+    one; the id shape already does it. - **★★ SIX FOREIGN KEYS, AND THAT IS WHY THERE IS A MIGRATION AT ALL.**
+    `orders`, `customer_addresses`, `product_reviews`, `blog_comments`,
+    `blogs.submitted_by` and `user_group_members` all reference `users.id`, all
+    NOT DEFERRABLE with ON UPDATE NO ACTION — so updating the parent first
+    orphans the children and updating the children first references an id that
+    does not exist yet. **Neither ordering works.** And the schema-free
+    alternative is worse: "insert the new row, repoint the children, delete the
+    `pos_` row" runs into **five of those six being ON DELETE CASCADE**, so
+    missing one table doesn't fail — it silently CASCADE-DELETES that
+    customer's ORDERS. `ON UPDATE CASCADE` makes adoption ONE statement and
+    makes a seventh FK added next year either cascade correctly or fail LOUDLY.
+    The migration ends with a guard that FAILS if any FK to `users.id` still
+    lacks it. - **⚠ THREE CONSTRAINTS ARE NAMED AFTER A COLUMN THEY DO NOT USE.**
+    `product_reviews_customer_id_fkey`, `blog_comments_customer_id_fkey` and
+    `user_group_members_customer_id_fkey` all sit on **`user_id`** — leftovers
+    from the customers→users rename. Reading the column off the constraint NAME
+    is how the first version of this migration failed. Query
+    `pg_constraint.conkey`; never infer it from the name. - **★★ THE CLAIM IS ONE STATEMENT WITH EVERY GUARD IN THE `WHERE`** —
+    store scope, the VERIFIED phone, `id LIKE 'pos\_%'`, `claimed_at IS NULL`,
+    and `NOT EXISTS` a row for this uid. Two signups racing on one walk-in row:
+    the loser matches zero rows and falls through to an ordinary insert. No
+    lock, no window. **`claimed_at IS NULL` alone is not enough** — a real
+    signup row has it NULL too (nothing backfills it), so without the id check
+    one account could take over another's history. - **★★ THE CASCADE ONLY REACHES TABLES WITH A FOREIGN KEY, AND THREE THAT
+    HOLD A CUSTOMER ID HAVE NONE.** `customer_credit_balances`,
+    `customer_credit_ledger` and `notifications`/`notification_email_queue`
+    (plus `orders.collected_by`) carry a customer id with no FK, so the rewrite
+    sails straight past them. **The credit tables are the serious one: they
+    hold MONEY.** A walk-in refunded to store credit at the till (§29) and then
+    signing up would have their balance orphaned BY THEIR OWN SIGNUP — the
+    store's books still say it is owed and their profile shows zero, silently,
+    discovered by a complaint. `repointUnreferencedTables` moves them in the
+    SAME transaction, so a failed repoint rolls the whole claim back: no claim
+    at all beats one that moved the person and left their balance behind.
+    ⚠ That is a hand-written list, which is what `pos_13` exists to avoid —
+    keep it honest. A new table holding a customer id belongs behind a real FK,
+    or in that function; `claim-customer.test.ts` pins every table named there.
+    The risk is narrower than the one the migration replaced (these are
+    UPDATEs, so forgetting one orphans data rather than cascade-DELETING
+    somebody's orders) but orphaned money is still money.
+    `notification_preferences` is deliberately absent — the customer audience
+    has no preference layer (§24), so a `pos_` customer can never have a row. - **★ AN EXISTING CUSTOMER ALREADY GETS AN EMAILED RECEIPT.**
+    `placePosSale` emits `order.placed`, and the fan-out resolves the attached
+    customer's saved address from `users`. - **★★ A PHONE-ONLY CUSTOMER CAN GET ONE TOO**
+    (`lib/email/pos-receipt.ts`, Shopify's receipt-option idea). The optional
+    box is collapsed behind **Add receipt email or GSTIN** on Payment, and its
+    copy explicitly says that a receipt contact does not create or modify a
+    customer profile.
+    **It does NOT go through the notification spine**, deliberately: the spine
+    routes an EVENT to an identified customer's saved destination and cannot
+    represent a one-sale address. It is still a `sendEmail` call, so it lands in `email_logs`
+    like everything else and `send-coverage.test.ts` stays satisfied. - **★ ONE RECEIPT, NEVER TWO.** `shouldSendDirectReceipt` (pure) fires
+    only where the fan-out will not — no attached customer, or an attached
+    customer with no address on file. `placePosSale` reads that address in
+    the SAME query as the ownership check, so it costs no extra round trip. - **★ NEVER GATED ON, AND NEVER GATING.** A bad address is dropped, not
+    refused: this runs after the money is taken and the stock has moved, so
+    failing a sale over a typo in an optional field is the worst available
+    trade (invariant 6). Deferred with `after()` and never throws. - **★ FROM THE STORE'S OWN SENDING DOMAIN** (`fromAddress`), not a
+    hardcoded one — a merchant on a custom domain would otherwise send from
+    an address Resend has no permission for and every receipt would bounce. - **★ THE FIELD IS OPT-IN VIA ITS HANDLER**, so the collection counter —
+    which shares `TenderPanel` — is untouched: that order was placed online
+    and already carries an address. - ⚠ **Not stored on the order.** `email_logs` is the record of what was
+    sent and to whom, and the subject carries the order ref. A future
+    "resend receipt" button would want `orders.receipt_email`; nothing needs
+    it yet. - **★ THE PHONE COMES FROM THE VERIFIED AUTH IDENTITY, NEVER A FORM.** That
+    is the entire security boundary: a form-supplied phone would let anyone
+    type a stranger's number and inherit their in-store order history.
+    `normalizePhone` is shared by both ends, because if the till stores
+    "+91 98765 43210" and signup stores "9876543210" the claim never fires and
+    the customer silently gets two rows. - **★ IT RUNS BEFORE THE UPSERT IN `updateCustomerProfile`, AND HAS TO.**
+    `(store_id, phone)` is UNIQUE, so without the claim first, signup fails
+    with a duplicate key for exactly the customers who have shopped here
+    before. Claiming turns that collision into the feature. A claimed row is
+    then an UPDATE, so `customer.signed_up` does NOT fire — correct: the store
+    already knows this person; what is new is the ACCOUNT. - **★ NEVER THROWS, at both layers.** A failed claim costs a link to in-store
+    history; a thrown one would cost the shopper their signup. - **★ A DUPLICATE PHONE ATTACHES, IT DOES NOT FAIL.** The submit-only action
+    reads an exact match before insert and catches a concurrent unique-key race
+    by re-reading its winner. The cashier never sees a duplicate error or has
+    to repeat a search. - **★ `sell`, NOT A MANAGER GRANT.** Charge requires a submitted 10-digit
+    mobile and automatically resolves or creates the attached customer before
+    Payment. That identity is the basis for receipt history and store credit;
+    recording it is part of ringing up a sale. - **Backfill: none.** Every existing row came from a real signup and is
+    claimed by definition, but `claimed_at` stays NULL rather than being
+    invented — nothing reads it to decide who may log in; the id shape does.
 
 37. **SMS — India's DLT rules, and why this is not a switch** (roadmap Step 5,
     SHIPPED; nothing has been sent against a real carrier yet). `lib/sms/` —

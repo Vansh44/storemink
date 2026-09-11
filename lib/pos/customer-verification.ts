@@ -4,7 +4,7 @@ import { and, eq, or } from "drizzle-orm";
 import { cookies } from "next/headers";
 import { withService } from "@/lib/db/client";
 import { orders, users } from "@/drizzle/schema";
-import { normalizeIndianMobile } from "@/lib/phone";
+import { formatIndianMobile, textablePhone } from "@/lib/phone";
 import type { PosOperator } from "@/lib/pos/operator";
 import { signToken, verifyToken, type BaseClaims } from "@/lib/pos/session";
 
@@ -111,14 +111,33 @@ export async function saveCustomerVerification(token: string): Promise<void> {
 export interface VerificationTarget {
   /** The order exists, at this store, and is in a state this purpose allows. */
   found: boolean;
-  /** Null when nothing on the order normalizes to an Indian mobile. */
+  /**
+   * FULL E.164, or null when nothing on the order can be texted.
+   *
+   * ★★ E.164, NOT THE TEN NATIONAL DIGITS. It used to be the latter, and the
+   * caller prefixed "+91" — which was safe only while every customer was
+   * Indian. The register now records a country code (`PHONE_COUNTRIES`), and
+   * `normalizeIndianMobile` accepts a stored "+6591234567" as the ten digits
+   * "6591234567", so that caller texted a code to "+916591234567": an
+   * unrelated Indian subscriber. Worse, a non-null phone suppresses the
+   * manager override, so the collection could not be handed over at all.
+   * Carrying the country code means no caller can reassemble one.
+   */
   phone: string | null;
 }
 
+/**
+ * The delivery address's own phone, which outranks the customer record.
+ *
+ * ⚠ STILL THE INDIAN NORMALISER, deliberately: this is free text typed into an
+ * Indian storefront checkout, validated on the way in by `formatIndianMobile`
+ * (checkout-actions.ts), and its placeholder rejection is what makes a junk
+ * address phone fall through to the customer record instead of eating the OTP.
+ */
 function mobileFromAddress(value: unknown): string | null {
   if (!value || typeof value !== "object") return null;
   const address = value as Record<string, unknown>;
-  return normalizeIndianMobile(address.phone ?? address.mobile);
+  return formatIndianMobile(address.phone ?? address.mobile);
 }
 
 export async function loadVerificationTarget(
@@ -163,7 +182,7 @@ export async function loadVerificationTarget(
     found: true,
     phone:
       mobileFromAddress(row.shippingAddress) ??
-      normalizeIndianMobile(row.customerPhone),
+      textablePhone(row.customerPhone),
   };
 }
 

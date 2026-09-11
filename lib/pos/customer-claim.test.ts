@@ -7,6 +7,7 @@ import {
   normalizePhone,
   splitName,
   validatePosCustomer,
+  validatePosCheckoutDetails,
 } from "./customer-claim";
 
 describe("isPosCustomerId", () => {
@@ -68,21 +69,22 @@ describe("decideClaim", () => {
 });
 
 describe("normalizePhone", () => {
-  it("keeps a plain 10-digit mobile", () => {
-    expect(normalizePhone("9876543210")).toBe("9876543210");
+  it("returns the canonical E.164 shape the column stores", () => {
+    expect(normalizePhone("9876543210")).toBe("+919876543210");
   });
 
   // ★ The till and the signup must land on the same string, or the claim never
-  // fires and the customer silently gets two rows.
+  // fires and the customer silently gets two rows. That is exactly what broke:
+  // signup wrote E.164 and this returned the bare ten digits.
   it.each([
-    ["+91 98765 43210", "9876543210"],
-    ["+919876543210", "9876543210"],
-    ["919876543210", "9876543210"],
-    ["09876543210", "9876543210"],
-    ["98765-43210", "9876543210"],
-    ["  9876543210  ", "9876543210"],
-  ])("normalises %s to the same 10 digits", (input, expected) => {
-    expect(normalizePhone(input)).toBe(expected);
+    ["+91 98765 43210"],
+    ["+919876543210"],
+    ["919876543210"],
+    ["09876543210"],
+    ["98765-43210"],
+    ["  9876543210  "],
+  ])("normalises %s to the same canonical string", (input) => {
+    expect(normalizePhone(input)).toBe("+919876543210");
   });
 
   it.each([
@@ -100,14 +102,21 @@ describe("normalizePhone", () => {
     expect(normalizePhone(9876543210)).toBe("");
   });
 
-  // ★★ NOT COSMETIC. `(store_id, phone)` is UNIQUE, so the second cashier who
-  // typed 8888888888 to get past the field would have ATTACHED their walk-in to
-  // the first one's record — two unrelated customers' order history merged.
-  // This is why it delegates to lib/phone.ts instead of keeping its own copy.
+  // ★★ A REPEATED-DIGIT PLACEHOLDER IS NOW ACCEPTED (owner's decision,
+  // 2026-09-11). It was refused because `normalizeIndianMobile` refuses it for
+  // the COURIER — Shiprocket cannot book 8888888888 — and that rule was
+  // borrowed for customer identity, where it does not belong: a shop recording
+  // a walk-in is not booking a parcel.
+  //
+  // ⚠ The hazard it guarded is real and has not vanished: `(store_id, phone)`
+  // is UNIQUE, so two walk-ins both entered as 8888888888 land on ONE record.
+  // What changed is that the till now SHOWS the first customer's name when the
+  // number resolves, so a cashier sees they have the wrong person instead of
+  // silently inheriting their history.
   it.each([["8888888888"], ["9999999999"], ["7777777777"]])(
-    "rejects the repeated-digit placeholder %s",
+    "accepts the repeated-digit placeholder %s",
     (input) => {
-      expect(normalizePhone(input)).toBe("");
+      expect(normalizePhone(input)).toBe(`+91${input}`);
     },
   );
 });
@@ -121,7 +130,7 @@ describe("validatePosCustomer", () => {
     expect(r).toEqual({
       ok: true,
       name: "Asha Rao",
-      phone: "9876543210",
+      phone: "+919876543210",
       email: null,
     });
   });
@@ -147,10 +156,11 @@ describe("validatePosCustomer", () => {
 
   // The cashier's way of skipping a required field. Two of them would merge
   // two customers, because (store_id, phone) is unique.
-  it("rejects a placeholder number a cashier typed to get past the field", () => {
-    expect(validatePosCustomer({ name: "Asha", phone: "8888888888" }).ok).toBe(
-      false,
-    );
+  it("accepts a placeholder number, which the courier boundary still refuses", () => {
+    // ★★ OWNER'S DECISION (2026-09-11). See normalizePhone above: the rule was
+    // the courier's, and a shop recording a walk-in is not booking a parcel.
+    const r = validatePosCustomer({ name: "Asha", phone: "8888888888" });
+    expect(r).toMatchObject({ ok: true, phone: "+918888888888" });
   });
 
   it("lower-cases the email and treats a blank one as absent", () => {
@@ -191,5 +201,66 @@ describe("splitName", () => {
     ["", { first: "", last: null }],
   ])("splits %s", (input, expected) => {
     expect(splitName(input)).toEqual(expected);
+  });
+});
+
+describe("validatePosCheckoutDetails", () => {
+  it("trims, caps and lowercases what the cashier typed", () => {
+    expect(
+      validatePosCheckoutDetails({
+        firstName: "  Rohan  ",
+        lastName: "  Sharma ",
+        email: "  Rohan@Example.COM  ",
+      }),
+    ).toEqual({
+      ok: true,
+      firstName: "Rohan",
+      lastName: "Sharma",
+      email: "rohan@example.com",
+    });
+  });
+
+  it("refuses a customer with no first name", () => {
+    // ★★ THE OWNER'S DECISION (2026-09-11), which deliberately overrides
+    // roadmap invariant 6 for the register: the till used to record a
+    // phone-only row rather than asking, and that is what filled customer
+    // lists with anonymous "Customer" entries. A new number therefore cannot
+    // be charged until it has a name.
+    for (const input of [{}, { firstName: "   " }, { email: "a@b.com" }]) {
+      expect(validatePosCheckoutDetails(input)).toEqual({
+        ok: false,
+        error: expect.stringMatching(/first name/i),
+      });
+    }
+  });
+
+  it("keeps the last name and email optional", () => {
+    // ★ Plenty of customers give one name, and `users.last_name` is nullable
+    // for exactly that — requiring it would refuse a sale over a field the
+    // schema never wanted. An email at a counter is often simply not given.
+    expect(validatePosCheckoutDetails({ firstName: "Rohan" })).toEqual({
+      ok: true,
+      firstName: "Rohan",
+      lastName: null,
+      email: null,
+    });
+  });
+
+  it("refuses an email that cannot receive a receipt", () => {
+    // A typo here is silent: nothing bounces back while the customer is still
+    // in the shop.
+    for (const email of ["rohan@", "@example.com", "rohan", "a@b"]) {
+      expect(validatePosCheckoutDetails({ firstName: "Rohan", email })).toEqual(
+        {
+          ok: false,
+          error: expect.stringMatching(/email/i),
+        },
+      );
+    }
+  });
+
+  it("caps a pasted name rather than letting the column refuse the row", () => {
+    const long = validatePosCheckoutDetails({ firstName: "x".repeat(200) });
+    expect(long.ok && long.firstName).toHaveLength(60);
   });
 });

@@ -56,6 +56,18 @@ describe("database migration controls", () => {
     // assert that wiring, by id rather than by position.
     for (const [id, requires] of [
       [
+        "20260909_0090_mink_phase_8e_inputs",
+        "20260907_0084_mink_phase_8d_memories",
+      ],
+      [
+        "20260909_0091_mink_unified_access_composer",
+        "20260909_0090_mink_phase_8e_inputs",
+      ],
+      [
+        "20260910_0092_mink_live_dictation_help",
+        "20260909_0091_mink_unified_access_composer",
+      ],
+      [
         "20260907_0084_mink_phase_8d_memories",
         "20260906_0083_mink_phase_8c_responses",
       ],

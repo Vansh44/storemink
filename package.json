@@ -38,7 +38,11 @@
     "db:lint": "node scripts/migration-lint.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:migrate:staging": "DB_HOST=127.0.0.1 DB_PORT=6543 DB_ADMIN_USER=postgres DB_ADMIN_PASSWORD=\"$(gcloud secrets versions access latest --secret=CLOUDSQL_PROD_POSTGRES_PW --project=storemink-prod)\" DB_NAME=storemink_staging sh -c 'c=$1; shift; node scripts/db-migrate.mjs \"$c\" --environment staging \"$@\"' _",
-    "db:migrate:prod": "DB_HOST=127.0.0.1 DB_PORT=6543 DB_ADMIN_USER=postgres DB_ADMIN_PASSWORD=\"$(gcloud secrets versions access latest --secret=CLOUDSQL_PROD_POSTGRES_PW --project=storemink-prod)\" DB_NAME=storemink sh -c 'c=$1; shift; node scripts/db-migrate.mjs \"$c\" --environment production \"$@\"' _"
+    "db:migrate:prod": "DB_HOST=127.0.0.1 DB_PORT=6543 DB_ADMIN_USER=postgres DB_ADMIN_PASSWORD=\"$(gcloud secrets versions access latest --secret=CLOUDSQL_PROD_POSTGRES_PW --project=storemink-prod)\" DB_NAME=storemink sh -c 'c=$1; shift; node scripts/db-migrate.mjs \"$c\" --environment production \"$@\"' _",
+    "help:lint": "node scripts/help-content-lint.mjs",
+    "help:audit:local": "DB_HOST=127.0.0.1 DB_PORT=5544 DB_NAME=storemink_local DB_ADMIN_USER=postgres node scripts/help-content-audit.mjs",
+    "help:audit:staging": "DB_HOST=127.0.0.1 DB_PORT=6543 DB_NAME=storemink_staging DB_ADMIN_PASSWORD=\"$(gcloud secrets versions access latest --secret=CLOUDSQL_PROD_POSTGRES_PW --project=storemink-prod)\" DB_ADMIN_USER=postgres node scripts/help-content-audit.mjs",
+    "help:audit:prod": "DB_HOST=127.0.0.1 DB_PORT=6543 DB_NAME=storemink DB_ADMIN_PASSWORD=\"$(gcloud secrets versions access latest --secret=CLOUDSQL_PROD_POSTGRES_PW --project=storemink-prod)\" DB_ADMIN_USER=postgres node scripts/help-content-audit.mjs"
   },
   "browserslist": [
     "chrome >= 111",
@@ -86,6 +90,7 @@
     "next-themes": "^0.4.6",
     "nextjs-toploader": "^3.9.17",
     "nodemailer": "^8.0.10",
+    "pdf-lib": "1.17.1",
     "pg": "^8.22.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

@@ -123,6 +123,7 @@ import {
   placePosSale as placePosSaleAction,
   searchPosCustomers,
   createPosCustomer,
+  createPosCheckoutCustomer,
   resolvePosCustomerByPhone,
   listPosSales,
 } from "./pos-sale-actions";
@@ -1353,8 +1354,8 @@ describe("createPosCustomer", () => {
     const row = dbHolder.current.calls.values[0];
     expect(row.id).toMatch(/^pos_/);
     expect(row.storeId).toBe(CASHIER.storeId);
-    // Normalised, so a later signup typing "9876543210" still matches.
-    expect(row.phone).toBe("9876543210");
+    // Canonical E.164, so a later signup lands on the same string.
+    expect(row.phone).toBe("+919876543210");
     expect(row.firstName).toBe("Asha");
     expect(row.lastName).toBe("Rao");
   });
@@ -1373,20 +1374,41 @@ describe("createPosCustomer", () => {
   // ★ A cashier who mistyped a search and typed the number by hand meant
   // "this person" — answering "already exists" leaves them re-searching with a
   // queue behind them. It leaks nothing: the search would have found this row.
-  it("attaches the existing customer when the phone is already on file", async () => {
+  it("does not insert a duplicate for a number stored in the +91 shape", async () => {
+    // ⚠ The unique key is on the phone STRING, so inserting "9876543210"
+    // would NOT conflict with an existing "+919876543210" and the conflict
+    // path would never run. Every shape has to be checked before the insert.
+    const onFile = {
+      id: "firebase-uid",
+      phone: "+919876543210",
+      email: "asha@example.com",
+      first_name: "Asha",
+      last_name: "Rao",
+    };
     dbHolder.current = makeDbMock({
       returning: [],
-      selectQueue: [
-        [
-          {
-            id: "existing-uid",
-            phone: "9876543210",
-            email: "a@x.com",
-            first_name: "Asha",
-            last_name: "Rao",
-          },
-        ],
-      ],
+      selectQueue: [[onFile], [onFile]],
+    });
+    const r = await createPosCustomer({ name: "Asha", phone: "9876543210" });
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+    expect(r.customer).toMatchObject({ id: "firebase-uid", name: "Asha Rao" });
+  });
+
+  it("attaches the existing customer when the phone is already on file", async () => {
+    const onFile = {
+      id: "existing-uid",
+      phone: "9876543210",
+      email: "a@x.com",
+      first_name: "Asha",
+      last_name: "Rao",
+    };
+    dbHolder.current = makeDbMock({
+      returning: [],
+      // Two reads now: the pre-check that looks for EVERY shape the number may
+      // be stored in — without which inserting the national form would not
+      // conflict with an E.164 row and would create a duplicate — and then the
+      // read that hands the existing customer back.
+      selectQueue: [[onFile], [onFile]],
     });
     const r = await createPosCustomer({ name: "Asha", phone: "9876543210" });
     expect(r.error).toBeUndefined();
@@ -1415,39 +1437,67 @@ describe("resolvePosCustomerByPhone", () => {
     vi.mocked(resolvePosOperator).mockResolvedValue(CASHIER as any);
   });
 
-  it("rejects malformed and placeholder mobiles without touching the database", async () => {
+  it("refuses a number of the wrong length for the chosen country", async () => {
     dbHolder.current = makeDbMock();
     expect((await resolvePosCustomerByPhone("12345")).error).toMatch(
-      /10-digit/i,
+      /10-digit number for \+91/i,
     );
-    expect((await resolvePosCustomerByPhone("8888888888")).error).toMatch(
-      /10-digit/i,
-    );
+    // A country with a different length rule gets its own message; the old
+    // one named India for every failure.
+    expect(
+      (await resolvePosCustomerByPhone("9876543210", "+65")).error,
+    ).toMatch(/8-digit number for \+65/i);
+    expect(dbHolder.current.calls.select).toHaveLength(0);
+  });
+
+  it("looks up a placeholder number instead of refusing it", async () => {
+    // ★★ OWNER'S DECISION (2026-09-11). The rejection was the COURIER's rule
+    // (Shiprocket cannot book 8888888888) borrowed for customer identity,
+    // where it does not belong — recording a walk-in is not booking a parcel.
+    dbHolder.current = makeDbMock({ selectQueue: [[]] });
+    const r = await resolvePosCustomerByPhone("8888888888");
+    expect(r.error).toBeUndefined();
+    expect(r.notFound).toBe(true);
+  });
+
+  it("reports a new number instead of inventing a nameless customer", async () => {
+    // ★ THE BUG THIS FIXES. It used to INSERT on a miss, which is how a shop
+    // filled up with "Customer / no email" rows: the lookup could not see an
+    // account stored in the other phone shape, so it invented a duplicate.
+    // A miss is now reported so the cashier can put a name to the number.
+    dbHolder.current = makeDbMock({ selectQueue: [[]] });
+    const result = await resolvePosCustomerByPhone("+91 98765 43210");
+    expect(result).toEqual({ notFound: true });
     expect(dbHolder.current.calls.insert).toHaveLength(0);
   });
 
-  it("creates a claimable mobile-only customer in one submit", async () => {
+  it("finds a customer the website stored in the +91 shape", async () => {
+    // ★★ THE REPORTED DEFECT, PINNED. Identity Platform hands signup an E.164
+    // number and it was written through untouched, while the till searched for
+    // the national form — so a shopper with an account was invisible at the
+    // counter and got a second row. Both shapes are matched now.
     dbHolder.current = makeDbMock({
-      selectQueue: [[]],
-      returning: [{ id: "pos_mobile" }],
+      selectQueue: [
+        [
+          {
+            id: "firebase-uid",
+            phone: "+919877542162",
+            email: "rohan@example.com",
+            first_name: "Rohan",
+            last_name: "Sharma",
+            store_credit: 0,
+          },
+        ],
+      ],
     });
-    const result = await resolvePosCustomerByPhone("+91 98765 43210");
-    expect(result).toMatchObject({
-      created: true,
-      customer: {
-        id: "pos_mobile",
-        phone: "9876543210",
-        email: null,
-        storeCredit: 0,
-      },
+    const result = await resolvePosCustomerByPhone("9877542162");
+    expect(result.customer).toMatchObject({
+      id: "firebase-uid",
+      name: "Rohan Sharma",
+      email: "rohan@example.com",
     });
-    expect(dbHolder.current.calls.values[0]).toMatchObject({
-      id: expect.stringMatching(/^pos_/),
-      storeId: CASHIER.storeId,
-      phone: "9876543210",
-      firstName: "",
-    });
-    expect(dbHolder.current.calls.select).toHaveLength(1);
+    expect(result.notFound).toBeUndefined();
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
   });
 
   it("returns the existing customer's name, email, and credit after a conflict", async () => {
@@ -1487,10 +1537,135 @@ describe("resolvePosCustomerByPhone", () => {
     expect(dbHolder.current.calls.insert).toHaveLength(0);
   });
 
-  it("returns the unique-key winner when two tills create the same new phone", async () => {
+  it("costs a bounded number of reads", async () => {
     dbHolder.current = makeDbMock({
       selectQueue: [
-        [],
+        [
+          {
+            id: "cust-1",
+            phone: "9876543210",
+            email: null,
+            first_name: "",
+            last_name: null,
+            store_credit: null,
+          },
+        ],
+      ],
+    });
+    await resolvePosCustomerByPhone("9876543210");
+    // ★ BOUNDED, not exact. The point is that resolving a customer costs a
+    // fixed handful of reads — one lookup plus the two facts that ride along
+    // (offer caps and first-order state) — rather than a number that grows
+    // with the customer or the cart. The reads run concurrently, so the exact
+    // figure is mock plumbing; pinning the CEILING catches an N+1 regression.
+    expect(dbHolder.current.calls.select.length).toBeLessThanOrEqual(4);
+  });
+});
+
+describe("createPosCheckoutCustomer", () => {
+  beforeEach(() => {
+    vi.mocked(resolvePosOperator).mockResolvedValue(CASHIER as any);
+  });
+
+  it("stores the name and email the cashier collected", async () => {
+    dbHolder.current = makeDbMock({ returning: [{ id: "pos_new" }] });
+    const result = await createPosCheckoutCustomer({
+      mobile: "+91 98765 43210",
+      firstName: "  Rohan ",
+      lastName: " Sharma ",
+      email: " Rohan@Example.COM ",
+    });
+    expect(result).toMatchObject({
+      created: true,
+      customer: {
+        id: "pos_new",
+        name: "Rohan Sharma",
+        phone: "+919876543210",
+        email: "rohan@example.com",
+      },
+    });
+    // ★ THE CANONICAL E.164 VALUE IS WHAT GETS WRITTEN, so the column stops
+    // holding the same number in two shapes.
+    expect(dbHolder.current.calls.values[0]).toMatchObject({
+      id: expect.stringMatching(/^pos_/),
+      storeId: CASHIER.storeId,
+      phone: "+919876543210",
+      firstName: "Rohan",
+      lastName: "Sharma",
+      email: "rohan@example.com",
+    });
+  });
+
+  it("refuses a nameless customer, so no anonymous row is ever written", async () => {
+    // ★★ THE OWNER'S DECISION (2026-09-11): there is no Skip, and this is
+    // enforced here rather than only by disabling the button, because a
+    // server action is reachable without the UI.
+    dbHolder.current = makeDbMock({ returning: [{ id: "pos_walkin" }] });
+    const result = await createPosCheckoutCustomer({ mobile: "9876543210" });
+    expect(result.error).toMatch(/first name/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("accepts a customer who gives only a first name", async () => {
+    // The last name and email stay optional — `users.last_name` is nullable,
+    // and refusing a sale over it would trade one blocked counter for another.
+    dbHolder.current = makeDbMock({ returning: [{ id: "pos_one_name" }] });
+    const result = await createPosCheckoutCustomer({
+      mobile: "9876543210",
+      firstName: "Rohan",
+    });
+    expect(result.customer).toMatchObject({ name: "Rohan", email: null });
+    expect(dbHolder.current.calls.values[0]).toMatchObject({
+      firstName: "Rohan",
+      lastName: null,
+      email: null,
+    });
+  });
+
+  it("refuses a malformed email before writing anything", async () => {
+    dbHolder.current = makeDbMock();
+    const result = await createPosCheckoutCustomer({
+      mobile: "9876543210",
+      firstName: "Rohan",
+      email: "rohan@",
+    });
+    expect(result.error).toMatch(/email/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("refuses the wrong length, but records a placeholder number", async () => {
+    dbHolder.current = makeDbMock();
+    expect(
+      (await createPosCheckoutCustomer({ mobile: "12345", firstName: "A" }))
+        .error,
+    ).toMatch(/10-digit number for \+91/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+
+    dbHolder.current = makeDbMock({ returning: [{ id: "pos_ph" }] });
+    const ok = await createPosCheckoutCustomer({
+      mobile: "8888888888",
+      firstName: "Walk in",
+    });
+    expect(ok.customer?.phone).toBe("+918888888888");
+  });
+
+  it("stores a number from another country under its own code", async () => {
+    dbHolder.current = makeDbMock({ returning: [{ id: "pos_sg" }] });
+    const r = await createPosCheckoutCustomer({
+      mobile: "81234567",
+      dial: "+65",
+      firstName: "Wei",
+    });
+    expect(r.customer?.phone).toBe("+6581234567");
+    expect(dbHolder.current.calls.values[0]).toMatchObject({
+      phone: "+6581234567",
+    });
+  });
+
+  it("returns the unique-key winner when two tills record the same new phone", async () => {
+    dbHolder.current = makeDbMock({
+      returning: [],
+      selectQueue: [
         [
           {
             id: "pos_winner",
@@ -1502,30 +1677,20 @@ describe("resolvePosCustomerByPhone", () => {
           },
         ],
       ],
-      returning: [],
     });
-
-    const result = await resolvePosCustomerByPhone("9876543210");
-
-    expect(result).toEqual({
-      customer: {
-        id: "pos_winner",
-        name: "9876543210",
-        phone: "9876543210",
-        email: null,
-        storeCredit: 0,
-      },
-      exhaustedOfferIds: [],
-      isFirstOrder: true,
+    const result = await createPosCheckoutCustomer({
+      mobile: "9876543210",
+      firstName: "Rohan",
     });
-    // ★ BOUNDED, not exact. The point of this assertion is that resolving a
-    // customer costs a fixed handful of reads — one exact lookup, one re-read
-    // of the race winner, and the two facts that ride along (offer caps and
-    // first-order state) — rather than a number that grows with the customer
-    // or the cart. Pinning the exact figure would assert mock plumbing, and
-    // the reads run concurrently so the count is an implementation detail;
-    // pinning the CEILING is what catches a per-keystroke or N+1 regression.
-    expect(dbHolder.current.calls.select.length).toBeLessThanOrEqual(4);
+    expect(result.customer).toMatchObject({ id: "pos_winner" });
+    expect(result.created).toBeUndefined();
+  });
+
+  it("refuses when signed out or without the sell capability", async () => {
+    vi.mocked(resolvePosOperator).mockResolvedValue(null);
+    expect(
+      (await createPosCheckoutCustomer({ mobile: "9876543210" })).error,
+    ).toMatch(/signed in/i);
   });
 });
 

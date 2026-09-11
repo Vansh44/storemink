@@ -58,6 +58,28 @@ COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
 COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
 COPY --from=builder --chown=nextjs:nodejs /app/public ./public
 
+# ★★ SHARP'S NATIVE LIBRARY IS COPIED EXPLICITLY, because file tracing cannot
+# see it. sharp's `.node` binding dlopens `libvips-cpp.so` from a SIBLING
+# package (@img/sharp-libvips-linux-x64) at runtime, so nothing in the import
+# graph mentions it and Next left it out of .next/standalone. Production failed
+# on 2026-09-10 with:
+#
+#   Could not load the "sharp" module using the linux-x64 runtime
+#   ERR_DLOPEN_FAILED: libvips-cpp.so.8.18.3: cannot open shared object file
+#
+# That is a MODULE-LOAD failure, so no route could catch it: /api/upload
+# answered a bare framework 500 in 6 ms with no JSON body, and it took the
+# OG-image proxy and Mink's image input down with it.
+#
+# ⚠ COPIED FROM `deps`, NOT `builder`. Both have the packages, but `deps` is
+# where `npm ci` resolved them for THIS image's platform (node:24-slim,
+# linux/x64, glibc) — so what lands here cannot be a host's darwin binary.
+# next.config.ts also traces these for hosts that build without this Dockerfile;
+# neither fix makes the other redundant, and this is the one that cannot be
+# defeated by a tracer heuristic.
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/sharp ./node_modules/sharp
+COPY --from=deps --chown=nextjs:nodejs /app/node_modules/@img ./node_modules/@img
+
 USER nextjs
 EXPOSE 8080
 

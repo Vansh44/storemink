@@ -198,13 +198,12 @@ cross-tenant isolation. These checks validate the internal-alpha UX/security
 slice; they do not replace the evaluation and production-readiness gates below.
 
 The real client and endpoint are globally enabled when `MINK_AI_ENABLED` is
-unset and can be explicitly disabled with `MINK_AI_ENABLED=false`. With the
-default `MINK_BETA_REQUIRE_INVITE=true`, a store must still have an enabled
-operator invitation. Draft tools additionally require
-`drafting_enabled=true` and the related Manage permission. Every Phase 4 or 5
-action also requires its matching per-tool operator switch and the destination
-section's Manage permission. The
-disabled/uninvited state keeps the canned coming-soon response. The current
+unset and can be explicitly disabled with `MINK_AI_ENABLED=false`. A store must
+also be enabled through its single operator Mink AI button. That atomic switch
+keeps the internal drafting and action rows aligned; operators do not manage
+them individually. Draft/action tools still require destination-section Manage
+permission, credits, plan eligibility and their exact human approval. The
+disabled state keeps the canned coming-soon response. The current
 build charges live credits only when it creates a private proposal; the
 weighted schedule is 2/1/5/2/2 for the original proposal kinds, 3 for a draft
 product, 1 each for coupon or customer-group create/update, 1 for a single
@@ -1464,11 +1463,56 @@ Exit criteria:
   TypeScript, lint and the production build passed. Migration 0084 has not been
   applied to a live database by this implementation, and live Vertex/Echos
   behavior still requires the documented acceptance prompts.
-- **8E — Optional multimodal inputs: not implemented.** Screenshot/image,
-  PDF/document extraction and voice input require separate MIME/size/decoder,
-  privacy, provider-capability and cost validation. The 8D text importer does
-  not implement these channels. Specialist multi-agent planning also remains
-  evaluation-driven, not automatically enabled.
+- **8E — Reviewed multimodal inputs: implemented locally; rollout acceptance pending.**
+  Images (PNG/JPEG/WebP) and plain PDFs enter a separate tool-free extraction
+  endpoint. One file at a time, 2 MiB, 12 MP images normalized to 1600 px and
+  10 PDF pages. The composer mic instead uses supported-browser live speech
+  recognition for up to 60 seconds; StoreMink does not upload microphone audio.
+  The owner explicitly approves sending bytes to Vertex, then edits/reviews the
+  extracted reference before adding it to the composer; Send remains separate.
+  Original files are not persisted by StoreMink or placed in Media/memory.
+  Provider retention policies still apply. PDFs are parsed in a bounded child
+  process; image metadata is stripped; no URLs or document actions are executed.
+  Shared fail-closed quotas, one-attempt provider calls, 8192 counted input
+  tokens, 2048 output tokens, 3000 output characters and a 45-second processing
+  deadline bound extraction. Content-free telemetry reports provider tokens.
+  Beta extraction
+  deducts no credits; operator provider charges and subsequent chat costs remain.
+  The single operator Mink AI switch enables all implemented capabilities;
+  global runtime/store/dashboard permissions remain required. No separate
+  multimodal deployment switch is needed. The configured
+  `MINK_VERTEX_MODEL` must support all enabled inputs; unsupported capabilities
+  fail explicitly, without an unapproved model fallback.
+  New forward-only migration 0090 updates Help. ECH-P8E tests cover merchant
+  requests, consent, errors, cancellation, isolation and adversarial input.
+  Composer refinement (0091/0092): plus for one-file pick/drop and a separate
+  mic for live browser speech-to-text. One mic click starts listening after the
+  browser permission prompt; interim words appear in the editable composer as
+  they are recognised, so Send is usable before Finish. Finish/60 seconds keeps
+  the text and Cancel restores the pre-dictation message. StoreMink does not
+  create, upload or retain a microphone recording; supported browser speech
+  services may process audio under their own terms. Text/image/PDF reference
+  review remains separate. Turn-anchor refinement keeps the newest user
+  question near the top while the answer grows below, instead of following the
+  final paragraph; direct pointer, touch or wheel scrolling remains user-owned.
+  One superadmin switch atomically updates the store, drafting and all action
+  gates; migration aligns existing enabled stores. This changes availability,
+  not staff permissions, approval authority, or watch/memory opt-in.
+  Long documents, audio-file imports, video, spreadsheets, live voice conversation,
+  raw-image follow-up context and image generation are not part of this phase.
+  Specialist multi-agent planning remains evaluation-driven, not enabled.
+  Initial 8E verification (2026-09-09): 6,420 regression tests passed (35 optional tests
+  skipped), plus two real isolated-PostgreSQL migration checks. Focused quota,
+  API and system-prompt checks also passed after final quota ordering. Lint,
+  TypeScript and production build passed; the sandbox build first failed on
+  Google Fonts networking, then the approved network-enabled build succeeded.
+  The packaged standalone PDF checker was executed successfully. The temporary
+  database was stopped. No application database or live Vertex request was used.
+  Live Echos/browser/microphone/provider accuracy acceptance remains pending.
+  The dependency audit reports pre-existing advisories (including Next's nested
+  Sharp); the newly added pinned PDF dependency has no reported advisory, and
+  input image decoding uses the existing direct Sharp 0.35.3 dependency.
+  Dependency upgrades outside this feature are not claimed as completed.
 
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.
@@ -1692,18 +1736,20 @@ would move risk into production rather than remove work.
 
 ## 21. Immediate next sprint
 
-Phase 8B is implemented locally. Apply `20260905_0082_mink_phase_8b_watches`
-after 0081 and deploy the matching revision. Run ECH-P8A-01–24 and
-ECH-P8B-01–30 on Echos using the existing workflow heartbeat. Verify consent,
-owner-only alerts, quiet hours, duplicate delivery, source errors and scope
-revocation. No new environment variables or recurring jobs are required.
-Phase 8C is committed and migration 0083 is reported applied. Deploy the
-dashboard/worker and run ECH-P8C acceptance tests on Echos. Approval
-authorizes only one read-only response investigation, never an automatic remedy.
-Phase 8D adds approved memories and reviewed text input locally. Apply migration
-`20260907_0084_mink_phase_8d_memories`, deploy, and run ECH-P8D acceptance before
-enabling wider usage. Optional multimodal channels (8E) remain unbuilt.
+The owner reports all existing migrations applied (2026-09-09). Keep ECH-P8A
+through ECH-P8D acceptance in the deployment regression suite; watch approval
+still authorizes only a bounded read-only investigation, not an automatic remedy.
+Phase 8E and its composer/access refinement are implemented locally: apply new
+migrations 0090–0092, including the forward-only live-dictation correction,
+deploy the matching revision, enable Mink AI for Echos with its single operator
+button, and run ECH-P8E plus ECH-UX tests.
+Do not treat local tests as proof of deployed Vertex capabilities.
 Do not infer live model routing accuracy or production latency from unit tests.
+
+Before enabling production input, review Google's [document understanding](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/document-understanding)
+and [audio understanding](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/capabilities/audio-understanding)
+capability guides for the configured model and the project's [Vertex data retention](https://docs.cloud.google.com/vertex-ai/generative-ai/docs/vertex-ai-zero-data-retention)
+settings. Local transient storage does not itself establish provider zero retention.
 
 The Phase 7D deployment acceptance checklist remains applicable:
 

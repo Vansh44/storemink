@@ -106,8 +106,9 @@ export function createVertexMinkSession(
     } catch (error) {
       if (!(error instanceof MinkRetryError)) throw error;
       const status = providerStatus(error.originalError);
+      const credentialFailure = isCredentialProviderError(error.originalError);
       const code =
-        status === 401 || status === 403
+        credentialFailure || status === 401 || status === 403
           ? "provider_auth_failed"
           : status !== null && status >= 400 && status < 500 && status !== 429
             ? "provider_request_rejected"
@@ -116,11 +117,39 @@ export function createVertexMinkSession(
         code,
         code === "provider_unavailable"
           ? "Mink AI's model is temporarily unavailable. Try again shortly."
-          : "Mink AI couldn't use its configured model.",
+          : code === "provider_auth_failed"
+            ? process.env.NODE_ENV === "production"
+              ? "Mink AI cannot authenticate with Google Cloud. Ask StoreMink support to check the deployment service account."
+              : "Your local Google Cloud login has expired. Run `gcloud auth application-default login`, then restart StoreMink."
+            : "Mink AI couldn't use its configured model.",
         error.retryCount,
       );
     }
   }
+}
+
+function isCredentialProviderError(error: unknown): boolean {
+  const seen = new Set<unknown>();
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current && !seen.has(current); depth++) {
+    seen.add(current);
+    if (current instanceof Error) {
+      if (/invalid_(?:grant|rapt)|reauth|credential/i.test(current.message))
+        return true;
+      current = current.cause;
+    } else if (typeof current === "object") {
+      const value = current as { message?: unknown; cause?: unknown };
+      if (
+        typeof value.message === "string" &&
+        /invalid_(?:grant|rapt)|reauth|credential/i.test(value.message)
+      )
+        return true;
+      current = value.cause;
+    } else {
+      break;
+    }
+  }
+  return false;
 }
 
 function providerStatus(error: unknown): number | null {

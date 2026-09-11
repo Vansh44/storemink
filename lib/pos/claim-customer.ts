@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
 import { logError, logInfo } from "@/lib/observability/logger";
 import { normalizePhone } from "./customer-claim";
+import { storedPhoneVariants } from "@/lib/phone";
 
 // ---------------------------------------------------------------------------
 // Adopting a till-created customer on signup (roadmap Step 4).
@@ -71,6 +72,9 @@ export async function claimPosCustomer(
   // No verified phone means nothing to match on. Not an error: most stores
   // never create a till customer, and most signups have nothing waiting.
   if (!phone || !input.uid || !input.storeId) return { claimed: false };
+  // Rows written before the phone shape was canonicalised may hold the E.164
+  // form. Matching both is what lets this adopt them; see storedPhoneVariants.
+  const phones = storedPhoneVariants(input.verifiedPhone);
 
   try {
     const claimed = await withService(async (db) => {
@@ -87,7 +91,7 @@ export async function claimPosCustomer(
       const found = (await db.execute(sql`
         select id from public.users
          where store_id = ${input.storeId}::uuid
-           and phone = ${phone}
+           and phone = any(${phones}::text[])
            and id like 'pos\\_%'
            and claimed_at is null
          limit 1

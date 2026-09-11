@@ -2007,8 +2007,22 @@ acceptance. Phase 8D now adds explicitly approved owner/store memories with
 expiry, editing/deletion, exact-authority context checks and no model mutation
 tool. Reviewed local .txt/.md text may be added to the composer; import never
 sends, saves memory or grants action authority. Migration 0084 and ECH-P8D
-prompts cover this rollout. Optional screenshot/PDF/voice channels are a separate
-unbuilt 8E milestone, not capabilities of the text importer. Conversion monitoring
+prompts cover this rollout. Phase 8E now adds consented image/PDF extraction
+and browser-owned live dictation. Files are bounded and transient;
+only approved reference text enters the composer, not verified inventory or
+action authority. The composer now uses a plus attachment/drop target and mic
+dictation that streams recognised words into editable text and makes Send
+available immediately; StoreMink does not upload or retain microphone audio.
+One operator Mink AI switch
+enables all implemented capabilities without bypassing staff permissions or
+action approvals. Migration 0091 aligns existing enabled stores; migration 0092
+corrects Help for live dictation and local expired-credential recovery.
+Newly submitted questions now stay near the top of Mink's message viewport while
+their answers grow below; manual reader movement is respected and the composer
+remains fixed. This self-explanatory presentation detail is covered by UI
+regression tests rather than adding low-value Help Centre content.
+Migration 0090 and ECH-P8E/ECH-UX prompts cover provider/privacy,
+permission, quota and browser rollout acceptance. Conversion monitoring
 requires a separately validated source and is not claimed by Phase 8A.
 
 ### Returns, exchanges, BORIS, credit notes

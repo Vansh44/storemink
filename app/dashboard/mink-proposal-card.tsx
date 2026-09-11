@@ -973,24 +973,24 @@ export function MinkProposalCard({ proposal }: { proposal: Proposal }) {
 
         <p className="rounded-lg bg-[#fff9e8] px-2.5 py-2 text-[10px] leading-4 text-[#735b17]">
           Saving this private draft never changes a dashboard record, publishes
-          content or contacts a customer. A separately enabled product-text
-          action changes only the exact fields shown after you approve its
-          preview. Product creation stays draft-only, coupon actions stay
-          disabled and hidden, and customer-group membership is never changed.
-          Single-SKU inventory proposals affect one exact tracked item and
-          location. Bulk proposals are separately gated, capped at 20 lines,
-          reviewed line by line and applied atomically only after approval.
-          Order-status proposals are one exact delivery order and one forward
-          step; they never cancel, refund, alter payment or contact a customer.
-          Blog proposals can publish immediately or create one scheduled job
-          only after an exact, expiring preview is approved. Scheduled jobs
-          pause when Mink drafting or the publication kill switch is disabled,
-          and conflict instead of overwriting a changed blog. Coupon-email
-          campaigns use their own switch, snapshot one exact eligible audience,
-          show a non-PII branded sample and require a final confirmation before
-          any recipient is queued. Campaign delivery has no automatic rollback.
-          Bulk prices require exact SKUs, show every before-and-after value and
-          apply all lines atomically; they also have no automatic rollback.
+          content or contacts a customer. When Mink AI is enabled, a
+          product-text action changes only the exact fields shown after you
+          approve its preview. Product creation stays draft-only, coupon actions
+          stay disabled and hidden, and customer-group membership is never
+          changed. Single-SKU inventory proposals affect one exact tracked item
+          and location. Bulk proposals are capped at 20 lines, reviewed line by
+          line and applied atomically only after approval. Order-status
+          proposals are one exact delivery order and one forward step; they
+          never cancel, refund, alter payment or contact a customer. Blog
+          proposals can publish immediately or create one scheduled job only
+          after an exact, expiring preview is approved. Scheduled jobs pause
+          when Mink drafting or the publication kill switch is disabled, and
+          conflict instead of overwriting a changed blog. Coupon-email campaigns
+          use their own switch, snapshot one exact eligible audience, show a
+          non-PII branded sample and require a final confirmation before any
+          recipient is queued. Campaign delivery has no automatic rollback. Bulk
+          prices require exact SKUs, show every before-and-after value and apply
+          all lines atomically; they also have no automatic rollback.
         </p>
       </div>
     </section>
