@@ -2395,6 +2395,32 @@ wholesip/
    people to re-run rather than trust it. One seed is one permutation, so it
    catches regressions this ordering exposes, not all of them — hunt for more with
    `npx vitest run --coverage=false --sequence.shuffle --sequence.seed=<n>`.
+   **★★ AND A SHUFFLE FAILURE IS NOT ALWAYS AN ORDERING ONE.** Both suite runs
+   execute files in PARALLEL, so a test that renders a component holding a live
+   `setTimeout` is racing the WALL CLOCK on a loaded worker, not the file order
+   — and because `test:shuffle` is a second full run, it is simply the second
+   roll of that die, which is why the flake tends to surface there. `app/pos/sell/sell-client.test.tsx` failed once and passed on a
+   re-run at the IDENTICAL seed and tree (2026-09-11), which is the signature:
+   an ordering bug is reproducible, a timing one is not. The cause was that the
+   register arms a real 150 ms server-fallback timer whenever the catalogue is
+   cold (`sell-client.tsx`, the `if (catalog.ready) return;` effect), and the
+   `lookupProducts` mock resolved to `{ items: [] }` — so ~150 ms after any
+   cold render the product grid EMPTIED and the next
+   `getByRole(/multigrain bread/i)` threw. The test passed only while three
+   render/click cycles finished inside that window.
+   **The rule: a mock that stands in for a data source must return DATA.** An
+   empty fixture reads as a harmless default and is really a second scenario
+   ("the shop sells nothing") that fires on a timer nobody is watching. And
+   when a component under test owns a real timer, cross it DELIBERATELY —
+   `await waitFor(() => expect(theAction).toHaveBeenCalled())` — rather than
+   hoping the assertions land first; that turns a load-dependent flake into a
+   deterministic failure, which is the only kind anybody can fix.
+   ⚠ Diagnose these by FORCING the delay (`await act(async () => { await new
+Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
+   until it goes red — the forced version reproduces first time and names the
+   real assertion. Raising a `findBy*` timeout would have buried this one:
+   the failing call was a synchronous `getByRole`, and the element was gone
+   rather than late.
 9. **Features are settings-based** (see §9): configurable behavior goes through
    `lib/settings/registry.ts` — add the setting there (key, label, default,
    `section` = the dashboard permission section that owns it, optional
