@@ -117,6 +117,10 @@ describe("Phase 7A storefront context reads", () => {
       pageVersion: "2026-09-04T10:20:30.123456+00:00",
       hasUnpublishedChanges: true,
     });
+    // The optimistic lock for a LAYOUT proposal is over the ordered list, and
+    // per-section digests cannot see an added or reordered section. Without
+    // this field a layout proposal cannot be created at all.
+    expect(output.page.sectionsDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(output.sections[0]).toMatchObject({
       id: "section-1",
       position: 1,

@@ -1514,6 +1514,42 @@ Exit criteria:
   input image decoding uses the existing direct Sharp 0.35.3 dependency.
   Dependency upgrades outside this feature are not claimed as completed.
 
+- **9B — Proposed page layouts: implemented locally; rollout acceptance pending.**
+  With drafting plus Website Builder Manage, Mink can create one immutable,
+  3-credit private proposal for a page's WHOLE structured section list —
+  adding, removing, reordering and reconfiguring blocks such as a hero,
+  gallery, testimonials or featured products — behind its own default-off
+  operator gate and a separate five-minute human approval that writes only
+  `store_pages.sections`. It closes the gap Phase 7B left: 7B can edit only the
+  HTML/CSS/JS inside an EXISTING custom-code section, so a store without one
+  could not have its storefront changed at all.
+  Every section passes the registry's own `validateConfig` and is rendered by
+  StoreMink components, so the output cannot carry script, styles, event
+  handlers or an unsanitised URL; the review card therefore needs no isolated
+  iframe and links to Website Builder instead. Custom code is the boundary:
+  a proposal must carry every existing custom-code section across unchanged
+  and cannot add, edit or delete one, checked in both directions (an omitted
+  section is a deletion). Sections the model is not changing are kept BY
+  REFERENCE and resolved server-side to the exact stored object, which is what
+  lets a page with custom code be proposed at all — the Builder read never
+  exposes that source. The optimistic lock is the page version plus a digest
+  of the whole ordered list, asserted at proposal, at preview and again inside
+  the write; the approval stores digests rather than the 128 KB lists.
+  Publication, header/footer, section-level custom code, repository access,
+  shell and deployment remain unavailable. Migration 0101 adds the tool to all
+  four vocabularies (including the draft-version allowlist a probe caught),
+  the draft kind and the draft/approval/audit target shapes, backfills the tool
+  for already-enabled stores, and repairs the same NULL hole in 7B's applied
+  target checks; 0102 corrects the three published Help sentences that said
+  Mink could not change a page's sections. ECH-P9B prompts cover the merchant
+  flow, the custom-code refusals, conflict, expiry and replay.
+  Local verification (2026-09-12): the full regression suite passed, both
+  static gates passed, and the new database constraints were probed by
+  inserting the real payload shapes against a live PostgreSQL — accepted where
+  they should be, refused for a missing digest, a rollback operation, a
+  pending row carrying a result and a wrong resource type. No live Vertex call
+  and no application database were used; live Echos acceptance remains pending.
+
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.
 

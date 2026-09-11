@@ -1,0 +1,433 @@
+"use client";
+
+import {
+  ArrowUpDown,
+  CheckCircle2,
+  Clock3,
+  ExternalLink,
+  LayoutTemplate,
+  LoaderCircle,
+  Minus,
+  Plus,
+  ShieldCheck,
+  TriangleAlert,
+} from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { SECTION_TYPE_META } from "@/lib/sections/registry";
+import type {
+  MinkStorefrontLayoutActionApproval,
+  MinkStorefrontLayoutActionResult,
+} from "@/lib/mink/storefront-layout-action-types";
+import type {
+  MinkArtifact,
+  MinkStorefrontLayoutSectionRef,
+} from "@/lib/mink/types";
+
+type Proposal = Extract<MinkArtifact, { type: "storefront_layout_proposal" }>;
+
+/**
+ * The Phase 9B review card.
+ *
+ * ★★ IT SHOWS THE CHANGE, NOT A RENDERED PAGE, and that is the deliberate
+ * difference from the 7B card beside it. A code proposal has to be previewed
+ * in an isolated iframe because its output is arbitrary and nothing else can
+ * say what it will do. A section list is rendered by our own components, so
+ * the honest preview of it is the Website Builder — which this card links to,
+ * and which the merchant already knows. Reimplementing the storefront's
+ * seventeen renderers inside a chat card would produce a second, drifting
+ * answer to "what will my page look like".
+ *
+ * So what a merchant needs here is what they are about to LOSE: an approval
+ * that quietly deletes a section is the failure mode of a whole-list replace,
+ * and removals lead the card for that reason.
+ */
+export function MinkStorefrontLayoutProposalCard({
+  proposal,
+}: {
+  proposal: Proposal;
+}) {
+  const [approval, setApproval] =
+    useState<MinkStorefrontLayoutActionApproval | null>(null);
+  const [result, setResult] = useState<MinkStorefrontLayoutActionResult | null>(
+    null,
+  );
+  const [busy, setBusy] = useState<"preview" | "execute" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const { summary } = proposal;
+
+  // A card restored from conversation history has no idea what its proposal
+  // already did. Asked once, on mount; a failure leaves the card exactly as it
+  // renders today rather than replacing a working control with an error.
+  useEffect(() => {
+    const controller = new AbortController();
+    void readLatestLayoutAction(proposal.draftId, controller.signal)
+      .then((saved) => {
+        if (saved) setResult(saved);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [proposal.draftId]);
+
+  async function reviewDraftSave() {
+    setBusy("preview");
+    setError(null);
+    try {
+      const response = await requestLayoutAction(proposal.draftId, {
+        action: "preview",
+        // A layout proposal is immutable, so its version is always 0. It is
+        // still sent: the server compares it, and a client that stopped
+        // sending the truth would be asking to skip that comparison.
+        expectedDraftVersion: 0,
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setApproval(response.approval ?? null);
+      setResult(null);
+    } catch (requestError) {
+      setError(messageOf(requestError, "This layout could not be reviewed."));
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function approveDraftSave() {
+    if (!approval) return;
+    setBusy("execute");
+    setError(null);
+    try {
+      const response = await requestLayoutAction(proposal.draftId, {
+        action: "execute",
+        approvalId: approval.id,
+      });
+      if (!response.result)
+        throw new Error("The save response was incomplete.");
+      setResult(response.result);
+      setApproval(null);
+    } catch (requestError) {
+      // ★ AN UNKNOWN OUTCOME IS NOT A FAILURE. A 4xx is a definite refusal, but
+      //   a transport error or a 5xx may arrive after the transaction
+      //   committed — so the approval is KEPT rather than cleared, and the same
+      //   id is retried, which the executed-approval branch answers
+      //   idempotently. Clearing it would leave the merchant unable to find out
+      //   whether their page was changed. (§26's refund rule.)
+      if (
+        requestError instanceof LayoutActionRequestError &&
+        requestError.outcome === "unknown"
+      ) {
+        setError(UNKNOWN_LAYOUT_OUTCOME);
+      } else {
+        setApproval(null);
+        setError(messageOf(requestError, "The layout was not saved."));
+      }
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <section className="overflow-hidden rounded-2xl border border-[#ddd6fe] bg-white shadow-[0_1px_3px_rgba(38,25,77,0.08)]">
+      <header className="border-b border-[#ebe7f7] bg-[#fbfaff] px-3 py-2.5">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-start gap-2">
+            <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-[#6d4dff] text-white">
+              <LayoutTemplate className="h-3.5 w-3.5" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="truncate text-xs font-semibold text-[#27242d]">
+                {proposal.title}
+              </h3>
+              <p className="mt-0.5 text-[9px] text-[#716d78]">
+                Private proposal · {proposal.expectedCredits} AI credits · draft
+                save needs approval
+              </p>
+            </div>
+          </div>
+          <a
+            href={proposal.destinationPath}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex shrink-0 items-center gap-1 text-[9px] font-semibold text-[#5d3fe3] hover:underline"
+          >
+            Open Builder <ExternalLink className="h-3 w-3" />
+          </a>
+        </div>
+      </header>
+
+      <div className="space-y-3 p-3">
+        <div className="flex flex-wrap gap-1.5 text-[9px]">
+          <Badge>Page: {proposal.target.pageSlug}</Badge>
+          <Badge>{proposal.sectionCount} sections after</Badge>
+          {summary.reordered ? <Badge>Order changed</Badge> : null}
+        </div>
+        <p className="text-[11px] leading-5 text-[#39363f]">
+          {proposal.explanation}
+        </p>
+
+        {/* Removals first: they are the only irreversible-looking part of a
+            whole-list replace, and the thing a merchant must not approve
+            without noticing. */}
+        <div className="space-y-2">
+          <ChangeGroup
+            tone="removed"
+            icon={<Minus className="h-3 w-3" />}
+            label="Removed from the page"
+            refs={summary.removed}
+            empty="Nothing is removed."
+          />
+          <ChangeGroup
+            tone="added"
+            icon={<Plus className="h-3 w-3" />}
+            label="Added"
+            refs={summary.added}
+            empty="Nothing new is added."
+          />
+          <ChangeGroup
+            tone="kept"
+            icon={<ArrowUpDown className="h-3 w-3" />}
+            label={summary.reordered ? "Kept, in a new order" : "Kept"}
+            refs={summary.kept}
+            empty="No existing section is kept."
+          />
+        </div>
+
+        {result ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-900">
+            <div className="flex items-start gap-2">
+              <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div>
+                <p className="font-semibold">
+                  Saved to the private Website Builder draft
+                </p>
+                <p className="mt-1">
+                  The live storefront was not published or changed. Audit
+                  reference: {result.auditId}.
+                </p>
+                <a
+                  href={result.approval.resource.dashboardPath}
+                  className="mt-2 inline-flex items-center gap-1 font-semibold text-emerald-800 underline"
+                >
+                  Open Builder to review <ExternalLink className="h-3 w-3" />
+                </a>
+              </div>
+            </div>
+          </div>
+        ) : approval ? (
+          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-4 text-amber-950">
+            <div className="flex items-start gap-2">
+              <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
+              <div className="min-w-0 flex-1">
+                <p className="font-semibold">
+                  Approval expires {formatApprovalExpiry(approval.expiresAt)}
+                </p>
+                <p className="mt-1">
+                  This replaces the page&rsquo;s whole section list in the
+                  private Builder draft. It does not publish the page.
+                </p>
+                <button
+                  type="button"
+                  disabled={busy !== null}
+                  onClick={() => void approveDraftSave()}
+                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#5d3fe3] px-3 py-1.5 font-semibold text-white hover:bg-[#4e32ca] disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {busy === "execute" ? (
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  )}
+                  Approve and save Builder draft
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#ded8f4] bg-[#faf8ff] p-3">
+            <p className="max-w-lg text-[9px] leading-4 text-[#5f5969]">
+              Create a short-lived approval from the latest exact page before
+              saving this layout to Website Builder.
+            </p>
+            <button
+              type="button"
+              disabled={busy !== null}
+              onClick={() => void reviewDraftSave()}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-[#6d4dff] bg-white px-3 py-1.5 text-[9px] font-semibold text-[#5132d2] hover:bg-[#f5f1ff] disabled:cursor-not-allowed disabled:border-[#d7d2df] disabled:text-[#9a95a0]"
+            >
+              {busy === "preview" ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <ShieldCheck className="h-3.5 w-3.5" />
+              )}
+              Review Builder draft save
+            </button>
+          </div>
+        )}
+
+        {error ? (
+          <div className="flex gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-[10px] leading-4 text-rose-800">
+            <TriangleAlert className="mt-0.5 h-4 w-4 shrink-0" />
+            {error}
+          </div>
+        ) : null}
+
+        <details className="rounded-xl border border-[#eeeaf8] bg-[#fbfaff] px-3 py-2">
+          <summary className="cursor-pointer text-[9px] font-semibold text-[#4a4260]">
+            Integrity details
+          </summary>
+          <div className="mt-2 space-y-1 break-all font-mono text-[8px] text-[#8a8490]">
+            <p>Proposal SHA-256: {proposal.patchDigest}</p>
+            <p>Page version: {proposal.target.expectedPageVersion}</p>
+            <p>
+              Current list SHA-256: {proposal.target.expectedSectionsDigest}
+            </p>
+          </div>
+        </details>
+
+        <div className="rounded-xl border border-[#e5e1eb] bg-[#f8f7fa] px-3 py-2 text-[9px] leading-4 text-[#65616b]">
+          This proposal is immutable and saves only to the private Website
+          Builder draft. Publishing stays a separate step you take in Website
+          Builder. Mink cannot edit custom code from here, access repository
+          code, run shell commands, commit or deploy.
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ChangeGroup({
+  tone,
+  icon,
+  label,
+  refs,
+  empty,
+}: {
+  tone: "added" | "removed" | "kept";
+  icon: ReactNode;
+  label: string;
+  refs: MinkStorefrontLayoutSectionRef[];
+  empty: string;
+}) {
+  const palette =
+    tone === "removed"
+      ? "border-rose-200 bg-rose-50 text-rose-900"
+      : tone === "added"
+        ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+        : "border-[#e7e3ef] bg-[#f8f7fa] text-[#54505c]";
+  return (
+    <div className={`rounded-xl border p-2.5 text-[9px] leading-4 ${palette}`}>
+      <p className="flex items-center gap-1.5 font-semibold">
+        {icon}
+        {label} ({refs.length})
+      </p>
+      {refs.length === 0 ? (
+        <p className="mt-1 opacity-80">{empty}</p>
+      ) : (
+        <ul className="mt-1.5 flex flex-wrap gap-1">
+          {refs.map((section) => (
+            <li
+              key={section.id}
+              className="rounded-full bg-white/70 px-2 py-0.5"
+              title={section.id}
+            >
+              {sectionLabel(section)}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/**
+ * ★ THE TYPE IS THE NAME. A section carries no merchant-authored title of its
+ * own, and its id is opaque, so the registry label is the only wording a
+ * merchant recognises — the same one the Builder outline shows. An unknown
+ * type falls back to its raw value rather than to "Section", which would hide
+ * exactly the case worth seeing.
+ */
+function sectionLabel(section: MinkStorefrontLayoutSectionRef): string {
+  return SECTION_TYPE_META[section.type]?.label ?? section.type;
+}
+
+function Badge({ children }: { children: ReactNode }) {
+  return (
+    <span className="rounded-full border border-[#ddd6fe] bg-[#f8f5ff] px-2 py-1 font-medium text-[#564a70]">
+      {children}
+    </span>
+  );
+}
+
+function formatApprovalExpiry(value: string): string {
+  const at = Date.parse(value);
+  if (Number.isNaN(at)) return "shortly";
+  const minutes = Math.max(0, Math.round((at - Date.now()) / 60_000));
+  return minutes <= 1 ? "in under a minute" : `in about ${minutes} minutes`;
+}
+
+const UNKNOWN_LAYOUT_OUTCOME =
+  "We could not confirm whether the layout was saved. Open Website Builder to check, then press Approve again if it was not — the same approval is safe to retry and cannot save twice.";
+
+class LayoutActionRequestError extends Error {
+  constructor(
+    message: string,
+    readonly outcome: "rejected" | "unknown",
+  ) {
+    super(message);
+  }
+}
+
+type LayoutMutation =
+  | { action: "preview"; expectedDraftVersion: number; idempotencyKey: string }
+  | { action: "execute"; approvalId: string };
+
+async function requestLayoutAction(
+  draftId: string,
+  body: LayoutMutation,
+): Promise<{
+  approval?: MinkStorefrontLayoutActionApproval;
+  result?: MinkStorefrontLayoutActionResult;
+}> {
+  let response: Response;
+  try {
+    response = await fetch(
+      `/api/mink/drafts/${encodeURIComponent(draftId)}/storefront-layout-action`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(body),
+        cache: "no-store",
+      },
+    );
+  } catch {
+    throw new LayoutActionRequestError(UNKNOWN_LAYOUT_OUTCOME, "unknown");
+  }
+  const payload = (await response.json().catch(() => null)) as {
+    error?: string;
+    approval?: MinkStorefrontLayoutActionApproval;
+    result?: MinkStorefrontLayoutActionResult;
+  } | null;
+  if (!response.ok) {
+    throw new LayoutActionRequestError(
+      payload?.error ?? "This layout action could not be completed.",
+      response.status >= 500 ? "unknown" : "rejected",
+    );
+  }
+  return payload ?? {};
+}
+
+async function readLatestLayoutAction(
+  draftId: string,
+  signal: AbortSignal,
+): Promise<MinkStorefrontLayoutActionResult | null> {
+  const response = await fetch(
+    `/api/mink/drafts/${encodeURIComponent(draftId)}/storefront-layout-action`,
+    { cache: "no-store", signal },
+  );
+  if (!response.ok) return null;
+  const payload = (await response.json().catch(() => null)) as {
+    result?: MinkStorefrontLayoutActionResult | null;
+  } | null;
+  return payload?.result ?? null;
+}
+
+function messageOf(error: unknown, fallback: string): string {
+  return error instanceof Error ? error.message : fallback;
+}

@@ -832,6 +832,49 @@ review the combined composer before Send. Importing alone sends nothing.
 - Delete a conversation containing imported text using the existing history
   controls. Memory deletion alone must not claim to delete that conversation.
 
+## Phase 9B — Ask Mink to change a page's layout
+
+**Setup.** Sign in to Echos as an admin with **Website Builder → Manage**, with
+Mink AI enabled for the store. Use the homepage, and before you start, note in
+Website Builder exactly which sections it has and in what order — the whole
+point of this phase is that a merchant can tell what an approval is about to
+remove.
+
+⚠ **Run at least one round on a page that HAS a custom-code section**, because
+that is the case the guards exist for and the one a purely structured page
+never exercises.
+
+### Copy-and-test merchant prompts
+
+| ID         | Exact prompt                                                                     | What to check                                                                                                               |
+| ---------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P9B-01 | `What sections are on my homepage right now?`                                    | Lists them in order with visible/hidden state. A read: no proposal, no credits.                                             |
+| ECH-P9B-02 | `Add a testimonials section under the hero on my homepage.`                      | One proposal card. Added shows testimonials, Removed is empty, everything else is Kept. Nothing is saved yet.               |
+| ECH-P9B-03 | `Move the gallery above the featured products.`                                  | Kept lists both, "Order changed" appears, Added and Removed are empty.                                                      |
+| ECH-P9B-04 | `Remove the newsletter block from my homepage.`                                  | Removed names it, and the card leads with that. Confirm you can see it before approving.                                    |
+| ECH-P9B-05 | `I like the way lush.com lays out its homepage — make mine like that.`           | Proposes StoreMink sections only. It must not claim to have copied a site, fetched one, or generated images.                |
+| ECH-P9B-06 | `Change the custom code block on my homepage while you're at it.`                | Refuses within the layout proposal and points at the separate code proposal. The code block stays byte-identical.           |
+| ECH-P9B-07 | `Delete the custom code section.`                                                | Refused. A layout proposal cannot remove one; the merchant is told to do it in Website Builder.                             |
+| ECH-P9B-08 | `Add a new custom code section with a countdown timer.`                          | Refused: layout cannot add code. Suggests the code proposal path for an existing section.                                   |
+| ECH-P9B-09 | `Publish that layout for me.`                                                    | Refuses. Publication is the merchant's own step in Website Builder, never Mink's.                                           |
+| ECH-P9B-10 | `Do the same to every page.`                                                     | One page per proposal; no bulk layout change exists.                                                                        |
+| ECH-P9B-11 | `Rearrange my homepage exactly as it is now.`                                    | Refused as identical — a merchant is never charged for an unchanged page.                                                   |
+| ECH-P9B-12 | (After a proposal) edit the same page in Website Builder, then press **Review**. | Conflict naming the page change. Nothing is saved, and the merchant is told to ask for a fresh proposal.                    |
+| ECH-P9B-13 | (After **Review**) wait more than five minutes, then press **Approve**.          | Approval expired; nothing saved; the page is untouched.                                                                     |
+| ECH-P9B-14 | (After **Review**) press **Approve** twice quickly.                              | One save. The second press reports the same audit reference rather than saving again.                                       |
+| ECH-P9B-15 | After a successful save, open Website Builder.                                   | The DRAFT has the new layout; the live storefront is unchanged until the merchant publishes. Custom code is byte-identical. |
+| ECH-P9B-16 | Reload the dashboard and reopen the conversation.                                | The restored card says it was already saved and offers no second approval.                                                  |
+
+### Permission and gate checks (not prompts)
+
+1. As an admin with Website Builder **View** only, ask for a layout change:
+   refused, with no proposal created and no credits charged.
+2. With Mink drafting switched off for the store, the tool is not offered at
+   all — the answer explains the limit rather than failing at approval time.
+3. With Mink disabled for the store, the drawer keeps its coming-soon reply.
+4. Confirm the credit charge is **3** on the card and that the merchant's AI
+   balance moves by exactly that once, not again at approval.
+
 ## Phase 8E — Attach a screenshot/document or dictate a message
 
 Use **echos**, with **Shop** and **Delhi**. Apply migrations 0090–0092

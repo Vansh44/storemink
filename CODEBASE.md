@@ -344,6 +344,104 @@ system prompt and Echos tests describe rollout and limitations.
 Prompt versions are `read-beta-v14` / `draft-action-beta-v25`; no new agent
 tools or tool-registry version are introduced by input extraction.
 
+### Mink Phase 9B — Proposed page layouts (2026-09-12)
+
+Phase 7B/7C can replace only the HTML/CSS/JS **inside one existing
+`custom_code` section**, so on a store that has none, Mink can change nothing
+about the storefront at all — and everything a merchant means by "make my shop
+look like this" (a hero, a gallery, testimonials, reordering the page) is a
+STRUCTURED section, which was unreachable. 9B admits one immutable private
+proposal for a page's **whole section list**.
+
+**★★ IT IS STRICTLY SAFER THAN THE CODE PATH, WHICH IS THE POINT.** Every
+field goes through the section registry's own `validateConfig` and the result
+is rendered by our own components, so the output cannot carry script, styles,
+event handlers or an unsanitised URL. 7B needs an opaque-origin iframe and a
+prohibited-API list precisely because its output is arbitrary code; this needs
+neither, and the card links to Website Builder rather than reimplementing the
+storefront's seventeen renderers inside a chat bubble.
+
+- **★ A WHOLE LIST, NEVER A DIFF.** `MinkStorefrontLayoutPatch` carries the
+  COMPLETE replacement. "Move section 3 above section 1, then delete what was
+  section 2" is ambiguous to express and worse to review; a merchant approving
+  a layout should see the page it produces, not a script for producing it.
+  ⚠ The consequence is that **omission is deletion**, which is the failure mode
+  the whole review card is arranged around: removals lead it.
+- **★★ BUT A SECTION IS KEPT BY REFERENCE (`{id, keep: true}`), AND WITHOUT
+  THAT THE TOOL COULD NOT BE CALLED AT ALL.** `readMinkStorefrontPageContext`
+  returns each section's type, position, digests and a prose summary — never
+  its config, and for a custom-code section never its source, by design. So a
+  model asked for "the whole list" has no way to reproduce a block it means to
+  leave alone: every proposal would be a rewrite from memory, sections nobody
+  asked about would silently lose their settings, and any page with custom code
+  would be refused outright by the guard above. `resolveKeptLayoutSections`
+  swaps a reference for the EXACT stored object before validation, so
+  preservation is guaranteed by construction rather than by the model's
+  fidelity — and custom code is carried across without the model ever seeing
+  it. A reference to an id not on the page is an error, never a silent
+  omission, and a "kept" entry carrying any other field is refused: otherwise
+  keep would mean "keep, except the bits I also sent".
+- **★ `readMinkStorefrontPageContext` GAINED `page.sectionsDigest`.** A layout
+  lock is over the ORDERED LIST, and adding a section changes no existing
+  section's own digest — so per-section digests cannot detect it, and a
+  merchant adding a block between the read and the proposal would have had it
+  silently deleted. Pinned by its own assertion, because an absent field here
+  makes the whole feature uncallable with nothing failing loudly.
+- **★★ CUSTOM CODE MUST SURVIVE BYTE FOR BYTE, IN BOTH DIRECTIONS.**
+  `assertLayoutPreservesCustomCode` walks the proposed list (refusing an
+  invented, retyped or edited `custom_code` section) AND the current one
+  (refusing one the proposal simply OMITS). The second pass is not symmetry for
+  its own sake: the first loop cannot see a section that is absent, so without
+  it a merchant's own hand-written code is the easiest thing this path can
+  destroy — and the card shows a section's LABEL, not its content, so
+  "Removed: Custom code" would hide exactly what is going. Caught by a test,
+  not by review.
+- **★ NO `pages.customCode` GATE, unlike 7B/7C.** That entitlement governs
+  running merchant HTML/CSS/JS on the storefront. A hero is neither, so
+  requiring it would withhold ordinary layout editing from the majority of
+  stores, where it is off by default and is a Basic+ entitlement.
+- **★ THE APPROVAL CARRIES DIGESTS, NOT THE LISTS.** A section list is bounded
+  at 128 KB, so copying both sides onto `mink_action_approvals` would store a
+  quarter of a megabyte per preview of content the draft already holds twice.
+  Execution re-reads both lists from their own rows and refuses unless each
+  hashes to what was approved — the same binding, without the duplication.
+- **★ THE `before` SNAPSHOT IS READ IN DRAFT MODE, THE PROPOSAL IN PUBLISH
+  MODE.** A merchant mid-edit can legitimately hold a half-finished section;
+  holding the snapshot to the publish bar would make approval impossible for
+  exactly those stores. What is about to be WRITTEN is held to the bar the
+  Builder's own Publish button clears.
+- **★★ AND THE MIGRATION MISSED A FOURTH TOOL VOCABULARY BEFORE A PROBE FOUND
+  IT.** `mink_action_approvals_draft_version_check` requires
+  `draft_version > 0` unless the tool is one of the two storefront-code ones —
+  a tool allowlist whose NAME says nothing about tools. An immutable proposal's
+  only version is 0, so without widening it every layout preview insert would
+  have been refused by the database: 0070's failure exactly. The prescribed
+  query (`pg_get_constraintdef(oid) LIKE '%apply_storefront_code%'`) returns
+  EIGHT constraints across three tables; enumerating the tables by hand returns
+  three. **Run the query, then INSERT the real payload shape and check what the
+  database actually accepts** — that probe is what found this, the NULL hole in
+  the target checks, and the identical pre-existing hole in 7B's.
+- The write is `store_pages.sections` ONLY: `published_sections`, `status` and
+  `published_at` are absent from the transaction and from the API, pinned by a
+  test asserting the update statement's exact key set. Publishing stays the
+  merchant's separate step in Website Builder.
+- `thinking.ts` is unchanged and already covers this: a "redesign my homepage
+  hero" message trips HIGH reasoning whenever the 7B tool is exposed, and both
+  tools share one gate (drafting + Builder Manage), so a merchant who can
+  propose a layout can propose code.
+- Prompt versions advance to `draft-action-beta-v26` / `draft-beta-v17` (a new
+  drafting tool and the guidance it needs); `read-beta-v14` / `read-beta-v10`
+  are unchanged, because a read-only actor is never offered this tool.
+- Migration `20260911_0101_mink_storefront_layout` adds the tool to all four
+  vocabularies, the draft kind, the draft/approval/audit target shapes, and
+  backfills `apply_storefront_layout` for stores that already have Mink on
+  (matching 0091's all-or-nothing switch — a new tool that skipped the backfill
+  would be dark until somebody re-toggled Mink). It also repairs the SAME
+  NULL-hole in the applied 7B target checks, found while probing the new ones.
+  `20260912_0102_mink_layout_help` corrects the three published sentences that
+  told merchants Mink could not change a page's sections — by `replace()`, not
+  by appending a section the paragraphs above would contradict.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
@@ -1708,6 +1806,11 @@ wholesip/
 │   │                          # draft-only section save, idempotency and audit;
 │   │                          # storefront-publication-types/validation/actions.ts add Phase 7D
 │   │                          # checked publication, full-snapshot locking and exact rollback.
+│   │                          # storefront-layout-contract/-proposals/-actions.ts and
+│   │                          # tools/storefront-layout-tools.ts add Phase 9B: one immutable
+│   │                          # 3-credit proposal for a page's WHOLE structured section list,
+│   │                          # its own default-off tool gate, and a five-minute human approval
+│   │                          # that writes only store_pages.sections.
 │   │                          # thinking.ts selects HIGH
 │   │                          # only for authorised explicit storefront code generation.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
@@ -2157,7 +2260,11 @@ wholesip/
 │                              # usage ledger;
 │                              # 0100 installs per-run Mink credit settlement
 │                              # (mechanism only; charging stays switched off);
-│                              # 0101 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0101 admits Mink layout proposals (and repairs the same
+│                              # NULL hole in 7B's applied target checks);
+│                              # 0102 corrects the three published Help sentences that said
+│                              # Mink could not change a page's sections;
+│                              # 0103 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).

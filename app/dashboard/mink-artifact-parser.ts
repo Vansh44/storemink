@@ -9,6 +9,7 @@ const MINK_ARTIFACT_TYPES = new Set<MinkArtifact["type"]>([
   "sources",
   "proposal",
   "storefront_code_proposal",
+  "storefront_layout_proposal",
   "workflow",
 ]);
 
@@ -80,6 +81,9 @@ export function readMinkArtifacts(value: unknown): MinkArtifact[] {
       if (type === "storefront_code_proposal") {
         return isStorefrontCodeProposal(artifact as Record<string, unknown>);
       }
+      if (type === "storefront_layout_proposal") {
+        return isStorefrontLayoutProposal(artifact as Record<string, unknown>);
+      }
       if (type !== "catalog") return true;
       const catalog = artifact as Record<string, unknown>;
       return (
@@ -139,6 +143,58 @@ function isStorefrontCodeProposal(value: Record<string, unknown>): boolean {
       String(value.creditSource),
     )
   );
+}
+
+function isStorefrontLayoutProposal(value: Record<string, unknown>): boolean {
+  const target = value.target;
+  const summary = value.summary;
+  return (
+    isUuid(value.draftId) &&
+    isBoundedText(value.title, 120) &&
+    isBoundedText(value.destinationLabel, 180) &&
+    isSafeBuilderPath(value.destinationPath) &&
+    isBoundedText(value.explanation, 1_000) &&
+    isRecord(target) &&
+    isBoundedText(target.pageSlug, 60) &&
+    isBoundedText(target.expectedPageVersion, 40) &&
+    !Number.isNaN(Date.parse(String(target.expectedPageVersion))) &&
+    isDigest(target.expectedSectionsDigest) &&
+    isDigest(value.patchDigest) &&
+    Number.isInteger(value.sectionCount) &&
+    Number(value.sectionCount) >= 1 &&
+    // MAX_PAGE_SECTIONS. Hardcoded rather than imported so this parser stays a
+    // pure bounds check over untrusted stored JSON; a restored card being one
+    // section over a raised cap must not become a build-time coupling.
+    Number(value.sectionCount) <= 40 &&
+    isRecord(summary) &&
+    typeof summary.reordered === "boolean" &&
+    isSectionRefs(summary.kept) &&
+    isSectionRefs(summary.added) &&
+    isSectionRefs(summary.removed) &&
+    value.status === "private_preview" &&
+    isCreditCount(value.expectedCredits) &&
+    isCreditCount(value.chargedCredits) &&
+    ["plan", "credit", "mixed", "plan_unlimited"].includes(
+      String(value.creditSource),
+    )
+  );
+}
+
+function isSectionRefs(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 40 &&
+    value.every(
+      (entry) =>
+        isRecord(entry) &&
+        isBoundedText(entry.id, 128) &&
+        isBoundedText(entry.type, 40),
+    )
+  );
+}
+
+function isDigest(value: unknown): value is string {
+  return typeof value === "string" && /^[a-f0-9]{64}$/.test(value);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

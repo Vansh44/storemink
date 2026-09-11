@@ -35,6 +35,7 @@ import { currentOrderTool, listOrdersTool } from "./order-tools";
 import { searchHelpCentreTool } from "./help-tool";
 import { minkDraftTools } from "./draft-tools";
 import { minkStorefrontCodeTools } from "./storefront-code-tools";
+import { minkStorefrontLayoutTools } from "./storefront-layout-tools";
 
 const EMPTY_OBJECT_SCHEMA = {
   type: "object",
@@ -1538,4 +1539,5 @@ export const minkReadToolRegistry = new MinkToolRegistry([
   searchHelpCentreTool,
   ...minkDraftTools,
   ...minkStorefrontCodeTools,
+  ...minkStorefrontLayoutTools,
 ]);

@@ -828,4 +828,66 @@ describe("Mink catalogue artifact", () => {
       "/dashboard/orders?q=ECH-1003",
     );
   });
+
+  it("leads a layout proposal with what the merchant is about to lose", async () => {
+    // ★ REMOVALS FIRST, BY NAME. A whole-list replace makes deletion the easy
+    //   accident, and a section id is opaque — so a card that showed only ids,
+    //   or that buried removals, would be asking for an approval nobody can
+    //   read. The label comes from the section registry, the same vocabulary
+    //   the Builder outline uses.
+    const draftId = "77777777-7777-4777-8777-777777777777";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: null }),
+      })),
+    );
+    const artifact: MinkArtifact = {
+      type: "storefront_layout_proposal",
+      draftId,
+      title: "Layout for Home",
+      destinationLabel: "Home · layout",
+      destinationPath: "/dashboard/builder?page=home",
+      explanation: "Swap the newsletter block for testimonials.",
+      target: {
+        pageSlug: "home",
+        expectedPageVersion: "2026-09-12T10:20:30.123456+00:00",
+        expectedSectionsDigest: "a".repeat(64),
+      },
+      patchDigest: "b".repeat(64),
+      summary: {
+        kept: [{ id: "hero-1", type: "hero" }],
+        added: [{ id: "quotes", type: "testimonials" }],
+        removed: [{ id: "signup", type: "newsletter" }],
+        reordered: false,
+      },
+      sectionCount: 2,
+      status: "private_preview",
+      expectedCredits: 3,
+      chargedCredits: 3,
+      creditSource: "plan",
+    };
+
+    render(<MinkArtifacts artifacts={[artifact]} />);
+    expect(screen.getByText("Layout for Home")).toBeInTheDocument();
+    expect(screen.getByText(/Removed from the page \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText("Newsletter")).toBeInTheDocument();
+    expect(screen.getByText("Testimonials / Press")).toBeInTheDocument();
+    // No isolated preview iframe: a structured list is rendered by our own
+    // components, so the honest preview is Website Builder.
+    expect(document.querySelector("iframe")).toBeNull();
+    // It asks once what it has already done, so a restored card cannot offer a
+    // second approval for a layout that was saved an hour ago.
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/mink/drafts/${draftId}/storefront-layout-action`,
+        expect.objectContaining({ cache: "no-store" }),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /review builder draft save/i }),
+    ).toBeEnabled();
+  });
 });

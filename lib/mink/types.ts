@@ -1,3 +1,4 @@
+import type { SectionType } from "@/lib/sections/registry";
 import type {
   PermissionAction,
   RolePermissions,
@@ -25,6 +26,38 @@ export type MinkFilter = {
   label: string;
   value: string;
 };
+
+/**
+ * What a Phase 9B layout proposal changes, for the human review card.
+ *
+ * ★ IT LIVES HERE, NOT IN THE CONTRACT, because the contract is `server-only`
+ * and this shape is rendered by a dashboard client component. `import type` is
+ * erased, so the compiler would allow it either way -- and that is exactly the
+ * hazard: the day somebody reaches for a VALUE from the same module the build
+ * breaks with a `server-only` error rather than a type error. The two halves of
+ * the split are `lib/logs/failure-types.ts`'s rule.
+ */
+export interface MinkStorefrontLayoutSectionRef {
+  id: string;
+  /**
+   * ★ THE TYPE RIDES ALONG BECAUSE AN ID IS NOT A NAME. Section ids are opaque
+   * strings, so a card listing "Removed: sec_8f2a1c" tells a merchant nothing
+   * about what they are being asked to approve deleting. The card turns the
+   * type into a label through `SECTION_TYPE_META`, which is the same
+   * vocabulary the Builder's own outline uses -- so the two agree by
+   * construction rather than through a second copy of the labels.
+   */
+  type: SectionType;
+}
+
+export interface MinkStorefrontLayoutSummary {
+  /** Sections present before and after, in their PROPOSED order. */
+  kept: MinkStorefrontLayoutSectionRef[];
+  added: MinkStorefrontLayoutSectionRef[];
+  removed: MinkStorefrontLayoutSectionRef[];
+  /** Order of the SURVIVING sections changed (a pure add is not a reorder). */
+  reordered: boolean;
+}
 
 export type MinkArtifact =
   | {
@@ -155,6 +188,26 @@ export type MinkArtifact =
       beforeCharacters: number;
       afterCharacters: number;
       validationChecks: string[];
+      status: "private_preview";
+      expectedCredits: number;
+      chargedCredits: number;
+      creditSource: MinkDraftCreditSource;
+    }
+  | {
+      type: "storefront_layout_proposal";
+      draftId: string;
+      title: string;
+      destinationLabel: string;
+      destinationPath: string;
+      explanation: string;
+      target: {
+        pageSlug: string;
+        expectedPageVersion: string;
+        expectedSectionsDigest: string;
+      };
+      patchDigest: string;
+      summary: MinkStorefrontLayoutSummary;
+      sectionCount: number;
       status: "private_preview";
       expectedCredits: number;
       chargedCredits: number;

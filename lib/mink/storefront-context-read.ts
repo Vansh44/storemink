@@ -161,6 +161,16 @@ export async function readMinkStorefrontPageContext(
         digestMinkStorefrontValue(publishedSections),
       draftSectionCount: sections.length,
       publishedSectionCount: publishedSections.length,
+      /**
+       * ★ THE DIGEST OF THE WHOLE DRAFT LIST, not of one section.
+       *
+       * A layout proposal's optimistic lock is over the ORDERED LIST -- adding
+       * a section changes nothing about any existing section's own digest, so
+       * per-section digests cannot detect it. Without this a merchant could
+       * add a block in Website Builder between the read and the proposal, and
+       * the proposal would silently delete it.
+       */
+      sectionsDigest: digestMinkStorefrontValue(sections),
     },
     sections: sections.map(sectionSummary),
     contentTrust: "untrusted_storefront_data" as const,

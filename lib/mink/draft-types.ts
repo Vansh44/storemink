@@ -24,6 +24,7 @@ export const MINK_DRAFT_KINDS = [
   "offer_update",
   "offer_activate",
   "storefront_custom_code",
+  "storefront_layout",
 ] as const;
 
 export type MinkDraftKind = (typeof MINK_DRAFT_KINDS)[number];
@@ -249,6 +250,54 @@ export const MINK_DRAFT_CONFIG: Record<
         required: true,
         multiline: false,
         maxLength: 64,
+      },
+    ],
+  },
+  storefront_layout: {
+    label: "Storefront layout proposal",
+    expectedCredits: 3,
+    fields: [
+      {
+        key: "page_slug",
+        label: "Page slug",
+        required: true,
+        multiline: false,
+        maxLength: 60,
+      },
+      {
+        key: "expected_page_version",
+        label: "Expected page version",
+        required: true,
+        multiline: false,
+        maxLength: 40,
+      },
+      {
+        key: "expected_sections_digest",
+        label: "Expected sections digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "patch_digest",
+        label: "Patch digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "sections_json",
+        label: "Proposed sections",
+        required: true,
+        multiline: true,
+        maxLength: 128 * 1024,
+      },
+      {
+        key: "explanation",
+        label: "Explanation",
+        required: true,
+        multiline: true,
+        maxLength: 1_000,
       },
     ],
   },
@@ -630,8 +679,12 @@ export function normalizeMinkDraftContent(
     // is reviewing, so preserve only these three fields exactly. Target and
     // explanation metadata remain normalized like every other draft field.
     const preserveCode =
-      kind === "storefront_custom_code" &&
-      (field.key === "html" || field.key === "css" || field.key === "js");
+      (kind === "storefront_custom_code" &&
+        (field.key === "html" || field.key === "css" || field.key === "js")) ||
+      // The layout payload is JSON whose digest the approval is bound to, and
+      // whose strings are merchant-visible copy. NFKC-normalising it would
+      // silently rewrite both.
+      (kind === "storefront_layout" && field.key === "sections_json");
     const text =
       typeof input === "string"
         ? preserveCode
@@ -683,6 +736,40 @@ export function normalizeMinkDraftContent(
     throw new Error(
       "Target status must be one of: processing, shipped, delivered.",
     );
+  }
+  if (kind === "storefront_layout") {
+    if (
+      result.page_slug !== "home" &&
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(result.page_slug)
+    ) {
+      throw new Error("Page slug must be home or an exact normalized slug.");
+    }
+    if (
+      !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(
+        result.expected_page_version,
+      )
+    ) {
+      throw new Error("Expected page version is invalid.");
+    }
+    for (const key of ["expected_sections_digest", "patch_digest"] as const) {
+      if (!/^[a-f0-9]{64}$/.test(result[key])) {
+        throw new Error(`${key.replace(/_/g, " ")} is invalid.`);
+      }
+    }
+    // SHAPE ONLY here. Every section's config is validated by
+    // lib/mink/storefront-layout-contract.ts, which is server-only because it
+    // hashes with node:crypto — and this module is imported by client
+    // components, so it cannot reach for it. The server path that creates the
+    // proposal runs the real contract before anything is stored.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.sections_json);
+    } catch {
+      throw new Error("Proposed sections must be valid JSON.");
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("Proposed sections must be a non-empty list.");
+    }
   }
   if (kind === "storefront_custom_code") {
     if (

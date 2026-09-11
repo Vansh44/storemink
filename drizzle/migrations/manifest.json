@@ -4389,6 +4389,79 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260911_0101_mink_storefront_layout",
+      "description": "Admit Mink layout proposals: tool gate, draft kind and target shapes",
+      "file": "sql/20260911_0101_mink_storefront_layout.sql",
+      "transaction": true,
+      "requires": ["20260911_0100_mink_run_credits"],
+      "verify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_drafts",
+          "mink_action_approvals",
+          "mink_action_audit"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "every tool allowlist admits apply_storefront_layout",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_tool_access_name_check','mink_action_approvals_tool_check','mink_action_audit_tool_check') and pg_get_constraintdef(oid) like '%apply_storefront_layout%'",
+            "equals": "3"
+          },
+          {
+            "name": "an immutable layout proposal may be approved at draft_version 0",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_action_approvals_draft_version_check' and pg_get_constraintdef(oid) like '%apply_storefront_layout%'",
+            "equals": "1"
+          },
+          {
+            "name": "the draft kind is admitted",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_kind_check' and pg_get_constraintdef(oid) like '%storefront_layout%'",
+            "equals": "1"
+          },
+          {
+            "name": "layout proposals, approvals and audit rows have an enforced target shape",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_drafts_storefront_layout_target_check','mink_action_approvals_storefront_layout_target_check','mink_action_audit_storefront_layout_target_check')",
+            "equals": "3"
+          },
+          {
+            "name": "the repaired 7B target checks no longer pass a row missing its key",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_storefront_code_target_check' and pg_get_constraintdef(oid) like '%COALESCE%'",
+            "equals": "1"
+          },
+          {
+            "name": "no Mink-disabled store was granted the new tool",
+            "sql": "select count(*)::text from mink_action_tool_access t where t.tool_name='apply_storefront_layout' and t.enabled and not exists (select 1 from mink_store_access a where a.store_id=t.store_id and a.enabled)",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260912_0102_mink_layout_help",
+      "description": "Correct the three published sentences that said Mink cannot change a page's sections",
+      "file": "sql/20260912_0102_mink_layout_help.sql",
+      "transaction": true,
+      "requires": ["20260911_0101_mink_storefront_layout"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "no published sentence still claims Mink cannot change a page's sections",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and (body like '%adds a storefront section%' or body like '%they cannot create new sections%' or body like '%It does not add a section or change header or footer.%')",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }
