@@ -12,6 +12,12 @@
 // lived in stores.settings.brand behind a different dashboard page.
 // ---------------------------------------------------------------------------
 
+import {
+  EMPTY_DESIGN_OVERRIDES,
+  validateStorefrontDesign,
+  type StorefrontDesignOverrides,
+} from "./design";
+
 export interface ChromeLink {
   label: string;
   href: string;
@@ -95,6 +101,16 @@ export interface FooterConfig {
 
 export interface StoreChrome {
   appearance: StorefrontAppearance;
+  /**
+   * Palette, type and shape the merchant owns, over the pinned theme.
+   *
+   * ★ IT RIDES HERE RATHER THAN IN A NEW TABLE because store_chrome already
+   * has exactly the contract a design edit needs — one row per store, draft +
+   * published jsonb, anon SELECT revoked on `draft` — so it inherits the
+   * draft → publish safety and needs no migration. `appearance` above is the
+   * LAYOUT axis (which header, which card); this is the SKIN.
+   */
+  design: StorefrontDesignOverrides;
   header: HeaderConfig;
   footer: FooterConfig;
 }
@@ -115,6 +131,9 @@ const MAX_TEXT = 160;
  * that changes a live storefront is a migration bug wearing a config hat.
  */
 export const DEFAULT_CHROME: StoreChrome = {
+  // Empty means inherit the theme at every token — the same
+  // default-changes-nothing rule the toggles below follow.
+  design: EMPTY_DESIGN_OVERRIDES,
   appearance: {
     header: "theme",
     card: "theme",
@@ -318,6 +337,9 @@ export function normalizeChrome(raw: unknown): StoreChrome {
   const footer = cleanFooter(r.footer, DEFAULT_CHROME.footer);
   return {
     appearance: cleanAppearance(r.appearance),
+    // Read path: safety normalisation only. Contrast is judged at PUBLISH, so
+    // a merchant mid-edit still sees their own draft in the preview.
+    design: validateStorefrontDesign(r.design, null, "draft").design,
     header: {
       ...header,
       links: header.links.length ? header.links : DEFAULT_CHROME.header.links,
@@ -341,6 +363,7 @@ export function sanitizeChromeForSave(raw: unknown): StoreChrome {
   const r = (raw ?? {}) as Record<string, unknown>;
   return {
     appearance: cleanAppearance(r.appearance),
+    design: validateStorefrontDesign(r.design, null, "draft").design,
     header: cleanHeader(r.header, DEFAULT_CHROME.header),
     footer: cleanFooter(r.footer, DEFAULT_CHROME.footer),
   };

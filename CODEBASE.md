@@ -2885,6 +2885,49 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     one-entry sitemap; the platform nav/footer links to it. Blocked or unhealthy
     demos render an honest unavailable state rather than a broken live link.
     `themes` is also rejected by store-signup slug validation.
+    **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
+    Until this landed there was NO per-store design layer at all: palette,
+    fonts and radii came SOLELY from the pinned immutable preset, and
+    `StorefrontAppearance` carried only layout VARIANTS. The one per-store
+    visual control was `--brand-primary` and the logo — so "make my shop look
+    like this site" could not change a single colour or typeface, for a
+    merchant OR for Mink, and no amount of agent tooling would have fixed that
+    because the value had nowhere to live. `StorefrontDesignOverrides` (eight
+    curated palette tokens, a body/display face, four radii) rides in the SAME
+    `store_chrome` draft/published payload, so it needs NO migration and
+    inherits the draft → publish contract pages and chrome already have.
+    `designOverrideCssVars` emits ONLY what was overridden and the storefront
+    layout spreads it AFTER `designToCssVars`; emitting a full map would pin a
+    store to today's theme values so a later preset upgrade would stop reaching
+    it.
+    ★★ THE BODY FACE OCCUPIES TWO CSS VARIABLES. `designToCssVars` points BOTH
+    `--font-outfit` and `--font-roboto` at `fonts.body`, because the
+    storefront's call-sites are split across those legacy slots — overriding
+    one leaves the shop in two typefaces, the Vitrine defect recorded below,
+    invisible unless you count elements. `design.test.ts` pins every emitted
+    variable name against `designToCssVars`'s own output, because a wrong name
+    is a SILENT no-op: no error, no failed render, just a colour that never
+    changes.
+    ★ `.sm-themed-type` is now emitted for a font override as well as an
+    installed theme, or an un-themed store choosing a face would render half in
+    it and half in Tailwind's default. A store overriding nothing still gets no
+    class, so its inherited font is untouched.
+    ★★ CONTRAST IS A PUBLISH GATE, NOT A SAVE GATE. WCAG AA on three pairs
+    (ink-on-page, ink-on-card, muted-on-page), checked in `publishChrome`
+    against the RESOLVED pair so changing one token flags text inherited from
+    the preset that the merchant never touched. A half-picked palette mid-edit
+    must not fail autosave — it is visible in the live preview — but publishing
+    unreadable body text is not something a merchant recovers from by noticing
+    later, and the storefront has no other defence. It matters more once a
+    model proposes a palette from a screenshot: that optimises for resemblance,
+    not readability. SAFETY (hex only, allowlisted fonts, bounded radii) is
+    unconditional in both modes, because these land in an inline `style`
+    attribute.
+    ⚠ NO BUILDER UI YET. The data layer, validation, resolution and publish
+    gate are complete and tested, but nothing a merchant can click reaches
+    them — only a server caller can set a design. The Brand-inspector panel is
+    the remaining half, and the prerequisite for any reference-driven design
+    feature being usable rather than applied blind.
     **Theme DESIGN engine (the visual "skin")**: a theme controls the FULL
     design system, not just one accent. `ThemeDesign` (`lib/themes/types.ts`) =
     `palette` (all 14 `--sm-*` colour tokens + `onAccent`/`onInk`/
