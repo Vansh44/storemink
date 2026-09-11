@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   MINK_CREDIT_BANDS,
   minkCreditBand,
+  minkRunCreditCharge,
   minkShadowMeter,
   weightedMinkUnits,
 } from "./metering";
@@ -181,5 +182,29 @@ describe("minkShadowMeter", () => {
     // never reported must not be banded off a zeroed usage object and metered
     // as a cheap Light run.
     expect(meter({ usageKnown: false }).costCohort).toBe("read_unknown");
+  });
+});
+
+describe("minkRunCreditCharge", () => {
+  it("charges the band when nothing was reserved during the run", () => {
+    expect(minkRunCreditCharge({ bandCredits: 3, alreadyCharged: 0 })).toBe(3);
+  });
+
+  it("FOLDS a proposal's weight into the band rather than stacking it", () => {
+    // A storefront proposal reserves 5 up front and the composer quotes 5. A
+    // heavy run costs 8 in total, so 3 more — never 13.
+    expect(minkRunCreditCharge({ bandCredits: 8, alreadyCharged: 5 })).toBe(3);
+  });
+
+  it("keeps a proposal's documented price when its run was cheaper", () => {
+    // The merchant agreed to the proposal's number; a light run must neither
+    // top it up nor claw any of it back.
+    expect(minkRunCreditCharge({ bandCredits: 1, alreadyCharged: 5 })).toBe(0);
+  });
+
+  it("never returns a negative charge", () => {
+    // A refund is not this function's job, and a negative would be spent as a
+    // credit grant by the settlement statement.
+    expect(minkRunCreditCharge({ bandCredits: 0, alreadyCharged: 20 })).toBe(0);
   });
 });

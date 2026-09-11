@@ -5,12 +5,13 @@ import { and, eq, sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
 import { aiCreditBalances, aiUsage, stores } from "@/drizzle/schema";
 import {
+  aiAllowanceFor,
   effectivePlan,
-  limitsFor,
   planAllows,
   PLAN_META,
   NO_COMP,
 } from "@/lib/plans";
+import { getMinkConfig } from "@/lib/mink/config";
 import { recordEvent } from "@/lib/notifications/record";
 
 // Per-store AI generation quota — the first real enforcement of a plan limit.
@@ -26,6 +27,20 @@ import { recordEvent } from "@/lib/notifications/record";
 // concurrent clicks can never overshoot the cap. A transient error fails
 // OPEN — the quota is a cost guard rail, not a security boundary, and must
 // never break a merchant's save flow.
+
+/**
+ * The month's allowance for this plan, in credits.
+ *
+ * ★★ IT DEPENDS ON WHETHER MINK CHARGES, because there is ONE pool. The legacy
+ * caps (3/10/50) are sized for ~₹0.90 product descriptions; once a Mink
+ * conversation spends from the same balance the allowance has to be the larger
+ * one, or a Free store gets a single question a month. Read here rather than at
+ * each call site so the quota gate, the dashboard's "X of Y used", the Mink
+ * affordability check and settlement can never quote different numbers.
+ */
+function allowanceFor(plan: Parameters<typeof aiAllowanceFor>[0]) {
+  return aiAllowanceFor(plan, getMinkConfig().chargeCredits);
+}
 
 /** Calendar month bucket, UTC — e.g. "2026-07". */
 export function currentPeriod(now: Date = new Date()): string {
@@ -77,7 +92,7 @@ export async function consumeAiQuota(storeId: string): Promise<QuotaResult> {
   }
 
   const plan = effectivePlan(storeRow ?? NO_COMP);
-  const cap = limitsFor(plan).aiGenerationsPerMonth;
+  const cap = allowanceFor(plan);
   if (cap === null) return { allowed: true, source: "plan" }; // unlimited
 
   let ok: boolean;
@@ -227,7 +242,7 @@ export async function getAiUsage(storeId: string): Promise<AiUsageSummary> {
         .limit(1);
       return {
         used: usageRows[0]?.used ?? 0,
-        cap: limitsFor(effectivePlan(storeRows[0] ?? {})).aiGenerationsPerMonth,
+        cap: allowanceFor(effectivePlan(storeRows[0] ?? {})),
         creditBalance: creditRows[0]?.balance ?? 0,
       };
     });

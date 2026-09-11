@@ -400,10 +400,10 @@ export async function completeMinkRun(input: {
   result: MinkRunResult;
   latencyMs: number;
   pricingLocation: string;
-}): Promise<void> {
+}): Promise<{ draftCredits: number }> {
   const { actor, started, result } = input;
   const completedAt = new Date().toISOString();
-  await withService(async (db) => {
+  return withService(async (db) => {
     const updated = await db
       .update(minkRuns)
       .set({
@@ -437,7 +437,7 @@ export async function completeMinkRun(input: {
       contentJson: { text: result.text, artifacts: result.artifacts },
       model: result.model,
     });
-    await insertUsage(db, {
+    const draftCredits = await insertUsage(db, {
       actor,
       started,
       model: result.model,
@@ -457,6 +457,7 @@ export async function completeMinkRun(input: {
           eq(minkConversations.adminId, actor.adminId),
         ),
       );
+    return { draftCredits };
   });
 }
 
@@ -658,7 +659,7 @@ async function insertUsage(
     status: "succeeded" | "failed" | "cancelled";
     toolCalls: number;
   },
-): Promise<void> {
+): Promise<number> {
   const estimate =
     input.usageStatus === "unavailable"
       ? { estimatedCostMicrousd: null, pricingVersion: null }
@@ -705,4 +706,9 @@ async function insertUsage(
         draftUsage.proposalCount > 0 ? "draft_proposal" : shadow.costCohort,
     })
     .onConflictDoNothing({ target: minkUsageLedger.runId });
+  // Returned so the caller can FOLD the run's band against what proposals in
+  // this run already reserved, rather than stacking the two (metering.ts's
+  // minkRunCreditCharge). Re-reading it afterwards would be a second query for
+  // a number this function has already fetched.
+  return draftUsage.chargedCredits;
 }

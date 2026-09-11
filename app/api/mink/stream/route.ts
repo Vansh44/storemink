@@ -4,6 +4,10 @@ import { getMinkConfig } from "@/lib/mink/config";
 import { MinkAgentError, MinkRequestError } from "@/lib/mink/errors";
 import { runMinkAgent } from "@/lib/mink/orchestrator";
 import {
+  minkRunAffordability,
+  settleMinkRunCredits,
+} from "@/lib/mink/run-credits";
+import {
   completeMinkRun,
   completeMinkToolCall,
   failMinkRun,
@@ -76,6 +80,15 @@ export async function POST(request: Request) {
         { error: "Mink AI is receiving too many requests. Try again shortly." },
         { status: 429 },
       );
+    }
+
+    // Affordability BEFORE any run row, model call or credit reservation:
+    // refusing here costs the merchant nothing, where refusing later would
+    // mean withholding an answer they have already paid tokens for. A no-op
+    // while charging is switched off.
+    const affordable = await minkRunAffordability(actor, config.chargeCredits);
+    if (!affordable.allowed) {
+      return NextResponse.json({ error: affordable.error }, { status: 402 });
     }
 
     const declarations = minkReadToolRegistry.declarationsFor(actor);
@@ -189,12 +202,25 @@ export async function POST(request: Request) {
               }
             },
           });
-          await completeMinkRun({
+          const { draftCredits } = await completeMinkRun({
             actor,
             started,
             result,
             latencyMs: Date.now() - startedAt,
             pricingLocation: config.location,
+          });
+          // AFTER the run row commits and in its own transaction, so a billing
+          // failure can never roll back a reply the merchant is about to read.
+          // Never throws; an unsettled run is a NULL credit_source that can be
+          // reconciled, where a lost answer cannot.
+          await settleMinkRunCredits({
+            actor,
+            runId: started.runId,
+            usage: result.usage,
+            status: "succeeded",
+            usageKnown: true,
+            alreadyCharged: draftCredits,
+            chargeCredits: config.chargeCredits,
           });
           send("message", {
             role: "assistant",

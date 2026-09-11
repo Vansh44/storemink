@@ -92,6 +92,65 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
+### Mink credit charging — installed, switched off (2026-09-11)
+
+The mechanism to bill a conversation exists; nothing bills yet.
+`MINK_CHARGE_CREDITS` is **opt-IN** (the inverse of `MINK_AI_ENABLED`, which
+defaults on) and unset everywhere, so `minkRunAffordability` makes no extra
+read and `settleMinkRunCredits` spends nothing. Turning it on is a pricing
+decision, taken once the shadow bands have been calibrated against live traffic
+and once the cache-hit figure is known — at a band ceiling the margin is 1.09×
+uncached and roughly 3× cached, so that number decides whether these bands are
+safe to charge at all.
+
+**★★ ONE SWITCH RAISES THE ALLOWANCE AND STARTS THE CHARGE TOGETHER.**
+`PLAN_LIMITS` gained `aiCreditsPerMonth` (20/100/300) beside the legacy
+`aiGenerationsPerMonth` (3/10/50) and `aiAllowanceFor(plan, charging)` picks
+between them. They are two numbers rather than an edit to one because neither
+half is safe alone: billing 1–8-credit runs against caps sized for ~₹0.90
+product descriptions gives a Free store one question a month, and raising the
+caps without charging is a pure cost increase. `lib/ai/quota.ts` reads the flag
+in ONE place, so the quota gate, the dashboard's "X of Y used", the
+affordability check and settlement can never quote different numbers — the
+`docs/cron-jobs.md` lesson that a step which must be remembered per surface is
+one that gets forgotten.
+
+**Migration 0100** adds `credit_source` / `plan_credits` / `balance_credits` to
+`mink_usage_ledger` and `consume_mink_run_credits`. It spends from `ai_usage`
+then `ai_credit_balances` — the same pool and the same order as
+`consume_mink_draft_credits`, so "AI credits" and "Mink credits" are one
+currency a merchant never has to reconcile.
+★ A NULL `credit_source` means "not settled" and is what makes settlement
+idempotent under a retry; `'none'` is the different fact that a settled run
+owed nothing.
+★★ IT CLAMPS RATHER THAN REFUSING. The draft function returns `insufficient`
+and the caller deletes the proposal, which is right there because nothing has
+been delivered. Here the merchant has already read the answer, so a store that
+cannot cover the full amount is charged what remains and recorded `'short'`;
+the next run is refused up front instead. The clamp is inside the statement
+that spends, or two runs settling together both read the same headroom.
+★ The affordability floor is ONE credit, not the heaviest band — the band is
+unknowable before the run, and demanding 8 would refuse a store with 5 credits
+the simple question it can plainly afford. The bounded consequence, accepted
+deliberately: a store's last run may overrun by at most one band.
+★ Settlement runs AFTER `completeMinkRun` commits, in its own transaction, and
+never throws. A billing failure must not roll back a reply the merchant is
+about to read; an unsettled run is a NULL `credit_source` that can be
+reconciled, a lost answer cannot.
+★★ A RUN'S BAND AND ITS PROPOSAL WEIGHTS FOLD, THEY DO NOT STACK
+(`minkRunCreditCharge`). A Phase 3+ proposal reserves its documented weight
+when it is created and that is the number the composer showed the merchant, so
+a run costs `max(band, alreadyCharged)` in total. Adding them would charge 5
+for a storefront proposal plus 8 for the heavy run that produced it.
+
+⚠ Not built, and required BEFORE the flag is flipped: a merchant-facing
+disclosure of what a request will cost, a Help Centre guide (deliberately not
+written yet — nothing a merchant does has changed, so the gate in AGENTS.md
+says write nothing), and a reconciler for runs left with a NULL
+`credit_source`. Failed and cancelled runs are deliberately left unsettled:
+they owe nothing, and `discardFailedMinkRunDrafts` already compensates any
+proposal credits they reserved.
+
 ### Mink cost metering — the prefix is the bill (2026-09-11)
 
 `mink_usage_ledger` has recorded per-run tokens and a shadow cost since Phase
@@ -2084,7 +2143,9 @@ wholesip/
 │                              # 0098 stops the Mink guide offering a WAV attachment;
 │                              # 0099 records provider-cached prompt tokens on the Mink
 │                              # usage ledger;
-│                              # 0100 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0100 installs per-run Mink credit settlement
+│                              # (mechanism only; charging stays switched off);
+│                              # 0101 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).

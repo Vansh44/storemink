@@ -4358,6 +4358,37 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260911_0100_mink_run_credits",
+      "description": "Install per-run Mink credit settlement (mechanism only; charging stays switched off)",
+      "file": "sql/20260911_0100_mink_run_credits.sql",
+      "transaction": true,
+      "requires": ["20260911_0099_mink_cached_tokens"],
+      "verify": {
+        "columns": [
+          "mink_usage_ledger.credit_source",
+          "mink_usage_ledger.plan_credits",
+          "mink_usage_ledger.balance_credits"
+        ],
+        "functions": [
+          "consume_mink_run_credits(uuid,text,uuid,text,integer,integer)"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "settlement is idempotent via a nullable credit_source",
+            "sql": "select count(*)::text from information_schema.columns where table_schema='public' and table_name='mink_usage_ledger' and column_name='credit_source' and is_nullable='YES'",
+            "equals": "1"
+          },
+          {
+            "name": "the app login cannot execute the spend function",
+            "sql": "select has_function_privilege('app_user','public.consume_mink_run_credits(uuid,text,uuid,text,integer,integer)','execute')::text",
+            "equals": "false"
+          }
+        ]
+      }
     }
   ]
 }

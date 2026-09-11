@@ -141,3 +141,34 @@ export function minkShadowMeter(input: {
     band: band.name,
   };
 }
+
+/**
+ * What a completed run still owes, on top of anything it already charged.
+ *
+ * ★★ A RUN'S BAND AND ITS DRAFT WEIGHTS FOLD; THEY DO NOT STACK. A Phase 3+
+ * proposal reserves its own documented weight the moment it is created
+ * (`consume_mink_draft_credits`), and that number is what the composer showed
+ * the merchant before they asked. Adding the run's band on top would charge
+ * twice for one request — 5 credits for a storefront proposal plus 8 for the
+ * heavy run that produced it — and the merchant would have been quoted 5.
+ *
+ * So the run costs `max(band, alreadyCharged)` in total, and this returns only
+ * the part not yet taken. Consequences worth stating:
+ *   • a proposal cheaper than its run (a 2-credit product description produced
+ *     by a standard 3-credit run) tops up to the run's real cost;
+ *   • a proposal dearer than its run keeps its documented price, because that
+ *     is the number the merchant agreed to;
+ *   • a run with no proposal simply pays its band.
+ *
+ * ⚠ It does NOT clamp to the store's balance. Clamping must happen inside the
+ * same statement that spends, or two runs settling at once both read the same
+ * headroom and overdraw it — the conditional-UPDATE rule the coupon, credit
+ * and inventory paths all follow.
+ */
+export function minkRunCreditCharge(input: {
+  bandCredits: number;
+  alreadyCharged: number;
+}): number {
+  const target = Math.max(input.bandCredits, input.alreadyCharged);
+  return Math.max(0, target - input.alreadyCharged);
+}

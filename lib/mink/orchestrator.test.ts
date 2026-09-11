@@ -36,6 +36,9 @@ function config(overrides: Partial<MinkConfig> = {}): MinkConfig {
   return {
     enabled: true,
     betaRequireInvite: true,
+    // Off, matching production: the orchestrator must behave identically
+    // whether or not a run is billed.
+    chargeCredits: false,
     projectId: "project-1",
     location: "global",
     model: "gemini-3.7-flash",
