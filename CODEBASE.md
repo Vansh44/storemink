@@ -143,6 +143,18 @@ when it is created and that is the number the composer showed the merchant, so
 a run costs `max(band, alreadyCharged)` in total. Adding them would charge 5
 for a storefront proposal plus 8 for the heavy run that produced it.
 
+The optional `run-credits.postgres.test.ts` fixture proves the SQL itself: a
+fresh `mink_credits_verify` database on `MINK_RUN_CREDIT_TEST_SOCKET`, port
+55485, never application credentials, skipped in ordinary runs. It applies 0099
+and 0100 twice each (forward-only replay), runs the manifest's own
+postconditions, and covers the plan-before-balance split, replay and concurrent
+settlement, the clamp to `'short'`, tenancy rejection, `'none'` versus NULL, the
+unlimited plan, both schema constraints, the withheld `app_user` EXECUTE, and
+one pass through `settleMinkRunCredits` itself. ⚠ Its value is in the mutation
+checks, not the green run: deleting the idempotency return, the balance clamp
+or the admin predicate each fails exactly the tests written for it (3, 3 and 1
+respectively), verified 2026-09-11.
+
 ⚠ Not built, and required BEFORE the flag is flipped: a merchant-facing
 disclosure of what a request will cost, a Help Centre guide (deliberately not
 written yet — nothing a merchant does has changed, so the gate in AGENTS.md
