@@ -23,6 +23,7 @@ import {
   MINK_STOREFRONT_CODE_CHUNK_CHARS,
   MINK_STOREFRONT_SANDBOX_CONTRACT,
 } from "./storefront-code-contract";
+import { describeMinkStorefrontDesign } from "./storefront-design-contract";
 import type { MinkActorContext } from "./types";
 
 const MAX_PAGES = 40;
@@ -349,6 +350,16 @@ export async function readMinkStorefrontDesignContext(actor: MinkActorContext) {
             designTokens: { "--brand-primary": brand.primaryColor },
             layout: {},
           },
+      // ★★ THE OPTIMISTIC LOCK VALUE, AND THE RUBRIC THE PROPOSAL IS MARKED
+      // AGAINST. `chrome.draft.design` was already here, but a digest of it was
+      // not -- and a patch cannot be written without one. The theme defaults
+      // are here for the same reason contrast is checked against the RESOLVED
+      // pair: overriding the page background alone can break ink the merchant
+      // never touched, so the colours underneath have to be visible.
+      design: describeMinkStorefrontDesign(
+        draftChrome.design,
+        theme?.preset.design ?? null,
+      ),
       chrome: {
         draft: draftChrome,
         published: publishedChrome,

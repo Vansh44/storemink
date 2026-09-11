@@ -25,6 +25,7 @@ export const MINK_DRAFT_KINDS = [
   "offer_activate",
   "storefront_custom_code",
   "storefront_layout",
+  "storefront_design",
 ] as const;
 
 export type MinkDraftKind = (typeof MINK_DRAFT_KINDS)[number];
@@ -291,6 +292,47 @@ export const MINK_DRAFT_CONFIG: Record<
         required: true,
         multiline: true,
         maxLength: 128 * 1024,
+      },
+      {
+        key: "explanation",
+        label: "Explanation",
+        required: true,
+        multiline: true,
+        maxLength: 1_000,
+      },
+    ],
+  },
+  storefront_design: {
+    label: "Storefront design brief",
+    // ★ TWO, against 9B's three and 7B's five, and the ladder is the size of
+    // the artefact rather than its reach. A code proposal is generated HTML,
+    // CSS and JS; a layout proposal is a whole section list with every
+    // section's config. A design brief is at most eight colours, two typefaces
+    // and four numbers, produced in one short high-thinking turn. Charging a
+    // layout's weight for it would price the cheapest thing Mink can do like
+    // one of the dearest.
+    expectedCredits: 2,
+    fields: [
+      {
+        key: "expected_design_digest",
+        label: "Expected design digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "patch_digest",
+        label: "Patch digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "design_json",
+        label: "Proposed design",
+        required: true,
+        multiline: true,
+        maxLength: 4_096,
       },
       {
         key: "explanation",
@@ -684,7 +726,11 @@ export function normalizeMinkDraftContent(
       // The layout payload is JSON whose digest the approval is bound to, and
       // whose strings are merchant-visible copy. NFKC-normalising it would
       // silently rewrite both.
-      (kind === "storefront_layout" && field.key === "sections_json");
+      (kind === "storefront_layout" && field.key === "sections_json") ||
+      // The design payload holds no prose -- only hex, allowlisted font keys
+      // and integers -- but its digest is what the approval is bound to, so
+      // any rewrite between store and re-read is a false integrity failure.
+      (kind === "storefront_design" && field.key === "design_json");
     const text =
       typeof input === "string"
         ? preserveCode
@@ -769,6 +815,26 @@ export function normalizeMinkDraftContent(
     }
     if (!Array.isArray(parsed) || parsed.length === 0) {
       throw new Error("Proposed sections must be a non-empty list.");
+    }
+  }
+  if (kind === "storefront_design") {
+    for (const key of ["expected_design_digest", "patch_digest"] as const) {
+      if (!/^[a-f0-9]{64}$/.test(result[key])) {
+        throw new Error(`${key.replace(/_/g, " ")} is invalid.`);
+      }
+    }
+    // SHAPE ONLY, for `storefront_layout`'s reason: every colour, typeface and
+    // radius is validated by lib/mink/storefront-design-contract.ts, which is
+    // server-only because it hashes with node:crypto while this module is
+    // imported by client components.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.design_json);
+    } catch {
+      throw new Error("Proposed design must be valid JSON.");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Proposed design must be an object.");
     }
   }
   if (kind === "storefront_custom_code") {

@@ -1,3 +1,8 @@
+import type {
+  DesignFont,
+  DesignPaletteToken,
+  DesignShapeKey,
+} from "@/lib/chrome/design";
 import type { SectionType } from "@/lib/sections/registry";
 import type {
   PermissionAction,
@@ -57,6 +62,39 @@ export interface MinkStorefrontLayoutSummary {
   removed: MinkStorefrontLayoutSectionRef[];
   /** Order of the SURVIVING sections changed (a pure add is not a reorder). */
   reordered: boolean;
+}
+
+/**
+ * What a Phase 9C design proposal changes, for the human review card.
+ *
+ * ★ ONLY THE FIELDS THAT MOVED, each carrying the theme value underneath it.
+ * A design override is three-state -- set, cleared, or never touched -- and a
+ * card that renders an empty swatch for "cleared" tells a merchant nothing
+ * about what their shop will actually look like. `themeDefault` is the colour
+ * the storefront paints when the override goes away, so "back to the theme"
+ * can be shown as a real value rather than as an absence.
+ */
+export interface MinkStorefrontDesignSummary {
+  palette: Array<{
+    token: DesignPaletteToken;
+    before: string | null;
+    after: string | null;
+    themeDefault: string | null;
+  }>;
+  fonts: Array<{
+    slot: "body" | "display";
+    before: DesignFont | null;
+    after: DesignFont | null;
+    themeDefault: DesignFont | null;
+  }>;
+  shape: Array<{
+    key: DesignShapeKey;
+    before: number | null;
+    after: number | null;
+    themeDefault: number | null;
+  }>;
+  /** Recomputed on read; empty on any proposal the contract accepted. */
+  contrastIssues: string[];
 }
 
 export type MinkArtifact =
@@ -208,6 +246,21 @@ export type MinkArtifact =
       patchDigest: string;
       summary: MinkStorefrontLayoutSummary;
       sectionCount: number;
+      status: "private_preview";
+      expectedCredits: number;
+      chargedCredits: number;
+      creditSource: MinkDraftCreditSource;
+    }
+  | {
+      type: "storefront_design_proposal";
+      draftId: string;
+      title: string;
+      destinationLabel: string;
+      destinationPath: string;
+      explanation: string;
+      target: { expectedDesignDigest: string };
+      patchDigest: string;
+      summary: MinkStorefrontDesignSummary;
       status: "private_preview";
       expectedCredits: number;
       chargedCredits: number;

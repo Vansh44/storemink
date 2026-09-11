@@ -149,4 +149,82 @@ describe("readMinkArtifacts", () => {
       ]),
     ).toEqual([]);
   });
+
+  it("★ RE-CHECKS EVERY DESIGN COLOUR ON THE WAY OUT OF STORED HISTORY", () => {
+    // The card writes these into an inline `style` attribute, and stored
+    // conversation JSON is the one surface that never went through
+    // `validateStorefrontDesign` — so hex is proved again here rather than
+    // merely length-bounded.
+    const valid = {
+      type: "storefront_design_proposal",
+      draftId: "11111111-1111-4111-8111-111111111111",
+      title: "Storefront design",
+      destinationLabel: "Storefront design · Basket",
+      destinationPath: "/dashboard/builder",
+      explanation: "Warm the page background.",
+      target: { expectedDesignDigest: "a".repeat(64) },
+      patchDigest: "b".repeat(64),
+      summary: {
+        palette: [
+          {
+            token: "cream",
+            before: null,
+            after: "#fffdf8",
+            themeDefault: "#fbf7ef",
+          },
+        ],
+        fonts: [
+          { slot: "body", before: null, after: "jost", themeDefault: "inter" },
+        ],
+        shape: [{ key: "card", before: null, after: 4, themeDefault: 16 }],
+        contrastIssues: [],
+      },
+      status: "private_preview",
+      expectedCredits: 2,
+      chargedCredits: 2,
+      creditSource: "plan",
+    };
+    expect(readMinkArtifacts([valid])).toEqual([valid]);
+
+    const palette = (after: unknown) => ({
+      ...valid,
+      summary: {
+        ...valid.summary,
+        palette: [
+          { token: "cream", before: null, after, themeDefault: "#fbf7ef" },
+        ],
+      },
+    });
+    expect(
+      readMinkArtifacts([
+        palette("url(javascript:alert(1))"),
+        palette("red"),
+        palette("#fff"),
+        { ...valid, target: { expectedDesignDigest: "short" } },
+        { ...valid, destinationPath: "https://attacker.example" },
+        {
+          ...valid,
+          summary: {
+            ...valid.summary,
+            shape: [
+              { key: "card", before: null, after: 9_999, themeDefault: 16 },
+            ],
+          },
+        },
+        {
+          ...valid,
+          summary: {
+            ...valid.summary,
+            // Eight tokens is the whole palette, so a longer list is forged.
+            palette: Array.from({ length: 9 }, () => ({
+              token: "cream",
+              before: null,
+              after: "#fffdf8",
+              themeDefault: "#fbf7ef",
+            })),
+          },
+        },
+      ]),
+    ).toEqual([]);
+  });
 });

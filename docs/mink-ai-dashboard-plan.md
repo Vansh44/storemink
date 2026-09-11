@@ -1550,6 +1550,70 @@ Exit criteria:
   pending row carrying a result and a wrong resource type. No live Vertex call
   and no application database were used; live Echos acceptance remains pending.
 
+- **9C — Proposed storefront design: implemented locally; rollout acceptance
+  pending.** With drafting plus Website Builder Manage, Mink can create one
+  immutable, 2-credit private proposal for the store's WHOLE design — the eight
+  curated palette tokens, the body and display typefaces and the four corner
+  radii — behind its own default-off operator gate and a separate five-minute
+  human approval that writes only `store_chrome.draft.design`. It closes the
+  half of "I like this website, make mine like it" that 9B cannot reach: a
+  section list is the page's structure, and a merchant asking that question is
+  talking about colour and type first.
+  Phase 9A had already built the per-store design layer and made contrast a
+  PUBLISH gate; here the contract tightens it to a proposal gate, because the
+  panel cannot refuse a merchant mid-edit while a model produces a complete
+  brief in one shot and, as `lib/chrome/design.ts` says of exactly this case,
+  optimises for resemblance rather than readability. The contract also REFUSES
+  what `validateStorefrontDesign` would silently drop — an unparseable colour,
+  an unknown typeface, an out-of-range radius — because dropped silently, "set
+  the accent to brand red" becomes a proposal that never mentions the accent,
+  which the merchant approves and which changes nothing.
+  Three things differ from 9B and each follows from where the design lives.
+  The lock is the design DIGEST, not the row clock: `store_chrome` carries the
+  header, footer, appearance variants and design in one row, the builder
+  autosaves it on a keystroke, and the chat panel floats above the builder
+  canvas — so a row-clock lock would kill an approval every time a merchant
+  nudged an unrelated field. The write replaces ONE key and carries the rest of
+  the chrome through, read under the same lock. And a store with no chrome row
+  at all — the commonest state, since it means nobody has opened the Brand
+  panel — is proposed against `DEFAULT_CHROME` rather than refused.
+  Omission is benign here, unlike 9B's: a token left out inherits the pinned
+  theme, which is a designed, reversible state the storefront renders
+  correctly, so "put this back to the theme" is a one-turn instruction.
+  Page content, sections, custom code, header/footer, publication, repository
+  access, shell and deployment remain unavailable.
+  Migration 0103 adds the tool to all four vocabularies, `storefront_chrome` to
+  both resource-type allowlists, the draft kind and the three target shapes —
+  and repairs a NULL hole a probe found in all eight applied storefront target
+  checks: `(outcome = 'executed' AND result_id = resource_id) OR (outcome <>
+'executed' AND result_id IS NULL)` is NULL rather than false when `result_id`
+  is NULL, and a NULL CHECK is SATISFIED, so an executed row recording no
+  result at all was accepted. ECH-P9C prompts cover the merchant flow, the
+  contrast and vocabulary refusals, the footer-edit non-conflict, expiry and
+  replay.
+  Local verification (2026-09-12): the full regression suite passed, both
+  static gates passed, and every new constraint was probed by inserting the
+  real payload shapes against a live PostgreSQL — accepted where it should be,
+  refused for an absent `design_json`, a wrong destination type, a resource id
+  that is not the store, a missing digest, a pending row carrying a result, an
+  executed row with no result and an unwidened resource type. The 0101 hole was
+  reproduced before the repair and refused after it. No live Vertex call and no
+  application database were used; live Echos acceptance remains pending.
+  Enrolling the tool also surfaced that Phase 9B never enrolled its own:
+  `apply_storefront_layout` reached four database allowlists and not
+  `MINK_ACTION_TOOLS`, so a store enabled after 0101 had no gate row and every
+  layout save was refused, and a store disabled and re-enabled lost the gate
+  permanently. Both are enrolled now, with a credential-free guard comparing
+  the registry against the newest migration's own allowlist in both directions.
+  ⚠ One thing that acceptance must confirm rather than assume: the tool
+  declaration uses nullable JSON-Schema unions (`type: ["string", "null"]`,
+  with `null` listed in the typeface `enum`) so that "put this back to the
+  theme" is expressible. That is standard JSON Schema and the SDK field is
+  literally `parametersJsonSchema`, but no live provider call has exercised it.
+  If Vertex rejects the union, the declaration must fall back to plain types —
+  the contract, the prompt and the card already treat an ABSENT key exactly as
+  they treat `null`, so nothing else changes.
+
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.
 

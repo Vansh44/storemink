@@ -442,10 +442,128 @@ storefront's seventeen renderers inside a chat bubble.
   told merchants Mink could not change a page's sections — by `replace()`, not
   by appending a section the paragraphs above would contradict.
 
+### Mink Phase 9C — Proposed storefront design (2026-09-12)
+
+9B gave Mink a page's STRUCTURE. A merchant who says "I like this website, make
+mine like it" is talking about colour and type first, and until now Mink could
+change neither: Phase 9A built the per-store design layer
+(`lib/chrome/design.ts` — eight curated palette tokens, an allowlisted
+body/display pair, four radii, riding in the same `store_chrome` draft/published
+payload) and gave it a merchant panel, but no agent route. 9C is that route: one
+immutable, 2-credit private proposal for the WHOLE override set, behind its own
+default-off tool gate and a separate five-minute human approval that writes only
+`store_chrome.draft.design`.
+
+- **★★ IT REFUSES WHAT `validateStorefrontDesign` WOULD SILENTLY DROP, and that
+  is the whole reason `storefront-design-contract.ts` wraps it.** That validator
+  discards an unparseable colour, an unknown typeface or an out-of-range radius
+  and returns the rest — exactly right for a colour picker, which cannot emit
+  junk, and dishonest for a model, which can. Dropped silently, "set the accent
+  to brand red" becomes a proposal that does not mention the accent at all: the
+  merchant approves it, nothing changes, and no error was ever raised. Naming
+  the field back is also what lets the model correct itself inside the same run.
+  ⚠ `null` is NOT a dropped value — it is how a caller says INHERIT THE THEME,
+  the entire vocabulary for clearing an override — so only a present, non-null
+  value that failed to survive is reported.
+- **★★ CONTRAST IS A PROPOSAL GATE HERE THOUGH 9A MAKES IT A PUBLISH GATE, and
+  the difference is the actor, not the rule.** The panel cannot refuse a
+  merchant mid-edit: a half-picked palette must not fail autosave, and they can
+  see the problem in the live preview. A model produces a COMPLETE brief in one
+  shot and, as `design.ts` says of exactly this case, optimises for resemblance
+  rather than readability. Refusing keeps Mink to what the merchant could
+  publish anyway and hands the failing pairs back; warning instead would put an
+  approve button under a shop whose body text cannot be read.
+- **★ OMISSION IS BENIGN HERE, WHICH IS THE OPPOSITE OF 9B.** Both replace a
+  whole set, so the shape reads as dangerous by analogy — but omitting a token
+  means inheriting the pinned theme, a designed, reversible state the storefront
+  renders correctly, where omitting a section deletes it. So there is no
+  destructive omission to guard, and "put this back to the theme" is expressible
+  by leaving a token out.
+- **★★ THE READER GAINED `design.designDigest`, AND WITHOUT IT THE TOOL COULD
+  NOT BE CALLED AT ALL** — the same gap `page.sectionsDigest` closed for 9B. The
+  patch's optimistic lock is a digest of the current override set and nothing
+  returned one. `themeDefaults` is the other half: contrast is judged against
+  the RESOLVED pair, so a model that cannot see the theme's ink and page colours
+  is marked against a rubric it was never shown. ★ Fonts come back as KEYS, not
+  `var(--font-inter)`, or the model proposes a value the validator then rejects.
+- **★★ THE LOCK IS THE DESIGN DIGEST, NOT THE ROW CLOCK.** `store_chrome`
+  carries the header, footer, appearance variants AND the design in one row; the
+  builder inspector autosaves the whole thing on a keystroke, and the chat panel
+  floats above the builder canvas by design (§11), so the ordinary way to review
+  a design proposal is with the builder open. Locking `updated_at` would let an
+  unrelated footer edit kill an approval every time. ⚠ The digest therefore
+  lives in `before_json`, never in `resource_version`: that column is
+  `timestamp with time zone` on both the approval and the audit row, so a
+  64-character digest cannot go in it — an insert would simply fail. It carries
+  the chrome row's `updated_at` (NULL for a store with no row) as a coarse
+  record of WHEN, while the digest that gates the write rides in the approved
+  values, inside the canonical request hash like every other approved fact.
+- **★★ THE WRITE REPLACES ONE KEY AND CARRIES THE REST THROUGH**, read under the
+  same lock — a whole-row write would silently revert a footer edit made between
+  preview and approval. And **a store with no chrome row is proposed against
+  `DEFAULT_CHROME` rather than refused**: that is the commonest state, since it
+  means nobody has opened the Brand panel, and it is the store most likely to
+  ask for a redesign. The write is an upsert on the primary key, so two
+  concurrent first-time saves cannot both insert.
+- **★ THE CARD SHOWS THE COLOURS, NOT A DESCRIPTION OF THEM.** This is the one
+  proposal card whose whole subject is visual, so every palette change renders
+  as a before/after pair of real swatches — and **a cleared token draws the
+  THEME's colour**, because `null` means inherit and a blank swatch labelled
+  "theme" tells a merchant nothing about what their shop will look like. The
+  honest full preview is still Website Builder, which the card links to (9B's
+  reason: the storefront's own renderers are the only thing that can say what a
+  design looks like, and a second implementation in a chat card would drift).
+- **★ THE CREDIT WEIGHT IS 2**, against 9B's three and 7B's five. The ladder is
+  the size of the artefact: generated HTML/CSS/JS, then a whole section list
+  with every section's config, then at most eight colours, two typefaces and
+  four numbers.
+- **★★ AND THE PROBE FOUND A NULL TRAP IN A COMPARISON, NOT A `jsonb_typeof`.**
+  `(outcome = 'executed' AND result_id = resource_id) OR (outcome <> 'executed'
+AND result_id IS NULL)` reads as exhaustive and is not: with `result_id` NULL
+  the first arm is `true AND NULL` = NULL, the second is `false`, and
+  `NULL OR false` is NULL — which SATISFIES a CHECK. So an executed row
+  recording no result at all was accepted. Verified by INSERT against a real
+  database on the APPLIED 0101 layout audit check, then refused after the
+  repair; the same row naming the WRONG result was correctly refused throughout.
+  ⚠ Some siblings were saved only by a NEIGHBOURING conjunct (`result_version IS
+NULL` in the second arm is a real `false` that collapses the AND), so all
+  EIGHT storefront target checks are fixed the same way rather than only the
+  reachable ones — a guard that depends on the field beside it is one an
+  unrelated edit removes. **The rule is not "coalesce every `jsonb_typeof`": it
+  is that ANY sub-expression which can be NULL makes its whole CHECK pass, and a
+  two-armed `OR` over a nullable column has one such expression per arm.**
+- **★★ AND ENROLLING THE TOOL SURFACED THAT 9B NEVER WAS.**
+  `MINK_ACTION_TOOLS` (`lib/mink/product-action-types.ts`) is what the single
+  operator switch upserts on Enable, and `apply_storefront_layout` was added to
+  four database allowlists and to nothing there. Two silent consequences: a
+  store enabled AFTER 0101 got no `apply_storefront_layout` row at all, so
+  every layout save was refused; and a store disabled and re-enabled lost the
+  gate for good, because Disable clears EVERY row for the store while Enable
+  re-writes only the registry's. Neither raises anything — `assertToolEnabled`
+  reports that support has not enabled the feature, which is indistinguishable
+  from an operator decision. Both tools are enrolled now, and the compiler
+  immediately demanded their `MINK_ACTION_TOOL_LABELS` entries, which is the
+  half it could catch. ⚠ `unified-access.postgres.test.ts` already asserted
+  this against a real database and is OPT-IN, so it is skipped in every
+  ordinary run: `action-tool-registry.test.ts` is the same assertion with no
+  credentials, comparing the registry against the newest migration's own
+  `mink_action_tool_access_name_check` allowlist, set-equal in both directions.
+- Prompt versions advance to `draft-action-beta-v27` / `draft-beta-v18` (a new
+  drafting tool and the guidance it needs); `read-beta-v14` / `read-beta-v10`
+  are unchanged, because a read-only actor is never offered this tool.
+- Migration `20260912_0103_mink_storefront_design` adds the tool to all four
+  vocabularies, `storefront_chrome` to BOTH resource-type allowlists (0071's
+  lesson — an audit insert that rolls back the execution it was recording), the
+  draft kind, the three target shapes, and the eight-check repair above, and
+  backfills `apply_storefront_design` for stores that already have Mink on.
+  `20260912_0104_mink_design_help` widens the two published paragraphs that
+  understated what Mink can propose and what an approved save changes — by
+  `replace()`, not by appending a section.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
-drafting and all 18 registered `MINK_ACTION_TOOLS` in one service transaction,
+drafting and all 20 registered `MINK_ACTION_TOOLS` in one service transaction,
 locking the parent before child gates. Disable shuts all down together.
 The platform store management page renders only Enable/Disable Mink AI;
 granular mutation actions are removed. Migration
@@ -1811,6 +1929,13 @@ wholesip/
 │   │                          # 3-credit proposal for a page's WHOLE structured section list,
 │   │                          # its own default-off tool gate, and a five-minute human approval
 │   │                          # that writes only store_pages.sections.
+│   │                          # storefront-design-contract/-proposals/-actions.ts and
+│   │                          # tools/storefront-design-tools.ts add Phase 9C: one immutable
+│   │                          # 2-credit proposal for the store's palette, typefaces and
+│   │                          # corner radii, refused rather than silently trimmed when a
+│   │                          # value or a WCAG AA pair fails, locked on the design DIGEST
+│   │                          # rather than the autosaved chrome clock, and approved into
+│   │                          # store_chrome.draft.design one key at a time.
 │   │                          # thinking.ts selects HIGH
 │   │                          # only for authorised explicit storefront code generation.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
@@ -2264,7 +2389,12 @@ wholesip/
 │                              # NULL hole in 7B's applied target checks);
 │                              # 0102 corrects the three published Help sentences that said
 │                              # Mink could not change a page's sections;
-│                              # 0103 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0103 admits Mink storefront-DESIGN proposals (new resource
+│                              # type storefront_chrome) and repairs a NULL comparison hole
+│                              # in all EIGHT applied storefront target checks;
+│                              # 0104 widens the two published Help paragraphs that
+│                              # understated what Mink can propose;
+│                              # 0105 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).

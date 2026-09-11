@@ -10,6 +10,7 @@ const MINK_ARTIFACT_TYPES = new Set<MinkArtifact["type"]>([
   "proposal",
   "storefront_code_proposal",
   "storefront_layout_proposal",
+  "storefront_design_proposal",
   "workflow",
 ]);
 
@@ -83,6 +84,9 @@ export function readMinkArtifacts(value: unknown): MinkArtifact[] {
       }
       if (type === "storefront_layout_proposal") {
         return isStorefrontLayoutProposal(artifact as Record<string, unknown>);
+      }
+      if (type === "storefront_design_proposal") {
+        return isStorefrontDesignProposal(artifact as Record<string, unknown>);
       }
       if (type !== "catalog") return true;
       const catalog = artifact as Record<string, unknown>;
@@ -177,6 +181,103 @@ function isStorefrontLayoutProposal(value: Record<string, unknown>): boolean {
     ["plan", "credit", "mixed", "plan_unlimited"].includes(
       String(value.creditSource),
     )
+  );
+}
+
+function isStorefrontDesignProposal(value: Record<string, unknown>): boolean {
+  const target = value.target;
+  const summary = value.summary;
+  return (
+    isUuid(value.draftId) &&
+    isBoundedText(value.title, 120) &&
+    isBoundedText(value.destinationLabel, 180) &&
+    isSafeBuilderPath(value.destinationPath) &&
+    isBoundedText(value.explanation, 1_000) &&
+    isRecord(target) &&
+    isDigest(target.expectedDesignDigest) &&
+    isDigest(value.patchDigest) &&
+    isRecord(summary) &&
+    isDesignChanges(summary.palette, isPaletteChange) &&
+    isDesignChanges(summary.fonts, isFontChange) &&
+    isDesignChanges(summary.shape, isShapeChange) &&
+    Array.isArray(summary.contrastIssues) &&
+    summary.contrastIssues.length <= 3 &&
+    summary.contrastIssues.every((issue) => isBoundedText(issue, 200)) &&
+    value.status === "private_preview" &&
+    isCreditCount(value.expectedCredits) &&
+    isCreditCount(value.chargedCredits) &&
+    ["plan", "credit", "mixed", "plan_unlimited"].includes(
+      String(value.creditSource),
+    )
+  );
+}
+
+/**
+ * ★ EIGHT IS THE WHOLE PALETTE, so a list longer than that is not a big
+ * change, it is a forged one. The bounds are hardcoded for `isSectionRefs`'s
+ * reason: this parser is a pure check over untrusted stored JSON, and a
+ * restored card must not fail to render because a constant moved.
+ */
+function isDesignChanges(
+  value: unknown,
+  entry: (row: Record<string, unknown>) => boolean,
+): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length <= 8 &&
+    value.every((row) => isRecord(row) && entry(row))
+  );
+}
+
+/**
+ * ⚠ THE COLOUR IS RE-CHECKED HERE, not merely bounded, because the card writes
+ * it into an inline `style` attribute. `lib/chrome/design.ts` already refuses
+ * anything but hex on the way in, and this is the second gate on the way back
+ * OUT of stored conversation JSON — the surface that never went through the
+ * validator.
+ */
+function isPaletteChange(row: Record<string, unknown>): boolean {
+  return (
+    isBoundedText(row.token, 40) &&
+    isOptionalHex(row.before) &&
+    isOptionalHex(row.after) &&
+    isOptionalHex(row.themeDefault)
+  );
+}
+
+function isFontChange(row: Record<string, unknown>): boolean {
+  return (
+    (row.slot === "body" || row.slot === "display") &&
+    isOptionalText(row.before, 40) &&
+    isOptionalText(row.after, 40) &&
+    isOptionalText(row.themeDefault, 40)
+  );
+}
+
+function isShapeChange(row: Record<string, unknown>): boolean {
+  return (
+    isBoundedText(row.key, 40) &&
+    isOptionalRadius(row.before) &&
+    isOptionalRadius(row.after) &&
+    isOptionalRadius(row.themeDefault)
+  );
+}
+
+function isOptionalHex(value: unknown): boolean {
+  return (
+    value === null ||
+    (typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value))
+  );
+}
+
+function isOptionalText(value: unknown, max: number): boolean {
+  return value === null || isBoundedText(value, max);
+}
+
+function isOptionalRadius(value: unknown): boolean {
+  return (
+    value === null ||
+    (Number.isInteger(value) && Number(value) >= 0 && Number(value) <= 999)
   );
 }
 

@@ -890,4 +890,80 @@ describe("Mink catalogue artifact", () => {
       screen.getByRole("button", { name: /review builder draft save/i }),
     ).toBeEnabled();
   });
+
+  it("shows a design proposal as real colours, including what a cleared token falls back to", async () => {
+    // ★ THIS IS THE ONE CARD WHOSE SUBJECT IS PURELY VISUAL. "accent: #b91c1c"
+    //   is not something a merchant can judge, and a cleared token rendered as
+    //   an empty swatch says nothing about what the shop will look like — so
+    //   the theme's own colour is drawn in its place.
+    const draftId = "88888888-8888-4888-8888-888888888888";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: null }),
+      })),
+    );
+    const artifact: MinkArtifact = {
+      type: "storefront_design_proposal",
+      draftId,
+      title: "Storefront design",
+      destinationLabel: "Storefront design · Basket",
+      destinationPath: "/dashboard/builder",
+      explanation: "Warm the page and set one display face.",
+      target: { expectedDesignDigest: "a".repeat(64) },
+      patchDigest: "b".repeat(64),
+      summary: {
+        palette: [
+          {
+            token: "cream",
+            before: null,
+            after: "#fffdf8",
+            themeDefault: "#fbf7ef",
+          },
+          {
+            token: "accent",
+            before: "#b91c1c",
+            after: null,
+            themeDefault: "#2f6f4f",
+          },
+        ],
+        fonts: [
+          {
+            slot: "display",
+            before: null,
+            after: "instrumentSerif",
+            themeDefault: "inter",
+          },
+        ],
+        shape: [{ key: "card", before: 12, after: 4, themeDefault: 16 }],
+        contrastIssues: [],
+      },
+      status: "private_preview",
+      expectedCredits: 2,
+      chargedCredits: 2,
+      creditSource: "plan",
+    };
+
+    render(<MinkArtifacts artifacts={[artifact]} />);
+    expect(screen.getByText("Storefront design · Basket")).toBeInTheDocument();
+    expect(screen.getByText(/Colours \(2\)/)).toBeInTheDocument();
+    // A cleared token names the theme colour it reverts to, not "none".
+    expect(screen.getByText("#2f6f4f · theme")).toBeInTheDocument();
+    expect(screen.getByText(/instrumentSerif/)).toBeInTheDocument();
+    expect(screen.getByText(/12px/)).toBeInTheDocument();
+    // No isolated preview iframe: the storefront's own renderers are the only
+    // honest preview, which is what the Builder link is for.
+    expect(document.querySelector("iframe")).toBeNull();
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/mink/drafts/${draftId}/storefront-design-action`,
+        expect.objectContaining({ cache: "no-store" }),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /review builder draft save/i }),
+    ).toBeEnabled();
+  });
 });

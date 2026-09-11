@@ -4462,6 +4462,95 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260912_0103_mink_storefront_design",
+      "description": "Admit Mink storefront-design proposals: tool gate, chrome resource type, draft kind and target shapes",
+      "file": "sql/20260912_0103_mink_storefront_design.sql",
+      "transaction": true,
+      "requires": ["20260912_0102_mink_layout_help"],
+      "verify": {
+        "tables": [
+          "mink_action_tool_access",
+          "mink_drafts",
+          "mink_action_approvals",
+          "mink_action_audit",
+          "store_chrome"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "every tool allowlist admits apply_storefront_design",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_tool_access_name_check','mink_action_approvals_tool_check','mink_action_audit_tool_check') and pg_get_constraintdef(oid) like '%apply_storefront_design%'",
+            "equals": "3"
+          },
+          {
+            "name": "an immutable design proposal may be approved at draft_version 0",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_action_approvals_draft_version_check' and pg_get_constraintdef(oid) like '%apply_storefront_design%'",
+            "equals": "1"
+          },
+          {
+            "name": "both resource-type allowlists admit storefront_chrome",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_approvals_resource_type_check','mink_action_audit_resource_type_check') and pg_get_constraintdef(oid) like '%storefront_chrome%'",
+            "equals": "2"
+          },
+          {
+            "name": "the draft kind is admitted",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_kind_check' and pg_get_constraintdef(oid) like '%storefront_design%'",
+            "equals": "1"
+          },
+          {
+            "name": "design proposals, approvals and audit rows have an enforced target shape",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_drafts_storefront_design_target_check','mink_action_approvals_storefront_design_target_check','mink_action_audit_storefront_design_target_check')",
+            "equals": "3"
+          },
+          {
+            "name": "every design target check coalesces its jsonb_typeof, so an absent key cannot pass",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_drafts_storefront_design_target_check','mink_action_approvals_storefront_design_target_check','mink_action_audit_storefront_design_target_check') and pg_get_constraintdef(oid) not like '%COALESCE%'",
+            "equals": "0"
+          },
+          {
+            "name": "no executed storefront row can record a NULL result_id",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_approvals_storefront_code_target_check','mink_action_audit_storefront_code_target_check','mink_action_approvals_storefront_publish_target_check','mink_action_audit_storefront_publish_target_check','mink_action_approvals_storefront_layout_target_check','mink_action_audit_storefront_layout_target_check','mink_action_approvals_storefront_design_target_check','mink_action_audit_storefront_design_target_check') and pg_get_constraintdef(oid) like '%result_id IS NOT NULL%'",
+            "equals": "8"
+          },
+          {
+            "name": "no Mink-disabled store was granted the new tool",
+            "sql": "select count(*)::text from mink_action_tool_access t where t.tool_name='apply_storefront_design' and t.enabled and not exists (select 1 from mink_store_access a where a.store_id=t.store_id and a.enabled)",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260912_0104_mink_design_help",
+      "description": "Correct the two published paragraphs that understate what Mink can propose and what an approved save changes",
+      "file": "sql/20260912_0104_mink_design_help.sql",
+      "transaction": true,
+      "requires": ["20260912_0103_mink_storefront_design"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide names the design proposal and its credit weight",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%its two typefaces and its corner roundness — for 2%'",
+            "equals": "1"
+          },
+          {
+            "name": "no published sentence still says only two proposals exist",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and (body like '%Custom code is the boundary between them: a layout proposal must carry every existing custom-code section through unchanged, and cannot add, edit or delete one. Neither proposal generates images.%' or body like '%Neither one changes your header or footer, and neither publishes anything.%')",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

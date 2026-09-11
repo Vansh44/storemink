@@ -1,7 +1,6 @@
 import "server-only";
 
 import {
-  MAX_PAGE_SECTIONS,
   validateSections,
   type PageSectionItem,
 } from "@/lib/sections/registry";
