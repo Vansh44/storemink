@@ -1179,10 +1179,12 @@ actions, signup ordering and checkout UI.
 
 **PS-C.25 — Charge asks for one mobile number**
 Register → **Charge**.
-**Expect:** one focused **Mobile number** field and **OK**. The field accepts
-digits only, ignores spaces/letters, stops at 10 digits, and **OK** remains
-disabled until the number is a valid 10-digit Indian mobile. The cashier is not
-asked for a name or email before payment.
+**Expect:** one focused **Mobile number** field, a country-code select
+defaulting to **+91**, and **OK**. The field accepts digits only, ignores
+spaces/letters, stops at the chosen country's longest local length, and **OK**
+stays disabled until the number is a length that country accepts. Changing the
+country clears the box, because a number typed for the previous one is no
+longer meaningful.
 
 **PS-C.26 ★★ — Typing never queries the database**
 Type and erase the mobile number several times, pausing between keys.
@@ -1197,17 +1199,39 @@ tap. It shows the resolved mobile plus name/email, and Store credit is available
 with the server-read balance. No cashier-entered identity data overwrites the
 saved customer.
 
-**PS-C.28 ★ — A new number creates and attaches in the same action**
+**PS-C.28 ★★ — A new number ASKS before it records**
 Submit a valid mobile that is not in the store.
-**Expect:** StoreMink creates one `pos_<uuid>` unclaimed customer containing the
-normalised mobile, attaches it, and opens Payment automatically. Name and email
-can remain blank. A later verified signup can claim this row.
+**Expect:** the lookup reports it as new — a **New customer** banner naming the
+number, not an error — and the cashier is asked for a **first name** (last name
+and email optional) before Payment. There is no Skip: **Save and continue** is
+disabled until a first name is typed, and the server refuses one without it, so
+a disabled button is not the boundary. Saving creates one `pos_<uuid>`
+unclaimed customer holding the composed E.164 number and opens Payment. A later
+verified signup can claim this row.
+⚠ This deliberately overrides roadmap invariant 6 for the register (owner,
+2026-09-11): a customer who refuses a name is turned away rather than recorded
+blank. Nothing is written until Save.
+
+**PS-C.28a ★★ — A mistyped number has a way back**
+On that details step, select **Change number**.
+**Expect:** the phone field returns with **the digits still in it** for
+correction — not blanked — and any name/email typed for the wrong number is
+gone, so the next number cannot inherit them. Nothing was recorded. ⚠ The panel
+has no back arrow on this screen and a first name is required, so without this
+control the only exits were saving a record under the wrong number or
+cancelling the whole checkout. From an ATTACHED customer the same control means
+"a different person" and still blanks the box; during an exchange it is absent
+with the rest of the locked identity.
 
 **PS-C.29 ★ — A concurrent duplicate resolves to one customer**
 Submit the same new number at two tills at the same time.
 **Expect:** one insert wins; the unique-key loser re-reads and attaches that
 same customer. Neither till reports a duplicate error and only one customer row
-exists. Invalid/repeated-digit placeholder numbers are refused before lookup.
+exists. ⚠ A repeated-digit placeholder such as `8888888888` is now ACCEPTED
+(owner, 2026-09-11): the counter is recording who was there, not booking a
+courier. The second cashier to type one sees the FIRST customer's name resolve,
+which is what stops them silently inheriting that history. It stays refused at
+the Shiprocket boundary and at the OTP (PS-8.4f).
 
 **PS-C.30 ★ — The sale is attributed**
 Ring up a sale with the new customer attached. Then Dashboard → Orders.
@@ -1486,6 +1510,20 @@ Connect and enable Razorpay, open an amount-due pickup, and pass its OTP.
 checkout window and stages only the server-confirmed payment id. Disconnect or
 disable the gateway, or use an ineligible plan: the option is absent, while
 cash/card terminal/UPI remain available. A modal cancellation stages nothing.
+
+**PS-8.4f ★★ — The code goes to the number as stored, country code and all**
+Record a customer with a non-Indian country code at Charge (Singapore `+65`, or
+`+64` with an 8-digit number, or `+960`), sell to them, then take that sale back
+at the returns counter — and separately open a pickup whose customer row holds
+one.
+**Expect:** the OTP is sent to that exact number, and the masked digits are its
+own last four. **Nothing may text `+91` followed by the stored number's own
+country code**: `+6591234567` reads as ten digits starting 6-9, so the previous
+national-digits target produced `+916591234567` — a real but unrelated Indian
+subscriber, while the non-null target also suppressed the manager override, so
+the paid parcel could be neither handed over nor taken back. A row holding a
+placeholder such as `8888888888` is the opposite case and must still land on
+PS-8.4d's unverifiable path, never on an OTP that can never arrive.
 
 **PS-8.5 ★ — Cancelling a pickup does NOT restock**
 Cancel a pickup order from the dashboard.
@@ -4165,6 +4203,8 @@ Real and deliberate, so nobody files them as bugs:
 | ~~**POS Sales omitted collected pickups and hid transaction detail**~~  | **FIXED** (PS-C.50). Completed pickups at this location join the same Sales list without changing channel or duplicating the order; reprint detail includes customer, source/completion, every line, totals and tenders                                                                                                                                                                                        |
 | ~~**Counter returns ignored policy and let refund tender drift**~~      | **FIXED** (PS-11.11–11.18). Master/BORIS/location/product/window/reason/fee rules are server-enforced; refunds follow and proportionally split across original tenders; an enabled exchange links a normal customer-locked replacement POS sale                                                                                                                                                                |
 | ~~**Pickup and return identity was trusted without OTP**~~              | **FIXED** (PS-8.4a–8.4d, PS-11.2a–11.2d). The final server mutations require a short-lived proof for the saved order mobile, bound to order, purpose, shop, location and operator; failure leaves stock and money untouched                                                                                                                                                                                    |
+| ~~**The counter OTP texted a fabricated Indian number**~~               | **FIXED** (PS-8.4f). The target is full E.164 and is texted as stored. It was the ten national digits with `+91` added by the caller, and `normalizeIndianMobile` reads `+6591234567` as `6591234567` — so a Singapore customer's code went to `+916591234567`, and the non-null target withheld the manager override and stranded a paid parcel. `textablePhone` is the boundary                              |
+| ~~**A mistyped mobile could not be corrected**~~                        | **FIXED** (PS-C.28a). `Change number` was gated on an attached customer, so the details step — the screen a mistyped digit lands on — had no exit: no back arrow there, and a required first name with no skip. The only ways out were saving under the wrong number or cancelling checkout. It now covers that step and hands the digits back for correction, clearing the details with them                  |
 | ~~**The success page says nothing about collection**~~                  | **FIXED** (PS-8.25). It is a server component now and loads the order, so the shop, its address and the hold deadline are in the first paint                                                                                                                                                                                                                                                                   |
 | ~~**The dashboard is blind to pickups**~~                               | **FIXED** (PS-8.27). Badge + collection stage on the list, a Collection section in the drawer                                                                                                                                                                                                                                                                                                                  |
 | ~~**The invoice shows a shipping address for a collected order**~~      | **FIXED** (PS-8.26). "Ship To" becomes "Collect From" with the SHOP's address; the customer party always renders so the invoice still names the buyer                                                                                                                                                                                                                                                          |

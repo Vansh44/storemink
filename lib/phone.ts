@@ -238,3 +238,35 @@ export function formatStoredPhone(value: unknown): string {
       : parsed.local;
   return `${parsed.dial} ${local}`;
 }
+
+/**
+ * The E.164 number a one-time code can actually be SENT to, or null.
+ *
+ * ★★ THE THIRD BOUNDARY, and it is not either of the other two.
+ * `normalizeIndianMobile` answers "can a courier book this" and returns the
+ * ten NATIONAL digits; `parseStoredPhone` answers "what identity is stored
+ * here" and accepts anything the register can record. Neither answers "will an
+ * SMS reach this person", and using the first one for it is a live defect:
+ * `normalizeIndianMobile("+6591234567")` returns "6591234567" — a Singapore
+ * mobile whose country code and local number happen to form ten digits
+ * starting 6-9 — so a caller that then prefixes "+91" texts a code to a
+ * completely unrelated Indian subscriber. The same collision hits every +65
+ * number, 8-digit +64 New Zealand numbers and +960 Maldives.
+ *
+ * ★ IT RETURNS FULL E.164 for exactly that reason. A caller must never
+ * reassemble a country code it did not read off the number itself.
+ *
+ * ⚠ PLACEHOLDERS ARE STILL REFUSED, unlike `parseStoredPhone`. The till may
+ * deliberately record 8888888888 for a walk-in (it is recording who was at the
+ * counter, not booking a parcel), and `parseStoredPhone` has to keep
+ * recognising such a row or it could never be matched or migrated. But nothing
+ * can text one, so returning it here would replace an honest "no textable
+ * number" — which offers the counter its manager override — with an OTP that
+ * can never arrive and no way past it.
+ */
+export function textablePhone(value: unknown): string | null {
+  const parsed = parseStoredPhone(value);
+  if (!parsed) return null;
+  if (/^(\d)\1+$/.test(parsed.local)) return null;
+  return parsed.e164;
+}

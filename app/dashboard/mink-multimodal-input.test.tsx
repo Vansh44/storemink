@@ -197,7 +197,14 @@ describe("review-first multimodal input", () => {
         files: [new File(["x"], "attack.html")],
       },
     });
-    expect(screen.getByRole("alert")).toBeInTheDocument();
+    // ★ IT MUST NOT OFFER WAV. `inputKind` is shared with the input API, which
+    // still validates one, so its throw names a "mono 16 kHz PCM WAV" file —
+    // and this control refuses every audio file. Surfacing that told a merchant
+    // to attach something they would then be refused.
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      /PNG, JPEG, WebP or PDF/,
+    );
+    expect(screen.getByRole("alert")).not.toHaveTextContent(/WAV/i);
     fireEvent.drop(zone, {
       dataTransfer: {
         types: ["Files"],
@@ -207,6 +214,19 @@ describe("review-first multimodal input", () => {
     expect(screen.getByRole("alert")).toHaveTextContent("8 KiB");
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it("★ sends an audio file to the microphone, never to the attachment path", async () => {
+    render(<MinkMultimodalInput message="" onAdd={vi.fn()} disabled={false} />);
+    fireEvent.drop(screen.getByLabelText("Mink AI composer"), {
+      dataTransfer: {
+        types: ["Files"],
+        files: [new File(["x"], "note.wav")],
+      },
+    });
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/microphone button/i);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("prevents file navigation while disabled and ignores text/URL drags", () => {
     render(<MinkMultimodalInput message="" onAdd={vi.fn()} disabled />);
     const zone = screen.getByLabelText("Mink AI composer");

@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { TenderPanel } from "./tender-panel";
 import type { PosCustomer, PosTender } from "@/app/actions/pos-sale-actions";
@@ -406,6 +407,124 @@ describe("a number the till has not met before", () => {
       }),
     );
     expect(onCustomer).toHaveBeenCalled();
+  });
+
+  // ★★ THE DEAD END. "Change number" used to be gated on an ATTACHED customer,
+  // so the details step — the one screen a mistyped digit lands on — had no
+  // exit at all: no header control, no panel back arrow (that renders only on
+  // the amount screen), and a required first name with no skip. The only ways
+  // out were saving a record under the wrong number or cancelling the whole
+  // checkout.
+  describe("★★ correcting a mistyped number", () => {
+    const reachDetails = async (over = {}) => {
+      const onCustomer = vi.fn();
+      const onCreateCustomer = vi.fn();
+      setup({
+        customer: null,
+        onCustomer,
+        onResolveCustomer: vi.fn(async () => ({ notFound: true })),
+        onCreateCustomer,
+        ...over,
+      });
+      fireEvent.change(screen.getByLabelText(/customer mobile number/i), {
+        target: { value: "9876543210" },
+      });
+      fireEvent.click(button(/^ok$/i));
+      await screen.findByLabelText(/customer first name/i);
+      return { onCustomer, onCreateCustomer };
+    };
+
+    it("★ hands the number back for editing instead of blanking it", async () => {
+      await reachDetails();
+      fireEvent.click(button(/change number/i));
+
+      const mobile = await screen.findByLabelText(/customer mobile number/i);
+      // ★ RESTORED, not cleared. Retyping ten digits to fix one of them is the
+      // friction this exists to remove — and it differs on purpose from the
+      // attached-customer case below, which means "a different person".
+      expect(mobile).toHaveValue("9876543210");
+      expect(
+        screen.queryByLabelText(/customer first name/i),
+      ).not.toBeInTheDocument();
+    });
+
+    it("★ never carries the typed name onto the next number", async () => {
+      const { onCreateCustomer } = await reachDetails();
+      fireEvent.change(screen.getByLabelText(/customer first name/i), {
+        target: { value: "Rohan" },
+      });
+      fireEvent.change(screen.getByLabelText(/customer last name/i), {
+        target: { value: "Sharma" },
+      });
+      fireEvent.change(screen.getByLabelText(/customer email/i), {
+        target: { value: "rohan@example.com" },
+      });
+      fireEvent.click(button(/change number/i));
+
+      const mobile = await screen.findByLabelText(/customer mobile number/i);
+      fireEvent.change(mobile, { target: { value: "9877542162" } });
+      fireEvent.click(button(/^ok$/i));
+
+      // ⚠ A cashier correcting a digit would not think to re-check a name they
+      // never retyped, so it must not still be there.
+      expect(await screen.findByLabelText(/customer first name/i)).toHaveValue(
+        "",
+      );
+      expect(screen.getByLabelText(/customer last name/i)).toHaveValue("");
+      expect(screen.getByLabelText(/customer email/i)).toHaveValue("");
+      expect(onCreateCustomer).not.toHaveBeenCalled();
+    });
+
+    // ★ THE OTHER DIRECTION. An ATTACHED customer opens on Payment, whose own
+    // "Change" drops them and returns to an EMPTY box — that means "a different
+    // person", not "I mistyped", so the two must not be made to agree.
+    const attached: PosCustomer = {
+      id: "pos_1",
+      name: "Rohan Sharma",
+      phone: "+919876543210",
+      email: null,
+      storeCredit: 0,
+    };
+
+    it("★ an attached customer still blanks the box — a different person", async () => {
+      // ⚠ A STATEFUL HARNESS, because the panel does not own `customer`: it
+      // calls `onCustomer(null)` and waits for the prop to come back. A bare
+      // vi.fn() leaves the customer attached and the form never renders, so
+      // this would assert nothing about the real wiring.
+      function Harness() {
+        const [customer, setCustomer] = useState<PosCustomer | null>(attached);
+        return (
+          <TenderPanel
+            total={500}
+            onCancel={() => {}}
+            onComplete={async () => ({})}
+            storeCredit={0}
+            customer={customer}
+            onCustomer={setCustomer}
+            onResolveCustomer={async () => ({ notFound: true })}
+            onCreateCustomer={async () => ({})}
+          />
+        );
+      }
+      render(<Harness />);
+
+      fireEvent.click(button(/change number/i));
+      expect(
+        await screen.findByLabelText(/customer mobile number/i),
+      ).toHaveValue("");
+    });
+
+    it("★ is locked out during an exchange, like the rest of the identity", async () => {
+      setup({
+        customer: attached,
+        customerLocked: true,
+        onCustomer: vi.fn(),
+        onResolveCustomer: vi.fn(async () => ({ notFound: true })),
+      });
+      expect(
+        screen.queryByRole("button", { name: /change number/i }),
+      ).not.toBeInTheDocument();
+    });
   });
 
   it("offers no way past the name, and disables Save until one is typed", async () => {

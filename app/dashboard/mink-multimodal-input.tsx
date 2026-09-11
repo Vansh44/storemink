@@ -142,7 +142,21 @@ export function MinkMultimodalInput({
         setLocalText(true);
         setText(decoded);
       } else {
-        if (inputKind(next.name) === "audio")
+        // ★ THE COMPOSER MUST NOT OFFER WAV IN ITS OWN ERROR. `inputKind` is
+        // shared with the input API, which still validates a WAV (compatibility
+        // code), so its throw names one — and this control refuses every audio
+        // file. Surfacing that message told a merchant to attach something they
+        // would then be refused: the same mismatch the published guide had.
+        // The classifier stays shared; only the wording is ours.
+        let kind;
+        try {
+          kind = inputKind(next.name);
+        } catch {
+          throw new Error(
+            "Attach a PNG, JPEG, WebP or PDF, or a .txt or .md file.",
+          );
+        }
+        if (kind === "audio")
           throw new Error(
             "Use the microphone button for speech to text. Attach a PNG, JPEG, WebP or PDF here.",
           );
