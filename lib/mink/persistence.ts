@@ -10,7 +10,7 @@ import {
   minkUsageLedger,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
-import { estimateMinkCost } from "./cost";
+import { cachedPromptTokens, estimateMinkCost } from "./cost";
 import { historyWithCompaction } from "./compaction";
 import { MinkRequestError } from "./errors";
 import { minkShadowMeter } from "./metering";
@@ -671,6 +671,7 @@ async function insertUsage(
     status: input.status,
     toolCalls: input.toolCalls,
     usageKnown: input.usageStatus !== "unavailable",
+    usage: input.usage,
   });
   const draftUsage = await getMinkRunDraftUsage(
     db,
@@ -688,6 +689,11 @@ async function insertUsage(
       outputTokens: input.usage.outputTokens,
       thoughtTokens: input.usage.thoughtTokens,
       totalTokens: input.usage.totalTokens,
+      // Clamped through the SAME helper the cost estimate uses. This insert
+      // shares its transaction with the run-completion update and the
+      // assistant message, so tripping the ledger's cached_tokens CHECK would
+      // roll back a reply the merchant has already read.
+      cachedTokens: cachedPromptTokens(input.usage),
       usageStatus: input.usageStatus,
       estimatedCostMicrousd: estimate.estimatedCostMicrousd,
       pricingVersion: estimate.pricingVersion,

@@ -36,6 +36,7 @@ const EMPTY_PROGRESS: MinkRunProgress = {
     outputTokens: 0,
     thoughtTokens: 0,
     totalTokens: 0,
+    cachedTokens: 0,
   },
 };
 

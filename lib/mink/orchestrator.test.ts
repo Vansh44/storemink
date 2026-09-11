@@ -14,6 +14,7 @@ const ZERO_USAGE: MinkUsage = {
   outputTokens: 0,
   thoughtTokens: 0,
   totalTokens: 0,
+  cachedTokens: 0,
 };
 
 const ACTOR: MinkActorContext = {
@@ -83,6 +84,7 @@ describe("runMinkAgent", () => {
           outputTokens: 5,
           thoughtTokens: 2,
           totalTokens: 27,
+          cachedTokens: 12,
         },
       }),
     );
@@ -97,6 +99,7 @@ describe("runMinkAgent", () => {
             outputTokens: 3,
             thoughtTokens: 1,
             totalTokens: 14,
+            cachedTokens: 7,
           },
         }),
       ),
@@ -131,6 +134,10 @@ describe("runMinkAgent", () => {
         outputTokens: 8,
         thoughtTokens: 3,
         totalTokens: 41,
+        // 7 + 12. Each step re-sends the same deterministic system+tools
+        // prefix, so the run-level cached figure has to be the SUM across
+        // steps — that total is what the cost estimate prices against.
+        cachedTokens: 19,
       },
       artifacts: [],
     });

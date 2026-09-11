@@ -4334,6 +4334,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260911_0099_mink_cached_tokens",
+      "description": "Record provider-cached prompt tokens so Mink cost can be priced and repriced",
+      "file": "sql/20260911_0099_mink_cached_tokens.sql",
+      "transaction": true,
+      "requires": ["20260911_0098_mink_composer_no_wav_help"],
+      "verify": {
+        "columns": ["mink_usage_ledger.cached_tokens"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "cached_tokens defaults to 0 and is not null",
+            "sql": "select count(*)::text from information_schema.columns where table_schema='public' and table_name='mink_usage_ledger' and column_name='cached_tokens' and is_nullable='NO' and column_default like '0%'",
+            "equals": "1"
+          },
+          {
+            "name": "cached_tokens is constrained to a subset of input_tokens",
+            "sql": "select count(*)::text from pg_constraint where conrelid='public.mink_usage_ledger'::regclass and conname='mink_usage_ledger_cached_tokens_check'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

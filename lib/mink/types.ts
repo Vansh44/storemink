@@ -236,6 +236,18 @@ export interface MinkUsage {
   outputTokens: number;
   thoughtTokens: number;
   totalTokens: number;
+  /**
+   * The SUBSET of `promptTokens` the provider served from a context cache, so
+   * `promptTokens - cachedTokens` is what was charged at the full input rate.
+   * The provider documents `promptTokenCount` as already including cached
+   * content, so this must never be added to it.
+   *
+   * Recorded as a raw fact rather than folded into a cost: the system prompt
+   * plus tool declarations are a deterministic ~10.5k-token prefix re-sent on
+   * every step of every run, and it is the single largest cost line. Whether a
+   * cache is actually serving it is otherwise invisible.
+   */
+  cachedTokens: number;
 }
 
 export interface MinkModelTurn {

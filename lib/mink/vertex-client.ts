@@ -199,5 +199,10 @@ function toUsage(response: GenerateContentResponse): MinkUsage {
     outputTokens: usage?.candidatesTokenCount ?? 0,
     thoughtTokens: usage?.thoughtsTokenCount ?? 0,
     totalTokens: usage?.totalTokenCount ?? 0,
+    // A SUBSET of promptTokenCount — the provider documents that count as
+    // already including cached content. Absent means "the provider said
+    // nothing", which is read as zero cached rather than as an error: an
+    // unreported cache must cost us an accounting discount, never a run.
+    cachedTokens: usage?.cachedContentTokenCount ?? 0,
   };
 }

@@ -92,6 +92,90 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
+### Mink cost metering — the prefix is the bill (2026-09-11)
+
+`mink_usage_ledger` has recorded per-run tokens and a shadow cost since Phase
+1B, and reading it is what settles Mink's economics rather than modelling them.
+Measured over the recorded runs: a run costs **₹0.46–₹2.66** (p50 ₹1.05, p90
+₹1.77) at `cost.ts`'s own rates, and per-step input tokens are ~11,150.
+
+**★★ THE DOMINANT COST IS THE PREFIX, AND IT GROWS EVERY TIME A TOOL IS ADDED.**
+The system prompt (23,499 chars ≈ 6,350 tokens) plus the permission-filtered
+tool declarations are re-sent on **every step of every run** — `orchestrator.ts`
+drives a chat session, so an 8-step run bills that prefix eight times. Measured
+against `mink_runs.tool_registry_version`, input per step went **7,089 →
+11,154 (+57%)** across `draft-beta-v9` → `v16` in five days. A declaration is
+charged on every turn whether or not the model ever calls it, so each new tool
+raises the price of every existing merchant's every question, permanently. Treat
+the declaration set as a budget, not a menu.
+
+**`cached_tokens` (migration 0099) makes the other half visible.** ~94% of that
+prefix is byte-identical across steps and is the ideal cache target, but nothing
+recorded whether a provider cache was serving it, so `estimateMinkCost` billed
+every prompt token at the full input rate. The ledger now stores the provider's
+`cachedContentTokenCount` as a **raw fact** beside the derived cost, and the
+operator console shows a cache-hit metric.
+⚠ **It is a SUBSET of `input_tokens`, never an addition** — the provider
+documents `promptTokenCount` as already including cached content, so it is
+subtracted before the full rate applies. Adding them would inflate the one line
+the estimate is most sensitive to; a DB CHECK and `vertex-usage.test.ts` pin it
+in both directions.
+★★ `cachedPromptTokens()` is exported from `cost.ts` and is the ONE clamp,
+shared by the estimate and the ledger insert, because that insert runs inside
+the SAME transaction as the run-completion update and the assistant message
+(`completeMinkRun`): a value that tripped the CHECK would roll back a reply the
+merchant has already read. A second, drifting copy of that clamp is not a
+rounding bug, it is a lost answer.
+★ `CACHED_INPUT_RATE_MULTIPLIER` (0.25) is the only ASSUMED number and is
+stamped into `pricingVersion`, so rows priced under a wrong rate are
+identifiable and repricable from the stored raw counts rather than silently
+mixed with correct ones.
+
+**The meter is banded now, and still shadow.** `minkShadowMeter` returned a
+hardcoded 3 for every run — a one-tool lookup and a six-step proposal metered
+identically — so the number told an operator nothing. It bands by measured size
+instead, in the SAME credits a product description spends (`lib/ai/quota.ts`):
+one pool, one currency, so "AI credits" and "Mink credits" stay the same thing.
+
+★★ THE UNIT IS `weightedMinkUnits` = `input + 5 × (output + thought)`, AND THE
+5 IS NOT A TUNING CHOICE. Every rate variant in `cost.ts` — global and
+regional, 2026 intro and 2027 standard — has an output:input ratio of exactly
+5, so one weighted unit is EXACTLY proportional to money without importing a
+rate, a region or a date. `metering.test.ts` pins that against `cost.ts` itself
+across all four variants, so a future price change that breaks the
+proportionality fails there rather than silently skewing every band.
+★★ IT USES RAW PROMPT TOKENS AND IGNORES THE CACHE, deliberately: a merchant
+asking the same question twice must not be charged differently because our
+cache was cold. The cache saving accrues to StoreMink as margin — the right way
+round, since it rewards making the platform cheaper rather than making the bill
+unpredictable.
+★ Reasoning counts as output, or the HIGH-thinking storefront runs that most
+need banding correctly would be the ones under-banded.
+★ A run that did not succeed meters ZERO. Charging for an answer nobody got is
+indefensible, and the tokens are not lost from the record — the same row's
+`estimated_cost_microusd` still carries them.
+
+Provisional bands (light ≤ 30,000 units → 1 credit, standard ≤ 90,000 → 3,
+heavy → 8), chosen so each ceiling is a round rupee cost and explicitly sized
+against only 16 runs. ⚠ **THE CEILING IS WHERE THE MARGIN RISK IS, not the
+average.** A unit costs 0.75 µUSD, so a run sitting just under the light or
+standard ceiling costs ₹1.98 or ₹5.94 against ₹2.15 or ₹6.45 of credit — about
+**1.09×**, versus ~2× for a typical light run. Worst-case COGS on a fully-spent
+allowance is therefore ~13% of a Basic plan, not the ~6% a mid-band average
+suggests. Tightening the bands is the wrong fix (it would triple the charge on
+ordinary runs); **caching is** — at cached rates the same ceiling costs ~64%
+less and the worst case returns to ~3×. `charged_credits` is STILL 0 for read work: this exists
+to be watched for a few weeks so the boundaries can be set from evidence.
+Measured on those rows, **15 of 16 are light** — the old meter reported all 16
+as 3, i.e. it overstated conversational spend nearly threefold.
+⚠ The operator console's band mix is DERIVED from the stored token counts, not
+read back from `shadow_credits`: every pre-band row holds the hardcoded 3, so
+reading the column would report the whole history as "standard" on the one
+screen the boundaries get tuned from. Re-deriving needs no backfill and is
+correct for every row whenever it was written.
+⚠ The heavy band remains modelled rather than measured: every recorded run is
+`low` thinking, with no HIGH-thinking storefront-code proposal among them.
+
 ### Mink Phase 8E — Reviewed multimodal input (2026-09-09)
 
 `app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
@@ -1998,7 +2082,9 @@ wholesip/
 │                              # 0096 documents the parent-first register catalogue;
 │                              # 0097 documents correcting a mistyped customer mobile;
 │                              # 0098 stops the Mink guide offering a WAV attachment;
-│                              # 0099 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0099 records provider-cached prompt tokens on the Mink
+│                              # usage ledger;
+│                              # 0100 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).

@@ -18,6 +18,7 @@ const EMPTY_USAGE: MinkUsage = {
   outputTokens: 0,
   thoughtTokens: 0,
   totalTokens: 0,
+  cachedTokens: 0,
 };
 
 export async function runMinkAgent(input: {
@@ -138,5 +139,9 @@ function addUsage(left: MinkUsage, right: MinkUsage): MinkUsage {
     outputTokens: left.outputTokens + right.outputTokens,
     thoughtTokens: left.thoughtTokens + right.thoughtTokens,
     totalTokens: left.totalTokens + right.totalTokens,
+    // Summed like every other counter: each step re-sends the same prefix, so
+    // the run-level figure is how many prefix tokens the cache served across
+    // ALL steps — which is the number the cost estimate needs.
+    cachedTokens: left.cachedTokens + right.cachedTokens,
   };
 }

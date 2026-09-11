@@ -108,7 +108,7 @@ export default async function PlatformMinkRunsPage({
         <Metric
           label="Shadow credits"
           value={formatNumber(data.summary.shadowCredits)}
-          note="no customer debit"
+          note={`no customer debit · ${formatNumber(data.summary.lightRuns)} light / ${formatNumber(data.summary.standardRuns)} standard / ${formatNumber(data.summary.heavyRuns)} heavy`}
         />
         <Metric
           label="Invited stores"
@@ -149,6 +149,15 @@ export default async function PlatformMinkRunsPage({
         />
         <Metric label="Retries" value={formatNumber(data.summary.retryCount)} />
         <Metric label="Tokens" value={formatNumber(data.summary.totalTokens)} />
+        <Metric
+          label="Cache hit"
+          value={
+            data.summary.totalTokens > 0
+              ? `${Math.round((data.summary.cachedTokens / data.summary.totalTokens) * 100)}%`
+              : "—"
+          }
+          note={`${formatNumber(data.summary.cachedTokens)} prompt tokens served from cache`}
+        />
         <Metric
           label="Known model cost"
           value={formatCost(data.summary.knownCostMicrousd)}
@@ -250,7 +259,14 @@ export default async function PlatformMinkRunsPage({
                     {formatDuration(run.latencyMs)}
                   </td>
                   <td className="px-4 py-3">{run.retryCount}</td>
-                  <td className="px-4 py-3">{formatNumber(run.totalTokens)}</td>
+                  <td className="px-4 py-3">
+                    {formatNumber(run.totalTokens)}
+                    {run.cachedTokens ? (
+                      <div className="text-xs text-slate-500">
+                        {formatNumber(run.cachedTokens)} cached
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div title={run.pricingVersion ?? undefined}>
                       {run.estimatedCostMicrousd === null
