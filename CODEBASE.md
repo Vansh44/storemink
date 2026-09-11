@@ -2510,6 +2510,40 @@ wholesip/
      Adding a class is safe because no rule in the file is a bare element
      selector — they are all `.dash-*`, so scoping an overlay cannot restyle its
      internals by accident. Keep it that way.
+   - **★★ AND THE BUILDER HAD THE SAME BUG, WORSE, FOR LONGER (fixed
+     2026-09-11).** `builder.css` used `--b-text`, `--b-text-2`, `--b-text-3`,
+     `--b-border` and `--b-surface-2` across 21 rules and **declared none of
+     them anywhere in the repo** — only the four `--b-accent*` tokens and two
+     layout lengths existed. Invisible in review, because the CSS reads as
+     correct.
+     ★★ THE DAMAGE IS NOT WHAT THE `--dash-border` CASE ABOVE WOULD PREDICT,
+     and the difference is the SHORTHAND. That one set `border-color` on its
+     own, so an invalid value fell back to `currentColor` and drew a black
+     hairline. The builder writes `border: 1px solid var(--b-border)` — a
+     shorthand, so an invalid var makes the WHOLE declaration invalid at
+     computed-value time and it resets to the initial value. Measured in a
+     browser against the real stylesheet: `border-style: none`,
+     `border-width: 0px`. Every input, colour swatch, group separator and the
+     pages-rail divider had **no border at all**. `background: var(--b-surface-2)`
+     computed to `rgba(0,0,0,0)`, so hover states and the rail count badge
+     never appeared. And `color` — inherited, so it survived — resolved to
+     `.sm-builder`'s full-strength ink, which meant every hint, field label and
+     secondary line rendered as dark as a heading: the type hierarchy was flat.
+     Declared as `var(--dash-*, literal)` beside `--b-accent`, matching its own
+     convention, so the builder keeps tracking the dashboard theme and still
+     renders outside `.dashboard-shell`.
+     ⚠ Two of the seven originally suspected — `--b-border-strong` and
+     `--b-danger` — were NOT broken: each has exactly one use and it carries a
+     fallback. They are declared now for consistency, but a `var()` with a
+     fallback is not a defect, and a scan that ignores fallbacks over-reports.
+     ⚠ A repo-wide sweep found one more real instance (`--hc-ink-muted` in
+     `help.css`, a typo for `--hc-ink-faint` — every other uppercase 0.06em
+     label uses that one) and one FALSE alarm worth recording: `--stq-shot` in
+     `platform.css` is undeclared, but `.stq-mock-shot` is applied nowhere in
+     any component, so it is dead CSS for an unwired mock rather than a
+     degraded surface. `dashboard.css` and `pos.css` are clean — their
+     `--font-dash`/`--font-dash-mono` come from `next/font` in the dashboard
+     layouts, which a CSS-only scan reads as missing.
    - **★★ `100vh` IS THE WRONG UNIT ON iOS — use `dvh` for anything full-height.**
      Safari resolves `100vh` to the LARGE viewport (the height the page would
      have with the toolbars hidden), so with the address bar on screen the
