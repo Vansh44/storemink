@@ -212,7 +212,10 @@ export function validateStorefrontDesign(
  */
 export function contrastIssuesFor(
   design: StorefrontDesignOverrides,
-  theme: ThemeDesign | null,
+  // Structural, not `ThemeDesign`, so the builder panel can pass its own
+  // lightweight defaults projection without a cast — the only thing this needs
+  // is somewhere to look up a token's fallback colour.
+  theme: { palette?: Partial<Record<DesignPaletteToken, string>> } | null,
 ): string[] {
   const resolve = (token: DesignPaletteToken): string | null =>
     normalizeHex(design.palette[token] ?? theme?.palette?.[token]);
@@ -294,4 +297,49 @@ export function hasDesignOverrides(design: StorefrontDesignOverrides): boolean {
     design.fonts.display !== null ||
     Object.keys(design.shape).length > 0
   );
+}
+
+/**
+ * What the pinned theme supplies for the tokens a merchant may override.
+ *
+ * ★ A PROJECTION, NOT THE WHOLE ThemeDesign. The builder panel is a client
+ * component, so this crosses the server boundary on every load; sending the
+ * full preset would ship 22 palette entries, layout variants and shape strings
+ * to render eight swatches. It is also what the panel needs to be HONEST — an
+ * un-overridden colour has to show the value the storefront will actually use,
+ * not an empty box.
+ */
+export interface ThemeDesignDefaults {
+  palette: Partial<Record<DesignPaletteToken, string>>;
+  fonts: { body: string | null; display: string | null };
+  shape: Partial<Record<DesignShapeKey, number>>;
+}
+
+/** Radii are authored as CSS lengths ("20px"); the panel edits numbers. */
+function pxNumber(value: unknown): number | undefined {
+  const match = /^(\d+)px$/.exec(String(value ?? "").trim());
+  return match ? Number(match[1]) : undefined;
+}
+
+export function themeDesignDefaults(
+  theme: ThemeDesign | null,
+): ThemeDesignDefaults {
+  const palette: Partial<Record<DesignPaletteToken, string>> = {};
+  for (const token of DESIGN_PALETTE_TOKENS) {
+    const hex = normalizeHex(theme?.palette?.[token]);
+    if (hex) palette[token] = hex;
+  }
+  const shape: Partial<Record<DesignShapeKey, number>> = {};
+  for (const key of DESIGN_SHAPE_KEYS) {
+    const n = pxNumber(theme?.shape?.[key]);
+    if (n !== undefined) shape[key] = n;
+  }
+  return {
+    palette,
+    fonts: {
+      body: theme?.fonts?.body ?? null,
+      display: theme?.fonts?.display ?? null,
+    },
+    shape,
+  };
 }

@@ -1167,6 +1167,44 @@
   align-items: center;
   gap: 8px;
 }
+/* Design panel: per-token reset, and the legibility warning.
+   `.sm-b-colorrow` is reused for the radius sliders — same three-part shape
+   (control, readout, reset), so they line up rather than each inventing one.
+
+   Tokenised now that the text, border and surface tokens are declared
+   (see the block at .sm-builder); this shipped with literals for the days when
+   they were not. The warning keeps its own amber literals — there is no
+   dashboard token for a caution surface, and inventing one here would be a
+   design-system decision made in a stylesheet footnote. */
+.sm-b-reset {
+  flex: none;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--b-text-2);
+  background: var(--b-surface-2);
+  border: 1px solid var(--b-border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sm-b-reset:hover {
+  color: var(--b-text);
+}
+.sm-b-colorrow input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sm-b-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #7c2d12;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+}
+
 .sm-b-color {
   width: 34px;
   height: 30px;

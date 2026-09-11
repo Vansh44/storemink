@@ -206,6 +206,7 @@ export default async function StorefrontLayout({
               <ChromeProvider
                 chrome={chrome}
                 themeLayout={design?.layout}
+                themeVars={themeVars}
                 live={previewing}
               >
                 <div className={rootClass} style={themeVars as CSSProperties}>

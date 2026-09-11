@@ -2957,11 +2957,28 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     not readability. SAFETY (hex only, allowlisted fonts, bounded radii) is
     unconditional in both modes, because these land in an inline `style`
     attribute.
-    ⚠ NO BUILDER UI YET. The data layer, validation, resolution and publish
-    gate are complete and tested, but nothing a merchant can click reaches
-    them — only a server caller can set a design. The Brand-inspector panel is
-    the remaining half, and the prerequisite for any reference-driven design
-    feature being usable rather than applied blind.
+    **The panel is the Brand row in the builder inspector** (`chrome-form.tsx`
+    `DesignForm`): eight colour tokens, two typeface selects, four corner
+    sliders. ★ EVERY CONTROL HAS AN EXPLICIT "USE THEME" STATE and an unset one
+    SHOWS the value the storefront will really use — a colour input has no
+    null, so without that a merchant cannot tell "I have not chosen" from "I
+    chose exactly this", and cannot get back once they have nudged a picker.
+    `themeDesignDefaults()` is the projection the panel needs, deliberately not
+    the whole `ThemeDesign`: it crosses to a client component on every builder
+    load. Contrast warnings appear WHILE EDITING, not only on Publish, where
+    they would be a dead end.
+    ★★ THE PREVIEW EFFECT RESTORES, IT DOES NOT ONLY SET. Clearing an override
+    has to put the theme value back — the layout wrote the old one inline
+    server-side, so merely ceasing to write the property leaves it stuck and
+    "Reset" looks broken. `--brand-primary` is additionally SHARED with the
+    `sm-brand` message the builder sends on every colour keystroke, so the
+    provider remembers the live value and restores THAT rather than silently
+    undoing a colour the merchant just picked.
+    Verified in a browser end to end: overriding page background, ink, accent,
+    card radius and both faces repainted the storefront, and a font census
+    returned **255 of 255 elements in Jost, zero in a second family** — the
+    measurement that proves the two-slot fix, and the only way that class of
+    bug is visible at all.
     **Theme DESIGN engine (the visual "skin")**: a theme controls the FULL
     design system, not just one accent. `ThemeDesign` (`lib/themes/types.ts`) =
     `palette` (all 14 `--sm-*` colour tokens + `onAccent`/`onInk`/

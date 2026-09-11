@@ -1,11 +1,14 @@
 import { and, asc, desc, eq } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
-import { blogs, categories, products } from "@/drizzle/schema";
+import { blogs, categories, products, stores } from "@/drizzle/schema";
 import { requireSectionAccess, getActingStoreId } from "../lib/access";
 import { listPages, ensureHomepage } from "@/app/actions/page-actions";
 import { getStoreBrand } from "@/lib/store/brand";
 import { getDraftChromeForEditor } from "@/lib/chrome/queries";
 import { DEFAULT_CHROME } from "@/lib/chrome/types";
+import { themeDesignDefaults } from "@/lib/chrome/design";
+import { getThemeDefinition } from "@/lib/themes";
+import { readThemeSelection } from "@/lib/themes/meta";
 import { BuilderClient } from "./builder-client";
 import type { BlogOption, CategoryOption, ProductOption } from "./section-form";
 import "./builder.css";
@@ -61,6 +64,25 @@ export default async function BuilderPage() {
   // outline shows Header and Footer rows immediately, with no second spinner.
   const chrome = (await getDraftChromeForEditor(storeId)) ?? DEFAULT_CHROME;
 
+  // What the pinned preset supplies for each overridable design token. The
+  // panel needs it to show a real fallback rather than an empty box — a colour
+  // input has no null, so without this a merchant cannot tell "I have not
+  // chosen" from "I chose exactly this".
+  const [storeRow] = await withService((db) =>
+    db
+      .select({ settings: stores.settings })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .limit(1),
+  );
+  const themeSelection = readThemeSelection(storeRow?.settings);
+  const themeDefaults = themeDesignDefaults(
+    themeSelection
+      ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
+          .design
+      : null,
+  );
+
   const blogOptions: BlogOption[] = storeData.blogRows.map((b) => ({
     id: b.id,
     name: b.title,
@@ -79,6 +101,7 @@ export default async function BuilderPage() {
       blogs={blogOptions}
       storeName={brand.name}
       initialChrome={chrome}
+      themeDefaults={themeDefaults}
       initialBrand={{
         name: brand.name,
         primaryColor: brand.primaryColor,
