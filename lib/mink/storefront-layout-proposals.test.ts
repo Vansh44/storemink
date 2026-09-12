@@ -308,3 +308,85 @@ describe("Phase 9B storefront layout proposals", () => {
     expect(mocks.createDraft).not.toHaveBeenCalled();
   });
 });
+
+describe("Phase 9D image ownership at proposal time", () => {
+  const OWNED = "https://storage.googleapis.com/b/stores/store-1/media/a.webp";
+  const INVENTED = "https://images.example.com/lovely-hero.jpg";
+
+  const gallery = (urls: string[], id = "gal"): PageSectionItem =>
+    ({
+      id,
+      type: "gallery",
+      enabled: true,
+      config: {
+        ...EMPTY_CONFIG.gallery,
+        items: urls.map((image_url) => ({
+          image_url,
+          image_alt: "",
+          caption: "",
+          href: "",
+        })),
+      },
+    }) as PageSectionItem;
+
+  it("refuses an invented image before charging a credit", async () => {
+    await expect(
+      createMinkStorefrontLayoutProposal({
+        actor: ACTOR,
+        patch: {
+          ...patch(),
+          sections: [section("a"), gallery([OWNED, INVENTED])],
+        },
+        explanation: "Add a gallery.",
+      }),
+    ).rejects.toThrow(/list_storefront_media/);
+    // The bill is the point: a proposal that cannot be approved must not be
+    // stored, and the merchant must not pay for it.
+    expect(mocks.createDraft).not.toHaveBeenCalled();
+  });
+
+  it("accepts images the Media Library actually holds", async () => {
+    mocks.execute
+      .mockResolvedValueOnce({ rows: [targetRow()] })
+      .mockResolvedValueOnce({ rows: [{ url: OWNED }] });
+
+    await expect(
+      createMinkStorefrontLayoutProposal({
+        actor: ACTOR,
+        patch: {
+          ...patch(),
+          sections: [section("a"), gallery([OWNED, OWNED])],
+        },
+        explanation: "Add a gallery from the library.",
+      }),
+    ).resolves.toMatchObject({ type: "storefront_layout_proposal" });
+  });
+
+  it("carries an image already on the page across without asking the library", async () => {
+    const current = [section("a"), gallery([OWNED, OWNED], "keepme")];
+    mocks.execute.mockResolvedValue({
+      rows: [targetRow({ sections: current })],
+    });
+
+    await expect(
+      createMinkStorefrontLayoutProposal({
+        actor: ACTOR,
+        patch: {
+          ...patch(),
+          target: {
+            pageSlug: "home",
+            expectedPageVersion: VERSION,
+            expectedSectionsDigest: digestMinkStorefrontSections(current),
+          },
+          // Sent in full rather than by reference, so the URLs really do pass
+          // through the guard rather than being resolved around it.
+          sections: [gallery([OWNED, OWNED], "keepme")],
+        },
+        explanation: "Drop the text block and keep the gallery.",
+      }),
+    ).resolves.toMatchObject({ type: "storefront_layout_proposal" });
+
+    // One read: the page. Nothing on the page needs a library lookup.
+    expect(mocks.execute).toHaveBeenCalledTimes(1);
+  });
+});

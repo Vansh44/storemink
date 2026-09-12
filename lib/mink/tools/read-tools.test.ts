@@ -238,6 +238,44 @@ describe("business brief tool", () => {
   );
 });
 
+describe("Phase 9D media library tool", () => {
+  /**
+   * ★ IT IS GATED ON `media`, NOT `builder`, even though its only consumer is
+   *   a Builder proposal. Filenames alone can carry a supplier's name or an
+   *   unreleased product's, and an admin trusted to arrange a page is not
+   *   automatically trusted to enumerate every file the store has uploaded.
+   */
+  it("is withheld from a Builder admin who cannot view Media", async () => {
+    const actor = {
+      ...ACTOR,
+      isSuperadmin: false,
+      permissions: { builder: ["view", "manage"], media: [] },
+    } as MinkActorContext;
+    expect(
+      minkReadToolRegistry.declarationsFor(actor).map((tool) => tool.name),
+    ).not.toContain("list_storefront_media");
+    const result = await minkReadToolRegistry.execute(actor, {
+      name: "list_storefront_media",
+      args: {},
+    });
+    expect(result.response).toMatchObject({
+      error: { code: "permission_denied" },
+    });
+  });
+
+  it("is offered with Media view alone", () => {
+    expect(
+      minkReadToolRegistry
+        .declarationsFor({
+          ...ACTOR,
+          isSuperadmin: false,
+          permissions: { media: ["view"] },
+        } as MinkActorContext)
+        .map((tool) => tool.name),
+    ).toContain("list_storefront_media");
+  });
+});
+
 describe("Mink read-tool declarations", () => {
   it("never lets the model provide a tenant or actor identifier", () => {
     const declarations = minkReadToolRegistry.declarationsFor(ACTOR);
@@ -248,6 +286,7 @@ describe("Mink read-tool declarations", () => {
       "get_storefront_page_context",
       "get_storefront_section_context",
       "get_storefront_design_context",
+      "list_storefront_media",
       "get_catalog_summary",
       "search_products",
       "get_sales_summary",

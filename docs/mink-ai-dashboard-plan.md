@@ -1614,6 +1614,68 @@ Exit criteria:
   the contract, the prompt and the card already treat an ABSENT key exactly as
   they treat `null`, so nothing else changes.
 
+- **9D — Media the model can use: implemented locally; rollout acceptance
+  pending.** Two halves of one gap, neither of which works alone.
+  `list_storefront_media` (a `media` View read, bounded at 40, newest first)
+  returns the exact public URLs of the store's Media Library; and a layout
+  proposal's images are now REFUSED unless every one of them is either a URL
+  that read returned or a URL already on the page being changed. Separately,
+  an image attached in the chat composer can be kept: **Save to Media Library**
+  sends it through the store's own `uploadMediaAsset` — the same permission,
+  normalisation, storage path and orphan cleanup as the Media page — and puts
+  its exact URL into the message.
+  ★★ THE REFUSAL IS A REPAIR, NOT A RESTRICTION. `grep -rn "media_assets"
+lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
+  the store had a picture. Meanwhile `safeHref` blocks only `javascript:`,
+  `data:` and `vbscript:` and accepts every other string, so 9B's whole
+  structured-layout capability — hero, gallery, media_text, testimonials,
+  carousel — could only ever be proposed with INVENTED image URLs, which
+  validate, store, render on the card as "Added: Gallery", get approved, and
+  land in `store_pages.sections` as broken images. Nothing errored at any step.
+  ★ THE ALLOWLIST IS "WHAT THE MODEL WAS SHOWN", nothing wider. A store-owned
+  GCS PREFIX rule was considered and rejected: the builder's own uploads land
+  under `stores/{storeId}/uploads/` with no row anywhere, so no read tool can
+  list them and the model could only ever reach one by CONSTRUCTING a path —
+  the invented-URL defect again, wearing a prefix that makes it look checked.
+  ⚠ The consequence is stated rather than papered over: a theme-seeded store
+  keeps its artwork at `/themes/{id}/*.webp`, in no store's Media Library, so
+  on a page with no images a model asked for a gallery has nothing to use and
+  must say so. That is the right answer.
+  ★ MEDIA IS ITS OWN PERMISSION, not `builder`. Filenames alone can carry a
+  supplier's name or an unreleased product's, and an admin trusted to arrange a
+  page is not automatically trusted to enumerate every file the store holds.
+  ★ SAVING IS NOT A MINK ACTION: no credit, no approval, no model tool. It is a
+  second, separate consent beside 8E's extraction consent — extraction still
+  persists nothing, and a merchant may do either, both or neither. Mink's only
+  involvement is that it can afterwards SEE the result.
+  ★ THE GUARD FINDS MEDIA BY THE `_url` SUFFIX rather than by enumerating the
+  seventeen section types, so a new field is covered by construction; the
+  convention is pinned by a test that scans the section registry's source and
+  fails on a media-shaped field named anything else. `href`/`cta_href` are
+  deliberately untouched: a link is a place a shopper is sent, and merchants
+  legitimately point one anywhere.
+  ★★ AND THE ADVERSARIAL PROBE FOUND SOMETHING ELSE. `= any(${values}::text[])`
+  was the house idiom at THIRTEEN call sites across five modules, and it does
+  not work: drizzle expands a bare array into a placeholder LIST, so it
+  compiles to `any(($1, $2)::text[])` — a row constructor cast to an array,
+  which PostgreSQL refuses outright ("cannot cast type record to text[]", or
+  "malformed array literal" for a single element). Every one of those queries
+  threw at runtime, always, and several sit behind callers that swallow errors
+  by design, so a broken query looked like a feature that never matched. All
+  thirteen now use `sql.param(...)`, with a source-scanning guard so the shape
+  cannot come back. ⚠ Verified against a real PostgreSQL: the unit tests mock
+  the driver, so all of them passed both before and after.
+  Migration 0105 corrects the three published sentences that said Mink cannot
+  use images and that an attachment can never be kept. ECH-P9D prompts cover
+  the empty library, the invented URL, the save, the reorder that must NOT be
+  refused, and the deleted-asset conflict.
+  Local verification (2026-09-12): the full regression suite passed, both
+  static gates passed, migration 0105 applied clean against a live PostgreSQL
+  with its three content postconditions, and the two new source-scanning
+  guards were mutation-checked (a `background_image` field and a reverted
+  `sql.param` each failed exactly the test written for it). No live Vertex call
+  was made; live Echos acceptance remains pending.
+
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.
 

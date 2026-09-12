@@ -560,6 +560,111 @@ NULL` in the second arm is a real `false` that collapses the AND), so all
   understated what Mink can propose and what an approved save changes — by
   `replace()`, not by appending a section.
 
+### Mink Phase 9D — Media the model can use (2026-09-12)
+
+9B can propose a hero, a gallery, a media/text split, testimonials and a
+carousel. Every one of those is a block whose whole point is a PICTURE — and
+until now `grep -rn "media_assets" lib/mink/` returned **nothing**: eighteen
+read tools and not one of them knew the store had an image.
+
+**★★ SO THE STRUCTURED-LAYOUT CAPABILITY HAD A SILENT HOLE FROM THE DAY IT
+SHIPPED.** `safeHref` (`lib/homepage/section-types.ts`) blocks `javascript:`,
+`data:` and `vbscript:` and **accepts every other string**. A `gallery` needs
+two images, a model asked for one has never been shown a real image URL, and an
+invented `https://images.example.com/shop-hero.jpg` passes `validateConfig`, is
+stored, renders on the review card as "Added: Gallery", is approved, and lands
+in `store_pages.sections` as a broken image on a live storefront. **Nothing
+errors at any step**, which is why the fix is a refusal in the contract rather
+than a warning on the card.
+
+- **`lib/mink/storefront-media-read.ts` — `list_storefront_media`.** Bounded at
+  40, newest first, returning `media_assets.url` VERBATIM (it is the string a
+  proposal must echo back, so it is neither shortened nor re-derived from the
+  bucket path) plus filename, type, size. `selectOwnedMediaUrls(db, storeId,
+candidates)` answers membership rather than listing the library: a store may
+  hold thousands of assets, a proposal cites a few dozen, and the same question
+  has to run INSIDE the execute transaction, where a long read is a lock held
+  open.
+- **★ IT IS A `media` READ, NOT A `builder` ONE**, even though its only consumer
+  is a Builder proposal. Filenames alone can carry a supplier's name or an
+  unreleased product's, and an admin trusted to arrange a page is not
+  automatically trusted to enumerate every file the store has uploaded.
+- **★★ `lib/mink/storefront-media-policy.ts` — THE ALLOWLIST IS "WHAT THE MODEL
+  WAS SHOWN", NOTHING WIDER.** Two sources, each provably real: a URL already on
+  the CURRENT page (so a proposal that keeps or moves a block is never refused
+  for its own images — and a pure reorder asks the database nothing at all), and
+  a `media_assets.url` for this store. A store-owned **GCS PREFIX** rule was
+  considered and REJECTED: the builder's own `ImageUpload` writes to
+  `stores/{storeId}/uploads/` with no row anywhere, so no read tool can list
+  one and the model could only ever reach it by CONSTRUCTING a path — the
+  invented-URL defect again, wearing a prefix that makes it look checked.
+  ⚠ **The consequence, stated rather than papered over:** a theme-seeded store
+  keeps its artwork at `/themes/{id}/*.webp`, which is in no store's Media
+  Library, so on a page with no images a model asked for a gallery has nothing
+  to use and must say so. That is the right answer — "add these and I will use
+  them" beats two broken images.
+- **★ MEDIA IS FOUND BY THE `_url` SUFFIX, NOT BY ENUMERATING SEVENTEEN SECTION
+  TYPES.** Media already lives at three depths (`config.image_url`,
+  `config.items[].image_url`, `config.slides[].video_url`), and an enumerated
+  list is the thing that goes stale. The convention is pinned by a test that
+  scans the section registry's SOURCE and fails on a media-shaped field named
+  anything else — mutation-checked with a `background_image`. **`href` and
+  `cta_href` are deliberately untouched**: a link is where a shopper is sent,
+  and merchants legitimately point one at Instagram or a supplier; `*_url` is
+  media the page LOADS, and a wrong one is a hole in the page.
+- **★ CHECKED AT PROPOSAL AND AGAIN AT THE WRITE, under the same transaction.**
+  At proposal because charging for something that cannot be approved is a bill
+  for nothing; at the write because the page digest already proves the page has
+  not moved, so the **Media Library** is the only thing that can have changed —
+  an asset deleted between approval and execution would otherwise go live as a
+  broken image. It conflicts and audits, exactly like the custom-code guard
+  beside it.
+- **★★ SAVING AN ATTACHMENT IS THE MERCHANT'S UPLOAD, NOT A MINK ACTION.**
+  8E deliberately discards attachment bytes ("never database/GCS/Media/memory
+  objects") — right for EXTRACTION, and exactly what made "make my hero this
+  photo" impossible: the one image in the conversation existed for seconds. The
+  composer now offers **Save to Media Library** beside an image, as a SECOND,
+  SEPARATE consent: extraction still saves nothing, the attachment survives the
+  save so it can still be processed, and a merchant may do either, both or
+  neither. It calls the store's own `uploadMediaAsset` — same `media` manage
+  gate, same WebP normalisation, same GCS path, same orphan cleanup as
+  `/dashboard/media` — because nothing about this file differs from one dragged
+  onto that page. **No credit, no approval, no model tool.** Mink's only
+  involvement is that it can afterwards SEE the result.
+  `addSavedMinkMediaReference` puts the exact URL into the composer, labelled
+  untrusted, so the next turn can cite it without a Media read and a guess.
+  `canSaveMedia` is resolved in the dashboard layout and threaded through
+  `ChatProvider`, so the control is absent for an admin who cannot use it (§23's
+  rule); `uploadMediaAsset` re-checks and is the real boundary.
+- **★ NO NEW TOOL VOCABULARY, NO GATE, NO SCHEMA.** `list_storefront_media` is a
+  READ tool, so it is permission-filtered and never enters
+  `mink_action_tool_access`; the save reuses an existing gated action. Migration
+  `20260912_0105_mink_media_help` is content only — it `replace()`s the three
+  published sentences that said Mink cannot use images and that an attachment
+  can never be kept.
+- Prompt versions advance to `draft-action-beta-v28` / `draft-beta-v19` AND
+  `read-beta-v15` / `read-beta-v11` — the first phase in a while to move the
+  READ pair too, because a read-only actor IS offered this tool.
+
+**★★ AND PROBING IT FOUND A LIVE DEFECT IN THIRTEEN OTHER QUERIES.**
+`= any(${values}::text[])` was the house idiom across five modules, and it does
+not work. Drizzle expands a bare array in a `sql` template into a comma-separated
+placeholder LIST (for `in (...)`), so that compiles to `any(($1, $2)::text[])` —
+a ROW CONSTRUCTOR cast to an array — and PostgreSQL refuses it outright:
+`cannot cast type record to text[]`, or `malformed array literal: "a"` for a
+single element, or `op ANY/ALL (array) requires array on right side` with no
+cast. **Every one of those queries threw at runtime, always** — in the POS
+customer claim (§36), the announcement worker and audience resolver (§39), and
+Mink's bulk-price and bulk-inventory target readers (§20a) — and several sit
+behind callers that swallow errors by design, so a permanently broken query
+looked like a feature that simply never matched anything. All thirteen now use
+`sql.param(values)`, which binds the whole array as ONE parameter.
+⚠ **The unit tests passed both before and after**: they mock the driver, so a
+query the SERVER rejects is indistinguishable from a correct one. It was found
+by executing all three shapes against a real PostgreSQL, and
+`lib/db/sql-array-binding.test.ts` is the guard — it proves the compiled shape
+and fails on any `any(${…})` in the tree that is not wrapped in `sql.param`.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
@@ -1936,6 +2041,16 @@ wholesip/
 │   │                          # value or a WCAG AA pair fails, locked on the design DIGEST
 │   │                          # rather than the autosaved chrome clock, and approved into
 │   │                          # store_chrome.draft.design one key at a time.
+│   │                          # storefront-media-read.ts + storefront-media-policy.ts add
+│   │                          # Phase 9D: list_storefront_media (a `media` View read of the
+│   │                          # store's own image URLs) and the guard that REFUSES a layout
+│   │                          # proposal citing any image the store does not have -- safeHref
+│   │                          # accepts every non-script URL, so an invented one validated,
+│   │                          # stored, reviewed and saved as a broken image. media-attachment.ts
+│   │                          # is the client-safe helper for the composer's separate
+│   │                          # Save to Media Library step, which is the merchant's own
+│   │                          # upload through app/actions/media-actions.ts -- no credit,
+│   │                          # no approval and no model tool.
 │   │                          # thinking.ts selects HIGH
 │   │                          # only for authorised explicit storefront code generation.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
@@ -2394,7 +2509,10 @@ wholesip/
 │                              # in all EIGHT applied storefront target checks;
 │                              # 0104 widens the two published Help paragraphs that
 │                              # understated what Mink can propose;
-│                              # 0105 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0105 corrects the three published Help sentences that
+│                              # said Mink cannot use images and that a chat
+│                              # attachment can never be kept;
+│                              # 0106 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -4236,7 +4354,8 @@ opt-in; disabling the invitation boundary never discards a store's operator-set
 drafting entitlement.
 Its read tools cover store profile, catalogue summary, product search,
 recognized net sales, low stock, masked orders/current order, current product,
-published Help Centre retrieval and Phase 7A Website Builder context. Builder
+published Help Centre retrieval, Phase 7A Website Builder context and the
+store's own Media Library image URLs (a separate `media` View gate). Builder
 reads require Builder View, recheck that permission inside the reader and put
 the trusted store ID in every service query. They list a bounded page index,
 resolve only exact page slugs/section IDs, preserve microsecond page versions,

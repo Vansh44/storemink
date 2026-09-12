@@ -22,7 +22,13 @@ const speech = vi.hoisted(() => ({
 vi.mock("@/lib/mink/speech-recognition", () => ({
   startMinkSpeechRecognition: speech.start,
 }));
+const media = vi.hoisted(() => ({ upload: vi.fn() }));
+vi.mock("@/app/actions/media-actions", () => ({
+  uploadMediaAsset: media.upload,
+}));
 const fetchMock = vi.fn();
+const SAVED_URL =
+  "https://storage.googleapis.com/b/stores/s1/media/echos_1.webp";
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
@@ -30,6 +36,10 @@ beforeEach(() => {
   speech.stop.mockReset();
   speech.cancel.mockReset();
   speech.callbacks = null;
+  media.upload.mockReset();
+  media.upload.mockResolvedValue({
+    asset: { url: SAVED_URL, filename: "echos.png" },
+  });
   speech.start.mockImplementation((_signal, callbacks) => {
     speech.callbacks = callbacks;
     callbacks.onState("starting");
@@ -64,10 +74,21 @@ async function choose() {
   await screen.findByText("Process for review");
 }
 
-function LiveComposer({ initial = "" }: { initial?: string }) {
+function LiveComposer({
+  initial = "",
+  canSaveMedia = false,
+}: {
+  initial?: string;
+  canSaveMedia?: boolean;
+}) {
   const [value, setValue] = useState(initial);
   return (
-    <MinkMultimodalInput message={value} onAdd={setValue} disabled={false}>
+    <MinkMultimodalInput
+      message={value}
+      onAdd={setValue}
+      disabled={false}
+      canSaveMedia={canSaveMedia}
+    >
       {({ attach, voice }) => (
         <div>
           {attach}
@@ -347,5 +368,72 @@ describe("review-first multimodal input", () => {
     });
     await screen.findByRole("alert");
     expect(screen.queryByText("Process for review")).not.toBeInTheDocument();
+  });
+});
+
+describe("Phase 9D saving an attachment to the Media Library", () => {
+  it("offers no save control to an admin who cannot add to Media", async () => {
+    render(<LiveComposer />);
+    await open();
+    await choose();
+    // §23's rule: a control that always fails in front of the user is worse
+    // than no control. `uploadMediaAsset` re-checks the same permission.
+    expect(
+      screen.queryByRole("button", { name: /Save to Media Library/i }),
+    ).toBeNull();
+  });
+
+  it("saves the image and puts its exact URL into the message", async () => {
+    render(<LiveComposer initial="Use this as my hero" canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText(/Saved to your Media Library/i);
+    expect(media.upload).toHaveBeenCalledOnce();
+    const form = media.upload.mock.calls[0][0] as FormData;
+    expect((form.get("file") as File).name).toBe("echos.png");
+    expect(
+      (screen.getByLabelText("Message") as HTMLTextAreaElement).value,
+    ).toContain(SAVED_URL);
+  });
+
+  it("saves nothing through the extraction endpoint", async () => {
+    render(<LiveComposer canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText(/Saved to your Media Library/i);
+    // One availability GET from opening the picker, and no POST: saving is a
+    // separate decision from sending bytes to the provider.
+    expect(
+      fetchMock.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps the attachment so it can still be processed after saving", async () => {
+    render(<LiveComposer canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText(/Saved to your Media Library/i);
+    expect(screen.getByText("Process for review")).toBeTruthy();
+  });
+
+  it("reports a refused save instead of claiming the image is available", async () => {
+    media.upload.mockResolvedValue({ error: "Uploads are not configured." });
+    render(<LiveComposer canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText("Uploads are not configured.");
+    expect(screen.queryByText(/Saved to your Media Library/i)).toBeNull();
   });
 });

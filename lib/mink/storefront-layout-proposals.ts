@@ -19,6 +19,11 @@ import {
   validateMinkStorefrontLayoutPatch,
   type MinkStorefrontLayoutPatch,
 } from "./storefront-layout-contract";
+import {
+  assertLayoutMediaIsOwned,
+  collectSectionMediaUrls,
+} from "./storefront-media-policy";
+import { readOwnedMediaUrls } from "./storefront-media-read";
 import type { MinkDraftContent } from "./draft-types";
 import type { MinkActorContext, MinkArtifact } from "./types";
 
@@ -150,6 +155,21 @@ export async function createMinkStorefrontLayoutProposal(input: {
   );
   if (codeIssues.length > 0) {
     throw new MinkToolInputError(codeIssues.join(" "));
+  }
+
+  // ★★ AND EVERY IMAGE MUST BE ONE THE STORE HAS. `safeHref` accepts any
+  //    http(s) string, so without this an invented URL validates, stores,
+  //    reviews as "Added: Gallery" and saves as a broken image -- see
+  //    storefront-media-policy.ts. Refused HERE as well as at the write,
+  //    because charging for a proposal that cannot be approved is a bill for
+  //    nothing (the same reason the freshness check runs at proposal time).
+  const mediaIssues = await assertProposalMediaIsOwned(
+    input.actor.storeId,
+    patch.sections,
+    target.sections,
+  );
+  if (mediaIssues.length > 0) {
+    throw new MinkToolInputError(mediaIssues.join(" "));
   }
 
   if (digestMinkStorefrontSections(patch.sections) === target.sectionsDigest) {
@@ -289,6 +309,30 @@ export function readStoredLayoutSections(
     );
   }
   return validated.sections;
+}
+
+/**
+ * The allowlist a layout proposal's images are checked against.
+ *
+ * ★ THE CURRENT PAGE COMES FIRST AND FOR FREE. A proposal that keeps or moves
+ *   an existing block carries that block's images with it, and refusing those
+ *   would make the commonest safe edit -- reordering -- impossible. Only URLs
+ *   the page does NOT already have are worth a database round trip, so a
+ *   pure reorder asks the Media Library nothing at all.
+ */
+export async function assertProposalMediaIsOwned(
+  storeId: string,
+  proposed: PageSectionItem[],
+  current: PageSectionItem[],
+): Promise<string[]> {
+  const onPage = new Set(collectSectionMediaUrls(current));
+  const candidates = [
+    ...new Set(
+      collectSectionMediaUrls(proposed).filter((url) => !onPage.has(url)),
+    ),
+  ];
+  const owned = await readOwnedMediaUrls(storeId, candidates);
+  return assertLayoutMediaIsOwned(proposed, [...onPage, ...owned]);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

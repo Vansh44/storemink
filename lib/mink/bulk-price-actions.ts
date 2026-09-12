@@ -904,7 +904,7 @@ async function lockPriceTargets(
   const productIds = [...new Set(lines.map((line) => line.product_id))].sort();
   await db.execute(sql`
     select id from public.products
-    where store_id = ${storeId}::uuid and id = any(${productIds}::uuid[])
+    where store_id = ${storeId}::uuid and id = any(${sql.param(productIds)}::uuid[])
     order by id for update
   `);
   const variantIds = lines
@@ -914,7 +914,7 @@ async function lockPriceTargets(
   if (!variantIds.length) return;
   await db.execute(sql`
     select id from public.product_variants
-    where store_id = ${storeId}::uuid and id = any(${variantIds}::uuid[])
+    where store_id = ${storeId}::uuid and id = any(${sql.param(variantIds)}::uuid[])
     order by id for update
   `);
 }

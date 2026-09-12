@@ -13,6 +13,7 @@ import { digestMinkStorefrontValue } from "./storefront-code-contract";
 const state = vi.hoisted(() => ({
   selects: {} as Record<string, any[][]>,
   executeRows: [] as any[],
+  ownedMediaUrls: [] as string[],
   inserts: [] as Array<{ table: string; values: any }>,
   updates: [] as Array<{ table: string; values: any }>,
   updateReturns: {} as Record<string, any[][]>,
@@ -20,11 +21,15 @@ const state = vi.hoisted(() => ({
   locked: [] as string[],
 }));
 
-function lockedTable(query: any): string | null {
-  const text = ((query?.queryChunks ?? []) as any[])
+function queryText(query: any): string {
+  return ((query?.queryChunks ?? []) as any[])
     .map((chunk) => (Array.isArray(chunk?.value) ? chunk.value.join("") : ""))
     .join(" ")
     .replace(/\s+/g, " ");
+}
+
+function lockedTable(query: any): string | null {
+  const text = queryText(query);
   if (!/for update/i.test(text)) return null;
   return /from\s+public\.([a-z_]+)/i.exec(text)?.[1] ?? "unknown";
 }
@@ -90,6 +95,12 @@ const db = {
     // whichever lock happened to run first.
     if (table === "mink_action_tool_access") {
       return { rows: take(state.selects.mink_action_tool_access) };
+    }
+    // Routed by CONTENT, not position: the media-ownership check shares this
+    // path with several `for update` locks, so a positional queue would hand
+    // its answer to whichever lock statement happened to run first.
+    if (/from media_assets/i.test(queryText(query))) {
+      return { rows: state.ownedMediaUrls.map((url) => ({ url })) };
     }
     return state.executeRows.shift() ?? { rows: [] };
   },
@@ -260,9 +271,73 @@ function armExecute(overrides: { page?: any; approval?: any } = {}) {
   state.updateReturns.mink_action_approvals = [[{ id: APPROVAL_ID }]];
 }
 
+const MEDIA_URL = "https://storage.googleapis.com/b/stores/s/media/a.webp";
+
+const gallerySection = (url: string, id = "gal"): PageSectionItem =>
+  ({
+    id,
+    type: "gallery",
+    enabled: true,
+    config: {
+      ...EMPTY_CONFIG.gallery,
+      items: [url, url].map((image_url) => ({
+        image_url,
+        image_alt: "",
+        caption: "",
+        href: "",
+      })),
+    },
+  }) as PageSectionItem;
+
+/**
+ * A proposal that adds a gallery whose image is NOT already on the page, so
+ * the write-side library check is the only thing that can accept or refuse it.
+ */
+function armMediaExecute() {
+  const proposed = [section("a"), gallerySection(MEDIA_URL)];
+  const mediaDraft = draft();
+  mediaDraft.content.sections_json = JSON.stringify(proposed);
+  mediaDraft.content.patch_digest = patchDigest(mediaDraft.content, proposed);
+
+  const before = actionValues(CURRENT_DIGEST, CURRENT.length);
+  const after = actionValues(
+    digestMinkStorefrontSections(proposed),
+    proposed.length,
+  );
+  state.selects.mink_action_approvals = [
+    [
+      {
+        ...approvalRow(),
+        beforeJson: before,
+        afterJson: after,
+        requestHash: hashMinkActionPayload({
+          storeId: STORE_ID,
+          adminId: "admin-1",
+          draftId: DRAFT_ID,
+          draftVersion: 0,
+          resourceId: PAGE_ID,
+          resourceVersion: PAGE_VERSION,
+          before,
+          after,
+          toolVersion: 1,
+        }),
+      },
+    ],
+  ];
+  state.selects.mink_action_tool_access = [[{ enabled: true }]];
+  state.selects.mink_drafts = [[mediaDraft]];
+  state.selects.store_pages = [[page()]];
+  state.updateReturns.store_pages = [
+    [{ id: PAGE_ID, updatedAt: NEXT_VERSION }],
+  ];
+  state.updateReturns.mink_action_approvals = [[{ id: APPROVAL_ID }]];
+  return { armed: true };
+}
+
 beforeEach(() => {
   state.selects = {};
   state.executeRows = [];
+  state.ownedMediaUrls = [];
   state.locked = [];
   state.inserts = [];
   state.updates = [];
@@ -508,6 +583,46 @@ describe("Mink Phase 9B storefront layout actions", () => {
     expect(
       state.inserts.find((e) => e.table === "mink_action_audit")?.values.detail,
     ).toContain("custom code");
+  });
+
+  it("refuses to write an image that has left the Media Library since preview", async () => {
+    // The page digest still matches what was approved, so the library is the
+    // only thing that can have moved -- and nothing else would notice.
+    const { armed } = armMediaExecute();
+    state.ownedMediaUrls = []; // the asset is gone
+
+    const { executeMinkStorefrontLayoutAction } =
+      await import("./storefront-layout-actions");
+    await expect(
+      executeMinkStorefrontLayoutAction({
+        actor: actor(),
+        draftId: DRAFT_ID,
+        approvalId: APPROVAL_ID,
+      }),
+    ).rejects.toThrow(/changed/i);
+    expect(
+      state.updates.find((e) => e.table === "store_pages"),
+    ).toBeUndefined();
+    expect(
+      state.inserts.find((e) => e.table === "mink_action_audit")?.values.detail,
+    ).toContain("Media Library");
+    expect(armed).toBe(true);
+  });
+
+  it("writes when the approved image is still in the Media Library", async () => {
+    armMediaExecute();
+    state.ownedMediaUrls = [MEDIA_URL];
+
+    const { executeMinkStorefrontLayoutAction } =
+      await import("./storefront-layout-actions");
+    const result = await executeMinkStorefrontLayoutAction({
+      actor: actor(),
+      draftId: DRAFT_ID,
+      approvalId: APPROVAL_ID,
+    });
+    expect(result.repeated).toBe(false);
+    expect(result.approval.status).toBe("executed");
+    expect(state.updates.find((e) => e.table === "store_pages")).toBeDefined();
   });
 
   it("refuses an approval whose request hash was tampered with", async () => {

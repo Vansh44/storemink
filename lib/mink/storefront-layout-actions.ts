@@ -26,6 +26,11 @@ import {
   readStoredLayoutSections,
   validateStoredLayoutProposal,
 } from "./storefront-layout-proposals";
+import {
+  assertLayoutMediaIsOwned,
+  collectSectionMediaUrls,
+} from "./storefront-media-policy";
+import { selectOwnedMediaUrls } from "./storefront-media-read";
 import type {
   MinkStorefrontLayoutActionApproval,
   MinkStorefrontLayoutActionResult,
@@ -290,6 +295,40 @@ export async function executeMinkStorefrontLayoutAction(input: {
         approval,
         "conflicted",
         "The approved layout no longer preserves the page's custom code.",
+        target.updatedAt,
+      );
+      return { error: targetConflict() };
+    }
+
+    // ★ AND THE IMAGES AGAIN, UNDER THE SAME TRANSACTION. The page digest
+    //   above proves the page has not moved, so the only thing that can have
+    //   changed since the preview is the MEDIA LIBRARY -- an asset deleted
+    //   between approval and execution would otherwise be written live as a
+    //   broken image. `db` is threaded in deliberately: a second connection
+    //   would answer about a library this write is not protected against.
+    const onPage = new Set(collectSectionMediaUrls(target.sections));
+    const candidates = [
+      ...new Set(
+        collectSectionMediaUrls(draft.proposal.sections).filter(
+          (url) => !onPage.has(url),
+        ),
+      ),
+    ];
+    const owned = await selectOwnedMediaUrls(
+      db,
+      input.actor.storeId,
+      candidates,
+    );
+    const mediaIssues = assertLayoutMediaIsOwned(draft.proposal.sections, [
+      ...onPage,
+      ...owned,
+    ]);
+    if (mediaIssues.length > 0) {
+      await finalizeWithoutWrite(
+        db,
+        approval,
+        "conflicted",
+        "An image in the approved layout is no longer in this store's Media Library.",
         target.updatedAt,
       );
       return { error: targetConflict() };

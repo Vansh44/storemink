@@ -118,7 +118,7 @@ export async function processAnnouncements(
       const res = await withService((db) =>
         db.execute(
           sql`select id, subject, body, cta_label, cta_url, category
-                from platform_announcements where id = any(${ids}::uuid[])`,
+                from platform_announcements where id = any(${sql.param(ids)}::uuid[])`,
         ),
       );
       for (const row of res.rows as unknown as AnnouncementRow[]) {
@@ -230,7 +230,7 @@ async function refreshCounts(announcementIds: string[]): Promise<void> {
                  count(*) filter (where status = 'skipped')::int as skipped,
                  count(*) filter (where status in ('pending','sending'))::int as pending
             from platform_announcement_recipients
-           where announcement_id = any(${announcementIds}::uuid[])
+           where announcement_id = any(${sql.param(announcementIds)}::uuid[])
            group by announcement_id
         ) c
        where a.id = c.announcement_id

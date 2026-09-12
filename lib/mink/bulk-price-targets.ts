@@ -113,7 +113,7 @@ export async function resolveMinkBulkPriceTargets(
              count(*) over (partition by p.sku) as match_count
       from public.products p
       where p.store_id = ${actor.storeId}::uuid
-        and p.sku = any(${skus}::text[])
+        and p.sku = any(${sql.param(skus)}::text[])
     `),
     db.execute(sql`
       select p.id as product_id, p.name as product_name,
@@ -126,7 +126,7 @@ export async function resolveMinkBulkPriceTargets(
       join public.products p
         on p.id = pv.product_id and p.store_id = pv.store_id
       where pv.store_id = ${actor.storeId}::uuid
-        and pv.sku = any(${skus}::text[])
+        and pv.sku = any(${sql.param(skus)}::text[])
     `),
   ]);
   const products = productResult.rows as unknown as ProductCandidate[];

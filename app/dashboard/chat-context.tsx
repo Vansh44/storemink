@@ -18,6 +18,8 @@ import type { MinkFeedbackIssue, MinkFeedbackRating } from "@/lib/mink/types";
 
 interface ChatContextType {
   isChatOpen: boolean;
+  /** `media` manage, resolved in the dashboard layout — see MinkMultimodalInput. */
+  canSaveMedia: boolean;
   // Full-view "takeover" mode (Shopify Sidekick style) vs the narrow side panel.
   isExpanded: boolean;
   toggleChat: () => void;
@@ -57,9 +59,11 @@ const ChatContext = createContext<ChatContextType | undefined>(undefined);
 export function ChatProvider({
   children,
   minkEnabled,
+  canSaveMedia = false,
 }: {
   children: ReactNode;
   minkEnabled: boolean;
+  canSaveMedia?: boolean;
 }) {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
@@ -88,6 +92,7 @@ export function ChatProvider({
     () => ({
       isChatOpen,
       isExpanded,
+      canSaveMedia,
       toggleChat,
       closeChat,
       toggleExpand,
@@ -97,6 +102,7 @@ export function ChatProvider({
     [
       isChatOpen,
       isExpanded,
+      canSaveMedia,
       toggleChat,
       closeChat,
       toggleExpand,
@@ -118,6 +124,7 @@ export function useChat() {
     return {
       isChatOpen: false,
       isExpanded: false,
+      canSaveMedia: false,
       toggleChat: () => {},
       closeChat: () => {},
       toggleExpand: () => {},

@@ -4551,6 +4551,40 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260912_0105_mink_media_help",
+      "description": "Correct the three published sentences that say Mink cannot use images and that an attachment is never kept",
+      "file": "sql/20260912_0105_mink_media_help.sql",
+      "transaction": true,
+      "requires": ["20260912_0104_mink_design_help"],
+      "verify": {
+        "tables": ["help_articles", "media_assets"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide says where a layout proposal's images may come from",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%only pictures from your Media library, or pictures already on the page it is changing%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide describes saving an attachment to the Media library",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Save to Media Library</strong> beside the attachment%'",
+            "equals": "1"
+          },
+          {
+            "name": "no published sentence still says an attachment can never be kept",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and (body like '%Neither proposal generates images.%' or body like '%StoreMink does not save the raw file in its database%' or body like '%does not generate or place images, save memories%')",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

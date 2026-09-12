@@ -135,6 +135,7 @@ export function DashboardChat({
   const {
     isChatOpen,
     isExpanded,
+    canSaveMedia,
     closeChat,
     toggleExpand,
     messages,
@@ -651,6 +652,7 @@ export function DashboardChat({
                   composerRef.current?.focus();
                 }}
                 disabled={isReplying || isHistoryLoading}
+                canSaveMedia={canSaveMedia}
               >
                 {({ attach, voice }) => (
                   <form
