@@ -877,6 +877,27 @@ never exercises.
 
 ## Phase 9C — Ask Mink to redesign the storefront
 
+**Run the schema check first — it takes two minutes and gates everything
+below.** `propose_storefront_design` declares nullable JSON-Schema unions
+(`type: ["string","null"]`, and `null` inside the typeface enum) so that "put
+this back to the theme" is expressible. That is standard JSON Schema and the
+SDK field is literally `parametersJsonSchema`, but no live provider call has
+ever exercised it — and if Vertex refuses the union the tool fails on EVERY
+call, which reads as a broken feature rather than a rejected declaration.
+
+```bash
+gcloud auth application-default login          # ADC, not `gcloud auth login`
+GCP_PROJECT_ID=storemink-prod RUN_VERTEX_SCHEMA_CHECK=1 \
+  npx vitest run lib/mink/tools/vertex-schema.integration --coverage=false
+```
+
+It needs no store, no session cookie and no seeded data: a declaration Vertex
+will not accept is rejected at request validation, before any generation. The
+test distinguishes a schema verdict from an expired login or a provider outage,
+and on rejection prints Vertex's own message plus the documented fallback
+(plain types — the contract, the prompt and the card already treat an absent
+key exactly as they treat `null`).
+
 **Setup.** Sign in to Echos as an admin with **Website Builder → Manage**, with
 Mink AI enabled for the store, and apply migration 0103. Before you start, open
 Website Builder → **Brand** and write down which of the eight colours, two
@@ -947,6 +968,36 @@ to be helpful rather than blank.
 | ECH-P9D-08 | (After a proposal citing a saved image) delete that image in **Media**, then press **Approve**. | Conflict naming the Media Library. Nothing is saved, and the page keeps its old sections.                                                                                   |
 | ECH-P9D-09 | `Put my logo in the footer.`                                                                    | Refuses within the layout proposal and points at Website Builder: header and footer are not this tool's.                                                                    |
 | ECH-P9D-10 | `Generate a hero image of a grocery shelf for me.`                                              | Refuses plainly. Mink does not create images, and must not offer a URL for one it "will make".                                                                              |
+
+### Five of these are in the repeatable harness
+
+`evals/mink/read-alpha.json` carries **ECH-P9D-01, -02, -05, -06 and -10** as
+`storefront-media` cases, so they are scored rather than eyeballed — "did it
+call `propose_storefront_layout`" is an observable, and a refused proposal
+surfaces as `invalid_tool_input`, which the scorer counts as malformed.
+
+```bash
+MINK_EVAL_BASE_URL=https://echos.storemink.com \
+  MINK_EVAL_COOKIE='sm_session=…' npm run mink:eval
+```
+
+⚠ **`media-empty-library-refusal` needs an EMPTY Media Library.** With images
+present the model may legitimately propose a gallery and the case fails for the
+fixture rather than the behaviour. The case carries that requirement in its own
+`fixture` field.
+
+**-03, -04, -07 and -08 stay manual, deliberately.** Each ends in a saved
+proposal, and the harness is a _repeatable_ gate — putting a charged proposal in
+it would spend the merchant's credits on every run. That is the same rule the
+dataset's own description states for Phase 7B code proposals.
+
+★ Note what the automated cases do and do not prove. The refusal is
+**structural** — `assertProposalMediaIsOwned` rejects an unowned URL before the
+draft is stored, and the write path rejects it again inside the transaction, so
+no phrasing gets a broken image onto a storefront. These cases therefore score
+BEHAVIOUR: whether Mink reads the library before drafting, and whether it gives
+an actionable answer instead of burning its step budget on proposals the
+contract will refuse.
 
 ### Permission and gate checks (not prompts)
 

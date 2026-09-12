@@ -2058,7 +2058,7 @@ wholesip/
 │   │                          # No model tool can publish, schedule, send or execute a live mutation;
 │   │                          # Phase 7D publication remains an authenticated human-only action.
 │   │                          # `evals/mink/read-alpha.json` + `npm run mink:eval` are the
-│   │                          # 73-case live tool/safety/latency gate.
+│   │                          # 78-case live tool/safety/latency gate.
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -4884,7 +4884,7 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      retries, tool names, tokens and known shadow cost but never selects or
      renders prompts, answers, tool arguments/results, provider state or
      reasoning. `evals/mink/read-alpha.json` and `npm run mink:eval` provide the
-     73-case live tool-choice/security/latency gate. The complementary
+     78-case live tool-choice/security/latency gate. The complementary
      `docs/mink-ai-test-prompts.md` catalogue covers phase-wise manual prompts
      plus UX, permission, tenancy, credit, approval, conflict, idempotency and
      rollback acceptance scenarios. The original migration
