@@ -4668,6 +4668,74 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260912_0108_mink_image_intent_help",
+      "description": "Explain automatic saving and same-request page placement for Mink-generated images",
+      "file": "sql/20260912_0108_mink_image_intent_help.sql",
+      "transaction": true,
+      "requires": ["20260912_0107_mink_image_generation_help"],
+      "verify": {
+        "tables": ["help_articles", "media_assets"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide says a generated picture is saved to Media",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%saves it under <strong>Media</strong>%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide says a named page destination continues in the same response",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%prepares the page change in the same response%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete generated-image save instruction was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%it is not yours to use until you choose <strong>Save to Media Library</strong>%'",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260913_0109_mink_attached_image_flow_help",
+      "description": "Explain attached-image storefront placement and compact chat attachment cards",
+      "file": "sql/20260913_0109_mink_attached_image_flow_help.sql",
+      "transaction": true,
+      "requires": ["20260912_0108_mink_image_intent_help"],
+      "verify": {
+        "tables": ["help_articles", "media_assets"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains one-turn attached-image placement",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Send saves your image under <strong>Media</strong> and Mink prepares the private page change in the same response%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide keeps promotional copy editable",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%puts offer wording in the editable carousel text%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete vague attachment handoff was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%straight from the plus button in the chat when you have the file to hand%'",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

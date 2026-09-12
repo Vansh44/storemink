@@ -376,7 +376,7 @@ inherits staging's database, Firebase project, bucket and every secret name.
 | `_MINK_MAX_PARALLEL_READ_TOOLS`             | `4`                                                                 | `4`                                                                 | `4`                                                              |
 | `_MINK_MAX_OUTPUT_TOKENS`                   | `2048`                                                              | `2048`                                                              | `2048`                                                           |
 | `_MINK_MAX_MODEL_RETRIES`                   | `1`                                                                 | `1`                                                                 | `1`                                                              |
-| `_MINK_RUN_TIMEOUT_SECONDS`                 | `120`                                                               | `120`                                                               | `120`                                                            |
+| `_MINK_RUN_TIMEOUT_SECONDS`                 | `180`                                                               | `180`                                                               | `180`                                                            |
 
 > **⚠ COST CUTS OF 2026-08-10 — three values here are now tuned for spend, not
 > for headroom.** Monthly GCP was tracking to ~₹6,400 and had to come down.

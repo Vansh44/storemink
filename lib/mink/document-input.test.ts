@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { decodeMinkDocument, addReviewedMinkDocument } from "./document-input";
+import {
+  decodeMinkDocument,
+  addReviewedMinkDocument,
+  readReviewedMinkDocument,
+} from "./document-input";
 const bytes = (text: string) =>
   new TextEncoder().encode(text).buffer as ArrayBuffer;
 describe("reviewed plain text document input", () => {
@@ -37,5 +41,19 @@ describe("reviewed plain text document input", () => {
   });
   it("rejects overflow instead of silently truncating the request", () => {
     expect(() => addReviewedMinkDocument("x".repeat(3999), "hello")).toThrow();
+  });
+  it("keeps display metadata outside the visible message text", () => {
+    const stored = addReviewedMinkDocument("Summarise this", "Stock notes", {
+      filename: "stock.md",
+      kind: "document",
+    });
+    expect(readReviewedMinkDocument(stored)).toEqual({
+      message: "Summarise this",
+      attachment: {
+        text: "Stock notes",
+        filename: "stock.md",
+        kind: "document",
+      },
+    });
   });
 });

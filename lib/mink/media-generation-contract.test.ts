@@ -86,7 +86,7 @@ describe("Phase 9E generation request", () => {
 });
 
 describe("the shape a purpose pins", () => {
-  it("gives every purpose an aspect ratio Imagen accepts", () => {
+  it("gives every purpose an aspect ratio the image model accepts", () => {
     const supported = new Set(["1:1", "3:4", "4:3", "16:9", "9:16"]);
     for (const purpose of MINK_MEDIA_PURPOSES) {
       expect(supported.has(aspectRatioFor(purpose))).toBe(true);
@@ -107,7 +107,7 @@ describe("the shape a purpose pins", () => {
   });
 });
 
-describe("the always-applied negative prompt", () => {
+describe("the always-applied image exclusion clause", () => {
   it("covers the failure modes that make an image unusable", () => {
     // Not a style preference: invented lettering reads as a real sign, and an
     // invented logo is somebody's trademark or a fake of the merchant's own.

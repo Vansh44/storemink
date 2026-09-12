@@ -391,7 +391,7 @@ MINK_VERTEX_DEEP_ENABLED=false
 MINK_VERTEX_LOCATION=global
 MINK_MAX_STEPS_PER_RUN=12
 MINK_MAX_PARALLEL_READ_TOOLS=4
-MINK_RUN_TIMEOUT_SECONDS=120
+MINK_RUN_TIMEOUT_SECONDS=180
 ```
 
 Production authentication remains Application Default Credentials from the
@@ -1694,10 +1694,16 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   approve an image nobody has looked at. The accepted cost is that a discarded
   proposal has already spent a provider call — the right way round, since the
   alternative spends the same money on an image that may be wrong.
-  ★★ SAVING IS A BUTTON, NOT AN APPROVAL — 9D's own precedent in the same
-  feature area. A `media_assets` row changes nothing a shopper can see, so a
-  second five-minute approval would guard a boundary 9D already guards. No
-  approval row, no audit row, no new resource type: four allowlists stay still.
+  ★★ SAVING IS PART OF GENERATION, NOT AN APPROVAL OR A SECOND MERCHANT
+  task. A `media_assets` row changes nothing a shopper can see, while making
+  the exact returned URL immediately eligible for 9D's ownership check. This is
+  what lets one request such as "make a banner for my homepage" create the
+  picture and prepare the separately approved layout proposal in the same run.
+  Uploaded attachments keep their explicit Save control. An explicit authored
+  request to use the attachment in a named storefront placement also makes Send
+  save it through the ordinary Media action before Mink runs; generic image
+  analysis remains transient. No approval row, no audit row and no new resource
+  type are introduced.
   ★★ THE OPERATOR GATE SITS ON THE GENERATION, the only one in
   `mink_action_tool_access` that does. Everywhere else the write is the
   expensive half; here the write is a private library row and the provider call
@@ -1706,19 +1712,27 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   `reserveMinkImageGeneration` is a spend ceiling rather than polite rate
   limiting — 3/owner/minute, 10/store/hour, 25/store/day, 200/global/hour and
   2 per run, claimed before the provider call AND before the credit charge.
-  ★ PURPOSE PINS THE ASPECT RATIO and the caller never does; the negative
-  prompt, `personGeneration: DONT_ALLOW`, the safety filter and the SynthID
-  watermark are fixed in code, because their whole value is being identical on
-  every call. A filtered image surfaces the provider's own reason verbatim; a
+  ★ PURPOSE PINS THE ASPECT RATIO and the caller never does; the fixed exclusion
+  clause, `personGeneration: ALLOW_NONE`, prominent-person block and four strict
+  harm filters are fixed in code. Vertex applies SynthID to Gemini-generated
+  images by default. A filtered image surfaces the provider's own reason; a
   provider FAILURE never reads as a merchant mistake.
   ★ ALT TEXT IS REQUIRED at proposal time by the contract and by the database:
   nothing else in the product will ever ask for it.
   Migration 0106 moves exactly two vocabularies and adds one target shape, both
   enumerated by querying `pg_get_constraintdef`; 0107 corrects the two published
   sentences promising Mink never creates a picture — both written by 0105 two
-  days earlier, and true then. ECH-P9E prompts cover the
-  offer-what-you-have case, the generation, the cannot-place boundary, the
-  product-photo refusal and the rate limit.
+  days earlier, and true then. Migration 0108 updates the same merchant guide
+  for automatic generated-image saving and same-request layout preparation.
+  Migration 0109 updates that paragraph again for supplied images: the composer
+  shows compact attachment cards, explicit storefront placement saves the real
+  image and prepares the layout in one turn, and promotional copy remains
+  editable carousel content. Generic extraction remains review-first. The
+  overall run deadline is now 180 seconds so a bounded media read, page read and
+  proposal are not cut off by the former two-minute default.
+  ECH-P9E prompts cover the offer-what-you-have case, purpose inference,
+  same-run generation-plus-placement, the product-photo refusal and the rate
+  limit.
   Local verification (2026-09-12): migration 0106 applied clean against a live
   PostgreSQL with its seven postconditions, and its target check was probed
   with twelve deliberately malformed rows (the complete row went in, all eleven
@@ -1727,9 +1741,17 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   the save and the url/path integrity check — each failing exactly the test
   written for it. Migration 0107 applied clean with its four content
   postconditions, and `help:audit:local` reports no operator-only or internal
-  vocabulary in the corrected paragraphs. ⚠ No live Vertex image call was made,
-  so whether Imagen is enabled on the project — and in the image region rather
-  than `global` — is unverified.
+  vocabulary in the corrected paragraphs. A live dashboard request then reached
+  Vertex and exposed the retired `imagen-4.0-generate-001` endpoint as the
+  provider failure. The runtime now uses Google's recommended
+  `gemini-2.5-flash-image` replacement through `generateContent` at `global`;
+  a one-attempt live smoke call with the same project credentials returned a
+  valid 16:9 JPEG (611,734 bytes).
+  Local verification (2026-09-13): all 6,814 active tests pass (57 skipped), as
+  do TypeScript, ESLint, migration lint, Help content lint and the Next 16
+  production build. The attachment flow has focused coverage for compact
+  previews, one-Send storefront persistence, generic review-first handling,
+  sent-message cards and jump-to-latest scrolling.
 
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.

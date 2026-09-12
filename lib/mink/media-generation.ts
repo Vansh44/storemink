@@ -2,8 +2,10 @@ import "server-only";
 
 import {
   GoogleGenAI,
-  PersonGeneration,
-  SafetyFilterLevel,
+  HarmBlockThreshold,
+  HarmCategory,
+  Modality,
+  ProminentPeople,
 } from "@google/genai";
 import { sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
@@ -28,21 +30,22 @@ import type { MinkActorContext } from "./types";
 // polite rate-limiting the read tools have — they are a spend ceiling, and
 // they fail CLOSED.
 //
-// ★ THE SAFETY SETTINGS ARE FIXED HERE, NOT PASSED IN. `personGeneration`,
-// the safety filter, the watermark and the negative prompt are properties of
-// the FEATURE, not of a request, so no caller can weaken them and a merchant
-// reviewing one image is reviewing the same guarantees as on every other.
+// ★ THE SAFETY SETTINGS ARE FIXED HERE, NOT PASSED IN. The people block,
+// harm filters and exclusion clause are properties of the FEATURE, not of a
+// request, so no caller can weaken them and a merchant reviewing one image is
+// reviewing the same guarantees as on every other. Gemini-generated images
+// carry SynthID by default on Vertex.
 // ---------------------------------------------------------------------------
 
-/**
- * Imagen's own safety filter, at its strictest setting.
- *
- * ⚠ It is a filter on the OUTPUT, not a guarantee about meaning. It will not
- * notice that a picture of rice is being passed off as a photograph of a
- * merchant's own rice — that boundary is structural and lives in
- * media-generation-contract.ts, not here.
- */
-const SAFETY_FILTER = SafetyFilterLevel.BLOCK_LOW_AND_ABOVE;
+const SAFETY_CATEGORIES = [
+  HarmCategory.HARM_CATEGORY_HARASSMENT,
+  HarmCategory.HARM_CATEGORY_HATE_SPEECH,
+  HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT,
+  HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
+] as const;
+
+/** Gemini's GenerateContent image API names the no-people value ALLOW_NONE. */
+const PERSON_GENERATION = "ALLOW_NONE" as const;
 
 /** Bounded so a hung provider cannot hold a request open behind a credit charge. */
 const GENERATION_TIMEOUT_MS = 45_000;
@@ -135,27 +138,31 @@ export async function generateMinkMediaImage(
 
   let response;
   try {
-    response = await ai.models.generateImages({
+    response = await ai.models.generateContent({
       model: config.imageModel,
-      prompt: request.prompt,
+      contents:
+        `${request.prompt}\n\n` +
+        `Do not include any of the following: ${MINK_MEDIA_NEGATIVE_PROMPT}. ` +
+        "Create one decorative storefront image with no text or people.",
       config: {
-        numberOfImages: MINK_MEDIA_IMAGES_PER_PROPOSAL,
-        aspectRatio: aspectRatioFor(request.purpose),
-        negativePrompt: MINK_MEDIA_NEGATIVE_PROMPT,
-        // ★★ NO PEOPLE AT ALL, not even adults. A storefront image with an
-        //    invented person in it implies a model release nobody obtained,
-        //    and a merchant cannot tell by looking whether the face is a real
-        //    person's. ALLOW_ADULT would be the tempting middle setting; it
-        //    is the one that creates the problem.
-        personGeneration: PersonGeneration.DONT_ALLOW,
-        safetyFilterLevel: SAFETY_FILTER,
-        // ★ SynthID. Provenance is the merchant's protection as much as ours:
-        //   an image that can be identified as generated cannot later be
-        //   mistaken for a photograph of real goods.
-        addWatermark: true,
-        includeRaiReason: true,
-        outputMimeType: "image/jpeg",
-        outputCompressionQuality: 90,
+        // Gemini image models require TEXT together with IMAGE even though the
+        // caller only persists the image part.
+        responseModalities: [Modality.TEXT, Modality.IMAGE],
+        candidateCount: MINK_MEDIA_IMAGES_PER_PROPOSAL,
+        safetySettings: SAFETY_CATEGORIES.map((category) => ({
+          category,
+          threshold: HarmBlockThreshold.BLOCK_LOW_AND_ABOVE,
+        })),
+        imageConfig: {
+          aspectRatio: aspectRatioFor(request.purpose),
+          imageSize: "1K",
+          // ★★ NO PEOPLE AT ALL, not even adults. A storefront image with an
+          // invented person implies a release nobody obtained.
+          personGeneration: PERSON_GENERATION,
+          prominentPeople: ProminentPeople.BLOCK_PROMINENT_PEOPLE,
+          outputMimeType: "image/jpeg",
+          outputCompressionQuality: 90,
+        },
         abortSignal: signal,
       },
     });
@@ -176,9 +183,17 @@ export async function generateMinkMediaImage(
     );
   }
 
-  const generated = response.generatedImages?.[0];
-  const filteredReason = generated?.raiFilteredReason;
-  const base64 = generated?.image?.imageBytes;
+  const candidate = response.candidates?.[0];
+  const generated = candidate?.content?.parts?.find((part) =>
+    Boolean(part.inlineData?.data),
+  )?.inlineData;
+  const filteredReason =
+    response.promptFeedback?.blockReasonMessage?.trim() ||
+    candidate?.finishMessage?.trim() ||
+    (candidate?.finishReason && candidate.finishReason !== "STOP"
+      ? String(candidate.finishReason)
+      : undefined);
+  const base64 = generated?.data;
 
   if (!base64) {
     // ★ A FILTERED IMAGE IS A REFUSAL WITH A REASON, and the reason is the
@@ -193,7 +208,7 @@ export async function generateMinkMediaImage(
 
   return {
     bytes: Buffer.from(base64, "base64"),
-    mimeType: generated?.image?.mimeType || "image/jpeg",
+    mimeType: generated?.mimeType || "image/jpeg",
     ...(filteredReason ? { filteredReason } : {}),
   };
 }

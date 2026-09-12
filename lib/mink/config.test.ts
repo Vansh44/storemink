@@ -12,6 +12,8 @@ describe("getMinkConfig", () => {
     delete process.env.MINK_AI_ENABLED;
     delete process.env.MINK_VERTEX_MODEL;
     delete process.env.MINK_VERTEX_LOCATION;
+    delete process.env.MINK_IMAGE_MODEL;
+    delete process.env.MINK_IMAGE_LOCATION;
     process.env.GCP_PROJECT_ID = "storemink-test";
 
     expect(getMinkConfig()).toMatchObject({
@@ -20,12 +22,14 @@ describe("getMinkConfig", () => {
       projectId: "storemink-test",
       location: "global",
       model: "gemini-3.7-flash",
+      imageModel: "gemini-2.5-flash-image",
+      imageLocation: "global",
       maxSteps: 8,
       maxToolCalls: 16,
       maxParallelReadTools: 4,
       maxOutputTokens: 2_048,
       maxModelRetries: 1,
-      runTimeoutMs: 120_000,
+      runTimeoutMs: 180_000,
     });
   });
 
@@ -60,7 +64,7 @@ describe("getMinkConfig", () => {
       maxParallelReadTools: 4,
       maxOutputTokens: 2_048,
       maxModelRetries: 1,
-      runTimeoutMs: 120_000,
+      runTimeoutMs: 180_000,
     });
   });
 });

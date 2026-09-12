@@ -366,7 +366,7 @@ substitutions:
   _MINK_MAX_PARALLEL_READ_TOOLS: "4"
   _MINK_MAX_OUTPUT_TOKENS: "2048"
   _MINK_MAX_MODEL_RETRIES: "1"
-  _MINK_RUN_TIMEOUT_SECONDS: "120"
+  _MINK_RUN_TIMEOUT_SECONDS: "180"
   # ⚠ THE POOL CEILING IS max-instances × DB_POOL_MAX, AND IT MUST STAY UNDER
   # THE INSTANCE'S max_connections. The shared Cloud SQL instance is
   # `db-f1-micro` (cost — 2026-08-10), whose Postgres default max_connections is

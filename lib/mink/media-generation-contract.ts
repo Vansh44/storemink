@@ -2,11 +2,13 @@
 // Phase 9E - proposing a GENERATED image for the store's Media Library.
 //
 // 9D gave Mink pictures it can use and made the boundary explicit: a layout
-// proposal may cite only a URL `list_storefront_media` returned or one already
-// on the page. That is the right rule and it leaves a real gap — a
+// proposal may cite only a URL the store owns or one already on the page. That
+// is the right rule and it leaves a real gap — a
 // theme-seeded store keeps its artwork at `/themes/…`, in no Media Library, so
 // a merchant asking for a hero gets a refusal and a homework assignment. 9E
-// closes it by letting Mink PROPOSE an image the merchant can keep.
+// closes it by letting Mink create and keep an image for the merchant. Saving
+// the generated asset immediately also lets a same-run layout proposal prove
+// ownership without a manual hand-off.
 //
 // ★★ WHAT MAKES THIS SAFE IS STRUCTURAL, NOT A WORD FILTER. A generated
 // picture must never be presented to a shopper as a photograph of goods the
@@ -21,7 +23,7 @@
 // products would be security theatre. It would fail on every misspelling and
 // every brand nobody listed, while reading like a guarantee. What IS enforced
 // here is what can actually be enforced — bounded prompts, a fixed aspect per
-// purpose, an always-applied negative prompt, and no people at all — plus the
+// purpose, an always-applied exclusion clause, and no people at all — plus the
 // structural rule above. This file deliberately does not pretend to more.
 //
 // ★ PURE AND CLIENT-SAFE. The review card renders the purpose label and the
@@ -52,7 +54,7 @@ export type MinkMediaPurpose = (typeof MINK_MEDIA_PURPOSES)[number];
 
 export interface MinkMediaPurposeSpec {
   label: string;
-  /** Imagen's own vocabulary; every value here is one it documents. */
+  /** The image model's supported vocabulary; every value here is documented. */
   aspectRatio: "1:1" | "3:4" | "4:3" | "16:9" | "9:16";
   /** Where a merchant would place it, for the review card. */
   placement: string;
@@ -88,7 +90,7 @@ export const MINK_MEDIA_PURPOSE_SPECS: Record<
  * Applied to EVERY generation, on top of whatever the model asked for.
  *
  * ★★ IT IS NOT A SUGGESTION THE MODEL CAN EDIT. `propose_generated_image`
- *    takes no negative prompt, deliberately: the whole value of this string is
+ *    takes no exclusion clause, deliberately: the whole value of this string is
  *    that it is the same on every call, so a merchant reviewing one image is
  *    reviewing the same guarantees as on every other. Letting the caller
  *    contribute to it turns a fixed property into a per-prompt one.
@@ -110,6 +112,19 @@ export const MINK_MEDIA_PROMPT_MAX_CHARS = 600;
 export const MINK_MEDIA_ALT_MAX_CHARS = 180;
 
 export interface MinkMediaGenerationRequest {
+  /**
+   * ★★ ABSENT MEANS CURRENT, AND REQUIRING IT SHIPPED A FEATURE THAT COULD
+   *    NEVER RUN ONCE. `generate_storefront_image` declares three parameters —
+   *    purpose, prompt, alt — deliberately: a model has no business asserting
+   *    a wire version, and `additionalProperties: false` means it could not
+   *    send one even if it tried. So the only caller built a three-key object,
+   *    the validator demanded a fourth, and EVERY generation was refused with
+   *    "schemaVersion must be 1" before a provider call was ever made.
+   *    ⚠ The rule, which is what generalises: a validator must not require a
+   *    field no caller can supply. This one exists so a FUTURE wire format can
+   *    be versioned, so a present-but-wrong value is still refused — what is
+   *    dropped is only the demand that today's internal caller recite it.
+   */
   schemaVersion: typeof MINK_MEDIA_GENERATION_SCHEMA_VERSION;
   purpose: MinkMediaPurpose;
   /** Exactly what is sent to the provider, after normalisation. */
@@ -139,7 +154,10 @@ export function validateMinkMediaGenerationRequest(
       issues.push(`${key} is not allowed.`);
     }
   }
-  if (input.schemaVersion !== MINK_MEDIA_GENERATION_SCHEMA_VERSION) {
+  if (
+    input.schemaVersion !== undefined &&
+    input.schemaVersion !== MINK_MEDIA_GENERATION_SCHEMA_VERSION
+  ) {
     issues.push("schemaVersion must be 1.");
   }
 

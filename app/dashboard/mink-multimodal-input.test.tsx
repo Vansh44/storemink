@@ -8,7 +8,10 @@ import {
   act,
 } from "@testing-library/react";
 import { useState } from "react";
-import { MinkMultimodalInput } from "./mink-multimodal-input";
+import {
+  MinkMultimodalInput,
+  shouldUseMinkImageOnStorefront,
+} from "./mink-multimodal-input";
 const speech = vi.hoisted(() => ({
   start: vi.fn(),
   stop: vi.fn(),
@@ -63,7 +66,7 @@ async function open() {
   );
   expect(fetchMock).not.toHaveBeenCalled();
 }
-async function choose() {
+async function stageImage() {
   const file = new File(["source"], "echos.png", { type: "image/png" });
   Object.defineProperty(file, "arrayBuffer", {
     value: async () => new TextEncoder().encode("source").buffer,
@@ -71,15 +74,22 @@ async function choose() {
   fireEvent.change(screen.getByLabelText("Choose image or document"), {
     target: { files: [file] },
   });
+  await screen.findByRole("button", { name: "Review echos.png" });
+}
+async function choose() {
+  await stageImage();
+  fireEvent.click(screen.getByRole("button", { name: "Review echos.png" }));
   await screen.findByText("Process for review");
 }
 
 function LiveComposer({
   initial = "",
   canSaveMedia = false,
+  onSubmit,
 }: {
   initial?: string;
   canSaveMedia?: boolean;
+  onSubmit?: (message: string) => void;
 }) {
   const [value, setValue] = useState(initial);
   return (
@@ -88,9 +98,11 @@ function LiveComposer({
       onAdd={setValue}
       disabled={false}
       canSaveMedia={canSaveMedia}
+      onSubmit={onSubmit}
     >
-      {({ attach, voice }) => (
+      {({ attach, attachment, voice, submit }) => (
         <div>
+          {attachment}
           {attach}
           <textarea
             aria-label="Message"
@@ -98,7 +110,11 @@ function LiveComposer({
             onChange={(event) => setValue(event.target.value)}
           />
           {voice}
-          <button type="button" disabled={!value.trim()}>
+          <button
+            type="button"
+            disabled={!value.trim()}
+            onClick={() => void submit()}
+          >
             Send message
           </button>
         </div>
@@ -190,6 +206,9 @@ describe("review-first multimodal input", () => {
       screen.getByText("Drop one image or document here"),
     ).toBeInTheDocument();
     fireEvent.drop(zone, { dataTransfer });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review echos.txt" }),
+    );
     expect(await screen.findByLabelText("Document text")).toHaveValue(
       "Echos delivery notes",
     );
@@ -201,6 +220,23 @@ describe("review-first multimodal input", () => {
     expect(add).toHaveBeenCalledWith(
       expect.stringContaining("Echos delivery notes"),
     );
+  });
+  it("opens document review when Send is pressed with a staged text file", async () => {
+    const submit = vi.fn();
+    render(<LiveComposer initial="Summarise this" onSubmit={submit} />);
+    const file = new File(["Stock notes"], "stock.txt");
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("Stock notes").buffer,
+    });
+    fireEvent.change(screen.getByLabelText("Choose image or document"), {
+      target: { files: [file] },
+    });
+    await screen.findByRole("button", { name: "Review stock.txt" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByLabelText("Document text")).toHaveValue(
+      "Stock notes",
+    );
+    expect(submit).not.toHaveBeenCalled();
   });
   it("rejects multiple files, unsupported files and oversized local text", async () => {
     render(<MinkMultimodalInput message="" onAdd={vi.fn()} disabled={false} />);
@@ -372,6 +408,63 @@ describe("review-first multimodal input", () => {
 });
 
 describe("Phase 9D saving an attachment to the Media Library", () => {
+  it("recognises explicit storefront placement without treating generic image review as storage intent", () => {
+    expect(
+      shouldUseMinkImageOnStorefront(
+        "Create the home page carousel and use this photo for my offer",
+      ),
+    ).toBe(true);
+    expect(
+      shouldUseMinkImageOnStorefront("What is written in this photo?"),
+    ).toBe(false);
+  });
+
+  it("saves and sends an attached product photo in one explicit storefront turn", async () => {
+    const submit = vi.fn();
+    render(
+      <LiveComposer
+        initial="Create the homepage carousel and use this photo for my buy 1 get 1 almond shake offer"
+        canSaveMedia
+        onSubmit={submit}
+      />,
+    );
+    await stageImage();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Review echos.png" })
+          .querySelector("img"),
+      ).toHaveAttribute("src", "blob:local"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(media.upload).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledWith(expect.stringContaining(SAVED_URL));
+    expect(
+      screen.queryByRole("region", { name: "Review attachment" }),
+    ).toBeNull();
+  });
+
+  it("opens review instead of saving a generic image-analysis request", async () => {
+    const submit = vi.fn();
+    render(
+      <LiveComposer
+        initial="What is written in this photo?"
+        canSaveMedia
+        onSubmit={submit}
+      />,
+    );
+    await stageImage();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Review this image/i,
+    );
+    expect(media.upload).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
   it("offers no save control to an admin who cannot add to Media", async () => {
     render(<LiveComposer />);
     await open();

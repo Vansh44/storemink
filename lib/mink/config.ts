@@ -6,14 +6,7 @@ export interface MinkConfig {
   projectId: string | null;
   location: string;
   model: string;
-  /**
-   * Imagen's own model id and region (Phase 9E).
-   *
-   * ★ SEPARATE FROM `model`/`location`, NOT DERIVED FROM THEM. The chat model
-   *   runs at `global`, and Imagen is not served there — deriving the image
-   *   region from the chat one would make every generation fail with a
-   *   404 that reads like an outage rather than a missing region.
-   */
+  /** The image model has its own override even when it shares Vertex's region. */
   imageModel: string;
   imageLocation: string;
   maxSteps: number;
@@ -75,10 +68,10 @@ export function getMinkConfig(): MinkConfig {
       "global",
     model: process.env.MINK_VERTEX_MODEL?.trim() || "gemini-3.7-flash",
     imageModel:
-      process.env.MINK_IMAGE_MODEL?.trim() || "imagen-4.0-generate-001",
-    // ⚠ Deliberately NOT falling back to MINK_VERTEX_LOCATION: that is
-    //   `global` by default, where Imagen is not served.
-    imageLocation: process.env.MINK_IMAGE_LOCATION?.trim() || "us-central1",
+      process.env.MINK_IMAGE_MODEL?.trim() || "gemini-2.5-flash-image",
+    // Gemini image generation is served at the global Vertex endpoint. Keep a
+    // separate override so an operator can move it without moving chat.
+    imageLocation: process.env.MINK_IMAGE_LOCATION?.trim() || "global",
     maxSteps: boundedInt(process.env.MINK_MAX_STEPS_PER_RUN, 8, 1, 20),
     maxToolCalls: boundedInt(
       process.env.MINK_MAX_TOOL_CALLS_PER_RUN,
@@ -103,6 +96,6 @@ export function getMinkConfig(): MinkConfig {
     chargeCredits: optIn(process.env.MINK_CHARGE_CREDITS),
     maxModelRetries: boundedInt(process.env.MINK_MAX_MODEL_RETRIES, 1, 0, 2),
     runTimeoutMs:
-      boundedInt(process.env.MINK_RUN_TIMEOUT_SECONDS, 120, 15, 300) * 1_000,
+      boundedInt(process.env.MINK_RUN_TIMEOUT_SECONDS, 180, 15, 300) * 1_000,
   };
 }
