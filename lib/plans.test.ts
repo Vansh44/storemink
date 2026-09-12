@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  aiAllowanceFor,
   PLAN_IDS,
   PLAN_META,
   PLAN_LIMITS,
@@ -333,6 +334,36 @@ describe("catalog consistency", () => {
     expect(PLAN_LIMITS.free.aiGenerationsPerMonth).toBe(3);
     expect(PLAN_LIMITS.basic.aiGenerationsPerMonth).toBe(10);
     expect(PLAN_LIMITS.pro.aiGenerationsPerMonth).toBe(50);
+  });
+
+  describe("aiAllowanceFor", () => {
+    it("keeps the legacy caps while Mink conversations are free", () => {
+      for (const plan of PLAN_IDS) {
+        expect(aiAllowanceFor(plan, false)).toBe(
+          PLAN_LIMITS[plan].aiGenerationsPerMonth,
+        );
+      }
+    });
+
+    it("raises every allowance the moment Mink spends from the same pool", () => {
+      // ★ ONE SWITCH FOR BOTH HALVES. Charging against caps sized for ~₹0.90
+      // product descriptions would give a Free store a single Mink question a
+      // month; raising them without charging is a pure cost increase. Neither
+      // half can ship alone, which is what this pins.
+      expect(aiAllowanceFor("free", true)).toBe(20);
+      expect(aiAllowanceFor("basic", true)).toBe(100);
+      expect(aiAllowanceFor("pro", true)).toBe(300);
+    });
+
+    it("never lowers an allowance by switching charging on", () => {
+      // A merchant must not lose capacity on the day billing starts.
+      for (const plan of PLAN_IDS) {
+        const before = aiAllowanceFor(plan, false);
+        const after = aiAllowanceFor(plan, true);
+        if (before === null || after === null) continue;
+        expect(after).toBeGreaterThanOrEqual(before);
+      }
+    });
   });
 
   it("online payments are a paid-plan feature (basic+)", () => {

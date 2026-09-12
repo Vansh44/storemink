@@ -117,6 +117,10 @@ describe("Phase 7A storefront context reads", () => {
       pageVersion: "2026-09-04T10:20:30.123456+00:00",
       hasUnpublishedChanges: true,
     });
+    // The optimistic lock for a LAYOUT proposal is over the ordered list, and
+    // per-section digests cannot see an added or reordered section. Without
+    // this field a layout proposal cannot be created at all.
+    expect(output.page.sectionsDigest).toMatch(/^[a-f0-9]{64}$/);
     expect(output.sections[0]).toMatchObject({
       id: "section-1",
       position: 1,
@@ -225,6 +229,29 @@ describe("Phase 7A storefront context reads", () => {
         },
       },
     });
+    // ★★ THE LOCK VALUE AND THE RUBRIC. Without `designDigest` a design
+    //    proposal cannot be created at all -- there is nothing for the model to
+    //    echo back -- and without the theme defaults it is judged on contrast
+    //    against colours it was never shown. The same gap `page.sectionsDigest`
+    //    closes for 9B, and an absent field here fails nothing loudly.
+    expect(output.design.designDigest).toMatch(/^[a-f0-9]{64}$/);
+    expect(output.design.current).toEqual({
+      palette: {},
+      fonts: { body: null, display: null },
+      shape: {},
+    });
+    expect(output.design.themeDefaults.palette.cream).toMatch(/^#[0-9a-f]{6}$/);
+    // ★ Fonts come back as KEYS, not the `var(--font-…)` the storefront writes:
+    //   the patch vocabulary is `inter`, so handing over the CSS form would
+    //   have the model propose a value the validator then rejects.
+    expect(output.design.themeDefaults.fonts.body).toBe("inter");
+    expect(output.design.vocabulary).toMatchObject({
+      minContrast: 4.5,
+      nullMeans: "inherit_the_pinned_theme",
+    });
+    expect(output.design.vocabulary.paletteTokens).toContain("accent");
+    expect(output.design.vocabulary.fonts).toContain("jost");
+
     const serialized = JSON.stringify(output);
     expect(serialized).not.toContain("private@echos.example");
     expect(serialized).not.toContain("+919999999999");

@@ -1,4 +1,10 @@
 import type {
+  DesignFont,
+  DesignPaletteToken,
+  DesignShapeKey,
+} from "@/lib/chrome/design";
+import type { SectionType } from "@/lib/sections/registry";
+import type {
   PermissionAction,
   RolePermissions,
 } from "@/app/dashboard/lib/permissions";
@@ -25,6 +31,71 @@ export type MinkFilter = {
   label: string;
   value: string;
 };
+
+/**
+ * What a Phase 9B layout proposal changes, for the human review card.
+ *
+ * ★ IT LIVES HERE, NOT IN THE CONTRACT, because the contract is `server-only`
+ * and this shape is rendered by a dashboard client component. `import type` is
+ * erased, so the compiler would allow it either way -- and that is exactly the
+ * hazard: the day somebody reaches for a VALUE from the same module the build
+ * breaks with a `server-only` error rather than a type error. The two halves of
+ * the split are `lib/logs/failure-types.ts`'s rule.
+ */
+export interface MinkStorefrontLayoutSectionRef {
+  id: string;
+  /**
+   * ★ THE TYPE RIDES ALONG BECAUSE AN ID IS NOT A NAME. Section ids are opaque
+   * strings, so a card listing "Removed: sec_8f2a1c" tells a merchant nothing
+   * about what they are being asked to approve deleting. The card turns the
+   * type into a label through `SECTION_TYPE_META`, which is the same
+   * vocabulary the Builder's own outline uses -- so the two agree by
+   * construction rather than through a second copy of the labels.
+   */
+  type: SectionType;
+}
+
+export interface MinkStorefrontLayoutSummary {
+  /** Sections present before and after, in their PROPOSED order. */
+  kept: MinkStorefrontLayoutSectionRef[];
+  added: MinkStorefrontLayoutSectionRef[];
+  removed: MinkStorefrontLayoutSectionRef[];
+  /** Order of the SURVIVING sections changed (a pure add is not a reorder). */
+  reordered: boolean;
+}
+
+/**
+ * What a Phase 9C design proposal changes, for the human review card.
+ *
+ * ★ ONLY THE FIELDS THAT MOVED, each carrying the theme value underneath it.
+ * A design override is three-state -- set, cleared, or never touched -- and a
+ * card that renders an empty swatch for "cleared" tells a merchant nothing
+ * about what their shop will actually look like. `themeDefault` is the colour
+ * the storefront paints when the override goes away, so "back to the theme"
+ * can be shown as a real value rather than as an absence.
+ */
+export interface MinkStorefrontDesignSummary {
+  palette: Array<{
+    token: DesignPaletteToken;
+    before: string | null;
+    after: string | null;
+    themeDefault: string | null;
+  }>;
+  fonts: Array<{
+    slot: "body" | "display";
+    before: DesignFont | null;
+    after: DesignFont | null;
+    themeDefault: DesignFont | null;
+  }>;
+  shape: Array<{
+    key: DesignShapeKey;
+    before: number | null;
+    after: number | null;
+    themeDefault: number | null;
+  }>;
+  /** Recomputed on read; empty on any proposal the contract accepted. */
+  contrastIssues: string[];
+}
 
 export type MinkArtifact =
   | {
@@ -161,6 +232,41 @@ export type MinkArtifact =
       creditSource: MinkDraftCreditSource;
     }
   | {
+      type: "storefront_layout_proposal";
+      draftId: string;
+      title: string;
+      destinationLabel: string;
+      destinationPath: string;
+      explanation: string;
+      target: {
+        pageSlug: string;
+        expectedPageVersion: string;
+        expectedSectionsDigest: string;
+      };
+      patchDigest: string;
+      summary: MinkStorefrontLayoutSummary;
+      sectionCount: number;
+      status: "private_preview";
+      expectedCredits: number;
+      chargedCredits: number;
+      creditSource: MinkDraftCreditSource;
+    }
+  | {
+      type: "storefront_design_proposal";
+      draftId: string;
+      title: string;
+      destinationLabel: string;
+      destinationPath: string;
+      explanation: string;
+      target: { expectedDesignDigest: string };
+      patchDigest: string;
+      summary: MinkStorefrontDesignSummary;
+      status: "private_preview";
+      expectedCredits: number;
+      chargedCredits: number;
+      creditSource: MinkDraftCreditSource;
+    }
+  | {
       type: "workflow";
       runId: string;
       template: MinkWorkflowTemplate;
@@ -236,6 +342,18 @@ export interface MinkUsage {
   outputTokens: number;
   thoughtTokens: number;
   totalTokens: number;
+  /**
+   * The SUBSET of `promptTokens` the provider served from a context cache, so
+   * `promptTokens - cachedTokens` is what was charged at the full input rate.
+   * The provider documents `promptTokenCount` as already including cached
+   * content, so this must never be added to it.
+   *
+   * Recorded as a raw fact rather than folded into a cost: the system prompt
+   * plus tool declarations are a deterministic ~10.5k-token prefix re-sent on
+   * every step of every run, and it is the single largest cost line. Whether a
+   * cache is actually serving it is otherwise invisible.
+   */
+  cachedTokens: number;
 }
 
 export interface MinkModelTurn {

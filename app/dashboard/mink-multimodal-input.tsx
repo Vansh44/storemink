@@ -1,12 +1,23 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { inputKind, MINK_INPUT_BYTES } from "@/lib/mink/input-policy";
-import { Plus, Mic, Square, X, Upload, FileText, Loader2 } from "lucide-react";
+import {
+  Plus,
+  Mic,
+  Square,
+  X,
+  Upload,
+  FileText,
+  Loader2,
+  Image as ImageIcon,
+} from "lucide-react";
 import {
   decodeMinkDocument,
   DOCUMENT_BYTES,
   addReviewedMinkDocument,
 } from "@/lib/mink/document-input";
+import { addSavedMinkMediaReference } from "@/lib/mink/media-attachment";
+import { uploadMediaAsset } from "@/app/actions/media-actions";
 import {
   startMinkSpeechRecognition,
   type MinkSpeechRecognitionSession,
@@ -20,11 +31,21 @@ export function MinkMultimodalInput({
   message,
   onAdd,
   disabled,
+  canSaveMedia = false,
   children,
 }: {
   message: string;
   onAdd: (message: string) => void;
   disabled: boolean;
+  /**
+   * Whether this admin may add to the store's Media Library (`media` manage).
+   *
+   * ★ RESOLVED SERVER-SIDE AND PASSED DOWN, so the control is simply absent
+   *   for someone who cannot use it. `uploadMediaAsset` re-checks the same
+   *   permission and is the real boundary; this only stops a button that would
+   *   always fail from being on screen -- CODEBASE.md §23's rule.
+   */
+  canSaveMedia?: boolean;
   children?: (controls: { attach: ReactNode; voice: ReactNode }) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
@@ -37,6 +58,7 @@ export function MinkMultimodalInput({
   const [consent, setConsent] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [saved, setSaved] = useState<string>("");
   const [dictationState, setDictationState] =
     useState<MinkSpeechRecognitionState | null>(null);
   const dictationSession = useRef<MinkSpeechRecognitionSession | null>(null);
@@ -67,6 +89,7 @@ export function MinkMultimodalInput({
     setText(null);
     setConsent(false);
     setReviewed(false);
+    setSaved("");
     setError("");
   }
   useEffect(
@@ -342,6 +365,58 @@ export function MinkMultimodalInput({
       }
     }
   }
+  /**
+   * Save the staged image into the store's Media Library.
+   *
+   * ★ SEPARATE FROM EXTRACTION IN BOTH DIRECTIONS. It does not need the Vertex
+   *   consent (nothing is sent to a provider) and it does not consume the
+   *   attachment (the merchant may still extract text from it afterwards), so
+   *   `file` is deliberately left in place. Only the SAVED banner changes.
+   *
+   * ★ THE REFERENCE GOES INTO THE COMPOSER, not just a toast: the exact URL is
+   *   what a layout proposal has to cite, and re-finding it costs the model a
+   *   Media Library read and a guess.
+   */
+  async function saveToMediaLibrary() {
+    if (!file || busy || disabled || !canSaveMedia) return;
+    setBusy(true);
+    setError("");
+    const id = ++generation.current;
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const result = await uploadMediaAsset(form);
+      if (id !== generation.current) return;
+      if (result.error || !result.asset) {
+        throw new Error(result.error || "Could not save this image.");
+      }
+      const asset = result.asset;
+      setSaved(asset.url);
+      // A message too long to hold the reference must not read as a failed
+      // upload: the image IS saved, so the banner stands and only the append
+      // is reported as the thing that did not happen.
+      try {
+        latestMessage.current.onAdd(
+          addSavedMinkMediaReference(latestMessage.current.message, {
+            url: asset.url,
+            filename: asset.filename || file.name,
+          }),
+        );
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Saved, but the reference could not be added to your message.",
+        );
+      }
+    } catch (e) {
+      if (id === generation.current) {
+        setError(e instanceof Error ? e.message : "Could not save this image.");
+      }
+    } finally {
+      if (id === generation.current) setBusy(false);
+    }
+  }
   const iconButton =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f2f2f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff] disabled:cursor-not-allowed disabled:opacity-40";
   const attach = (
@@ -499,14 +574,40 @@ export function MinkMultimodalInput({
                 StoreMink will not save the raw file. Provider retention rules
                 apply.
               </label>
-              <button
-                type="button"
-                disabled={disabled || busy || !consent}
-                onClick={() => void processFile()}
-                className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
-              >
-                Process for review
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={disabled || busy || !consent}
+                  onClick={() => void processFile()}
+                  className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
+                >
+                  Process for review
+                </button>
+                {canSaveMedia && inputKind(file.name) === "image" && (
+                  <button
+                    type="button"
+                    disabled={disabled || busy || Boolean(saved)}
+                    onClick={() => void saveToMediaLibrary()}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#d5d5d5] bg-white px-4 py-2 text-xs font-medium text-[#333] hover:bg-[#f4f4f4] disabled:opacity-40"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                    {saved ? "Saved to Media Library" : "Save to Media Library"}
+                  </button>
+                )}
+              </div>
+              {canSaveMedia && inputKind(file.name) === "image" && !saved && (
+                <p className="text-xs leading-5 text-[#777]">
+                  Saving keeps this image in your Media Library so Mink can use
+                  it on your storefront. It is a separate step from processing:
+                  neither one requires the other.
+                </p>
+              )}
+              {saved && (
+                <p role="status" className="text-xs leading-5 text-emerald-700">
+                  Saved to your Media Library and added to your message. Mink
+                  can now place it on a page.
+                </p>
+              )}
               <details className="text-xs leading-5 text-[#777]">
                 <summary className="cursor-pointer">Privacy and limits</summary>
                 One file up to 2 MiB: PNG/JPEG/WebP up to 12 MP or a plain PDF

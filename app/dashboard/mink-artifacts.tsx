@@ -11,6 +11,8 @@ import {
 import type { MinkArtifact } from "@/lib/mink/types";
 import { MinkProposalCard } from "./mink-proposal-card";
 import { MinkStorefrontCodeProposalCard } from "./mink-storefront-code-proposal-card";
+import { MinkStorefrontDesignProposalCard } from "./mink-storefront-design-proposal-card";
+import { MinkStorefrontLayoutProposalCard } from "./mink-storefront-layout-proposal-card";
 import { MinkWorkflowCard } from "./mink-workflow-card";
 
 export function MinkArtifacts({
@@ -73,6 +75,22 @@ export function MinkArtifacts({
         if (artifact.type === "storefront_code_proposal") {
           return (
             <MinkStorefrontCodeProposalCard
+              key={`${artifact.type}-${artifact.draftId}`}
+              proposal={artifact}
+            />
+          );
+        }
+        if (artifact.type === "storefront_layout_proposal") {
+          return (
+            <MinkStorefrontLayoutProposalCard
+              key={`${artifact.type}-${artifact.draftId}`}
+              proposal={artifact}
+            />
+          );
+        }
+        if (artifact.type === "storefront_design_proposal") {
+          return (
+            <MinkStorefrontDesignProposalCard
               key={`${artifact.type}-${artifact.draftId}`}
               proposal={artifact}
             />

@@ -145,11 +145,39 @@
   --b-left: 260px; /* left-panel width; also anchors the section library */
   --b-topbar-h: 56px;
   /* Design tokens: ride on the dashboard design system (.dashboard-shell)
-     so the builder always matches the rest of the admin. */
+     so the builder always matches the rest of the admin.
+
+     ★★ THE TEXT, BORDER AND SURFACE TOKENS WERE USED BUT NEVER DECLARED —
+     anywhere in the repo. Only the four accent tokens and the two layout
+     lengths above existed, so 21 rules across the inspector, field groups and
+     pages rail resolved to nothing. That is invisible in review because the
+     CSS reads as correct, and the damage is NOT uniform:
+       • `border: 1px solid var(--b-border)` is a SHORTHAND, so an invalid var
+         makes the whole declaration invalid at computed-value time and it
+         falls back to the INITIAL value — measured as `border-style: none`,
+         `border-width: 0px`. Every input, colour swatch, group separator and
+         rail divider had NO BORDER AT ALL, not the dark currentColor hairline
+         the --dash-border incident in §5.6 produced (that one set
+         `border-color` on its own, which is where currentColor comes from).
+       • `background: var(--b-surface-2)` computed to transparent, so hover
+         states and the rail count badge simply did not appear.
+       • `color:` is INHERITED, so text survived — but at full-strength ink
+         from .sm-builder, which meant every hint, label and secondary line
+         rendered as dark as a heading. The hierarchy was flat.
+     Aliased with literal fallbacks, matching --b-accent's own convention, so
+     the builder keeps tracking the dashboard theme and still renders if it is
+     ever mounted outside .dashboard-shell. */
   --b-accent: var(--dash-accent, #4f46e5);
   --b-accent-weak: rgba(79, 70, 229, 0.45);
   --b-accent-tint: #eef2ff;
   --b-accent-tint-2: #e0e7ff;
+  --b-text: var(--dash-text, #111827);
+  --b-text-2: var(--dash-text-2, #5b6472);
+  --b-text-3: var(--dash-text-3, #8b93a3);
+  --b-border: var(--dash-border, rgba(17, 24, 39, 0.08));
+  --b-border-strong: var(--dash-border-strong, rgba(17, 24, 39, 0.12));
+  --b-surface-2: var(--dash-surface-2, #f3f4f6);
+  --b-danger: var(--dash-red, #dc2626);
 }
 .sm-builder.is-left-collapsed {
   --b-left: 52px;
@@ -1139,6 +1167,44 @@
   align-items: center;
   gap: 8px;
 }
+/* Design panel: per-token reset, and the legibility warning.
+   `.sm-b-colorrow` is reused for the radius sliders — same three-part shape
+   (control, readout, reset), so they line up rather than each inventing one.
+
+   Tokenised now that the text, border and surface tokens are declared
+   (see the block at .sm-builder); this shipped with literals for the days when
+   they were not. The warning keeps its own amber literals — there is no
+   dashboard token for a caution surface, and inventing one here would be a
+   design-system decision made in a stylesheet footnote. */
+.sm-b-reset {
+  flex: none;
+  padding: 4px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--b-text-2);
+  background: var(--b-surface-2);
+  border: 1px solid var(--b-border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.sm-b-reset:hover {
+  color: var(--b-text);
+}
+.sm-b-colorrow input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.sm-b-warn {
+  margin-top: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  color: #7c2d12;
+  background: #fff7ed;
+  border: 1px solid #fdba74;
+  border-radius: 8px;
+}
+
 .sm-b-color {
   width: 34px;
   height: 30px;

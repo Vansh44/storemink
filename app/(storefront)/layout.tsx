@@ -20,6 +20,7 @@ import { getStoreUrl } from "@/lib/site";
 import { getThemeDefinition } from "@/lib/themes";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
+import { designOverrideCssVars } from "@/lib/chrome/design";
 import { Toaster } from "@/components/ui/sonner";
 import { MerchantTracking } from "@/app/(storefront)/components/merchant-tracking";
 import { getPlatformAnalyticsFeatures } from "@/lib/analytics/platform-feature-store";
@@ -146,9 +147,17 @@ export default async function StorefrontLayout({
     ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
         .design
     : null;
-  const themeVars: Record<string, string> = design
-    ? designToCssVars(design, brand.primaryColor)
-    : { "--brand-primary": brand.primaryColor };
+  // The merchant's own palette, type and shape sit ON TOP of the preset. Spread
+  // LAST so an override wins; it emits only tokens actually set, so an
+  // un-overridden store keeps inheriting the theme and a later preset upgrade
+  // still reaches it.
+  const designOverrides = designOverrideCssVars(chrome.design);
+  const themeVars: Record<string, string> = {
+    ...(design
+      ? designToCssVars(design, brand.primaryColor)
+      : { "--brand-primary": brand.primaryColor }),
+    ...designOverrides,
+  };
 
   // Theme defaults + the merchant's published builder overrides resolve into
   // one appearance. Root classes let CSS switch treatments without forking
@@ -163,9 +172,14 @@ export default async function StorefrontLayout({
     `sm-card-${appearance.card}`,
     appearance.cardQuickAdd ? "sm-card-quickadd" : "",
     appearance.cardHoverImage ? "sm-card-hoverimg" : "",
-    // Only when a theme is installed — see the `.sm-themed-type` note in
-    // storefront-theme.css. An un-themed store keeps today's inherited font.
-    design ? "sm-themed-type" : "",
+    // Only when a face is actually being imposed — see the `.sm-themed-type`
+    // note in storefront-theme.css. ★ A FONT OVERRIDE COUNTS, not just a
+    // theme: the class is what makes untokenised descendants inherit the
+    // chosen face, so an un-themed store that picks a font would otherwise
+    // render half in it and half in Tailwind's default — the two-family
+    // defect §11 records for Vitrine. An un-themed store that overrides
+    // NOTHING still gets no class, so its inherited font is untouched.
+    design || chrome.design.fonts.body ? "sm-themed-type" : "",
     `sm-pdp-${appearance.productDetail}`,
     `sm-cart-${appearance.cart}`,
     `sm-footer-${appearance.footer}`,
@@ -192,6 +206,7 @@ export default async function StorefrontLayout({
               <ChromeProvider
                 chrome={chrome}
                 themeLayout={design?.layout}
+                themeVars={themeVars}
                 live={previewing}
               >
                 <div className={rootClass} style={themeVars as CSSProperties}>

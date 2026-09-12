@@ -12,10 +12,27 @@ export interface MinkConfig {
   maxOutputTokens: number;
   maxModelRetries: number;
   runTimeoutMs: number;
+  /**
+   * Whether a conversation actually spends the merchant's AI credits.
+   *
+   * ⚠ OPT-IN, unlike `enabled` above, which defaults ON when unset. Turning
+   * this on starts billing for something that has always been free and raises
+   * every plan's allowance in the same move, so it must never be reachable by
+   * forgetting to set a variable. It is a pricing decision, taken once the
+   * shadow bands have been calibrated against live traffic.
+   */
+  chargeCredits: boolean;
 }
 
 function enabled(value: string | undefined): boolean {
   return value === undefined || value === "true" || value === "1";
+}
+
+/** Opt-IN: only an explicit true. The inverse of `enabled` above, and the
+ *  difference is deliberate — see MinkConfig.chargeCredits. */
+function optIn(value: string | undefined): boolean {
+  const normalized = value?.trim().toLowerCase();
+  return normalized === "true" || normalized === "1";
 }
 
 function boundedInt(
@@ -68,6 +85,7 @@ export function getMinkConfig(): MinkConfig {
     ),
     // One retry is enough to absorb a transient 429/5xx without hiding a
     // persistent outage behind a long backoff chain.
+    chargeCredits: optIn(process.env.MINK_CHARGE_CREDITS),
     maxModelRetries: boundedInt(process.env.MINK_MAX_MODEL_RETRIES, 1, 0, 2),
     runTimeoutMs:
       boundedInt(process.env.MINK_RUN_TIMEOUT_SECONDS, 120, 15, 300) * 1_000,

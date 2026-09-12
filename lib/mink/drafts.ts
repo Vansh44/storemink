@@ -64,6 +64,8 @@ const DRAFT_PERMISSION: Record<
   offer_update: { section: "promotions", action: "manage" },
   offer_activate: { section: "promotions", action: "manage" },
   storefront_custom_code: { section: "builder", action: "manage" },
+  storefront_layout: { section: "builder", action: "manage" },
+  storefront_design: { section: "builder", action: "manage" },
 };
 
 export interface MinkDraftState {

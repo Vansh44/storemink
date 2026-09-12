@@ -30,6 +30,10 @@ vi.mock("@/lib/mink/config", () => ({
     maxParallelReadTools: 4,
     maxOutputTokens: 2_048,
     maxModelRetries: 1,
+    // Explicit, not merely absent: with charging on, the route would reach the
+    // affordability read and settlement, so a future default flip must show up
+    // here as a decision rather than as a surprise database call in a test.
+    chargeCredits: false,
     runTimeoutMs: holder.runTimeoutMs,
   })),
 }));
@@ -91,7 +95,9 @@ beforeEach(() => {
     runId: "22222222-2222-4222-8222-222222222222",
     history: [],
   });
-  holder.completeRun.mockResolvedValue(undefined);
+  // completeMinkRun hands back what proposals in this run already charged, so
+  // settlement can FOLD the run's band against it rather than stacking.
+  holder.completeRun.mockResolvedValue({ draftCredits: 0 });
   holder.failRun.mockResolvedValue(undefined);
   holder.startTool.mockResolvedValue(undefined);
   holder.completeTool.mockResolvedValue(undefined);

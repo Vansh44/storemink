@@ -14,6 +14,7 @@ const ZERO_USAGE: MinkUsage = {
   outputTokens: 0,
   thoughtTokens: 0,
   totalTokens: 0,
+  cachedTokens: 0,
 };
 
 const ACTOR: MinkActorContext = {
@@ -35,6 +36,9 @@ function config(overrides: Partial<MinkConfig> = {}): MinkConfig {
   return {
     enabled: true,
     betaRequireInvite: true,
+    // Off, matching production: the orchestrator must behave identically
+    // whether or not a run is billed.
+    chargeCredits: false,
     projectId: "project-1",
     location: "global",
     model: "gemini-3.7-flash",
@@ -83,6 +87,7 @@ describe("runMinkAgent", () => {
           outputTokens: 5,
           thoughtTokens: 2,
           totalTokens: 27,
+          cachedTokens: 12,
         },
       }),
     );
@@ -97,6 +102,7 @@ describe("runMinkAgent", () => {
             outputTokens: 3,
             thoughtTokens: 1,
             totalTokens: 14,
+            cachedTokens: 7,
           },
         }),
       ),
@@ -131,6 +137,10 @@ describe("runMinkAgent", () => {
         outputTokens: 8,
         thoughtTokens: 3,
         totalTokens: 41,
+        // 7 + 12. Each step re-sends the same deterministic system+tools
+        // prefix, so the run-level cached figure has to be the SUM across
+        // steps — that total is what the cost estimate prices against.
+        cachedTokens: 19,
       },
       artifacts: [],
     });

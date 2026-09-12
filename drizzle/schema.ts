@@ -6095,6 +6095,8 @@ export const minkUsageLedger = pgTable(
     inputTokens: integer("input_tokens").notNull(),
     outputTokens: integer("output_tokens").notNull(),
     thoughtTokens: integer("thought_tokens").notNull(),
+    /** Subset of input_tokens served from a provider context cache. */
+    cachedTokens: integer("cached_tokens").default(0).notNull(),
     totalTokens: integer("total_tokens").notNull(),
     usageStatus: text("usage_status").default("reported").notNull(),
     estimatedCostMicrousd: integer("estimated_cost_microusd"),

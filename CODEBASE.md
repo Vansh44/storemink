@@ -92,6 +92,161 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
+### Mink credit charging — installed, switched off (2026-09-11)
+
+The mechanism to bill a conversation exists; nothing bills yet.
+`MINK_CHARGE_CREDITS` is **opt-IN** (the inverse of `MINK_AI_ENABLED`, which
+defaults on) and unset everywhere, so `minkRunAffordability` makes no extra
+read and `settleMinkRunCredits` spends nothing. Turning it on is a pricing
+decision, taken once the shadow bands have been calibrated against live traffic
+and once the cache-hit figure is known — at a band ceiling the margin is 1.09×
+uncached and roughly 3× cached, so that number decides whether these bands are
+safe to charge at all.
+
+**★★ ONE SWITCH RAISES THE ALLOWANCE AND STARTS THE CHARGE TOGETHER.**
+`PLAN_LIMITS` gained `aiCreditsPerMonth` (20/100/300) beside the legacy
+`aiGenerationsPerMonth` (3/10/50) and `aiAllowanceFor(plan, charging)` picks
+between them. They are two numbers rather than an edit to one because neither
+half is safe alone: billing 1–8-credit runs against caps sized for ~₹0.90
+product descriptions gives a Free store one question a month, and raising the
+caps without charging is a pure cost increase. `lib/ai/quota.ts` reads the flag
+in ONE place, so the quota gate, the dashboard's "X of Y used", the
+affordability check and settlement can never quote different numbers — the
+`docs/cron-jobs.md` lesson that a step which must be remembered per surface is
+one that gets forgotten.
+
+**Migration 0100** adds `credit_source` / `plan_credits` / `balance_credits` to
+`mink_usage_ledger` and `consume_mink_run_credits`. It spends from `ai_usage`
+then `ai_credit_balances` — the same pool and the same order as
+`consume_mink_draft_credits`, so "AI credits" and "Mink credits" are one
+currency a merchant never has to reconcile.
+★ A NULL `credit_source` means "not settled" and is what makes settlement
+idempotent under a retry; `'none'` is the different fact that a settled run
+owed nothing.
+★★ IT CLAMPS RATHER THAN REFUSING. The draft function returns `insufficient`
+and the caller deletes the proposal, which is right there because nothing has
+been delivered. Here the merchant has already read the answer, so a store that
+cannot cover the full amount is charged what remains and recorded `'short'`;
+the next run is refused up front instead. The clamp is inside the statement
+that spends, or two runs settling together both read the same headroom.
+★ The affordability floor is ONE credit, not the heaviest band — the band is
+unknowable before the run, and demanding 8 would refuse a store with 5 credits
+the simple question it can plainly afford. The bounded consequence, accepted
+deliberately: a store's last run may overrun by at most one band.
+★ Settlement runs AFTER `completeMinkRun` commits, in its own transaction, and
+never throws. A billing failure must not roll back a reply the merchant is
+about to read; an unsettled run is a NULL `credit_source` that can be
+reconciled, a lost answer cannot.
+★★ A RUN'S BAND AND ITS PROPOSAL WEIGHTS FOLD, THEY DO NOT STACK
+(`minkRunCreditCharge`). A Phase 3+ proposal reserves its documented weight
+when it is created and that is the number the composer showed the merchant, so
+a run costs `max(band, alreadyCharged)` in total. Adding them would charge 5
+for a storefront proposal plus 8 for the heavy run that produced it.
+
+The optional `run-credits.postgres.test.ts` fixture proves the SQL itself: a
+fresh `mink_credits_verify` database on `MINK_RUN_CREDIT_TEST_SOCKET`, port
+55485, never application credentials, skipped in ordinary runs. It applies 0099
+and 0100 twice each (forward-only replay), runs the manifest's own
+postconditions, and covers the plan-before-balance split, replay and concurrent
+settlement, the clamp to `'short'`, tenancy rejection, `'none'` versus NULL, the
+unlimited plan, both schema constraints, the withheld `app_user` EXECUTE, and
+one pass through `settleMinkRunCredits` itself. ⚠ Its value is in the mutation
+checks, not the green run: deleting the idempotency return, the balance clamp
+or the admin predicate each fails exactly the tests written for it (3, 3 and 1
+respectively), verified 2026-09-11.
+
+⚠ Not built, and required BEFORE the flag is flipped: a merchant-facing
+disclosure of what a request will cost, a Help Centre guide (deliberately not
+written yet — nothing a merchant does has changed, so the gate in AGENTS.md
+says write nothing), and a reconciler for runs left with a NULL
+`credit_source`. Failed and cancelled runs are deliberately left unsettled:
+they owe nothing, and `discardFailedMinkRunDrafts` already compensates any
+proposal credits they reserved.
+
+### Mink cost metering — the prefix is the bill (2026-09-11)
+
+`mink_usage_ledger` has recorded per-run tokens and a shadow cost since Phase
+1B, and reading it is what settles Mink's economics rather than modelling them.
+Measured over the recorded runs: a run costs **₹0.46–₹2.66** (p50 ₹1.05, p90
+₹1.77) at `cost.ts`'s own rates, and per-step input tokens are ~11,150.
+
+**★★ THE DOMINANT COST IS THE PREFIX, AND IT GROWS EVERY TIME A TOOL IS ADDED.**
+The system prompt (23,499 chars ≈ 6,350 tokens) plus the permission-filtered
+tool declarations are re-sent on **every step of every run** — `orchestrator.ts`
+drives a chat session, so an 8-step run bills that prefix eight times. Measured
+against `mink_runs.tool_registry_version`, input per step went **7,089 →
+11,154 (+57%)** across `draft-beta-v9` → `v16` in five days. A declaration is
+charged on every turn whether or not the model ever calls it, so each new tool
+raises the price of every existing merchant's every question, permanently. Treat
+the declaration set as a budget, not a menu.
+
+**`cached_tokens` (migration 0099) makes the other half visible.** ~94% of that
+prefix is byte-identical across steps and is the ideal cache target, but nothing
+recorded whether a provider cache was serving it, so `estimateMinkCost` billed
+every prompt token at the full input rate. The ledger now stores the provider's
+`cachedContentTokenCount` as a **raw fact** beside the derived cost, and the
+operator console shows a cache-hit metric.
+⚠ **It is a SUBSET of `input_tokens`, never an addition** — the provider
+documents `promptTokenCount` as already including cached content, so it is
+subtracted before the full rate applies. Adding them would inflate the one line
+the estimate is most sensitive to; a DB CHECK and `vertex-usage.test.ts` pin it
+in both directions.
+★★ `cachedPromptTokens()` is exported from `cost.ts` and is the ONE clamp,
+shared by the estimate and the ledger insert, because that insert runs inside
+the SAME transaction as the run-completion update and the assistant message
+(`completeMinkRun`): a value that tripped the CHECK would roll back a reply the
+merchant has already read. A second, drifting copy of that clamp is not a
+rounding bug, it is a lost answer.
+★ `CACHED_INPUT_RATE_MULTIPLIER` (0.25) is the only ASSUMED number and is
+stamped into `pricingVersion`, so rows priced under a wrong rate are
+identifiable and repricable from the stored raw counts rather than silently
+mixed with correct ones.
+
+**The meter is banded now, and still shadow.** `minkShadowMeter` returned a
+hardcoded 3 for every run — a one-tool lookup and a six-step proposal metered
+identically — so the number told an operator nothing. It bands by measured size
+instead, in the SAME credits a product description spends (`lib/ai/quota.ts`):
+one pool, one currency, so "AI credits" and "Mink credits" stay the same thing.
+
+★★ THE UNIT IS `weightedMinkUnits` = `input + 5 × (output + thought)`, AND THE
+5 IS NOT A TUNING CHOICE. Every rate variant in `cost.ts` — global and
+regional, 2026 intro and 2027 standard — has an output:input ratio of exactly
+5, so one weighted unit is EXACTLY proportional to money without importing a
+rate, a region or a date. `metering.test.ts` pins that against `cost.ts` itself
+across all four variants, so a future price change that breaks the
+proportionality fails there rather than silently skewing every band.
+★★ IT USES RAW PROMPT TOKENS AND IGNORES THE CACHE, deliberately: a merchant
+asking the same question twice must not be charged differently because our
+cache was cold. The cache saving accrues to StoreMink as margin — the right way
+round, since it rewards making the platform cheaper rather than making the bill
+unpredictable.
+★ Reasoning counts as output, or the HIGH-thinking storefront runs that most
+need banding correctly would be the ones under-banded.
+★ A run that did not succeed meters ZERO. Charging for an answer nobody got is
+indefensible, and the tokens are not lost from the record — the same row's
+`estimated_cost_microusd` still carries them.
+
+Provisional bands (light ≤ 30,000 units → 1 credit, standard ≤ 90,000 → 3,
+heavy → 8), chosen so each ceiling is a round rupee cost and explicitly sized
+against only 16 runs. ⚠ **THE CEILING IS WHERE THE MARGIN RISK IS, not the
+average.** A unit costs 0.75 µUSD, so a run sitting just under the light or
+standard ceiling costs ₹1.98 or ₹5.94 against ₹2.15 or ₹6.45 of credit — about
+**1.09×**, versus ~2× for a typical light run. Worst-case COGS on a fully-spent
+allowance is therefore ~13% of a Basic plan, not the ~6% a mid-band average
+suggests. Tightening the bands is the wrong fix (it would triple the charge on
+ordinary runs); **caching is** — at cached rates the same ceiling costs ~64%
+less and the worst case returns to ~3×. `charged_credits` is STILL 0 for read work: this exists
+to be watched for a few weeks so the boundaries can be set from evidence.
+Measured on those rows, **15 of 16 are light** — the old meter reported all 16
+as 3, i.e. it overstated conversational spend nearly threefold.
+⚠ The operator console's band mix is DERIVED from the stored token counts, not
+read back from `shadow_credits`: every pre-band row holds the hardcoded 3, so
+reading the column would report the whole history as "standard" on the one
+screen the boundaries get tuned from. Re-deriving needs no backfill and is
+correct for every row whenever it was written.
+⚠ The heavy band remains modelled rather than measured: every recorded run is
+`low` thinking, with no HIGH-thinking storefront-code proposal among them.
+
 ### Mink Phase 8E — Reviewed multimodal input (2026-09-09)
 
 `app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
@@ -189,10 +344,331 @@ system prompt and Echos tests describe rollout and limitations.
 Prompt versions are `read-beta-v14` / `draft-action-beta-v25`; no new agent
 tools or tool-registry version are introduced by input extraction.
 
+### Mink Phase 9B — Proposed page layouts (2026-09-12)
+
+Phase 7B/7C can replace only the HTML/CSS/JS **inside one existing
+`custom_code` section**, so on a store that has none, Mink can change nothing
+about the storefront at all — and everything a merchant means by "make my shop
+look like this" (a hero, a gallery, testimonials, reordering the page) is a
+STRUCTURED section, which was unreachable. 9B admits one immutable private
+proposal for a page's **whole section list**.
+
+**★★ IT IS STRICTLY SAFER THAN THE CODE PATH, WHICH IS THE POINT.** Every
+field goes through the section registry's own `validateConfig` and the result
+is rendered by our own components, so the output cannot carry script, styles,
+event handlers or an unsanitised URL. 7B needs an opaque-origin iframe and a
+prohibited-API list precisely because its output is arbitrary code; this needs
+neither, and the card links to Website Builder rather than reimplementing the
+storefront's seventeen renderers inside a chat bubble.
+
+- **★ A WHOLE LIST, NEVER A DIFF.** `MinkStorefrontLayoutPatch` carries the
+  COMPLETE replacement. "Move section 3 above section 1, then delete what was
+  section 2" is ambiguous to express and worse to review; a merchant approving
+  a layout should see the page it produces, not a script for producing it.
+  ⚠ The consequence is that **omission is deletion**, which is the failure mode
+  the whole review card is arranged around: removals lead it.
+- **★★ BUT A SECTION IS KEPT BY REFERENCE (`{id, keep: true}`), AND WITHOUT
+  THAT THE TOOL COULD NOT BE CALLED AT ALL.** `readMinkStorefrontPageContext`
+  returns each section's type, position, digests and a prose summary — never
+  its config, and for a custom-code section never its source, by design. So a
+  model asked for "the whole list" has no way to reproduce a block it means to
+  leave alone: every proposal would be a rewrite from memory, sections nobody
+  asked about would silently lose their settings, and any page with custom code
+  would be refused outright by the guard above. `resolveKeptLayoutSections`
+  swaps a reference for the EXACT stored object before validation, so
+  preservation is guaranteed by construction rather than by the model's
+  fidelity — and custom code is carried across without the model ever seeing
+  it. A reference to an id not on the page is an error, never a silent
+  omission, and a "kept" entry carrying any other field is refused: otherwise
+  keep would mean "keep, except the bits I also sent".
+- **★ `readMinkStorefrontPageContext` GAINED `page.sectionsDigest`.** A layout
+  lock is over the ORDERED LIST, and adding a section changes no existing
+  section's own digest — so per-section digests cannot detect it, and a
+  merchant adding a block between the read and the proposal would have had it
+  silently deleted. Pinned by its own assertion, because an absent field here
+  makes the whole feature uncallable with nothing failing loudly.
+- **★★ CUSTOM CODE MUST SURVIVE BYTE FOR BYTE, IN BOTH DIRECTIONS.**
+  `assertLayoutPreservesCustomCode` walks the proposed list (refusing an
+  invented, retyped or edited `custom_code` section) AND the current one
+  (refusing one the proposal simply OMITS). The second pass is not symmetry for
+  its own sake: the first loop cannot see a section that is absent, so without
+  it a merchant's own hand-written code is the easiest thing this path can
+  destroy — and the card shows a section's LABEL, not its content, so
+  "Removed: Custom code" would hide exactly what is going. Caught by a test,
+  not by review.
+- **★ NO `pages.customCode` GATE, unlike 7B/7C.** That entitlement governs
+  running merchant HTML/CSS/JS on the storefront. A hero is neither, so
+  requiring it would withhold ordinary layout editing from the majority of
+  stores, where it is off by default and is a Basic+ entitlement.
+- **★ THE APPROVAL CARRIES DIGESTS, NOT THE LISTS.** A section list is bounded
+  at 128 KB, so copying both sides onto `mink_action_approvals` would store a
+  quarter of a megabyte per preview of content the draft already holds twice.
+  Execution re-reads both lists from their own rows and refuses unless each
+  hashes to what was approved — the same binding, without the duplication.
+- **★ THE `before` SNAPSHOT IS READ IN DRAFT MODE, THE PROPOSAL IN PUBLISH
+  MODE.** A merchant mid-edit can legitimately hold a half-finished section;
+  holding the snapshot to the publish bar would make approval impossible for
+  exactly those stores. What is about to be WRITTEN is held to the bar the
+  Builder's own Publish button clears.
+- **★★ AND THE MIGRATION MISSED A FOURTH TOOL VOCABULARY BEFORE A PROBE FOUND
+  IT.** `mink_action_approvals_draft_version_check` requires
+  `draft_version > 0` unless the tool is one of the two storefront-code ones —
+  a tool allowlist whose NAME says nothing about tools. An immutable proposal's
+  only version is 0, so without widening it every layout preview insert would
+  have been refused by the database: 0070's failure exactly. The prescribed
+  query (`pg_get_constraintdef(oid) LIKE '%apply_storefront_code%'`) returns
+  EIGHT constraints across three tables; enumerating the tables by hand returns
+  three. **Run the query, then INSERT the real payload shape and check what the
+  database actually accepts** — that probe is what found this, the NULL hole in
+  the target checks, and the identical pre-existing hole in 7B's.
+- The write is `store_pages.sections` ONLY: `published_sections`, `status` and
+  `published_at` are absent from the transaction and from the API, pinned by a
+  test asserting the update statement's exact key set. Publishing stays the
+  merchant's separate step in Website Builder.
+- `thinking.ts` is unchanged and already covers this: a "redesign my homepage
+  hero" message trips HIGH reasoning whenever the 7B tool is exposed, and both
+  tools share one gate (drafting + Builder Manage), so a merchant who can
+  propose a layout can propose code.
+- Prompt versions advance to `draft-action-beta-v26` / `draft-beta-v17` (a new
+  drafting tool and the guidance it needs); `read-beta-v14` / `read-beta-v10`
+  are unchanged, because a read-only actor is never offered this tool.
+- Migration `20260911_0101_mink_storefront_layout` adds the tool to all four
+  vocabularies, the draft kind, the draft/approval/audit target shapes, and
+  backfills `apply_storefront_layout` for stores that already have Mink on
+  (matching 0091's all-or-nothing switch — a new tool that skipped the backfill
+  would be dark until somebody re-toggled Mink). It also repairs the SAME
+  NULL-hole in the applied 7B target checks, found while probing the new ones.
+  `20260912_0102_mink_layout_help` corrects the three published sentences that
+  told merchants Mink could not change a page's sections — by `replace()`, not
+  by appending a section the paragraphs above would contradict.
+
+### Mink Phase 9C — Proposed storefront design (2026-09-12)
+
+9B gave Mink a page's STRUCTURE. A merchant who says "I like this website, make
+mine like it" is talking about colour and type first, and until now Mink could
+change neither: Phase 9A built the per-store design layer
+(`lib/chrome/design.ts` — eight curated palette tokens, an allowlisted
+body/display pair, four radii, riding in the same `store_chrome` draft/published
+payload) and gave it a merchant panel, but no agent route. 9C is that route: one
+immutable, 2-credit private proposal for the WHOLE override set, behind its own
+default-off tool gate and a separate five-minute human approval that writes only
+`store_chrome.draft.design`.
+
+- **★★ IT REFUSES WHAT `validateStorefrontDesign` WOULD SILENTLY DROP, and that
+  is the whole reason `storefront-design-contract.ts` wraps it.** That validator
+  discards an unparseable colour, an unknown typeface or an out-of-range radius
+  and returns the rest — exactly right for a colour picker, which cannot emit
+  junk, and dishonest for a model, which can. Dropped silently, "set the accent
+  to brand red" becomes a proposal that does not mention the accent at all: the
+  merchant approves it, nothing changes, and no error was ever raised. Naming
+  the field back is also what lets the model correct itself inside the same run.
+  ⚠ `null` is NOT a dropped value — it is how a caller says INHERIT THE THEME,
+  the entire vocabulary for clearing an override — so only a present, non-null
+  value that failed to survive is reported.
+- **★★ CONTRAST IS A PROPOSAL GATE HERE THOUGH 9A MAKES IT A PUBLISH GATE, and
+  the difference is the actor, not the rule.** The panel cannot refuse a
+  merchant mid-edit: a half-picked palette must not fail autosave, and they can
+  see the problem in the live preview. A model produces a COMPLETE brief in one
+  shot and, as `design.ts` says of exactly this case, optimises for resemblance
+  rather than readability. Refusing keeps Mink to what the merchant could
+  publish anyway and hands the failing pairs back; warning instead would put an
+  approve button under a shop whose body text cannot be read.
+- **★ OMISSION IS BENIGN HERE, WHICH IS THE OPPOSITE OF 9B.** Both replace a
+  whole set, so the shape reads as dangerous by analogy — but omitting a token
+  means inheriting the pinned theme, a designed, reversible state the storefront
+  renders correctly, where omitting a section deletes it. So there is no
+  destructive omission to guard, and "put this back to the theme" is expressible
+  by leaving a token out.
+- **★★ THE READER GAINED `design.designDigest`, AND WITHOUT IT THE TOOL COULD
+  NOT BE CALLED AT ALL** — the same gap `page.sectionsDigest` closed for 9B. The
+  patch's optimistic lock is a digest of the current override set and nothing
+  returned one. `themeDefaults` is the other half: contrast is judged against
+  the RESOLVED pair, so a model that cannot see the theme's ink and page colours
+  is marked against a rubric it was never shown. ★ Fonts come back as KEYS, not
+  `var(--font-inter)`, or the model proposes a value the validator then rejects.
+- **★★ THE LOCK IS THE DESIGN DIGEST, NOT THE ROW CLOCK.** `store_chrome`
+  carries the header, footer, appearance variants AND the design in one row; the
+  builder inspector autosaves the whole thing on a keystroke, and the chat panel
+  floats above the builder canvas by design (§11), so the ordinary way to review
+  a design proposal is with the builder open. Locking `updated_at` would let an
+  unrelated footer edit kill an approval every time. ⚠ The digest therefore
+  lives in `before_json`, never in `resource_version`: that column is
+  `timestamp with time zone` on both the approval and the audit row, so a
+  64-character digest cannot go in it — an insert would simply fail. It carries
+  the chrome row's `updated_at` (NULL for a store with no row) as a coarse
+  record of WHEN, while the digest that gates the write rides in the approved
+  values, inside the canonical request hash like every other approved fact.
+- **★★ THE WRITE REPLACES ONE KEY AND CARRIES THE REST THROUGH**, read under the
+  same lock — a whole-row write would silently revert a footer edit made between
+  preview and approval. And **a store with no chrome row is proposed against
+  `DEFAULT_CHROME` rather than refused**: that is the commonest state, since it
+  means nobody has opened the Brand panel, and it is the store most likely to
+  ask for a redesign. The write is an upsert on the primary key, so two
+  concurrent first-time saves cannot both insert.
+- **★ THE CARD SHOWS THE COLOURS, NOT A DESCRIPTION OF THEM.** This is the one
+  proposal card whose whole subject is visual, so every palette change renders
+  as a before/after pair of real swatches — and **a cleared token draws the
+  THEME's colour**, because `null` means inherit and a blank swatch labelled
+  "theme" tells a merchant nothing about what their shop will look like. The
+  honest full preview is still Website Builder, which the card links to (9B's
+  reason: the storefront's own renderers are the only thing that can say what a
+  design looks like, and a second implementation in a chat card would drift).
+- **★ THE CREDIT WEIGHT IS 2**, against 9B's three and 7B's five. The ladder is
+  the size of the artefact: generated HTML/CSS/JS, then a whole section list
+  with every section's config, then at most eight colours, two typefaces and
+  four numbers.
+- **★★ AND THE PROBE FOUND A NULL TRAP IN A COMPARISON, NOT A `jsonb_typeof`.**
+  `(outcome = 'executed' AND result_id = resource_id) OR (outcome <> 'executed'
+AND result_id IS NULL)` reads as exhaustive and is not: with `result_id` NULL
+  the first arm is `true AND NULL` = NULL, the second is `false`, and
+  `NULL OR false` is NULL — which SATISFIES a CHECK. So an executed row
+  recording no result at all was accepted. Verified by INSERT against a real
+  database on the APPLIED 0101 layout audit check, then refused after the
+  repair; the same row naming the WRONG result was correctly refused throughout.
+  ⚠ Some siblings were saved only by a NEIGHBOURING conjunct (`result_version IS
+NULL` in the second arm is a real `false` that collapses the AND), so all
+  EIGHT storefront target checks are fixed the same way rather than only the
+  reachable ones — a guard that depends on the field beside it is one an
+  unrelated edit removes. **The rule is not "coalesce every `jsonb_typeof`": it
+  is that ANY sub-expression which can be NULL makes its whole CHECK pass, and a
+  two-armed `OR` over a nullable column has one such expression per arm.**
+- **★★ AND ENROLLING THE TOOL SURFACED THAT 9B NEVER WAS.**
+  `MINK_ACTION_TOOLS` (`lib/mink/product-action-types.ts`) is what the single
+  operator switch upserts on Enable, and `apply_storefront_layout` was added to
+  four database allowlists and to nothing there. Two silent consequences: a
+  store enabled AFTER 0101 got no `apply_storefront_layout` row at all, so
+  every layout save was refused; and a store disabled and re-enabled lost the
+  gate for good, because Disable clears EVERY row for the store while Enable
+  re-writes only the registry's. Neither raises anything — `assertToolEnabled`
+  reports that support has not enabled the feature, which is indistinguishable
+  from an operator decision. Both tools are enrolled now, and the compiler
+  immediately demanded their `MINK_ACTION_TOOL_LABELS` entries, which is the
+  half it could catch. ⚠ `unified-access.postgres.test.ts` already asserted
+  this against a real database and is OPT-IN, so it is skipped in every
+  ordinary run: `action-tool-registry.test.ts` is the same assertion with no
+  credentials, comparing the registry against the newest migration's own
+  `mink_action_tool_access_name_check` allowlist, set-equal in both directions.
+- Prompt versions advance to `draft-action-beta-v27` / `draft-beta-v18` (a new
+  drafting tool and the guidance it needs); `read-beta-v14` / `read-beta-v10`
+  are unchanged, because a read-only actor is never offered this tool.
+- Migration `20260912_0103_mink_storefront_design` adds the tool to all four
+  vocabularies, `storefront_chrome` to BOTH resource-type allowlists (0071's
+  lesson — an audit insert that rolls back the execution it was recording), the
+  draft kind, the three target shapes, and the eight-check repair above, and
+  backfills `apply_storefront_design` for stores that already have Mink on.
+  `20260912_0104_mink_design_help` widens the two published paragraphs that
+  understated what Mink can propose and what an approved save changes — by
+  `replace()`, not by appending a section.
+
+### Mink Phase 9D — Media the model can use (2026-09-12)
+
+9B can propose a hero, a gallery, a media/text split, testimonials and a
+carousel. Every one of those is a block whose whole point is a PICTURE — and
+until now `grep -rn "media_assets" lib/mink/` returned **nothing**: eighteen
+read tools and not one of them knew the store had an image.
+
+**★★ SO THE STRUCTURED-LAYOUT CAPABILITY HAD A SILENT HOLE FROM THE DAY IT
+SHIPPED.** `safeHref` (`lib/homepage/section-types.ts`) blocks `javascript:`,
+`data:` and `vbscript:` and **accepts every other string**. A `gallery` needs
+two images, a model asked for one has never been shown a real image URL, and an
+invented `https://images.example.com/shop-hero.jpg` passes `validateConfig`, is
+stored, renders on the review card as "Added: Gallery", is approved, and lands
+in `store_pages.sections` as a broken image on a live storefront. **Nothing
+errors at any step**, which is why the fix is a refusal in the contract rather
+than a warning on the card.
+
+- **`lib/mink/storefront-media-read.ts` — `list_storefront_media`.** Bounded at
+  40, newest first, returning `media_assets.url` VERBATIM (it is the string a
+  proposal must echo back, so it is neither shortened nor re-derived from the
+  bucket path) plus filename, type, size. `selectOwnedMediaUrls(db, storeId,
+candidates)` answers membership rather than listing the library: a store may
+  hold thousands of assets, a proposal cites a few dozen, and the same question
+  has to run INSIDE the execute transaction, where a long read is a lock held
+  open.
+- **★ IT IS A `media` READ, NOT A `builder` ONE**, even though its only consumer
+  is a Builder proposal. Filenames alone can carry a supplier's name or an
+  unreleased product's, and an admin trusted to arrange a page is not
+  automatically trusted to enumerate every file the store has uploaded.
+- **★★ `lib/mink/storefront-media-policy.ts` — THE ALLOWLIST IS "WHAT THE MODEL
+  WAS SHOWN", NOTHING WIDER.** Two sources, each provably real: a URL already on
+  the CURRENT page (so a proposal that keeps or moves a block is never refused
+  for its own images — and a pure reorder asks the database nothing at all), and
+  a `media_assets.url` for this store. A store-owned **GCS PREFIX** rule was
+  considered and REJECTED: the builder's own `ImageUpload` writes to
+  `stores/{storeId}/uploads/` with no row anywhere, so no read tool can list
+  one and the model could only ever reach it by CONSTRUCTING a path — the
+  invented-URL defect again, wearing a prefix that makes it look checked.
+  ⚠ **The consequence, stated rather than papered over:** a theme-seeded store
+  keeps its artwork at `/themes/{id}/*.webp`, which is in no store's Media
+  Library, so on a page with no images a model asked for a gallery has nothing
+  to use and must say so. That is the right answer — "add these and I will use
+  them" beats two broken images.
+- **★ MEDIA IS FOUND BY THE `_url` SUFFIX, NOT BY ENUMERATING SEVENTEEN SECTION
+  TYPES.** Media already lives at three depths (`config.image_url`,
+  `config.items[].image_url`, `config.slides[].video_url`), and an enumerated
+  list is the thing that goes stale. The convention is pinned by a test that
+  scans the section registry's SOURCE and fails on a media-shaped field named
+  anything else — mutation-checked with a `background_image`. **`href` and
+  `cta_href` are deliberately untouched**: a link is where a shopper is sent,
+  and merchants legitimately point one at Instagram or a supplier; `*_url` is
+  media the page LOADS, and a wrong one is a hole in the page.
+- **★ CHECKED AT PROPOSAL AND AGAIN AT THE WRITE, under the same transaction.**
+  At proposal because charging for something that cannot be approved is a bill
+  for nothing; at the write because the page digest already proves the page has
+  not moved, so the **Media Library** is the only thing that can have changed —
+  an asset deleted between approval and execution would otherwise go live as a
+  broken image. It conflicts and audits, exactly like the custom-code guard
+  beside it.
+- **★★ SAVING AN ATTACHMENT IS THE MERCHANT'S UPLOAD, NOT A MINK ACTION.**
+  8E deliberately discards attachment bytes ("never database/GCS/Media/memory
+  objects") — right for EXTRACTION, and exactly what made "make my hero this
+  photo" impossible: the one image in the conversation existed for seconds. The
+  composer now offers **Save to Media Library** beside an image, as a SECOND,
+  SEPARATE consent: extraction still saves nothing, the attachment survives the
+  save so it can still be processed, and a merchant may do either, both or
+  neither. It calls the store's own `uploadMediaAsset` — same `media` manage
+  gate, same WebP normalisation, same GCS path, same orphan cleanup as
+  `/dashboard/media` — because nothing about this file differs from one dragged
+  onto that page. **No credit, no approval, no model tool.** Mink's only
+  involvement is that it can afterwards SEE the result.
+  `addSavedMinkMediaReference` puts the exact URL into the composer, labelled
+  untrusted, so the next turn can cite it without a Media read and a guess.
+  `canSaveMedia` is resolved in the dashboard layout and threaded through
+  `ChatProvider`, so the control is absent for an admin who cannot use it (§23's
+  rule); `uploadMediaAsset` re-checks and is the real boundary.
+- **★ NO NEW TOOL VOCABULARY, NO GATE, NO SCHEMA.** `list_storefront_media` is a
+  READ tool, so it is permission-filtered and never enters
+  `mink_action_tool_access`; the save reuses an existing gated action. Migration
+  `20260912_0105_mink_media_help` is content only — it `replace()`s the three
+  published sentences that said Mink cannot use images and that an attachment
+  can never be kept.
+- Prompt versions advance to `draft-action-beta-v28` / `draft-beta-v19` AND
+  `read-beta-v15` / `read-beta-v11` — the first phase in a while to move the
+  READ pair too, because a read-only actor IS offered this tool.
+
+**★★ AND PROBING IT FOUND A LIVE DEFECT IN THIRTEEN OTHER QUERIES.**
+`= any(${values}::text[])` was the house idiom across five modules, and it does
+not work. Drizzle expands a bare array in a `sql` template into a comma-separated
+placeholder LIST (for `in (...)`), so that compiles to `any(($1, $2)::text[])` —
+a ROW CONSTRUCTOR cast to an array — and PostgreSQL refuses it outright:
+`cannot cast type record to text[]`, or `malformed array literal: "a"` for a
+single element, or `op ANY/ALL (array) requires array on right side` with no
+cast. **Every one of those queries threw at runtime, always** — in the POS
+customer claim (§36), the announcement worker and audience resolver (§39), and
+Mink's bulk-price and bulk-inventory target readers (§20a) — and several sit
+behind callers that swallow errors by design, so a permanently broken query
+looked like a feature that simply never matched anything. All thirteen now use
+`sql.param(values)`, which binds the whole array as ONE parameter.
+⚠ **The unit tests passed both before and after**: they mock the driver, so a
+query the SERVER rejects is indistinguishable from a correct one. It was found
+by executing all three shapes against a real PostgreSQL, and
+`lib/db/sql-array-binding.test.ts` is the guard — it proves the compiled shape
+and fails on any `any(${…})` in the tree that is not wrapped in `sql.param`.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
-drafting and all 18 registered `MINK_ACTION_TOOLS` in one service transaction,
+drafting and all 20 registered `MINK_ACTION_TOOLS` in one service transaction,
 locking the parent before child gates. Disable shuts all down together.
 The platform store management page renders only Enable/Disable Mink AI;
 granular mutation actions are removed. Migration
@@ -1553,6 +2029,28 @@ wholesip/
 │   │                          # draft-only section save, idempotency and audit;
 │   │                          # storefront-publication-types/validation/actions.ts add Phase 7D
 │   │                          # checked publication, full-snapshot locking and exact rollback.
+│   │                          # storefront-layout-contract/-proposals/-actions.ts and
+│   │                          # tools/storefront-layout-tools.ts add Phase 9B: one immutable
+│   │                          # 3-credit proposal for a page's WHOLE structured section list,
+│   │                          # its own default-off tool gate, and a five-minute human approval
+│   │                          # that writes only store_pages.sections.
+│   │                          # storefront-design-contract/-proposals/-actions.ts and
+│   │                          # tools/storefront-design-tools.ts add Phase 9C: one immutable
+│   │                          # 2-credit proposal for the store's palette, typefaces and
+│   │                          # corner radii, refused rather than silently trimmed when a
+│   │                          # value or a WCAG AA pair fails, locked on the design DIGEST
+│   │                          # rather than the autosaved chrome clock, and approved into
+│   │                          # store_chrome.draft.design one key at a time.
+│   │                          # storefront-media-read.ts + storefront-media-policy.ts add
+│   │                          # Phase 9D: list_storefront_media (a `media` View read of the
+│   │                          # store's own image URLs) and the guard that REFUSES a layout
+│   │                          # proposal citing any image the store does not have -- safeHref
+│   │                          # accepts every non-script URL, so an invented one validated,
+│   │                          # stored, reviewed and saved as a broken image. media-attachment.ts
+│   │                          # is the client-safe helper for the composer's separate
+│   │                          # Save to Media Library step, which is the merchant's own
+│   │                          # upload through app/actions/media-actions.ts -- no credit,
+│   │                          # no approval and no model tool.
 │   │                          # thinking.ts selects HIGH
 │   │                          # only for authorised explicit storefront code generation.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
@@ -1998,7 +2496,23 @@ wholesip/
 │                              # 0096 documents the parent-first register catalogue;
 │                              # 0097 documents correcting a mistyped customer mobile;
 │                              # 0098 stops the Mink guide offering a WAV attachment;
-│                              # 0099 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0099 records provider-cached prompt tokens on the Mink
+│                              # usage ledger;
+│                              # 0100 installs per-run Mink credit settlement
+│                              # (mechanism only; charging stays switched off);
+│                              # 0101 admits Mink layout proposals (and repairs the same
+│                              # NULL hole in 7B's applied target checks);
+│                              # 0102 corrects the three published Help sentences that said
+│                              # Mink could not change a page's sections;
+│                              # 0103 admits Mink storefront-DESIGN proposals (new resource
+│                              # type storefront_chrome) and repairs a NULL comparison hole
+│                              # in all EIGHT applied storefront target checks;
+│                              # 0104 widens the two published Help paragraphs that
+│                              # understated what Mink can propose;
+│                              # 0105 corrects the three published Help sentences that
+│                              # said Mink cannot use images and that a chat
+│                              # attachment can never be kept;
+│                              # 0106 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -2351,6 +2865,40 @@ wholesip/
      Adding a class is safe because no rule in the file is a bare element
      selector — they are all `.dash-*`, so scoping an overlay cannot restyle its
      internals by accident. Keep it that way.
+   - **★★ AND THE BUILDER HAD THE SAME BUG, WORSE, FOR LONGER (fixed
+     2026-09-11).** `builder.css` used `--b-text`, `--b-text-2`, `--b-text-3`,
+     `--b-border` and `--b-surface-2` across 21 rules and **declared none of
+     them anywhere in the repo** — only the four `--b-accent*` tokens and two
+     layout lengths existed. Invisible in review, because the CSS reads as
+     correct.
+     ★★ THE DAMAGE IS NOT WHAT THE `--dash-border` CASE ABOVE WOULD PREDICT,
+     and the difference is the SHORTHAND. That one set `border-color` on its
+     own, so an invalid value fell back to `currentColor` and drew a black
+     hairline. The builder writes `border: 1px solid var(--b-border)` — a
+     shorthand, so an invalid var makes the WHOLE declaration invalid at
+     computed-value time and it resets to the initial value. Measured in a
+     browser against the real stylesheet: `border-style: none`,
+     `border-width: 0px`. Every input, colour swatch, group separator and the
+     pages-rail divider had **no border at all**. `background: var(--b-surface-2)`
+     computed to `rgba(0,0,0,0)`, so hover states and the rail count badge
+     never appeared. And `color` — inherited, so it survived — resolved to
+     `.sm-builder`'s full-strength ink, which meant every hint, field label and
+     secondary line rendered as dark as a heading: the type hierarchy was flat.
+     Declared as `var(--dash-*, literal)` beside `--b-accent`, matching its own
+     convention, so the builder keeps tracking the dashboard theme and still
+     renders outside `.dashboard-shell`.
+     ⚠ Two of the seven originally suspected — `--b-border-strong` and
+     `--b-danger` — were NOT broken: each has exactly one use and it carries a
+     fallback. They are declared now for consistency, but a `var()` with a
+     fallback is not a defect, and a scan that ignores fallbacks over-reports.
+     ⚠ A repo-wide sweep found one more real instance (`--hc-ink-muted` in
+     `help.css`, a typo for `--hc-ink-faint` — every other uppercase 0.06em
+     label uses that one) and one FALSE alarm worth recording: `--stq-shot` in
+     `platform.css` is undeclared, but `.stq-mock-shot` is applied nowhere in
+     any component, so it is dead CSS for an unwired mock rather than a
+     degraded surface. `dashboard.css` and `pos.css` are clean — their
+     `--font-dash`/`--font-dash-mono` come from `next/font` in the dashboard
+     layouts, which a CSS-only scan reads as missing.
    - **★★ `100vh` IS THE WRONG UNIT ON iOS — use `dvh` for anything full-height.**
      Safari resolves `100vh` to the LARGE viewport (the height the page would
      have with the toolbars hidden), so with the address bar on screen the
@@ -2395,6 +2943,32 @@ wholesip/
    people to re-run rather than trust it. One seed is one permutation, so it
    catches regressions this ordering exposes, not all of them — hunt for more with
    `npx vitest run --coverage=false --sequence.shuffle --sequence.seed=<n>`.
+   **★★ AND A SHUFFLE FAILURE IS NOT ALWAYS AN ORDERING ONE.** Both suite runs
+   execute files in PARALLEL, so a test that renders a component holding a live
+   `setTimeout` is racing the WALL CLOCK on a loaded worker, not the file order
+   — and because `test:shuffle` is a second full run, it is simply the second
+   roll of that die, which is why the flake tends to surface there. `app/pos/sell/sell-client.test.tsx` failed once and passed on a
+   re-run at the IDENTICAL seed and tree (2026-09-11), which is the signature:
+   an ordering bug is reproducible, a timing one is not. The cause was that the
+   register arms a real 150 ms server-fallback timer whenever the catalogue is
+   cold (`sell-client.tsx`, the `if (catalog.ready) return;` effect), and the
+   `lookupProducts` mock resolved to `{ items: [] }` — so ~150 ms after any
+   cold render the product grid EMPTIED and the next
+   `getByRole(/multigrain bread/i)` threw. The test passed only while three
+   render/click cycles finished inside that window.
+   **The rule: a mock that stands in for a data source must return DATA.** An
+   empty fixture reads as a harmless default and is really a second scenario
+   ("the shop sells nothing") that fires on a timer nobody is watching. And
+   when a component under test owns a real timer, cross it DELIBERATELY —
+   `await waitFor(() => expect(theAction).toHaveBeenCalled())` — rather than
+   hoping the assertions land first; that turns a load-dependent flake into a
+   deterministic failure, which is the only kind anybody can fix.
+   ⚠ Diagnose these by FORCING the delay (`await act(async () => { await new
+Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
+   until it goes red — the forced version reproduces first time and names the
+   real assertion. Raising a `findBy*` timeout would have buried this one:
+   the failing call was a synchronous `getByRole`, and the element was gone
+   rather than late.
 9. **Features are settings-based** (see §9): configurable behavior goes through
    `lib/settings/registry.ts` — add the setting there (key, label, default,
    `section` = the dashboard permission section that owns it, optional
@@ -2700,6 +3274,66 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     one-entry sitemap; the platform nav/footer links to it. Blocked or unhealthy
     demos render an honest unavailable state rather than a broken live link.
     `themes` is also rejected by store-signup slug validation.
+    **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
+    Until this landed there was NO per-store design layer at all: palette,
+    fonts and radii came SOLELY from the pinned immutable preset, and
+    `StorefrontAppearance` carried only layout VARIANTS. The one per-store
+    visual control was `--brand-primary` and the logo — so "make my shop look
+    like this site" could not change a single colour or typeface, for a
+    merchant OR for Mink, and no amount of agent tooling would have fixed that
+    because the value had nowhere to live. `StorefrontDesignOverrides` (eight
+    curated palette tokens, a body/display face, four radii) rides in the SAME
+    `store_chrome` draft/published payload, so it needs NO migration and
+    inherits the draft → publish contract pages and chrome already have.
+    `designOverrideCssVars` emits ONLY what was overridden and the storefront
+    layout spreads it AFTER `designToCssVars`; emitting a full map would pin a
+    store to today's theme values so a later preset upgrade would stop reaching
+    it.
+    ★★ THE BODY FACE OCCUPIES TWO CSS VARIABLES. `designToCssVars` points BOTH
+    `--font-outfit` and `--font-roboto` at `fonts.body`, because the
+    storefront's call-sites are split across those legacy slots — overriding
+    one leaves the shop in two typefaces, the Vitrine defect recorded below,
+    invisible unless you count elements. `design.test.ts` pins every emitted
+    variable name against `designToCssVars`'s own output, because a wrong name
+    is a SILENT no-op: no error, no failed render, just a colour that never
+    changes.
+    ★ `.sm-themed-type` is now emitted for a font override as well as an
+    installed theme, or an un-themed store choosing a face would render half in
+    it and half in Tailwind's default. A store overriding nothing still gets no
+    class, so its inherited font is untouched.
+    ★★ CONTRAST IS A PUBLISH GATE, NOT A SAVE GATE. WCAG AA on three pairs
+    (ink-on-page, ink-on-card, muted-on-page), checked in `publishChrome`
+    against the RESOLVED pair so changing one token flags text inherited from
+    the preset that the merchant never touched. A half-picked palette mid-edit
+    must not fail autosave — it is visible in the live preview — but publishing
+    unreadable body text is not something a merchant recovers from by noticing
+    later, and the storefront has no other defence. It matters more once a
+    model proposes a palette from a screenshot: that optimises for resemblance,
+    not readability. SAFETY (hex only, allowlisted fonts, bounded radii) is
+    unconditional in both modes, because these land in an inline `style`
+    attribute.
+    **The panel is the Brand row in the builder inspector** (`chrome-form.tsx`
+    `DesignForm`): eight colour tokens, two typeface selects, four corner
+    sliders. ★ EVERY CONTROL HAS AN EXPLICIT "USE THEME" STATE and an unset one
+    SHOWS the value the storefront will really use — a colour input has no
+    null, so without that a merchant cannot tell "I have not chosen" from "I
+    chose exactly this", and cannot get back once they have nudged a picker.
+    `themeDesignDefaults()` is the projection the panel needs, deliberately not
+    the whole `ThemeDesign`: it crosses to a client component on every builder
+    load. Contrast warnings appear WHILE EDITING, not only on Publish, where
+    they would be a dead end.
+    ★★ THE PREVIEW EFFECT RESTORES, IT DOES NOT ONLY SET. Clearing an override
+    has to put the theme value back — the layout wrote the old one inline
+    server-side, so merely ceasing to write the property leaves it stuck and
+    "Reset" looks broken. `--brand-primary` is additionally SHARED with the
+    `sm-brand` message the builder sends on every colour keystroke, so the
+    provider remembers the live value and restores THAT rather than silently
+    undoing a colour the merchant just picked.
+    Verified in a browser end to end: overriding page background, ink, accent,
+    card radius and both faces repainted the storefront, and a font census
+    returned **255 of 255 elements in Jost, zero in a second family** — the
+    measurement that proves the two-slot fix, and the only way that class of
+    bug is visible at all.
     **Theme DESIGN engine (the visual "skin")**: a theme controls the FULL
     design system, not just one accent. `ThemeDesign` (`lib/themes/types.ts`) =
     `palette` (all 14 `--sm-*` colour tokens + `onAccent`/`onInk`/
@@ -3720,7 +4354,8 @@ opt-in; disabling the invitation boundary never discards a store's operator-set
 drafting entitlement.
 Its read tools cover store profile, catalogue summary, product search,
 recognized net sales, low stock, masked orders/current order, current product,
-published Help Centre retrieval and Phase 7A Website Builder context. Builder
+published Help Centre retrieval, Phase 7A Website Builder context and the
+store's own Media Library image URLs (a separate `media` View gate). Builder
 reads require Builder View, recheck that permission inside the reader and put
 the trusted store ID in every service query. They list a bounded page index,
 resolve only exact page slugs/section IDs, preserve microsecond page versions,

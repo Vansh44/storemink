@@ -41,6 +41,7 @@ import {
   type PageDraft,
   type PageListItem,
 } from "@/app/actions/page-actions";
+import type { ThemeDesignDefaults } from "@/lib/chrome/design";
 import { saveChromeDraft, publishChrome } from "@/app/actions/chrome-actions";
 import type { StoreChrome } from "@/lib/chrome/types";
 import { saveBrandAppearance } from "@/app/actions/store-branding";
@@ -89,11 +90,15 @@ export function BuilderClient({
   storeName,
   initialChrome,
   initialBrand,
+  themeDefaults,
 }: Options & {
   initialPages: PageListItem[];
   storeName: string;
   initialChrome: StoreChrome;
   initialBrand: BrandAppearance;
+  /** What the pinned theme supplies for each overridable design token, so the
+   *  panel can show a real fallback instead of an empty box. */
+  themeDefaults: ThemeDesignDefaults;
 }) {
   const [pages, setPages] = useState(initialPages);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -960,6 +965,7 @@ export function BuilderClient({
           chrome={chrome}
           onChromeChange={updateChrome}
           brand={brand}
+          themeDefaults={themeDefaults}
           onBrandChange={updateBrand}
           onClearChrome={() => setChromeTarget(null)}
           loading={loadingDraft}

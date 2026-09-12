@@ -10,7 +10,7 @@ import {
   minkUsageLedger,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
-import { estimateMinkCost } from "./cost";
+import { cachedPromptTokens, estimateMinkCost } from "./cost";
 import { historyWithCompaction } from "./compaction";
 import { MinkRequestError } from "./errors";
 import { minkShadowMeter } from "./metering";
@@ -353,11 +353,11 @@ export async function startMinkRun(input: {
         model,
         thinkingLevel: input.thinkingLevel ?? "low",
         promptVersion: actor.draftingEnabled
-          ? "draft-action-beta-v25"
-          : "read-beta-v14",
+          ? "draft-action-beta-v28"
+          : "read-beta-v15",
         toolRegistryVersion: actor.draftingEnabled
-          ? "draft-beta-v16"
-          : "read-beta-v10",
+          ? "draft-beta-v19"
+          : "read-beta-v11",
         riskTier: actor.draftingEnabled ? "R1" : "R0",
         currentPath: actor.currentPath ?? null,
         selectedResourceType: actor.selectedResource?.type ?? null,
@@ -400,10 +400,10 @@ export async function completeMinkRun(input: {
   result: MinkRunResult;
   latencyMs: number;
   pricingLocation: string;
-}): Promise<void> {
+}): Promise<{ draftCredits: number }> {
   const { actor, started, result } = input;
   const completedAt = new Date().toISOString();
-  await withService(async (db) => {
+  return withService(async (db) => {
     const updated = await db
       .update(minkRuns)
       .set({
@@ -437,7 +437,7 @@ export async function completeMinkRun(input: {
       contentJson: { text: result.text, artifacts: result.artifacts },
       model: result.model,
     });
-    await insertUsage(db, {
+    const draftCredits = await insertUsage(db, {
       actor,
       started,
       model: result.model,
@@ -457,6 +457,7 @@ export async function completeMinkRun(input: {
           eq(minkConversations.adminId, actor.adminId),
         ),
       );
+    return { draftCredits };
   });
 }
 
@@ -658,7 +659,7 @@ async function insertUsage(
     status: "succeeded" | "failed" | "cancelled";
     toolCalls: number;
   },
-): Promise<void> {
+): Promise<number> {
   const estimate =
     input.usageStatus === "unavailable"
       ? { estimatedCostMicrousd: null, pricingVersion: null }
@@ -671,6 +672,7 @@ async function insertUsage(
     status: input.status,
     toolCalls: input.toolCalls,
     usageKnown: input.usageStatus !== "unavailable",
+    usage: input.usage,
   });
   const draftUsage = await getMinkRunDraftUsage(
     db,
@@ -688,6 +690,11 @@ async function insertUsage(
       outputTokens: input.usage.outputTokens,
       thoughtTokens: input.usage.thoughtTokens,
       totalTokens: input.usage.totalTokens,
+      // Clamped through the SAME helper the cost estimate uses. This insert
+      // shares its transaction with the run-completion update and the
+      // assistant message, so tripping the ledger's cached_tokens CHECK would
+      // roll back a reply the merchant has already read.
+      cachedTokens: cachedPromptTokens(input.usage),
       usageStatus: input.usageStatus,
       estimatedCostMicrousd: estimate.estimatedCostMicrousd,
       pricingVersion: estimate.pricingVersion,
@@ -699,4 +706,9 @@ async function insertUsage(
         draftUsage.proposalCount > 0 ? "draft_proposal" : shadow.costCohort,
     })
     .onConflictDoNothing({ target: minkUsageLedger.runId });
+  // Returned so the caller can FOLD the run's band against what proposals in
+  // this run already reserved, rather than stacking the two (metering.ts's
+  // minkRunCreditCharge). Re-reading it afterwards would be a second query for
+  // a number this function has already fetched.
+  return draftUsage.chargedCredits;
 }

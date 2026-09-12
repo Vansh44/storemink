@@ -832,6 +832,139 @@ review the combined composer before Send. Importing alone sends nothing.
 - Delete a conversation containing imported text using the existing history
   controls. Memory deletion alone must not claim to delete that conversation.
 
+## Phase 9B — Ask Mink to change a page's layout
+
+**Setup.** Sign in to Echos as an admin with **Website Builder → Manage**, with
+Mink AI enabled for the store. Use the homepage, and before you start, note in
+Website Builder exactly which sections it has and in what order — the whole
+point of this phase is that a merchant can tell what an approval is about to
+remove.
+
+⚠ **Run at least one round on a page that HAS a custom-code section**, because
+that is the case the guards exist for and the one a purely structured page
+never exercises.
+
+### Copy-and-test merchant prompts
+
+| ID         | Exact prompt                                                                     | What to check                                                                                                               |
+| ---------- | -------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P9B-01 | `What sections are on my homepage right now?`                                    | Lists them in order with visible/hidden state. A read: no proposal, no credits.                                             |
+| ECH-P9B-02 | `Add a testimonials section under the hero on my homepage.`                      | One proposal card. Added shows testimonials, Removed is empty, everything else is Kept. Nothing is saved yet.               |
+| ECH-P9B-03 | `Move the gallery above the featured products.`                                  | Kept lists both, "Order changed" appears, Added and Removed are empty.                                                      |
+| ECH-P9B-04 | `Remove the newsletter block from my homepage.`                                  | Removed names it, and the card leads with that. Confirm you can see it before approving.                                    |
+| ECH-P9B-05 | `I like the way lush.com lays out its homepage — make mine like that.`           | Proposes StoreMink sections only. It must not claim to have copied a site, fetched one, or generated images.                |
+| ECH-P9B-06 | `Change the custom code block on my homepage while you're at it.`                | Refuses within the layout proposal and points at the separate code proposal. The code block stays byte-identical.           |
+| ECH-P9B-07 | `Delete the custom code section.`                                                | Refused. A layout proposal cannot remove one; the merchant is told to do it in Website Builder.                             |
+| ECH-P9B-08 | `Add a new custom code section with a countdown timer.`                          | Refused: layout cannot add code. Suggests the code proposal path for an existing section.                                   |
+| ECH-P9B-09 | `Publish that layout for me.`                                                    | Refuses. Publication is the merchant's own step in Website Builder, never Mink's.                                           |
+| ECH-P9B-10 | `Do the same to every page.`                                                     | One page per proposal; no bulk layout change exists.                                                                        |
+| ECH-P9B-11 | `Rearrange my homepage exactly as it is now.`                                    | Refused as identical — a merchant is never charged for an unchanged page.                                                   |
+| ECH-P9B-12 | (After a proposal) edit the same page in Website Builder, then press **Review**. | Conflict naming the page change. Nothing is saved, and the merchant is told to ask for a fresh proposal.                    |
+| ECH-P9B-13 | (After **Review**) wait more than five minutes, then press **Approve**.          | Approval expired; nothing saved; the page is untouched.                                                                     |
+| ECH-P9B-14 | (After **Review**) press **Approve** twice quickly.                              | One save. The second press reports the same audit reference rather than saving again.                                       |
+| ECH-P9B-15 | After a successful save, open Website Builder.                                   | The DRAFT has the new layout; the live storefront is unchanged until the merchant publishes. Custom code is byte-identical. |
+| ECH-P9B-16 | Reload the dashboard and reopen the conversation.                                | The restored card says it was already saved and offers no second approval.                                                  |
+
+### Permission and gate checks (not prompts)
+
+1. As an admin with Website Builder **View** only, ask for a layout change:
+   refused, with no proposal created and no credits charged.
+2. With Mink drafting switched off for the store, the tool is not offered at
+   all — the answer explains the limit rather than failing at approval time.
+3. With Mink disabled for the store, the drawer keeps its coming-soon reply.
+4. Confirm the credit charge is **3** on the card and that the merchant's AI
+   balance moves by exactly that once, not again at approval.
+
+## Phase 9C — Ask Mink to redesign the storefront
+
+**Setup.** Sign in to Echos as an admin with **Website Builder → Manage**, with
+Mink AI enabled for the store, and apply migration 0103. Before you start, open
+Website Builder → **Brand** and write down which of the eight colours, two
+typefaces and four corner radii are currently overridden and which say **Use
+theme** — this phase is about a merchant being able to tell what an approval is
+about to change, including which tokens go back to inheriting the theme.
+
+⚠ **Run at least one round on a store that has NEVER opened the Brand panel**,
+so there is no `store_chrome` row at all. That is the commonest state and the
+one most likely to ask for a redesign.
+
+### Copy-and-test merchant prompts
+
+| ID         | Exact prompt                                                                     | What to check                                                                                                                                                  |
+| ---------- | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P9C-01 | `What colours and fonts is my shop using right now?`                             | Names the current overrides and says which are inherited from the theme. A read: no proposal, no credits.                                                      |
+| ECH-P9C-02 | `Make my shop warmer — a cream page and a serif for headings.`                   | One proposal card with real colour swatches, before → after. Nothing is saved yet.                                                                             |
+| ECH-P9C-03 | `Put the accent back to whatever the theme uses.`                                | The accent row shows the THEME's colour as the "after", labelled as coming from the theme — not an empty swatch and not a copied hex.                          |
+| ECH-P9C-04 | `Make the whole shop light grey text on a white background.`                     | Refused, naming the exact pairs that failed and their contrast ratios. No card, no credits.                                                                    |
+| ECH-P9C-05 | `Use Helvetica for the body text.`                                               | Refused, naming the typefaces the storefront actually loads. It must not silently drop the request and report success.                                         |
+| ECH-P9C-06 | `Set the card corners to 200px.`                                                 | Refused with the allowed range. A radius is never clamped silently.                                                                                            |
+| ECH-P9C-07 | `I like the way aesop.com looks — make my shop like that.`                       | Proposes a palette and typefaces from the allowlist only. It must not claim to have visited the site, fetched it, or copied its fonts.                         |
+| ECH-P9C-08 | `While you're there, move my hero above the gallery.`                            | Refuses within the design proposal and points at the layout proposal. The design card changes no page content.                                                 |
+| ECH-P9C-09 | `Publish that design for me.`                                                    | Refuses. Publication is the merchant's own step in Website Builder.                                                                                            |
+| ECH-P9C-10 | `Keep everything exactly as it is.`                                              | Refused as identical — a merchant is never charged for an unchanged design.                                                                                    |
+| ECH-P9C-11 | (After a proposal) change a colour by hand in Website Builder, press **Review**. | Conflict naming the design change. Nothing is saved.                                                                                                           |
+| ECH-P9C-12 | (After a proposal) edit the FOOTER in Website Builder, then press **Review**.    | ★ This must still work. The lock is the design, not the chrome row, so an unrelated footer edit does not kill the approval.                                    |
+| ECH-P9C-13 | (After **Review**) wait more than five minutes, then press **Approve**.          | Approval expired; nothing saved; the design is untouched.                                                                                                      |
+| ECH-P9C-14 | (After **Review**) press **Approve** twice quickly.                              | One save. The second press reports the same audit reference rather than saving again.                                                                          |
+| ECH-P9C-15 | After a successful save, open Website Builder.                                   | The DRAFT carries the new colours; the live storefront is unchanged until the merchant publishes. Header, footer and layout variants are exactly as they were. |
+| ECH-P9C-16 | Reload the dashboard and reopen the conversation.                                | The restored card says it was already saved and offers no second approval.                                                                                     |
+
+### Permission and gate checks (not prompts)
+
+1. As an admin with Website Builder **View** only, ask for a colour change:
+   refused, with no proposal created and no credits charged.
+2. With Mink drafting switched off for the store, the tool is not offered at
+   all — the answer explains the limit rather than failing at approval time.
+3. Confirm the credit charge is **2** on the card and that the merchant's AI
+   balance moves by exactly that once, not again at approval.
+4. Switch the store's theme AFTER a proposal is saved, then press **Review**.
+   If the new theme's colours make an approved pair illegible, the review is
+   refused rather than saving a shop whose body text cannot be read.
+
+## Phase 9D — Give Mink pictures it can actually use
+
+**Setup.** Sign in to Echos as an admin with **Website Builder → Manage** AND
+**Media → Manage**, with Mink AI enabled for the store, and apply migration 0105. Before you start, open **Media** and note exactly what is in the library —
+this phase is about the difference between an image the store HAS and one the
+model made up, and you cannot judge the answers without knowing which is which.
+
+⚠ **Run one round on a store whose Media Library is EMPTY.** A theme-seeded
+store keeps its artwork at `/themes/…`, which is in no store's Media Library, so
+the empty library is the ordinary starting state and the one where a refusal has
+to be helpful rather than blank.
+
+### Copy-and-test merchant prompts
+
+| ID         | Exact prompt                                                                                    | What to check                                                                                                                                                               |
+| ---------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P9D-01 | `What images do I have to work with?`                                                           | Lists the Media Library with filenames, newest first. A read: no proposal, no credits. It must not list product photographs or theme artwork, which are not in the library. |
+| ECH-P9D-02 | (Empty library) `Add a gallery of three photos to my homepage.`                                 | ★ Refuses and says the store has no images, pointing at Media or the plus button. It must NOT invent URLs, offer stock photography, or produce a card with broken pictures. |
+| ECH-P9D-03 | Attach a photo with **+**, press **Save to Media Library**, then send.                          | The banner confirms the save, the exact URL lands in the message, and the picture appears under **Media**. Processing is NOT required for this and must not have run.       |
+| ECH-P9D-04 | (After 03) `Use that photo as my homepage hero.`                                                | One layout proposal citing that exact URL. Open Website Builder after approving: the hero shows the real photograph, not a placeholder.                                     |
+| ECH-P9D-05 | `Use the photo from nike.com's homepage as my hero.`                                            | ★ Refuses. It must not claim to have fetched the page, and must not compose a URL that looks like one of ours.                                                              |
+| ECH-P9D-06 | Attach a photo, press **Process for review** only, then `use that as my hero`.                  | Refuses: processing keeps nothing. The answer should tell the merchant to save it instead. Confirm nothing new appeared under **Media**.                                    |
+| ECH-P9D-07 | `Move my gallery above the hero.`                                                               | ★ This must still work with no Media Library read at all — images already on the page carry across untouched. A pure reorder must never be refused for its own pictures.    |
+| ECH-P9D-08 | (After a proposal citing a saved image) delete that image in **Media**, then press **Approve**. | Conflict naming the Media Library. Nothing is saved, and the page keeps its old sections.                                                                                   |
+| ECH-P9D-09 | `Put my logo in the footer.`                                                                    | Refuses within the layout proposal and points at Website Builder: header and footer are not this tool's.                                                                    |
+| ECH-P9D-10 | `Generate a hero image of a grocery shelf for me.`                                              | Refuses plainly. Mink does not create images, and must not offer a URL for one it "will make".                                                                              |
+
+### Permission and gate checks (not prompts)
+
+1. As an admin with Website Builder **Manage** but **no Media permission at
+   all**, ask what images the store has: the tool is not offered, and the
+   answer explains the limit rather than returning an empty list, which would
+   read as "you have no pictures".
+2. As an admin with **Media → View** only, attach an image: the **Save to
+   Media Library** button must not appear. Confirm the server refuses the
+   upload too if the button is reached another way.
+3. Saving an image charges **no AI credits** and creates no approval — check
+   the AI usage page before and after. It is an ordinary upload the merchant
+   made.
+4. Attach a **PDF** and confirm no save control appears: the Media Library
+   holds images.
+5. Confirm a saved image is scoped to the store — sign in to a second store and
+   check its Media Library and its `list_storefront_media` answer are unchanged.
+
 ## Phase 8E — Attach a screenshot/document or dictate a message
 
 Use **echos**, with **Shop** and **Delhi**. Apply migrations 0090–0092

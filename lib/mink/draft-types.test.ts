@@ -37,6 +37,8 @@ describe("Mink draft contracts", () => {
       // piece of drafting.
       offer_activate: 0,
       storefront_custom_code: 5,
+      storefront_layout: 3,
+      storefront_design: 2,
     });
   });
 
