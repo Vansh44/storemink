@@ -26,6 +26,7 @@ export const MINK_DRAFT_KINDS = [
   "storefront_custom_code",
   "storefront_layout",
   "storefront_design",
+  "media_image",
 ] as const;
 
 export type MinkDraftKind = (typeof MINK_DRAFT_KINDS)[number];
@@ -423,6 +424,75 @@ export const MINK_DRAFT_CONFIG: Record<
         required: true,
         multiline: true,
         maxLength: 1_000,
+      },
+    ],
+  },
+  media_image: {
+    label: "Generated image",
+    // ★ THREE, between 9C's two and 7B's five, and the ladder stops being
+    // about the size of the artefact here. Every other weight prices how much
+    // model work a proposal took; this one prices a provider call billed per
+    // IMAGE rather than per token, which is the first Mink capability whose
+    // marginal cost does not move with the conversation around it.
+    // ⚠ The number is provisional: CODEBASE.md is explicit that pricing is the
+    // owner's call, and nothing here has been measured against a real bill.
+    expectedCredits: 3,
+    fields: [
+      {
+        key: "url",
+        label: "Image URL",
+        required: true,
+        multiline: false,
+        maxLength: 500,
+      },
+      {
+        key: "storage_path",
+        label: "Storage path",
+        required: true,
+        multiline: false,
+        maxLength: 500,
+      },
+      {
+        key: "filename",
+        label: "File name",
+        required: true,
+        multiline: false,
+        maxLength: 255,
+      },
+      {
+        key: "content_type",
+        label: "Content type",
+        required: true,
+        multiline: false,
+        maxLength: 40,
+      },
+      {
+        key: "size_bytes",
+        label: "Size in bytes",
+        required: true,
+        multiline: false,
+        maxLength: 12,
+      },
+      {
+        key: "purpose",
+        label: "Placement",
+        required: true,
+        multiline: false,
+        maxLength: 20,
+      },
+      {
+        key: "prompt",
+        label: "Description",
+        required: true,
+        multiline: true,
+        maxLength: 600,
+      },
+      {
+        key: "alt",
+        label: "Alt text",
+        required: true,
+        multiline: true,
+        maxLength: 180,
       },
     ],
   },

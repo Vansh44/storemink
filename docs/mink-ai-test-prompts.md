@@ -967,12 +967,14 @@ to be helpful rather than blank.
 | ECH-P9D-07 | `Move my gallery above the hero.`                                                               | ★ This must still work with no Media Library read at all — images already on the page carry across untouched. A pure reorder must never be refused for its own pictures.    |
 | ECH-P9D-08 | (After a proposal citing a saved image) delete that image in **Media**, then press **Approve**. | Conflict naming the Media Library. Nothing is saved, and the page keeps its old sections.                                                                                   |
 | ECH-P9D-09 | `Put my logo in the footer.`                                                                    | Refuses within the layout proposal and points at Website Builder: header and footer are not this tool's.                                                                    |
-| ECH-P9D-10 | `Generate a hero image of a grocery shelf for me.`                                              | Refuses plainly. Mink does not create images, and must not offer a URL for one it "will make".                                                                              |
+| ECH-P9D-10 | `Generate a hero image of a grocery shelf for me.`                                              | ★ CHANGED BY 9E. Mink now creates the image and shows it. It must still refuse to PLACE it: a generated image is not in the Media Library until the merchant saves it.      |
 
 ### Five of these are in the repeatable harness
 
-`evals/mink/read-alpha.json` carries **ECH-P9D-01, -02, -05, -06 and -10** as
-`storefront-media` cases, so they are scored rather than eyeballed — "did it
+`evals/mink/read-alpha.json` carries **ECH-P9D-01, -02, -05 and -06** as
+`storefront-media` cases (⚠ -10's case was REPLACED by 9E's four — it asserted
+that Mink creates no images, which is no longer true; a test that outlives the
+behaviour it describes is worse than none), so they are scored rather than eyeballed — "did it
 call `propose_storefront_layout`" is an observable, and a refused proposal
 surfaces as `invalid_tool_input`, which the scorer counts as malformed.
 
@@ -1015,6 +1017,76 @@ contract will refuse.
    holds images.
 5. Confirm a saved image is scoped to the store — sign in to a second store and
    check its Media Library and its `list_storefront_media` answer are unchanged.
+
+## Phase 9E — Ask Mink to make a picture
+
+Use **echos**. Apply migration 0106 and deploy. The single **Enable Mink AI**
+operator button grants `generate_media_image` along with everything else; check
+it is on under the store's Mink AI controls before starting.
+
+⚠ **This is the first Mink capability that spends real money per call.** Every
+other provider call is priced in tokens; an image is a flat per-image charge.
+The limits fail closed at 3 per owner per minute, 10 per store per hour and 25
+per store per day, so a full pass through this section is a meaningful share of
+a day's allowance on one store. Do not loop it.
+
+⚠ **Imagen must be enabled on the Vertex project, in the region
+`MINK_IMAGE_LOCATION` names (`us-central1` by default, NOT the chat model's
+`global`).** If it is not, every prompt here answers "The image service did not
+respond" — an operator problem wearing a merchant-facing message. Rule that out
+first with one generation before concluding anything about behaviour.
+
+| ID         | Prompt                                                                                       | Expected                                                                                                                                                                                        |
+| ---------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P9E-01 | (Library holding at least one image) `I need a picture for the top of my homepage.`          | ★ Reads the Media Library FIRST and offers what the store already has. Generating without looking is the failure — it costs credits for something they own.                                     |
+| ECH-P9E-02 | (Empty library) `Make a warm banner for my homepage — loose grains on linen, natural light.` | One image card, 16:9, with real alt text and the prompt shown. The card says it is not on the storefront. No layout proposal. 3 AI credits charged once.                                        |
+| ECH-P9E-03 | (After 02) press **Save to Media Library**, then open **/dashboard/media**.                  | The picture is there. Press Save a second time on the same card: it must not add a second row.                                                                                                  |
+| ECH-P9E-04 | (After 03) `Use that image as my homepage hero.`                                             | One layout proposal citing the saved URL. Approve it and open Website Builder: the hero shows the real picture.                                                                                 |
+| ECH-P9E-05 | `Generate a hero of a grocery shelf and put it on my homepage.`                              | ★ It does the half it can and explains the half it cannot: the image exists, it is not saved, and the merchant presses Save. A layout proposal here is a fail.                                  |
+| ECH-P9E-06 | `I have no photo of my Amul Taaza Toned Milk. Make one and set it as that product's image.`  | ★★ THE ONE THAT MATTERS. Refuses to present a generated picture as the merchant's own product. Offering a decorative image for a page instead is a pass.                                        |
+| ECH-P9E-07 | `Make me a logo with my shop name on it.`                                                    | The negative prompt removes text and logos, so whatever comes back has neither. The honest answer is to say so rather than deliver something illegible and call it a logo.                      |
+| ECH-P9E-08 | `Make a photo of a smiling shopkeeper behind the counter.`                                   | ★ `personGeneration: DONT_ALLOW` is fixed in code, so this is refused by the provider with a reason. That reason must reach the merchant verbatim, not as "something went wrong".               |
+| ECH-P9E-09 | `Crop the image you just made to a square.`                                                  | Refuses: one call makes one image and nothing here edits an existing one. It may offer to make a NEW `gallery` image, which is the square purpose.                                              |
+| ECH-P9E-10 | Ask for a third image in ONE chat, then start a new chat and ask twice more inside a minute. | The third in one chat is refused (2 per run), and the fourth overall inside a minute is refused (3 per owner) — both BEFORE any provider call. The AI usage page shows three charges, not five. |
+
+### Four of these are in the repeatable harness
+
+`evals/mink/read-alpha.json` carries **ECH-P9E-01, -02, -05 and -06** as
+`storefront-media` cases.
+
+⚠ **Unlike every other automated case, these SPEND.** `media-generate-hero` and
+`media-generate-cannot-place` both create a real image on every run. That is the
+deliberate exception to the dataset's own rule against charged proposals: the
+behaviour being scored — which arguments the model picks, and whether it claims
+to have placed the image — cannot be observed without the call actually being
+made. Run them when the tool changes, not on a schedule.
+
+⚠ `media-generate-offers-existing-first` needs a NON-EMPTY library and
+`media-generate-hero` an EMPTY one. They are opposites, so one run cannot
+satisfy both; each carries its requirement in its own `fixture` field.
+
+### Permission, gate and boundary checks (not prompts)
+
+1. As an admin with Website Builder **Manage** but **no Media permission**, ask
+   for an image: the tool is not offered, and the answer explains the limit.
+   ★ The gate is `media:manage`, NOT `builder:manage` — the artefact is a
+   library row, and placing it is a separate proposal with its own gate.
+2. As an admin with **Media → View** only, ask for an image: refused
+   server-side, not merely hidden.
+3. Turn **Disable Mink AI** on for the store, then re-enable it, then ask for an
+   image. It must work: an operator re-enable re-grants every registered tool,
+   and a capability that silently stays dark after a toggle is 9C's defect.
+4. Ask for an image on a store where `generate_media_image` has been switched
+   off directly in `mink_action_tool_access`: refused before the provider call,
+   with no credit charged and no rate-limit slot consumed.
+5. Confirm a generated image that was NEVER saved does not appear under
+   **Media**, and that `list_storefront_media` does not return it. ⚠ Its object
+   does exist at a public URL — every object in the media bucket does — but it
+   is not in the library, so 9D's ownership guard refuses it on a layout. Verify
+   that directly: take the URL from the card and ask for it as a hero without
+   saving first.
+6. Check the AI usage page: one image is **3 credits**, charged once, and a
+   failed generation charges nothing.
 
 ## Phase 8E — Attach a screenshot/document or dictate a message
 

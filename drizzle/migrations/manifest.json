@@ -4585,6 +4585,89 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260912_0106_mink_media_generation",
+      "description": "Admit Mink AI image generation: its own operator tool gate, the media_image draft kind and its target shape",
+      "file": "sql/20260912_0106_mink_media_generation.sql",
+      "transaction": true,
+      "requires": ["20260912_0105_mink_media_help"],
+      "verify": {
+        "tables": ["mink_action_tool_access", "mink_drafts", "media_assets"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the tool allowlist admits generate_media_image",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_action_tool_access_name_check' and pg_get_constraintdef(oid) like '%generate_media_image%'",
+            "equals": "1"
+          },
+          {
+            "name": "no approval or audit allowlist was widened, because 9E writes neither",
+            "sql": "select count(*)::text from pg_constraint where conname in ('mink_action_approvals_tool_check','mink_action_audit_tool_check') and pg_get_constraintdef(oid) like '%generate_media_image%'",
+            "equals": "0"
+          },
+          {
+            "name": "the draft kind is admitted",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_kind_check' and pg_get_constraintdef(oid) like '%media_image%'",
+            "equals": "1"
+          },
+          {
+            "name": "a generated-image draft has an enforced target shape",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_media_image_target_check'",
+            "equals": "1"
+          },
+          {
+            "name": "that shape coalesces every jsonb_typeof, so an absent key cannot pass",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_media_image_target_check' and pg_get_constraintdef(oid) not like '%COALESCE%'",
+            "equals": "0"
+          },
+          {
+            "name": "alt text is required by the database, not only by the contract",
+            "sql": "select count(*)::text from pg_constraint where conname='mink_drafts_media_image_target_check' and pg_get_constraintdef(oid) like '%''alt''%'",
+            "equals": "1"
+          },
+          {
+            "name": "no Mink-disabled store was granted the new tool",
+            "sql": "select count(*)::text from mink_action_tool_access t where t.tool_name='generate_media_image' and t.enabled and not exists (select 1 from mink_store_access a where a.store_id=t.store_id and a.enabled)",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260912_0107_mink_image_generation_help",
+      "description": "Correct the two published sentences that promise Mink never creates a picture",
+      "file": "sql/20260912_0107_mink_image_generation_help.sql",
+      "transaction": true,
+      "requires": ["20260912_0106_mink_media_generation"],
+      "verify": {
+        "tables": ["help_articles", "media_assets"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains how a created picture is kept and what it may not be used for",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Mink cannot set one as a product image%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide still states where a layout proposal's pictures may come from",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%only pictures from your Media library, or pictures already on the page it is changing%'",
+            "equals": "1"
+          },
+          {
+            "name": "no published sentence still promises that Mink never creates a picture",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and (body like '%Mink never generates an image%' or body like '%This feature does not generate images%')",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

@@ -11,6 +11,7 @@ const MINK_ARTIFACT_TYPES = new Set<MinkArtifact["type"]>([
   "storefront_code_proposal",
   "storefront_layout_proposal",
   "storefront_design_proposal",
+  "media_image_proposal",
   "workflow",
 ]);
 
@@ -87,6 +88,9 @@ export function readMinkArtifacts(value: unknown): MinkArtifact[] {
       }
       if (type === "storefront_design_proposal") {
         return isStorefrontDesignProposal(artifact as Record<string, unknown>);
+      }
+      if (type === "media_image_proposal") {
+        return isMediaImageProposal(artifact as Record<string, unknown>);
       }
       if (type !== "catalog") return true;
       const catalog = artifact as Record<string, unknown>;
@@ -290,6 +294,47 @@ function isSectionRefs(value: unknown): boolean {
         isRecord(entry) &&
         isBoundedText(entry.id, 128) &&
         isBoundedText(entry.type, 40),
+    )
+  );
+}
+
+/**
+ * ★★ THE URL IS THE ONE FIELD HERE THAT GETS RENDERED AS A LIVE RESOURCE, so
+ * it is pinned to a generated object under this platform's own media host. A
+ * restored card draws `<img src={url}>`; without this, a forged history row
+ * would have the dashboard fetch an arbitrary third-party address on open,
+ * which is a tracking beacon at best. The bounds are hardcoded for
+ * `isSectionRefs`'s reason -- a pure check over untrusted stored JSON must not
+ * stop rendering because a constant moved.
+ */
+function isGeneratedImageUrl(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length <= 500 &&
+    /^https:\/\/storage\.googleapis\.com\/[A-Za-z0-9._-]+\/stores\/[0-9a-f-]{36}\/mink-generated\/[0-9a-f-]{36}\.(jpg|png)$/.test(
+      value,
+    )
+  );
+}
+
+function isMediaImageProposal(value: Record<string, unknown>): boolean {
+  return (
+    isUuid(value.draftId) &&
+    isBoundedText(value.title, 120) &&
+    isBoundedText(value.destinationLabel, 180) &&
+    value.destinationPath === "/dashboard/media" &&
+    isGeneratedImageUrl(value.url) &&
+    isBoundedText(value.alt, 180) &&
+    isBoundedText(value.prompt, 600) &&
+    ["hero", "gallery", "feature", "banner"].includes(String(value.purpose)) &&
+    ["1:1", "4:3", "16:9", "3:4", "9:16"].includes(String(value.aspectRatio)) &&
+    isBoundedText(value.placement, 200) &&
+    typeof value.saved === "boolean" &&
+    value.status === "private_preview" &&
+    isCreditCount(value.expectedCredits) &&
+    isCreditCount(value.chargedCredits) &&
+    ["plan", "credit", "mixed", "plan_unlimited"].includes(
+      String(value.creditSource),
     )
   );
 }
