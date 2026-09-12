@@ -277,10 +277,10 @@ export type MinkArtifact =
        * The image itself.
        *
        * ⚠ PUBLIC, like every other object in the media bucket (uniform
-       * bucket-level access, §7) -- but NOT in the Media Library until it is
-       * saved, so 9D's ownership check refuses it on a layout until then. The
-       * card renders it directly; a proposal that only described the picture
-       * would ask a merchant to approve something nobody has looked at.
+       * bucket-level access, §7), and saved into the Media Library as part of
+       * generation so the same run may cite it in a layout proposal. The card
+       * renders it directly; a proposal that only described the picture would
+       * ask a merchant to approve something nobody has looked at.
        */
       url: string;
       alt: string;

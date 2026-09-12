@@ -252,8 +252,11 @@ correct for every row whenever it was written.
 `app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
 controller: one plus button handles text/image/PDF attachments and one-file
 drag-and-drop; a separate mic dictates speech into editable message text.
-Attachment review is hidden until needed. Files stay local until explicit
-Vertex-processing consent; .txt/.md imports are decoded locally.
+Selected files appear as compact removable cards inside the composer; clicking
+one opens its detailed review. Files stay local until explicit Vertex-processing
+consent, except that Send stores an image through the ordinary Media action when
+the merchant explicitly asks to use that image in a named storefront placement;
+.txt/.md imports are decoded locally.
 `lib/mink/speech-recognition.ts` wraps supported browser SpeechRecognition with
 continuous interim results. One mic click starts after browser permission and
 recognised words appear in the controlled composer while the user speaks, which
@@ -279,14 +282,19 @@ from the root font size rather than assumed to be 80px. ⚠ jsdom reports every
 written, never that any space resulted. The final
 answer grows below the question instead of forcing the reader to its bottom;
 pointer, touch and wheel movement disables automatic re-anchoring, and restored
-history still opens at its latest message. The composer remains outside the
-message scroller and fixed in view.
+history still opens at its latest message. When the reader is away from the end,
+a floating down-arrow jumps to the latest message and restores follow mode. The
+composer remains outside the message scroller and fixed in view. Sent Media
+images and reviewed files render as attachment cards in user messages rather
+than exposing their machine-readable prompt suffixes. Restored image previews
+use the same-origin OG proxy, whose configured-bucket check prevents a forged
+message suffix from becoming a third-party tracking request in the browser.
 StoreMink does not create, upload or retain microphone audio; the browser speech
 service can process it under its own privacy terms. Dictation is not a voice
 conversation and never grants action authority. Extracted image/PDF references
 still require separate editing/review before addition to the composer. Closing,
-discarding, conversation changes, unmounting, hiding the page or a new chat turn
-cancel pending local work. Blob previews are revoked.
+discarding, conversation changes, unmounting or hiding the page cancel pending
+local work. Blob previews are revoked.
 
 The older `voice-recorder.ts`/AudioWorklet and canonical WAV server validation
 remain compatibility code for the Phase 8E input API, but the dashboard composer
@@ -332,11 +340,14 @@ content-free logs report modality and provider tokens/unknown failure usage,
 not filenames/bytes/transcripts. Audio is not priced using the text estimator.
 Limits are consumed on failure/cancellation too. Provider billing still applies.
 
-Raw attachment files are transient, never database/GCS/Media/memory objects. Reviewed text
-follows chat retention only after Send; provider retention still applies.
-Follow-up chat has only text, not original visuals. No generation/placement of
-images, audio attachment, video, spreadsheets, live voice conversation or
-long-document ingestion is included.
+Raw attachment files used for extraction are transient, never database/GCS/
+Media/memory objects. The one deliberate exception is an attached image sent
+with an explicit request to use it in a storefront placement: that authored
+request is the merchant's save intent, so the image is normalised into their
+Media Library and its exact URL is sent in the same turn. Reviewed text follows
+chat retention only after Send; provider retention still applies. Audio
+attachment, video, spreadsheets, live voice conversation and long-document
+ingestion remain out of scope.
 Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
 `20260910_0092_mink_live_dictation_help.sql` supersedes the recorded-audio Help
 flow with live dictation and documents expired local ADC recovery. The roadmap,
@@ -619,18 +630,19 @@ candidates)` answers membership rather than listing the library: a store may
   an asset deleted between approval and execution would otherwise go live as a
   broken image. It conflicts and audits, exactly like the custom-code guard
   beside it.
-- **★★ SAVING AN ATTACHMENT IS THE MERCHANT'S UPLOAD, NOT A MINK ACTION.**
+- **★★ SAVING AN ATTACHMENT IS THE MERCHANT'S UPLOAD, NOT A MODEL ACTION.**
   8E deliberately discards attachment bytes ("never database/GCS/Media/memory
   objects") — right for EXTRACTION, and exactly what made "make my hero this
   photo" impossible: the one image in the conversation existed for seconds. The
-  composer now offers **Save to Media Library** beside an image, as a SECOND,
-  SEPARATE consent: extraction still saves nothing, the attachment survives the
-  save so it can still be processed, and a merchant may do either, both or
-  neither. It calls the store's own `uploadMediaAsset` — same `media` manage
+  composer offers **Save to Media Library** beside an image, and Send performs
+  the same save automatically only when the authored message explicitly asks
+  to use that attachment in a named storefront placement. Both are a SECOND,
+  SEPARATE consent from extraction: generic analysis still saves nothing. Both
+  call the store's own `uploadMediaAsset` — same `media` manage
   gate, same WebP normalisation, same GCS path, same orphan cleanup as
   `/dashboard/media` — because nothing about this file differs from one dragged
-  onto that page. **No credit, no approval, no model tool.** Mink's only
-  involvement is that it can afterwards SEE the result.
+  onto that page. **No credit, no approval, no model tool.** Mink receives only
+  the exact resulting URL for the private layout proposal.
   `addSavedMinkMediaReference` puts the exact URL into the composer, labelled
   untrusted, so the next turn can cite it without a Media read and a guess.
   `canSaveMedia` is resolved in the dashboard layout and threaded through
@@ -665,7 +677,7 @@ by executing all three shapes against a real PostgreSQL, and
 `lib/db/sql-array-binding.test.ts` is the guard — it proves the compiled shape
 and fails on any `any(${…})` in the tree that is not wrapped in `sql.param`.
 
-### Mink Phase 9E — Generated images (2026-09-12)
+### Mink Phase 9E — Purpose-aware generated images (2026-09-12)
 
 9D closed the safety question — a layout proposal may cite only a URL that is
 already a `media_assets` row for this store — and left the SUPPLY one wide open.
@@ -683,7 +695,7 @@ one charged, immutable private proposal that IS an image.
   blocklist was considered and REJECTED as security theatre — it fails on every
   misspelling and every brand nobody listed, while reading like a guarantee.
   What is enforced is what can be: bounded prompts, a fixed aspect per purpose,
-  an always-applied negative prompt, and no people at all. **Adding a
+  an always-applied exclusion clause, and no people at all. **Adding a
   product-image write is what would turn this feature into a liability.**
 - **★★ THE IMAGE IS GENERATED WHEN THE PROPOSAL IS CREATED, NOT WHEN IT IS
   APPROVED**, inverting 9B/9C's ordering deliberately. Those propose a CHANGE to
@@ -694,21 +706,22 @@ one charged, immutable private proposal that IS an image.
   accepted consequence: a discarded proposal has already cost a provider call.
   That is the right way round — the alternative spends the same money after an
   approval, on an image that may be wrong.
-- **★★ SAVING IT IS A BUTTON, NOT AN APPROVAL, following 9D's own save in the
-  same feature area.** A `media_assets` row changes nothing a shopper can see,
-  and 9D's ownership guard means the only route from that table onto a live page
-  is a layout proposal the merchant separately approves. A second five-minute
-  approval here would guard a boundary that is already guarded and teach
-  merchants to click through one. So **no approval row, no audit row, no new
-  resource type**: `mink_action_approvals` and `mink_action_audit` are untouched
-  by this phase, and their four allowlists do not move.
-  `app/actions/mink-media-actions.ts` takes ONLY a draft id — filename, URL, alt
-  text and content type all come from the stored proposal, which matters more
-  than usual because `media_assets.url` is exactly what
-  `selectOwnedMediaUrls` treats as proof an image belongs to the store.
-  `readStoredGeneratedImage` re-proves the path sits under
-  `stores/{storeId}/mink-generated/` AND that the url ends with that path; the
-  insert is `where not exists` on the path, so a second click adds no second row.
+- **★★ SAVING IS PART OF GENERATION, NOT AN APPROVAL OR A SECOND MERCHANT
+  TASK.** The provider call already creates the object;
+  `media-image-proposals` now writes its store-scoped `media_assets` row before
+  returning the card. That private row changes nothing shopper-visible, but it
+  immediately makes the exact returned URL eligible for 9D's layout ownership
+  check. The system prompt and tool declaration therefore resolve the WHOLE
+  requested outcome: "make a warm banner for my homepage" infers purpose,
+  generates and saves the right shape, reads the named page, then creates the
+  separately approved layout proposal in the SAME run. It does not stop after
+  an intermediate image or ask for a second message. Human approval into the
+  Builder draft and later publication remain unchanged. Uploaded ATTACHMENTS
+  retain their explicit Save button. An authored request to use a supplied image
+  in a named storefront placement is also save intent, so Send completes the
+  upload before Mink runs; generic extraction remains transient. **No approval
+  row, audit row or new resource type** is added.
+  `app/actions/mink-media-actions.ts` remains for legacy unsaved cards.
 - **★★ THE OPERATOR GATE IS ON THE GENERATION, NOT ON THE WRITE, and it is the
   only entry in `mink_action_tool_access` that works that way.** Everywhere else
   the write is the expensive, irreversible half, so the gate sits on the action.
@@ -737,25 +750,39 @@ one charged, immutable private proposal that IS an image.
   will cheerfully pick 9:16, and the hero renderer then crops it through the
   middle of its subject. Naming the destination also lets the card say where the
   image is meant to go, which a bare ratio cannot.
-- **★★ THE NEGATIVE PROMPT AND EVERY SAFETY LEVER ARE FIXED IN CODE.**
+- **★★ THE EXCLUSION CLAUSE AND EVERY SAFETY LEVER ARE FIXED IN CODE.**
   `MINK_MEDIA_NEGATIVE_PROMPT` takes no caller contribution: its whole value is
   being byte-identical on every call, so a merchant reviewing one image reviews
-  the same guarantees as on every other. Same for
-  `personGeneration: DONT_ALLOW` (⚠ `ALLOW_ADULT` is the tempting middle
-  setting, and it is the one that invents a face nobody released),
-  `BLOCK_LOW_AND_ABOVE`, `addWatermark` (SynthID — provenance is the merchant's
-  protection too: an image identifiable as generated cannot later be mistaken
-  for a photograph of real goods) and `includeRaiReason`.
+  the same guarantees as on every other. It is appended to the model prompt
+  because Gemini's image endpoint has no separate negative-prompt field. Same
+  for `imageConfig.personGeneration: ALLOW_NONE`, the prominent-person block
+  and four `BLOCK_LOW_AND_ABOVE` harm filters. Vertex applies SynthID to
+  Gemini-generated images by default — provenance is the merchant's protection
+  too: an image identifiable as generated cannot later be mistaken for a
+  photograph of real goods.
 - **★ A FILTERED IMAGE IS A REFUSAL WITH A REASON, AND THE REASON IS SURFACED.**
   It is the only thing that lets a merchant rephrase rather than guess. An empty
   response with NO reason is a different fact and says so. ⚠ A provider FAILURE
-  is never reported as a merchant mistake: the commonest cause is Imagen not
+  is never reported as a merchant mistake: the commonest cause is a model not
   being enabled on the project, and its own words (models, regions, quotas) go
   to the log, never to the merchant.
 - **★ ALT TEXT IS REQUIRED AT PROPOSAL TIME**, by the contract AND by the
   database (`mink_drafts_media_image_target_check`). Nothing else in the product
   will ever prompt for it, and the moment it is cheapest to write is while
   somebody is looking at the picture deciding whether to keep it.
+- **★ THE TOOL AND VALIDATOR NOW ACCEPT THE SAME WIRE SHAPE.** The declaration
+  exposes `purpose`, `prompt` and `alt`; requiring the internal schema version
+  as a fourth model-supplied field made every generation fail before reaching
+  the provider. An absent version now means the current schema, while a present
+  wrong version still fails closed.
+- **★★ THE RETIRED IMAGEN ENDPOINT IS NOT A FALLBACK.** A live September 2026
+  request reached Vertex and returned `NOT_FOUND` for
+  `imagen-4.0-generate-001`; Google deprecated that endpoint in March and named
+  June 30 as the migration deadline. The provider now uses
+  `gemini-2.5-flash-image` through `generateContent`, requests the required
+  `TEXT` + `IMAGE` modalities, and persists only the first inline image part.
+  The one-candidate limit, aspect ratio, people block, harm filters, JPEG output,
+  timeout and no-retry billing rule remain enforced in code.
 - **★ THE GATE IS `media:manage`, NOT `builder:manage`.** The artefact is a
   Media Library row; placing it is a separate 9B layout proposal with its own
   Builder gate, so requiring Builder here would withhold image generation from
@@ -772,18 +799,19 @@ one charged, immutable private proposal that IS an image.
   capability whose marginal cost does not move with the conversation. ⚠ The
   number is provisional and unmeasured against a real bill; pricing is the
   owner's call.
-- **⚠ IMAGEN IS NOT SERVED AT `global`.** `MINK_IMAGE_LOCATION` defaults to
-  `us-central1` and deliberately does NOT fall back to `MINK_VERTEX_LOCATION`,
-  which is `global`; deriving one from the other makes every generation fail
-  with a 404 that reads like an outage. `MINK_IMAGE_MODEL` defaults to
-  `imagen-4.0-generate-001`. One attempt, never a retry: a retry is a second
-  charge for a request the caller has already been billed a credit for.
-- **⚠ A PROPOSAL DISCARDED BY `discardFailedMinkRunDrafts` ORPHANS ITS OBJECT.**
-  The credit is compensated and the draft is deleted, but the GCS file remains
-  under `stores/{storeId}/mink-generated/`, which a store purge removes (§39).
-  A failed draft INSERT does delete its object explicitly, mirroring
-  `uploadMediaAsset`.
-- Prompt versions advance to `draft-action-beta-v29` / `draft-beta-v20`;
+- **★ IMAGE GENERATION USES THE GLOBAL VERTEX ENDPOINT.**
+  `MINK_IMAGE_MODEL` defaults to `gemini-2.5-flash-image` and
+  `MINK_IMAGE_LOCATION` defaults to `global`. They remain separate overrides
+  from chat so an operator can move either independently. One attempt, never a
+  retry: a retry is a second charge for a request the caller has already been
+  billed a credit for.
+- **⚠ A LATER FAILURE DOES NOT SILENTLY LOSE A SUCCESSFUL IMAGE.** Once the
+  generated row and draft exist, a later same-run layout failure may discard
+  the draft card while the image remains visible under Media. A failure while
+  storing the media row removes the object; a failure while storing the image
+  draft removes both row and object best-effort.
+- Prompt versions advance to `draft-action-beta-v31` / `draft-beta-v21` after
+  the attached-image completion rule;
   `read-beta-v15` / `read-beta-v11` are unchanged, because a read-only actor is
   never offered this tool.
 - Migration `20260912_0107_mink_image_generation_help` corrects the two
@@ -794,6 +822,16 @@ one charged, immutable private proposal that IS an image.
   appending a section the paragraph above contradicts. The rule a merchant
   actually needs — where a layout proposal's pictures may come from — is
   unchanged and kept word for word.
+- Migration `20260912_0108_mink_image_intent_help` edits that same paragraph
+  again: a generated picture is now saved automatically, and a request naming
+  a page destination prepares the image plus its layout proposal in one run.
+  It adds no heading or internal implementation language.
+- Migration `20260913_0109_mink_attached_image_flow_help` edits the attachment
+  wording in place: selecting a file creates a compact draft card, and an
+  explicit request to use an attached image in a named storefront placement
+  saves the merchant's real photo and prepares the private layout in one turn.
+  The BOGO wording belongs in editable `hero_carousel` fields, not burned into
+  or regenerated over the product photo. Generic extraction stays review-first.
 - Migration `20260912_0106_mink_media_generation` moves exactly two vocabularies
   (the tool allowlist and the draft kind) and adds one target shape. ⚠ Both were
   enumerated by querying `pg_get_constraintdef(oid) LIKE '%storefront_design%'`,
@@ -803,12 +841,12 @@ one charged, immutable private proposal that IS an image.
   0101 and 0103) and was verified by INSERTing twelve deliberately malformed
   rows against a real PostgreSQL: the complete row went in and all eleven
   malformed ones were refused.
-- **⚠ NOT DONE, and required before a merchant relies on this:** no generation
-  has been exercised against a live Vertex project, so whether Imagen is enabled
-  there — and in `MINK_IMAGE_LOCATION`'s region rather than `global` — is
-  unverified. Until one real call is made, every prompt answers "The image
-  service did not respond", which is an operator problem wearing a
-  merchant-facing message.
+- The live provider trace is no longer unknown: the dashboard request reached
+  Vertex and proved the former Imagen endpoint had been retired. A subsequent
+  one-attempt smoke call through the replacement contract returned a valid
+  16:9 JPEG (611,734 bytes) from `gemini-2.5-flash-image` with the same project
+  credentials. Provider access, model id, global location and response parsing
+  are therefore verified rather than inferred.
 
 ### Single Mink AI operator switch (2026-09-09)
 
@@ -2187,25 +2225,25 @@ wholesip/
 │   │                          # rather than the autosaved chrome clock, and approved into
 │   │                          # store_chrome.draft.design one key at a time.
 │                          # media-generation-contract.ts (pure), media-generation.ts
-│                          # (the Imagen call), media-image-proposals.ts and
+│                          # (the Gemini image call), media-image-proposals.ts and
 │                          # tools/media-tools.ts add Phase 9E: one charged, immutable
 │                          # 3-credit proposal that IS an image, generated at proposal
 │                          # time so the card shows the real picture, gated on
 │                          # media:manage plus its own operator switch over the
 │                          # GENERATION rather than any write, bounded by a spend
 │                          # ceiling claimed before the provider call, and saved into
-│                          # media_assets by one button (app/actions/mink-media-actions.ts)
-│                          # rather than an approval -- 9D's own precedent.
+│                          # media_assets during generation rather than through an
+│                          # approval -- 9D's own precedent.
 │   │                          # storefront-media-read.ts + storefront-media-policy.ts add
 │   │                          # Phase 9D: list_storefront_media (a `media` View read of the
 │   │                          # store's own image URLs) and the guard that REFUSES a layout
 │   │                          # proposal citing any image the store does not have -- safeHref
 │   │                          # accepts every non-script URL, so an invented one validated,
 │   │                          # stored, reviewed and saved as a broken image. media-attachment.ts
-│   │                          # is the client-safe helper for the composer's separate
-│   │                          # Save to Media Library step, which is the merchant's own
-│   │                          # upload through app/actions/media-actions.ts -- no credit,
-│   │                          # no approval and no model tool.
+│   │                          # is the client-safe helper for the composer's explicit Save
+│   │                          # and destination-aware Send paths, both merchant uploads
+│   │                          # through app/actions/media-actions.ts -- no credit, approval
+│   │                          # or model tool; it also recovers attachment-card metadata.
 │   │                          # thinking.ts selects HIGH
 │   │                          # only for authorised explicit storefront code generation.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
@@ -2673,7 +2711,12 @@ wholesip/
 │                              # 0107 corrects the two published sentences that promise
 │                              # Mink never creates a picture -- both written by 0105 two
 │                              # days earlier, and true then;
-│                              # 0108 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0108 teaches the same guide that generated images are
+│                              # saved automatically and can continue into a same-request
+│                              # page-layout proposal;
+│                              # 0109 explains compact chat attachment cards and
+│                              # same-send attached-image storefront placement;
+│                              # 0110 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -11605,11 +11648,10 @@ npm run format      # prettier --write
   **`MINK_MAX_TOOL_CALLS_PER_RUN`** (16),
   **`MINK_MAX_PARALLEL_READ_TOOLS`** (4), and
   **`MINK_MAX_OUTPUT_TOKENS`** (2048), **`MINK_IMAGE_MODEL`**
-  (`imagen-4.0-generate-001`) and **`MINK_IMAGE_LOCATION`** (`us-central1` — ⚠
-  deliberately NOT falling back to `MINK_VERTEX_LOCATION`, which is `global`,
-  where Imagen is not served), plus reliability controls
+  (`gemini-2.5-flash-image`) and **`MINK_IMAGE_LOCATION`** (`global`; still an
+  independent override from the chat location), plus reliability controls
   **`MINK_MAX_MODEL_RETRIES`** (1, bounded 0–2) and
-  **`MINK_RUN_TIMEOUT_SECONDS`** (120, bounded 15–300). The dashboard layout reads the private
+  **`MINK_RUN_TIMEOUT_SECONDS`** (180, bounded 15–300). The dashboard layout reads the private
   flag server-side: enabled sessions use the SSE client and durable alpha
   records; disabled sessions keep the canned placeholder. Reported or partial
   token usage receives a versioned provider-cost estimate; unavailable usage

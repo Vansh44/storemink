@@ -1,7 +1,7 @@
 import "server-only";
 
 import { and, eq } from "drizzle-orm";
-import { minkActionToolAccess } from "@/drizzle/schema";
+import { mediaAssets, minkActionToolAccess } from "@/drizzle/schema";
 import { can } from "@/app/dashboard/lib/permissions";
 import { withService } from "@/lib/db/client";
 import { logError } from "@/lib/observability/logger";
@@ -43,15 +43,14 @@ import type { MinkActorContext, MinkArtifact } from "./types";
 // the same money after an approval, and spends it on an image that may be
 // wrong, which is a charge AND a disappointment rather than just a charge.
 //
-// ★★ AND SAVING IT IS NOT AN APPROVAL, IT IS A BUTTON -- 9D's precedent, in
-// the same feature area. 9D's composer saves a merchant's own attachment to
-// the Media Library behind `media:manage` and nothing else, because a library
-// row changes nothing a shopper can see: 9D's ownership check means the only
-// route from `media_assets` to a live storefront is a layout proposal the
-// merchant separately approves. A generated image enters by the same door and
-// is stopped by the same gate, so a second five-minute approval here would
-// guard a boundary that is already guarded and teach merchants to click
-// through one.
+// ★★ SAVING IT IS PART OF GENERATION, NOT ANOTHER APPROVAL OR ANOTHER JOB
+// for the merchant. The provider call has already created a public object; a
+// `media_assets` row only makes that object manageable and eligible for the
+// separately approved layout proposal. Stopping between those two private
+// writes made a request such as "make a homepage banner" require a manual Save,
+// a second chat message and another model run before Mink could finish the
+// outcome the merchant originally asked for. An uploaded ATTACHMENT still has
+// its explicit Save button because the merchant did not ask Mink to create it.
 // ---------------------------------------------------------------------------
 
 /**
@@ -123,6 +122,33 @@ export async function createMinkMediaImageProposal(
 
   const spec = MINK_MEDIA_PURPOSE_SPECS[request.purpose];
   const filename = `${request.purpose}-${Date.now()}.${extension}`;
+
+  // ★★ GENERATED MEANS KEPT. This row changes nothing shopper-visible, but
+  // it closes the hand-off between creation and placement: the URL returned to
+  // the model is now immediately accepted by the ordinary store-ownership
+  // guard if the same request also asks for a layout proposal.
+  try {
+    await withService((db) =>
+      db.insert(mediaAssets).values({
+        storeId: input.actor.storeId,
+        url,
+        path,
+        filename,
+        contentType: image.mimeType,
+        sizeBytes: image.bytes.length,
+        createdBy: input.actor.adminId,
+      }),
+    );
+  } catch (error) {
+    await gcsDeletePaths([path]).catch(() => []);
+    logError("mink generated image media save failed", error, { path });
+    throw new MinkRequestError(
+      "image_media_save_failed",
+      "The image was created but could not be saved to Media. Nothing was kept; try again.",
+      503,
+    );
+  }
+
   let stored;
   try {
     stored = await createMinkDraftProposal({
@@ -143,16 +169,25 @@ export async function createMinkMediaImageProposal(
         alt: request.alt,
       }),
     });
+    if (stored.type !== "proposal") {
+      throw new Error("Generated image persistence returned no proposal");
+    }
   } catch (error) {
-    // ★ AN ORPHANED OBJECT IS TIDIED UP THE WAY `uploadMediaAsset` TIDIES ITS
-    //   OWN. Best effort: a failed cleanup costs a stray file under the
-    //   store's prefix, which a store purge removes; failing the proposal a
-    //   second time over it would lose the image AND the credit.
+    // ★ The library row and object form one logical generated asset. If the
+    // conversation artefact cannot be stored, remove both best-effort instead
+    // of leaving a library item the run reports as failed.
+    await withService((db) =>
+      db
+        .delete(mediaAssets)
+        .where(
+          and(
+            eq(mediaAssets.storeId, input.actor.storeId),
+            eq(mediaAssets.path, path),
+          ),
+        ),
+    ).catch(() => undefined);
     await gcsDeletePaths([path]).catch(() => []);
     throw error;
-  }
-  if (stored.type !== "proposal") {
-    throw new Error("Generated image persistence returned no proposal");
   }
 
   return {
@@ -167,7 +202,7 @@ export async function createMinkMediaImageProposal(
     purpose: request.purpose,
     aspectRatio: aspectRatioFor(request.purpose),
     placement: spec.placement,
-    saved: false,
+    saved: true,
     status: "private_preview",
     expectedCredits: stored.expectedCredits,
     chargedCredits: stored.chargedCredits,

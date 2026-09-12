@@ -97,6 +97,22 @@ describe("Mink system prompt document", () => {
       "only the signed-in human can request and approve the exact Builder draft save",
     );
     expect(template).toContain(
+      "Resolve the user's complete requested outcome before choosing tools",
+    );
+    expect(template).toContain(
+      '"for my homepage", "as the hero" or "put it on the About page"',
+    );
+    expect(template).toContain(
+      "saved to the store's Media Library and shown to the merchant",
+    );
+    expect(template).toContain(
+      "continue in the same run with the exact returned URL",
+    );
+    expect(template).toContain("use that exact image in a hero_carousel slide");
+    expect(template).toContain(
+      "Send saves that image through their ordinary Media Library permission",
+    );
+    expect(template).toContain(
       "Never claim that you clicked a button, saved the Builder draft, ran browser checks, published or rolled back the storefront",
     );
   });

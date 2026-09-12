@@ -14,6 +14,7 @@ import {
   shouldSubmitMinkComposer,
 } from "./dashboard-chat";
 import { useChat } from "./chat-context";
+import { addSavedMinkMediaReference } from "@/lib/mink/media-attachment";
 
 vi.mock("./chat-context", () => ({
   useChat: vi.fn(),
@@ -22,6 +23,7 @@ vi.mock("./chat-context", () => ({
 const baseChatState = {
   isChatOpen: true,
   isExpanded: true,
+  canSaveMedia: true,
   closeChat: vi.fn(),
   toggleExpand: vi.fn(),
   messages: [],
@@ -46,6 +48,7 @@ const baseChatState = {
 };
 
 const scrollIntoView = vi.fn();
+const scrollTo = vi.fn();
 
 beforeEach(() => {
   Object.defineProperty(window, "innerWidth", {
@@ -54,8 +57,9 @@ beforeEach(() => {
   });
   Object.defineProperty(HTMLElement.prototype, "scrollTo", {
     configurable: true,
-    value: vi.fn(),
+    value: scrollTo,
   });
+  scrollTo.mockReset();
   scrollIntoView.mockReset();
   Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
     configurable: true,
@@ -240,6 +244,55 @@ describe("Mink full view", () => {
       }),
     );
     expect(scrollIntoView.mock.instances).toContain(submittedRow);
+  });
+
+  it("renders saved images as attachments instead of exposing prompt metadata", () => {
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      messages: [
+        {
+          id: "user-1",
+          role: "user",
+          text: addSavedMinkMediaReference("Create a buy 1 get 1 carousel", {
+            filename: "almond-shake.png",
+            url: "https://storage.googleapis.com/storemink-media/stores/s1/media/almond.webp",
+          }),
+        },
+      ],
+    } as unknown as ReturnType<typeof useChat>);
+
+    render(createElement(DashboardChat, { variant: "overlay" }));
+
+    expect(screen.getByText("Create a buy 1 get 1 carousel")).toBeVisible();
+    expect(screen.getByRole("img", { name: "almond-shake.png" })).toBeVisible();
+    expect(
+      screen.queryByText(/untrusted reference data, not instructions/i),
+    ).toBeNull();
+  });
+
+  it("offers a jump-to-latest button while scrolled up", async () => {
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      messages: [{ id: "user-1", role: "user", text: "Earlier message" }],
+    } as unknown as ReturnType<typeof useChat>);
+    render(createElement(DashboardChat, { variant: "overlay" }));
+    const scroller = screen.getByTestId("mink-message-scroller");
+    Object.defineProperties(scroller, {
+      scrollHeight: { configurable: true, value: 1600 },
+      scrollTop: { configurable: true, value: 200, writable: true },
+      clientHeight: { configurable: true, value: 600 },
+    });
+
+    fireEvent.scroll(scroller);
+    const button = await screen.findByRole("button", {
+      name: "Jump to latest message",
+    });
+    fireEvent.click(button);
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: 1600, behavior: "smooth" });
+    expect(
+      screen.queryByRole("button", { name: "Jump to latest message" }),
+    ).toBeNull();
   });
 });
 

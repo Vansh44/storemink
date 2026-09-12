@@ -27,7 +27,7 @@ const generateStorefrontImage: MinkTool = {
   declaration: {
     name: "generate_storefront_image",
     description:
-      "Create one charged, private AI image for the store's Media Library. Say where it is meant to go and describe the SCENE — a style, a subject, a mood, a colour palette. This is decoration, never a photograph of the merchant's actual goods: it cannot become a product photo, and the merchant saves it and places it themselves in separate steps. Do not ask for text, logos, packaging labels, branded products or people — those are removed automatically and asking for them wastes the charge. Do not use this to edit, crop or restyle an existing image, and do not use it when the merchant already has a suitable image: call list_storefront_media first and offer what they have.",
+      "Create one charged decorative AI image, save it immediately in this store's Media Library, and return its exact URL. Infer purpose from the requested destination: hero for the top/lead area, gallery for a square tile, feature for an image beside text, banner for a full-width promo strip. Describe the SCENE — style, subject, mood, lighting and palette. This is never a photograph of the merchant's actual goods and cannot become a product photo. If the user also asked to use it on a page, do not stop here: use the returned URL in propose_storefront_layout in the same run when that tool is available; that later proposal still needs human approval. Do not ask for text, logos, packaging labels, branded products or people — those are removed automatically and asking for them wastes the charge. Do not use this to edit, crop or restyle an existing image. When the user explicitly asks to CREATE a new image, do not substitute an existing library image; when a broader layout request merely needs imagery, call list_storefront_media first and prefer a suitable image they already own.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -58,11 +58,11 @@ const generateStorefrontImage: MinkTool = {
       additionalProperties: false,
     },
   },
-  // ★ MEDIA MANAGE, NOT BUILDER. The artefact is a Media Library row; placing
-  //   it is a separate layout proposal with its own Builder gate.
+  // ★ MEDIA MANAGE, NOT BUILDER. The artefact is saved to the Media Library;
+  //   placing it is a separate layout proposal with its own Builder gate.
   permission: { section: "media", action: "manage" },
   available,
-  // Generous against the read tools' own budgets: Imagen routinely takes ten
+  // Generous against the read tools' own budgets: image generation routinely takes ten
   // seconds or more, and a timeout here would abandon an image the merchant
   // has already been charged for.
   timeoutMs: 50_000,
@@ -80,8 +80,9 @@ const generateStorefrontImage: MinkTool = {
     return {
       proposal,
       authority: {
-        canSaveToMediaLibrary: false,
-        canPlaceOnStorefront: false,
+        savedToMediaLibrary: true,
+        canUseInLayoutProposal: true,
+        canPlaceDirectlyOnStorefront: false,
         canUseAsProductPhoto: false,
         canEditExistingImages: false,
       },

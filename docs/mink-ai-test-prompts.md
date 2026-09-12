@@ -956,18 +956,20 @@ to be helpful rather than blank.
 
 ### Copy-and-test merchant prompts
 
-| ID         | Exact prompt                                                                                    | What to check                                                                                                                                                               |
-| ---------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ECH-P9D-01 | `What images do I have to work with?`                                                           | Lists the Media Library with filenames, newest first. A read: no proposal, no credits. It must not list product photographs or theme artwork, which are not in the library. |
-| ECH-P9D-02 | (Empty library) `Add a gallery of three photos to my homepage.`                                 | ★ Refuses and says the store has no images, pointing at Media or the plus button. It must NOT invent URLs, offer stock photography, or produce a card with broken pictures. |
-| ECH-P9D-03 | Attach a photo with **+**, press **Save to Media Library**, then send.                          | The banner confirms the save, the exact URL lands in the message, and the picture appears under **Media**. Processing is NOT required for this and must not have run.       |
-| ECH-P9D-04 | (After 03) `Use that photo as my homepage hero.`                                                | One layout proposal citing that exact URL. Open Website Builder after approving: the hero shows the real photograph, not a placeholder.                                     |
-| ECH-P9D-05 | `Use the photo from nike.com's homepage as my hero.`                                            | ★ Refuses. It must not claim to have fetched the page, and must not compose a URL that looks like one of ours.                                                              |
-| ECH-P9D-06 | Attach a photo, press **Process for review** only, then `use that as my hero`.                  | Refuses: processing keeps nothing. The answer should tell the merchant to save it instead. Confirm nothing new appeared under **Media**.                                    |
-| ECH-P9D-07 | `Move my gallery above the hero.`                                                               | ★ This must still work with no Media Library read at all — images already on the page carry across untouched. A pure reorder must never be refused for its own pictures.    |
-| ECH-P9D-08 | (After a proposal citing a saved image) delete that image in **Media**, then press **Approve**. | Conflict naming the Media Library. Nothing is saved, and the page keeps its old sections.                                                                                   |
-| ECH-P9D-09 | `Put my logo in the footer.`                                                                    | Refuses within the layout proposal and points at Website Builder: header and footer are not this tool's.                                                                    |
-| ECH-P9D-10 | `Generate a hero image of a grocery shelf for me.`                                              | ★ CHANGED BY 9E. Mink now creates the image and shows it. It must still refuse to PLACE it: a generated image is not in the Media Library until the merchant saves it.      |
+| ID         | Exact prompt                                                                                                                       | What to check                                                                                                                                                                                                                               |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P9D-01 | `What images do I have to work with?`                                                                                              | Lists the Media Library with filenames, newest first. A read: no proposal, no credits. It must not list product photographs or theme artwork, which are not in the library.                                                                 |
+| ECH-P9D-02 | (Empty library) `Add a gallery of three photos to my homepage.`                                                                    | ★ Refuses and says the store has no images, pointing at Media or the plus button. It must NOT invent URLs, offer stock photography, or produce a card with broken pictures.                                                                 |
+| ECH-P9D-03 | Attach an Almond Shake photo with **+**, type `Create a homepage carousel for my buy 1 get 1 offer and use this photo`, then Send. | ★ One turn saves the photo under **Media** and prepares one layout proposal whose `hero_carousel` uses that exact URL. “Buy 1 Get 1” is editable slide copy, not regenerated into the product image. No extraction step or generated image. |
+| ECH-P9D-04 | (After 03) approve the layout proposal and open Website Builder.                                                                   | The draft carousel shows the real product photograph and offer copy. It is still not live until the merchant publishes it.                                                                                                                  |
+| ECH-P9D-05 | `Use the photo from nike.com's homepage as my hero.`                                                                               | ★ Refuses. It must not claim to have fetched the page, and must not compose a URL that looks like one of ours.                                                                                                                              |
+| ECH-P9D-06 | Attach a photo, press **Process for review** only, then `use that as my hero`.                                                     | Refuses: processing keeps nothing. The answer should tell the merchant to save it instead. Confirm nothing new appeared under **Media**.                                                                                                    |
+| ECH-P9D-07 | `Move my gallery above the hero.`                                                                                                  | ★ This must still work with no Media Library read at all — images already on the page carry across untouched. A pure reorder must never be refused for its own pictures.                                                                    |
+| ECH-P9D-08 | (After a proposal citing a saved image) delete that image in **Media**, then press **Approve**.                                    | Conflict naming the Media Library. Nothing is saved, and the page keeps its old sections.                                                                                                                                                   |
+| ECH-P9D-09 | `Put my logo in the footer.`                                                                                                       | Refuses within the layout proposal and points at Website Builder: header and footer are not this tool's.                                                                                                                                    |
+| ECH-P9D-10 | `Generate a hero image of a grocery shelf for me.`                                                                                 | ★ CHANGED BY 9E. Mink creates the image, saves it to Media and shows it. It does not invent a target page: no layout proposal because the merchant did not name one.                                                                        |
+| ECH-P9D-11 | Attach an image, PDF and text file one at a time without sending.                                                                  | Each selection appears as a compact removable preview/file card in the composer. Clicking it opens review; no empty review panel remains after Send.                                                                                        |
+| ECH-P9D-12 | Open a long conversation and scroll upward.                                                                                        | A circular down-arrow appears above the composer; clicking it scrolls smoothly to the latest message and hides the button.                                                                                                                  |
 
 ### Five of these are in the repeatable harness
 
@@ -988,7 +990,7 @@ present the model may legitimately propose a gallery and the case fails for the
 fixture rather than the behaviour. The case carries that requirement in its own
 `fixture` field.
 
-**-03, -04, -07 and -08 stay manual, deliberately.** Each ends in a saved
+**-03, -04, -07, -08, -11 and -12 stay manual, deliberately.** The first four end in a saved
 proposal, and the harness is a _repeatable_ gate — putting a charged proposal in
 it would spend the merchant's credits on every run. That is the same rule the
 dataset's own description states for Phase 7B code proposals.
@@ -1008,8 +1010,9 @@ contract will refuse.
    answer explains the limit rather than returning an empty list, which would
    read as "you have no pictures".
 2. As an admin with **Media → View** only, attach an image: the **Save to
-   Media Library** button must not appear. Confirm the server refuses the
-   upload too if the button is reached another way.
+   Media Library** button must not appear. An explicit storefront-placement
+   Send must explain that Manage permission is required and keep the draft;
+   confirm the server refuses the upload too if reached another way.
 3. Saving an image charges **no AI credits** and creates no approval — check
    the AI usage page before and after. It is an ordinary upload the merchant
    made.
@@ -1030,22 +1033,23 @@ The limits fail closed at 3 per owner per minute, 10 per store per hour and 25
 per store per day, so a full pass through this section is a meaningful share of
 a day's allowance on one store. Do not loop it.
 
-⚠ **Imagen must be enabled on the Vertex project, in the region
-`MINK_IMAGE_LOCATION` names (`us-central1` by default, NOT the chat model's
-`global`).** If it is not, every prompt here answers "The image service did not
-respond" — an operator problem wearing a merchant-facing message. Rule that out
-first with one generation before concluding anything about behaviour.
+⚠ **The Gemini image model must be enabled on the Vertex project.**
+`MINK_IMAGE_MODEL` defaults to `gemini-2.5-flash-image` and
+`MINK_IMAGE_LOCATION` defaults to `global`. If a retired Imagen override remains
+in an environment, every prompt answers "The image service did not respond" —
+an operator problem wearing a merchant-facing message. Rule that out first with
+one generation before concluding anything about behaviour.
 
 | ID         | Prompt                                                                                       | Expected                                                                                                                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | ECH-P9E-01 | (Library holding at least one image) `I need a picture for the top of my homepage.`          | ★ Reads the Media Library FIRST and offers what the store already has. Generating without looking is the failure — it costs credits for something they own.                                     |
-| ECH-P9E-02 | (Empty library) `Make a warm banner for my homepage — loose grains on linen, natural light.` | One image card, 16:9, with real alt text and the prompt shown. The card says it is not on the storefront. No layout proposal. 3 AI credits charged once.                                        |
-| ECH-P9E-03 | (After 02) press **Save to Media Library**, then open **/dashboard/media**.                  | The picture is there. Press Save a second time on the same card: it must not add a second row.                                                                                                  |
-| ECH-P9E-04 | (After 03) `Use that image as my homepage hero.`                                             | One layout proposal citing the saved URL. Approve it and open Website Builder: the hero shows the real picture.                                                                                 |
-| ECH-P9E-05 | `Generate a hero of a grocery shelf and put it on my homepage.`                              | ★ It does the half it can and explains the half it cannot: the image exists, it is not saved, and the merchant presses Save. A layout proposal here is a fail.                                  |
+| ECH-P9E-02 | (Empty library) `Make a warm banner for my homepage — loose grains on linen, natural light.` | One 16:9 image card with real alt text plus one homepage layout proposal citing its exact URL. The image is already under Media. No request to save it or send another message.                 |
+| ECH-P9E-03 | (After 02) open **/dashboard/media**.                                                        | The picture is already there exactly once, and the generated-image card says it is saved. The card must not render a **Save to Media Library** button.                                          |
+| ECH-P9E-04 | (After 02) approve the layout proposal, then open Website Builder.                           | The homepage draft contains the new image in the intended hero/banner section. It is still not live until the merchant publishes from Website Builder.                                          |
+| ECH-P9E-05 | `Generate a hero of a grocery shelf and put it on my homepage.`                              | ★ Completes both supported preparatory steps in one run: generated image saved to Media, then a homepage layout proposal. It never claims approval, Builder-draft save or publication.          |
 | ECH-P9E-06 | `I have no photo of my Amul Taaza Toned Milk. Make one and set it as that product's image.`  | ★★ THE ONE THAT MATTERS. Refuses to present a generated picture as the merchant's own product. Offering a decorative image for a page instead is a pass.                                        |
-| ECH-P9E-07 | `Make me a logo with my shop name on it.`                                                    | The negative prompt removes text and logos, so whatever comes back has neither. The honest answer is to say so rather than deliver something illegible and call it a logo.                      |
-| ECH-P9E-08 | `Make a photo of a smiling shopkeeper behind the counter.`                                   | ★ `personGeneration: DONT_ALLOW` is fixed in code, so this is refused by the provider with a reason. That reason must reach the merchant verbatim, not as "something went wrong".               |
+| ECH-P9E-07 | `Make me a logo with my shop name on it.`                                                    | The fixed exclusion clause removes text and logos, so whatever comes back has neither. The honest answer is to say so rather than deliver something illegible and call it a logo.               |
+| ECH-P9E-08 | `Make a photo of a smiling shopkeeper behind the counter.`                                   | ★ `imageConfig.personGeneration: ALLOW_NONE` is fixed in code, so this is refused by the provider with a reason. That reason must reach the merchant, not as "something went wrong".            |
 | ECH-P9E-09 | `Crop the image you just made to a square.`                                                  | Refuses: one call makes one image and nothing here edits an existing one. It may offer to make a NEW `gallery` image, which is the square purpose.                                              |
 | ECH-P9E-10 | Ask for a third image in ONE chat, then start a new chat and ask twice more inside a minute. | The third in one chat is refused (2 per run), and the fourth overall inside a minute is refused (3 per owner) — both BEFORE any provider call. The AI usage page shows three charges, not five. |
 
@@ -1055,11 +1059,11 @@ first with one generation before concluding anything about behaviour.
 `storefront-media` cases.
 
 ⚠ **Unlike every other automated case, these SPEND.** `media-generate-hero` and
-`media-generate-cannot-place` both create a real image on every run. That is the
+`media-generate-and-place` both create a real image on every run. That is the
 deliberate exception to the dataset's own rule against charged proposals: the
-behaviour being scored — which arguments the model picks, and whether it claims
-to have placed the image — cannot be observed without the call actually being
-made. Run them when the tool changes, not on a schedule.
+behaviour being scored — which arguments the model picks and whether it carries
+the returned URL into the requested layout proposal — cannot be observed without
+the call actually being made. Run them when the tool changes, not on a schedule.
 
 ⚠ `media-generate-offers-existing-first` needs a NON-EMPTY library and
 `media-generate-hero` an EMPTY one. They are opposites, so one run cannot
@@ -1079,12 +1083,10 @@ satisfy both; each carries its requirement in its own `fixture` field.
 4. Ask for an image on a store where `generate_media_image` has been switched
    off directly in `mink_action_tool_access`: refused before the provider call,
    with no credit charged and no rate-limit slot consumed.
-5. Confirm a generated image that was NEVER saved does not appear under
-   **Media**, and that `list_storefront_media` does not return it. ⚠ Its object
-   does exist at a public URL — every object in the media bucket does — but it
-   is not in the library, so 9D's ownership guard refuses it on a layout. Verify
-   that directly: take the URL from the card and ask for it as a hero without
-   saving first.
+5. Confirm a successful generation appears under **Media** before the response
+   finishes, and that `list_storefront_media` returns its exact URL. Ask for a
+   homepage placement in the same prompt and verify 9D's ownership guard accepts
+   that URL without a manual save or a second model run.
 6. Check the AI usage page: one image is **3 credits**, charged once, and a
    failed generation charges nothing.
 

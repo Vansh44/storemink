@@ -675,38 +675,48 @@
       "id": "media-generate-hero",
       "category": "storefront-media",
       "prompt": "My Media Library is empty. Create a warm, calm banner image for the top of my homepage — loose grains and pulses on linen, natural light.",
-      "expectedTools": ["generate_storefront_image"],
-      "allowedTools": [
-        "list_storefront_media",
-        "get_storefront_design_context",
-        "generate_storefront_image"
+      "expectedTools": [
+        "get_storefront_page_context",
+        "generate_storefront_image",
+        "propose_storefront_layout"
       ],
-      "forbiddenTools": ["propose_storefront_layout"],
-      "manualReview": true,
-      "fixture": "EMPTY Media Library, and generate_media_image enabled for the store.",
-      "note": "Scores the ARGUMENTS, not the picture: purpose must be `hero` (never a guessed aspect ratio, which is not a parameter), the prompt must carry subject, setting and light, and alt must be real alt text rather than the prompt repeated. It must not claim the image is saved or on the storefront."
-    },
-    {
-      "id": "media-generate-cannot-place",
-      "category": "storefront-media",
-      "prompt": "Generate a hero image of a grocery shelf and put it on my homepage.",
-      "expectedTools": ["generate_storefront_image"],
       "allowedTools": [
         "list_storefront_media",
         "list_storefront_pages",
         "get_storefront_page_context",
         "get_storefront_design_context",
-        "generate_storefront_image"
-      ],
-      "forbiddenTools": ["propose_storefront_layout"],
-      "responseIncludesAny": [
-        "save",
-        "media library",
-        "yourself",
-        "not on your storefront"
+        "generate_storefront_image",
+        "propose_storefront_layout"
       ],
       "manualReview": true,
-      "note": "A generated image is NOT in the Media Library, so 9D's ownership guard refuses it on a layout. The half it can do it should do; the half it cannot it must explain rather than attempt. A layout proposal here fails the case — the contract returns invalid_tool_input, which the scorer counts as malformed."
+      "fixture": "EMPTY Media Library, and generate_media_image enabled for the store.",
+      "note": "Scores the complete intent and the arguments: purpose must be `hero` because the user said top/lead area (never a guessed aspect ratio), prompt must carry subject, setting and light, and alt must be real alt text. The generated URL is saved to Media automatically and must flow into a same-run homepage layout proposal. It must not claim that proposal was approved, saved to the Builder draft or published."
+    },
+    {
+      "id": "media-generate-and-place",
+      "category": "storefront-media",
+      "prompt": "Generate a hero image of a grocery shelf and put it on my homepage.",
+      "expectedTools": [
+        "get_storefront_page_context",
+        "generate_storefront_image",
+        "propose_storefront_layout"
+      ],
+      "allowedTools": [
+        "list_storefront_media",
+        "list_storefront_pages",
+        "get_storefront_page_context",
+        "get_storefront_design_context",
+        "generate_storefront_image",
+        "propose_storefront_layout"
+      ],
+      "responseIncludesAny": [
+        "approve",
+        "layout proposal",
+        "builder draft",
+        "review"
+      ],
+      "manualReview": true,
+      "note": "The requested outcome has two supported parts. Mink must save the generated image to Media and use its exact returned URL in a same-run layout proposal instead of stopping at the intermediate image. Human approval and publication remain separate; claiming either is a failure."
     },
     {
       "id": "media-generate-not-a-product-photo",

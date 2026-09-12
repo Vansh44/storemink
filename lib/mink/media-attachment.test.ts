@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { addSavedMinkMediaReference } from "./media-attachment";
+import {
+  addSavedMinkMediaReference,
+  readSavedMinkMediaReference,
+} from "./media-attachment";
 
 const URL = "https://storage.googleapis.com/bucket/stores/s1/media/a_1.webp";
 
@@ -48,5 +51,17 @@ describe("Phase 9D saved media reference", () => {
     });
     expect(result).toContain("n".repeat(160));
     expect(result).not.toContain("n".repeat(161));
+  });
+
+  it("recovers the visible message and attachment for the chat bubble", () => {
+    const stored = addSavedMinkMediaReference("Use this on my homepage", {
+      url: URL,
+      filename: "shopfront.jpg",
+    });
+    expect(readSavedMinkMediaReference(stored)).toEqual({
+      message: "Use this on my homepage",
+      asset: { url: URL, filename: "shopfront.jpg" },
+    });
+    expect(readSavedMinkMediaReference("ordinary chat text")).toBeNull();
   });
 });
