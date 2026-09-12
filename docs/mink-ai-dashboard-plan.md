@@ -123,7 +123,7 @@ guarded-action slice now include:
 - a page-gated operator inspector at `/dashboard/mink` for redacted status,
   latency, retries, tool names, tokens and cost—never conversation content or
   provider reasoning;
-- a 73-case live evaluation corpus and `npm run mink:eval` gate for tool choice,
+- a 78-case live evaluation corpus and `npm run mink:eval` gate for tool choice,
   security refusals, malformed calls, latency and manual grounding review;
 - a phase-wise manual acceptance catalogue in
   `docs/mink-ai-test-prompts.md` covering read prompts, runtime UX, permissions,
@@ -1675,6 +1675,61 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   guards were mutation-checked (a `background_image` field and a reverted
   `sql.param` each failed exactly the test written for it). No live Vertex call
   was made; live Echos acceptance remains pending.
+
+- **9E — Generated images: implemented locally; rollout acceptance pending.**
+  9D closed the safety question and left the supply one: a theme-seeded store
+  has artwork in no Media Library, so "redesign my homepage" produced a layout
+  whose best block could not be filled. `generate_storefront_image` adds one
+  charged, immutable private proposal that IS an image — created immediately,
+  uploaded under `stores/{storeId}/mink-generated/`, and shown on its own card.
+  ★★ SAFETY IS STRUCTURAL, NOT A WORD FILTER. Mink has no tool that writes
+  `products.images`, and 9D means the only place a generated URL can land is a
+  layout section the merchant separately approves — so a generated image can be
+  decoration and cannot become a product photo. A brand/product keyword
+  blocklist was considered and REJECTED as security theatre: it fails on every
+  misspelling and every brand nobody listed while reading like a guarantee.
+  ★★ THE IMAGE IS GENERATED AT PROPOSAL TIME, NOT AT APPROVAL, inverting
+  9B/9C deliberately. Those propose a change to something already visible; here
+  the artefact is a picture, and a card describing a prompt asks somebody to
+  approve an image nobody has looked at. The accepted cost is that a discarded
+  proposal has already spent a provider call — the right way round, since the
+  alternative spends the same money on an image that may be wrong.
+  ★★ SAVING IS A BUTTON, NOT AN APPROVAL — 9D's own precedent in the same
+  feature area. A `media_assets` row changes nothing a shopper can see, so a
+  second five-minute approval would guard a boundary 9D already guards. No
+  approval row, no audit row, no new resource type: four allowlists stay still.
+  ★★ THE OPERATOR GATE SITS ON THE GENERATION, the only one in
+  `mink_action_tool_access` that does. Everywhere else the write is the
+  expensive half; here the write is a private library row and the provider call
+  is what spends real per-image money.
+  ★★ IT IS THE FIRST MINK CALL BILLED PER REQUEST RATHER THAN PER TOKEN, so
+  `reserveMinkImageGeneration` is a spend ceiling rather than polite rate
+  limiting — 3/owner/minute, 10/store/hour, 25/store/day, 200/global/hour and
+  2 per run, claimed before the provider call AND before the credit charge.
+  ★ PURPOSE PINS THE ASPECT RATIO and the caller never does; the negative
+  prompt, `personGeneration: DONT_ALLOW`, the safety filter and the SynthID
+  watermark are fixed in code, because their whole value is being identical on
+  every call. A filtered image surfaces the provider's own reason verbatim; a
+  provider FAILURE never reads as a merchant mistake.
+  ★ ALT TEXT IS REQUIRED at proposal time by the contract and by the database:
+  nothing else in the product will ever ask for it.
+  Migration 0106 moves exactly two vocabularies and adds one target shape, both
+  enumerated by querying `pg_get_constraintdef`; 0107 corrects the two published
+  sentences promising Mink never creates a picture — both written by 0105 two
+  days earlier, and true then. ECH-P9E prompts cover the
+  offer-what-you-have case, the generation, the cannot-place boundary, the
+  product-photo refusal and the rate limit.
+  Local verification (2026-09-12): migration 0106 applied clean against a live
+  PostgreSQL with its seven postconditions, and its target check was probed
+  with twelve deliberately malformed rows (the complete row went in, all eleven
+  malformed ones were refused). Four load-bearing guards were mutation-checked
+  — the restored card's URL pin, `personGeneration`, the draft-kind check on
+  the save and the url/path integrity check — each failing exactly the test
+  written for it. Migration 0107 applied clean with its four content
+  postconditions, and `help:audit:local` reports no operator-only or internal
+  vocabulary in the corrected paragraphs. ⚠ No live Vertex image call was made,
+  so whether Imagen is enabled on the project — and in the image region rather
+  than `global` — is unverified.
 
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.

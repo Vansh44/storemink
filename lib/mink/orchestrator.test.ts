@@ -42,6 +42,8 @@ function config(overrides: Partial<MinkConfig> = {}): MinkConfig {
     projectId: "project-1",
     location: "global",
     model: "gemini-3.7-flash",
+    imageModel: "imagen-4.0-generate-001",
+    imageLocation: "us-central1",
     maxSteps: 8,
     maxToolCalls: 16,
     maxParallelReadTools: 4,

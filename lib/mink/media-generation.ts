@@ -1,0 +1,199 @@
+import "server-only";
+
+import {
+  GoogleGenAI,
+  PersonGeneration,
+  SafetyFilterLevel,
+} from "@google/genai";
+import { sql } from "drizzle-orm";
+import { withService } from "@/lib/db/client";
+import { logError } from "@/lib/observability/logger";
+import type { MinkConfig } from "./config";
+import { MinkRequestError, MinkToolInputError } from "./errors";
+import {
+  MINK_MEDIA_IMAGES_PER_PROPOSAL,
+  MINK_MEDIA_NEGATIVE_PROMPT,
+  aspectRatioFor,
+  type MinkMediaGenerationRequest,
+} from "./media-generation-contract";
+import type { MinkActorContext } from "./types";
+
+// ---------------------------------------------------------------------------
+// Phase 9E - the one place StoreMink asks a provider for an image.
+//
+// ★★ THIS IS THE FIRST MINK CALL THAT COSTS REAL MONEY PER REQUEST. Every
+// other provider call is priced in tokens, which the shadow meter bands and
+// the credit pool already absorbs; an image is a flat per-call charge whatever
+// the conversation around it looked like. So the limits below are not the
+// polite rate-limiting the read tools have — they are a spend ceiling, and
+// they fail CLOSED.
+//
+// ★ THE SAFETY SETTINGS ARE FIXED HERE, NOT PASSED IN. `personGeneration`,
+// the safety filter, the watermark and the negative prompt are properties of
+// the FEATURE, not of a request, so no caller can weaken them and a merchant
+// reviewing one image is reviewing the same guarantees as on every other.
+// ---------------------------------------------------------------------------
+
+/**
+ * Imagen's own safety filter, at its strictest setting.
+ *
+ * ⚠ It is a filter on the OUTPUT, not a guarantee about meaning. It will not
+ * notice that a picture of rice is being passed off as a photograph of a
+ * merchant's own rice — that boundary is structural and lives in
+ * media-generation-contract.ts, not here.
+ */
+const SAFETY_FILTER = SafetyFilterLevel.BLOCK_LOW_AND_ABOVE;
+
+/** Bounded so a hung provider cannot hold a request open behind a credit charge. */
+const GENERATION_TIMEOUT_MS = 45_000;
+
+export interface MinkGeneratedImage {
+  bytes: Buffer;
+  mimeType: string;
+  /** The provider's own note when it refused, surfaced rather than swallowed. */
+  filteredReason?: string;
+}
+
+/**
+ * Fail closed BEFORE spending money, across Cloud Run instances.
+ *
+ * ★ TIGHTER THAN 8E's INPUT LIMITS ON PURPOSE. Extraction costs tokens and is
+ *   something a merchant does while reading a screenshot; generation costs a
+ *   flat per-image fee and is something a model can be talked into doing in a
+ *   loop. The per-store day cap is the one that actually bounds the bill.
+ *
+ * ★★ THE PER-RUN CAP IS 2, NOT 1, AND NOT UNBOUNDED. One turn legitimately
+ *   wants a hero AND a gallery tile, so a cap of one would refuse an ordinary
+ *   request with a message about limits. Unbounded is worse in the other
+ *   direction: a model that has decided a page needs six pictures will make six
+ *   calls inside one turn, and the merchant never asked for the other five.
+ *   ⚠ It is keyed on the RUN, so it also absorbs the one case where a tool
+ *   could genuinely execute twice for one intention — a transient model retry
+ *   re-issuing the same function call.
+ *
+ * ★ IT IS CHECKED LAST, exactly as `reserveMinkInput` does it, so a caller
+ *   already over quota cannot create unbounded per-run rows by supplying fresh
+ *   run ids.
+ */
+export async function reserveMinkImageGeneration(
+  actor: MinkActorContext,
+  runId: string,
+): Promise<void> {
+  const limits: [string, number, number][] = [
+    [`mink-image-owner:${actor.storeId}:${actor.adminId}`, 3, 60],
+    [`mink-image-store:${actor.storeId}`, 10, 3600],
+    [`mink-image-day:${actor.storeId}`, 25, 86400],
+    ["mink-image-global", 200, 3600],
+    [`mink-image-run:${actor.storeId}:${runId}`, 2, 3600],
+  ];
+  for (const [key, max, seconds] of limits) {
+    const allowed = await withService(async (db) => {
+      const result = await db.execute(
+        sql`select check_rate_limit(p_key => ${key}, p_max => ${max}, p_window_seconds => ${seconds}) as allowed`,
+      );
+      return (
+        (result.rows[0] as { allowed?: boolean } | undefined)?.allowed === true
+      );
+    });
+    if (!allowed) {
+      throw new MinkRequestError(
+        "image_rate_limit",
+        "That is as many images as can be created right now. Ask again in a moment, or in a new chat.",
+        429,
+      );
+    }
+  }
+}
+
+export async function generateMinkMediaImage(
+  config: MinkConfig,
+  request: MinkMediaGenerationRequest,
+  options: { abortSignal?: AbortSignal } = {},
+): Promise<MinkGeneratedImage> {
+  if (!config.projectId) {
+    throw new MinkRequestError(
+      "image_not_configured",
+      "Image generation needs GCP_PROJECT_ID.",
+      503,
+    );
+  }
+
+  const ai = new GoogleGenAI({
+    enterprise: true,
+    project: config.projectId,
+    location: config.imageLocation,
+    apiVersion: "v1",
+    // One attempt. A retry is a second charge for the same request, and the
+    // caller has already been billed a credit for this proposal.
+    httpOptions: { retryOptions: { attempts: 1 } },
+  });
+
+  const timeout = AbortSignal.timeout(GENERATION_TIMEOUT_MS);
+  const signal = options.abortSignal
+    ? AbortSignal.any([options.abortSignal, timeout])
+    : timeout;
+
+  let response;
+  try {
+    response = await ai.models.generateImages({
+      model: config.imageModel,
+      prompt: request.prompt,
+      config: {
+        numberOfImages: MINK_MEDIA_IMAGES_PER_PROPOSAL,
+        aspectRatio: aspectRatioFor(request.purpose),
+        negativePrompt: MINK_MEDIA_NEGATIVE_PROMPT,
+        // ★★ NO PEOPLE AT ALL, not even adults. A storefront image with an
+        //    invented person in it implies a model release nobody obtained,
+        //    and a merchant cannot tell by looking whether the face is a real
+        //    person's. ALLOW_ADULT would be the tempting middle setting; it
+        //    is the one that creates the problem.
+        personGeneration: PersonGeneration.DONT_ALLOW,
+        safetyFilterLevel: SAFETY_FILTER,
+        // ★ SynthID. Provenance is the merchant's protection as much as ours:
+        //   an image that can be identified as generated cannot later be
+        //   mistaken for a photograph of real goods.
+        addWatermark: true,
+        includeRaiReason: true,
+        outputMimeType: "image/jpeg",
+        outputCompressionQuality: 90,
+        abortSignal: signal,
+      },
+    });
+  } catch (error) {
+    // ⚠ NOT retried and NOT reported as a merchant mistake. The commonest
+    //   cause is the model or the API not being enabled on the project, which
+    //   is an operator problem and must not read as "your prompt was refused".
+    //   ★ The provider's own words go to the LOG, never to the merchant: they
+    //     name models, regions and quotas, none of which they can act on.
+    logError("mink image generation failed", error, {
+      model: config.imageModel,
+      location: config.imageLocation,
+    });
+    throw new MinkRequestError(
+      "image_provider_unavailable",
+      "The image service did not respond. Nothing was created; try again shortly.",
+      503,
+    );
+  }
+
+  const generated = response.generatedImages?.[0];
+  const filteredReason = generated?.raiFilteredReason;
+  const base64 = generated?.image?.imageBytes;
+
+  if (!base64) {
+    // ★ A FILTERED IMAGE IS A REFUSAL WITH A REASON, and the reason is the
+    //   only thing that lets a merchant rephrase rather than guess. An empty
+    //   response with no reason is a different fact and says so.
+    throw new MinkToolInputError(
+      filteredReason
+        ? `The image service refused this description: ${filteredReason}. Describe the scene differently and try again.`
+        : "The image service returned no image for this description. Try describing the scene more concretely.",
+    );
+  }
+
+  return {
+    bytes: Buffer.from(base64, "base64"),
+    mimeType: generated?.image?.mimeType || "image/jpeg",
+    ...(filteredReason ? { filteredReason } : {}),
+  };
+}

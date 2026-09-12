@@ -6,6 +6,16 @@ export interface MinkConfig {
   projectId: string | null;
   location: string;
   model: string;
+  /**
+   * Imagen's own model id and region (Phase 9E).
+   *
+   * ★ SEPARATE FROM `model`/`location`, NOT DERIVED FROM THEM. The chat model
+   *   runs at `global`, and Imagen is not served there — deriving the image
+   *   region from the chat one would make every generation fail with a
+   *   404 that reads like an outage rather than a missing region.
+   */
+  imageModel: string;
+  imageLocation: string;
   maxSteps: number;
   maxToolCalls: number;
   maxParallelReadTools: number;
@@ -64,6 +74,11 @@ export function getMinkConfig(): MinkConfig {
       process.env.GCP_LOCATION?.trim() ||
       "global",
     model: process.env.MINK_VERTEX_MODEL?.trim() || "gemini-3.7-flash",
+    imageModel:
+      process.env.MINK_IMAGE_MODEL?.trim() || "imagen-4.0-generate-001",
+    // ⚠ Deliberately NOT falling back to MINK_VERTEX_LOCATION: that is
+    //   `global` by default, where Imagen is not served.
+    imageLocation: process.env.MINK_IMAGE_LOCATION?.trim() || "us-central1",
     maxSteps: boundedInt(process.env.MINK_MAX_STEPS_PER_RUN, 8, 1, 20),
     maxToolCalls: boundedInt(
       process.env.MINK_MAX_TOOL_CALLS_PER_RUN,

@@ -15,6 +15,7 @@ import type {
   MinkDraftKind,
   MinkDraftStatus,
 } from "./draft-types";
+import type { MinkMediaPurpose } from "./media-generation-contract";
 import type {
   MinkWorkflowStatus,
   MinkWorkflowTemplate,
@@ -261,6 +262,33 @@ export type MinkArtifact =
       target: { expectedDesignDigest: string };
       patchDigest: string;
       summary: MinkStorefrontDesignSummary;
+      status: "private_preview";
+      expectedCredits: number;
+      chargedCredits: number;
+      creditSource: MinkDraftCreditSource;
+    }
+  | {
+      type: "media_image_proposal";
+      draftId: string;
+      title: string;
+      destinationLabel: string;
+      destinationPath: string;
+      /**
+       * The image itself.
+       *
+       * ⚠ PUBLIC, like every other object in the media bucket (uniform
+       * bucket-level access, §7) -- but NOT in the Media Library until it is
+       * saved, so 9D's ownership check refuses it on a layout until then. The
+       * card renders it directly; a proposal that only described the picture
+       * would ask a merchant to approve something nobody has looked at.
+       */
+      url: string;
+      alt: string;
+      prompt: string;
+      purpose: MinkMediaPurpose;
+      aspectRatio: string;
+      placement: string;
+      saved: boolean;
       status: "private_preview";
       expectedCredits: number;
       chargedCredits: number;

@@ -665,6 +665,151 @@ by executing all three shapes against a real PostgreSQL, and
 `lib/db/sql-array-binding.test.ts` is the guard — it proves the compiled shape
 and fails on any `any(${…})` in the tree that is not wrapped in `sql.param`.
 
+### Mink Phase 9E — Generated images (2026-09-12)
+
+9D closed the safety question — a layout proposal may cite only a URL that is
+already a `media_assets` row for this store — and left the SUPPLY one wide open.
+A theme-seeded store keeps its artwork at `/themes/{id}/*.webp`, in no Media
+Library at all, so "redesign my homepage" produced a layout whose best block
+could not be filled and an answer that was really a homework assignment. 9E adds
+one charged, immutable private proposal that IS an image.
+
+- **★★ SAFETY HERE IS STRUCTURAL, NOT A WORD FILTER.** A generated picture must
+  never reach a shopper as a photograph of goods the shop actually sells, and
+  that is guaranteed by the SHAPE of the system: **Mink has no tool that writes
+  `products.images`**, and 9D means the only place a generated URL can land is a
+  layout section the merchant separately approves. So a generated image can be
+  decoration and cannot become a product photo. ⚠ A brand/product keyword
+  blocklist was considered and REJECTED as security theatre — it fails on every
+  misspelling and every brand nobody listed, while reading like a guarantee.
+  What is enforced is what can be: bounded prompts, a fixed aspect per purpose,
+  an always-applied negative prompt, and no people at all. **Adding a
+  product-image write is what would turn this feature into a liability.**
+- **★★ THE IMAGE IS GENERATED WHEN THE PROPOSAL IS CREATED, NOT WHEN IT IS
+  APPROVED**, inverting 9B/9C's ordering deliberately. Those propose a CHANGE to
+  something the merchant can already see, so a card describing the change is
+  reviewable. Here the artefact is a picture, and a card describing a prompt asks
+  somebody to approve an image nobody has looked at — 9C's own rule (the card
+  shows the COLOURS, not a description of them) read one step further. ★ The
+  accepted consequence: a discarded proposal has already cost a provider call.
+  That is the right way round — the alternative spends the same money after an
+  approval, on an image that may be wrong.
+- **★★ SAVING IT IS A BUTTON, NOT AN APPROVAL, following 9D's own save in the
+  same feature area.** A `media_assets` row changes nothing a shopper can see,
+  and 9D's ownership guard means the only route from that table onto a live page
+  is a layout proposal the merchant separately approves. A second five-minute
+  approval here would guard a boundary that is already guarded and teach
+  merchants to click through one. So **no approval row, no audit row, no new
+  resource type**: `mink_action_approvals` and `mink_action_audit` are untouched
+  by this phase, and their four allowlists do not move.
+  `app/actions/mink-media-actions.ts` takes ONLY a draft id — filename, URL, alt
+  text and content type all come from the stored proposal, which matters more
+  than usual because `media_assets.url` is exactly what
+  `selectOwnedMediaUrls` treats as proof an image belongs to the store.
+  `readStoredGeneratedImage` re-proves the path sits under
+  `stores/{storeId}/mink-generated/` AND that the url ends with that path; the
+  insert is `where not exists` on the path, so a second click adds no second row.
+- **★★ THE OPERATOR GATE IS ON THE GENERATION, NOT ON THE WRITE, and it is the
+  only entry in `mink_action_tool_access` that works that way.** Everywhere else
+  the write is the expensive, irreversible half, so the gate sits on the action.
+  Here the write is a private library row and the PROVIDER CALL spends real
+  per-image money, so a gate on the save would leave the only thing worth
+  switching off ungated. `generate_media_image` is therefore checked inside the
+  PROPOSAL path, which is novel and deliberate.
+- **★★ IT IS THE FIRST MINK CALL BILLED PER REQUEST RATHER THAN PER TOKEN.**
+  The shadow meter bands conversational spend and the credit pool absorbs it;
+  an image is a flat charge whatever the conversation around it looked like. So
+  `reserveMinkImageGeneration` is a SPEND CEILING rather than polite rate
+  limiting — 3/owner/minute, 10/store/hour, 25/store/day, 200/global/hour and
+  **2 per RUN**, all claimed BEFORE the provider call and before the credit
+  charge, because charging and then refusing bills a merchant for a picture
+  they never received. ★ The per-run cap is 2 rather than 1 because one turn
+  legitimately wants a hero AND a gallery tile; unbounded is worse the other
+  way, since a model that has decided a page needs six pictures makes six calls
+  in one turn and the merchant asked for none of the other five.
+  ⚠ The backfill still grants the tool to every Mink-enabled store, matching
+  0091's all-or-nothing operator switch: a tool that skipped it would be dark
+  until somebody re-toggled Mink, which `assertToolEnabled` reports as "support
+  has not enabled this feature" — 9C's defect. **The ceiling is the limiter, not
+  the row.**
+- **★★ PURPOSE PINS THE ASPECT RATIO; THE CALLER NEVER DOES.** `hero` is 16:9,
+  `gallery` 1:1, `feature` 4:3, `banner` 16:9. A model asked for "a hero image"
+  will cheerfully pick 9:16, and the hero renderer then crops it through the
+  middle of its subject. Naming the destination also lets the card say where the
+  image is meant to go, which a bare ratio cannot.
+- **★★ THE NEGATIVE PROMPT AND EVERY SAFETY LEVER ARE FIXED IN CODE.**
+  `MINK_MEDIA_NEGATIVE_PROMPT` takes no caller contribution: its whole value is
+  being byte-identical on every call, so a merchant reviewing one image reviews
+  the same guarantees as on every other. Same for
+  `personGeneration: DONT_ALLOW` (⚠ `ALLOW_ADULT` is the tempting middle
+  setting, and it is the one that invents a face nobody released),
+  `BLOCK_LOW_AND_ABOVE`, `addWatermark` (SynthID — provenance is the merchant's
+  protection too: an image identifiable as generated cannot later be mistaken
+  for a photograph of real goods) and `includeRaiReason`.
+- **★ A FILTERED IMAGE IS A REFUSAL WITH A REASON, AND THE REASON IS SURFACED.**
+  It is the only thing that lets a merchant rephrase rather than guess. An empty
+  response with NO reason is a different fact and says so. ⚠ A provider FAILURE
+  is never reported as a merchant mistake: the commonest cause is Imagen not
+  being enabled on the project, and its own words (models, regions, quotas) go
+  to the log, never to the merchant.
+- **★ ALT TEXT IS REQUIRED AT PROPOSAL TIME**, by the contract AND by the
+  database (`mink_drafts_media_image_target_check`). Nothing else in the product
+  will ever prompt for it, and the moment it is cheapest to write is while
+  somebody is looking at the picture deciding whether to keep it.
+- **★ THE GATE IS `media:manage`, NOT `builder:manage`.** The artefact is a
+  Media Library row; placing it is a separate 9B layout proposal with its own
+  Builder gate, so requiring Builder here would withhold image generation from
+  the person whose job the media actually is.
+- **★ THE RESTORED CARD PINS ITS URL TO OUR OWN MEDIA HOST.** It draws
+  `<img src>` from stored conversation JSON, so `isGeneratedImageUrl` in
+  `mink-artifact-parser.ts` requires `storage.googleapis.com/<bucket>/stores/
+<uuid>/mink-generated/<uuid>.(jpg|png)`. Without it a forged history row would
+  have the dashboard fetch an arbitrary third-party address on open — a tracking
+  beacon at best, and the one field here that becomes a live request rather than
+  text on a page.
+- **★ THE CREDIT WEIGHT IS 3**, between 9C's two and 7B's five — and the ladder
+  stops being about the size of the artefact here, because this is the first
+  capability whose marginal cost does not move with the conversation. ⚠ The
+  number is provisional and unmeasured against a real bill; pricing is the
+  owner's call.
+- **⚠ IMAGEN IS NOT SERVED AT `global`.** `MINK_IMAGE_LOCATION` defaults to
+  `us-central1` and deliberately does NOT fall back to `MINK_VERTEX_LOCATION`,
+  which is `global`; deriving one from the other makes every generation fail
+  with a 404 that reads like an outage. `MINK_IMAGE_MODEL` defaults to
+  `imagen-4.0-generate-001`. One attempt, never a retry: a retry is a second
+  charge for a request the caller has already been billed a credit for.
+- **⚠ A PROPOSAL DISCARDED BY `discardFailedMinkRunDrafts` ORPHANS ITS OBJECT.**
+  The credit is compensated and the draft is deleted, but the GCS file remains
+  under `stores/{storeId}/mink-generated/`, which a store purge removes (§39).
+  A failed draft INSERT does delete its object explicitly, mirroring
+  `uploadMediaAsset`.
+- Prompt versions advance to `draft-action-beta-v29` / `draft-beta-v20`;
+  `read-beta-v15` / `read-beta-v11` are unchanged, because a read-only actor is
+  never offered this tool.
+- Migration `20260912_0107_mink_image_generation_help` corrects the two
+  published sentences promising that Mink never creates a picture — **both
+  written by 0105 two days earlier, and true then.** That is the standing cost
+  of a guide that describes a BOUNDARY rather than a capability: moving the
+  boundary means editing the promise, in the place it stands rather than by
+  appending a section the paragraph above contradicts. The rule a merchant
+  actually needs — where a layout proposal's pictures may come from — is
+  unchanged and kept word for word.
+- Migration `20260912_0106_mink_media_generation` moves exactly two vocabularies
+  (the tool allowlist and the draft kind) and adds one target shape. ⚠ Both were
+  enumerated by querying `pg_get_constraintdef(oid) LIKE '%storefront_design%'`,
+  which returns EIGHT constraints across four tables — six of them name tools or
+  resource types this phase never writes. The target check coalesces every
+  `jsonb_typeof` (the fifth recorded instance of that trap, after 0062, 0064,
+  0101 and 0103) and was verified by INSERTing twelve deliberately malformed
+  rows against a real PostgreSQL: the complete row went in and all eleven
+  malformed ones were refused.
+- **⚠ NOT DONE, and required before a merchant relies on this:** no generation
+  has been exercised against a live Vertex project, so whether Imagen is enabled
+  there — and in `MINK_IMAGE_LOCATION`'s region rather than `global` — is
+  unverified. Until one real call is made, every prompt answers "The image
+  service did not respond", which is an operator problem wearing a
+  merchant-facing message.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
@@ -2041,6 +2186,16 @@ wholesip/
 │   │                          # value or a WCAG AA pair fails, locked on the design DIGEST
 │   │                          # rather than the autosaved chrome clock, and approved into
 │   │                          # store_chrome.draft.design one key at a time.
+│                          # media-generation-contract.ts (pure), media-generation.ts
+│                          # (the Imagen call), media-image-proposals.ts and
+│                          # tools/media-tools.ts add Phase 9E: one charged, immutable
+│                          # 3-credit proposal that IS an image, generated at proposal
+│                          # time so the card shows the real picture, gated on
+│                          # media:manage plus its own operator switch over the
+│                          # GENERATION rather than any write, bounded by a spend
+│                          # ceiling claimed before the provider call, and saved into
+│                          # media_assets by one button (app/actions/mink-media-actions.ts)
+│                          # rather than an approval -- 9D's own precedent.
 │   │                          # storefront-media-read.ts + storefront-media-policy.ts add
 │   │                          # Phase 9D: list_storefront_media (a `media` View read of the
 │   │                          # store's own image URLs) and the guard that REFUSES a layout
@@ -2058,7 +2213,7 @@ wholesip/
 │   │                          # No model tool can publish, schedule, send or execute a live mutation;
 │   │                          # Phase 7D publication remains an authenticated human-only action.
 │   │                          # `evals/mink/read-alpha.json` + `npm run mink:eval` are the
-│   │                          # 73-case live tool/safety/latency gate.
+│   │                          # 81-case live tool/safety/latency gate.
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -2512,7 +2667,13 @@ wholesip/
 │                              # 0105 corrects the three published Help sentences that
 │                              # said Mink cannot use images and that a chat
 │                              # attachment can never be kept;
-│                              # 0106 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0106 admits Mink AI image generation: its own
+│                              # operator tool gate on the GENERATION rather than a
+│                              # write, the media_image draft kind and its target shape;
+│                              # 0107 corrects the two published sentences that promise
+│                              # Mink never creates a picture -- both written by 0105 two
+│                              # days earlier, and true then;
+│                              # 0108 is the first free number. `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -4884,7 +5045,7 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      retries, tool names, tokens and known shadow cost but never selects or
      renders prompts, answers, tool arguments/results, provider state or
      reasoning. `evals/mink/read-alpha.json` and `npm run mink:eval` provide the
-     73-case live tool-choice/security/latency gate. The complementary
+     81-case live tool-choice/security/latency gate. The complementary
      `docs/mink-ai-test-prompts.md` catalogue covers phase-wise manual prompts
      plus UX, permission, tenancy, credit, approval, conflict, idempotency and
      rollback acceptance scenarios. The original migration
@@ -11443,7 +11604,10 @@ npm run format      # prettier --write
   bounded optional limits **`MINK_MAX_STEPS_PER_RUN`** (8),
   **`MINK_MAX_TOOL_CALLS_PER_RUN`** (16),
   **`MINK_MAX_PARALLEL_READ_TOOLS`** (4), and
-  **`MINK_MAX_OUTPUT_TOKENS`** (2048), plus reliability controls
+  **`MINK_MAX_OUTPUT_TOKENS`** (2048), **`MINK_IMAGE_MODEL`**
+  (`imagen-4.0-generate-001`) and **`MINK_IMAGE_LOCATION`** (`us-central1` — ⚠
+  deliberately NOT falling back to `MINK_VERTEX_LOCATION`, which is `global`,
+  where Imagen is not served), plus reliability controls
   **`MINK_MAX_MODEL_RETRIES`** (1, bounded 0–2) and
   **`MINK_RUN_TIMEOUT_SECONDS`** (120, bounded 15–300). The dashboard layout reads the private
   flag server-side: enabled sessions use the SSE client and durable alpha
