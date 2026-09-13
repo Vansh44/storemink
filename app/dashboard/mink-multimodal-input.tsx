@@ -21,11 +21,7 @@ import {
   readSavedMinkMediaReference,
 } from "@/lib/mink/media-attachment";
 import { uploadMediaAsset } from "@/app/actions/media-actions";
-import {
-  startMinkSpeechRecognition,
-  type MinkSpeechRecognitionSession,
-  type MinkSpeechRecognitionState,
-} from "@/lib/mink/speech-recognition";
+import { startMinkRecording } from "@/lib/mink/voice-recorder";
 
 const COMPOSER_FILE_ACCEPT =
   ".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,image/png,image/jpeg,image/webp,application/pdf,text/plain,text/markdown";
@@ -69,14 +65,10 @@ export function MinkMultimodalInput({
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState<string>("");
-  const [dictationState, setDictationState] =
-    useState<MinkSpeechRecognitionState | null>(null);
-  const dictationSession = useRef<MinkSpeechRecognitionSession | null>(null);
-  const dictationOriginal = useRef("");
-  const dictationBefore = useRef("");
-  const dictationAfter = useRef("");
-  const lastEmittedMessage = useRef("");
-  const lastDictationText = useRef("");
+  const [dictationState, setDictationState] = useState<
+    "starting" | "listening" | "processing" | null
+  >(null);
+  const stopRecording = useRef<(() => void) | null>(null);
   const latestMessage = useRef({ message, onAdd });
   useEffect(() => {
     latestMessage.current = { message, onAdd };
@@ -89,8 +81,7 @@ export function MinkMultimodalInput({
     generation.current++;
     operation.current?.abort();
     operation.current = null;
-    dictationSession.current?.cancel();
-    dictationSession.current = null;
+    stopRecording.current = null;
     setBusy(false);
     setOpen(false);
     setDragging(false);
@@ -107,7 +98,7 @@ export function MinkMultimodalInput({
     () => () => {
       generation.current++;
       operation.current?.abort();
-      dictationSession.current?.cancel();
+      stopRecording.current = null;
     },
     [],
   );
@@ -194,6 +185,16 @@ export function MinkMultimodalInput({
         if (!next.size || next.size > MINK_INPUT_BYTES)
           throw new Error("Choose one non-empty file up to 2 MiB.");
         setLocalText(false);
+        // An admin who may add Media does not need the extraction provider in
+        // order to attach an image to a storefront task. Stage it immediately,
+        // like a normal chat attachment; the Send path below uploads it only
+        // when the message identifies it as an image to use. Opening the card
+        // remains available for optional OCR/review.
+        if (kind === "image" && canSaveMedia) {
+          setFile(next);
+          setOpen(false);
+          return;
+        }
         if (await show()) {
           setFile(next);
           setOpen(false);
@@ -234,93 +235,105 @@ export function MinkMultimodalInput({
       if (id === generation.current) setBusy(false);
     }
   }
-  function startDictation() {
+  async function startDictation() {
     if (disabled || busy || dictationState) return;
     cancel();
     setOpen(false);
     setError("");
-    const original = latestMessage.current.message;
-    dictationOriginal.current = original;
-    dictationBefore.current = original.trimEnd();
-    if (dictationBefore.current) dictationBefore.current += " ";
-    dictationAfter.current = "";
-    lastEmittedMessage.current = original;
-    lastDictationText.current = "";
+    const id = generation.current;
     const controller = new AbortController();
     operation.current = controller;
+    setDictationState("starting");
     try {
-      dictationSession.current = startMinkSpeechRecognition(controller.signal, {
-        onState(state) {
-          if (state === "stopped") {
-            dictationSession.current = null;
+      stopRecording.current = await startMinkRecording(
+        controller.signal,
+        (recording) => {
+          stopRecording.current = null;
+          if (id !== generation.current || controller.signal.aborted) return;
+          if (!recording) {
             operation.current = null;
             setDictationState(null);
-          } else {
-            setDictationState(state);
-          }
-        },
-        onText(speech) {
-          const current = latestMessage.current;
-          const previous = lastDictationText.current;
-          let insert = speech;
-
-          // The parent owns the textarea value, so reconcile any user typing
-          // that happened between recognition events around the live phrase.
-          // If the user edited the phrase itself, keep that edit and add only
-          // newly recognised trailing words instead of restoring old speech.
-          if (
-            current.message !== lastEmittedMessage.current &&
-            current.message !== dictationOriginal.current
-          ) {
-            const position = previous
-              ? current.message.lastIndexOf(previous)
-              : -1;
-            if (position >= 0) {
-              dictationBefore.current = current.message.slice(0, position);
-              dictationAfter.current = current.message.slice(
-                position + previous.length,
-              );
-            } else {
-              const edited = current.message.trimEnd();
-              dictationBefore.current = edited ? `${edited} ` : "";
-              dictationAfter.current = "";
-              insert = speech.startsWith(previous)
-                ? speech.slice(previous.length).trimStart()
-                : "";
-            }
-          }
-          const combined = `${dictationBefore.current}${insert}${dictationAfter.current}`;
-          if (combined.length > 4000) {
-            dictationSession.current?.stop();
-            setError(
-              "Dictation stopped at the 4,000-character message limit. Shorten the message before continuing.",
-            );
+            setError("No speech was recorded. Try again or type your message.");
             return;
           }
-          lastDictationText.current = speech;
-          lastEmittedMessage.current = combined;
-          current.onAdd(combined);
+          setDictationState("processing");
+          void transcribeRecording(recording, id, controller);
         },
-        onError(message) {
-          setError(message);
+        () => {
+          if (id === generation.current) setDictationState("listening");
         },
-      });
+      );
+      if (id === generation.current) setDictationState("listening");
     } catch (e) {
-      operation.current = null;
-      setDictationState(null);
-      setError(e instanceof Error ? e.message : "Microphone unavailable.");
+      if (id === generation.current) {
+        operation.current = null;
+        stopRecording.current = null;
+        setDictationState(null);
+        if (!controller.signal.aborted)
+          setError(e instanceof Error ? e.message : "Microphone unavailable.");
+      }
     }
   }
+
+  async function transcribeRecording(
+    recording: File,
+    id: number,
+    controller: AbortController,
+  ) {
+    try {
+      const response = await fetch("/api/mink/voice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "audio/wav",
+          "X-Mink-Request-Key": crypto.randomUUID(),
+        },
+        body: recording,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const data = await response.json();
+      if (id !== generation.current) return;
+      if (!response.ok || typeof data.text !== "string" || !data.text.trim())
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Voice transcription failed. Try again or type your message.",
+        );
+      const current = latestMessage.current;
+      const before = current.message.trimEnd();
+      const transcript = data.text.trim();
+      const combined = before ? `${before} ${transcript}` : transcript;
+      if (combined.length > 4_000)
+        throw new Error(
+          "The transcript does not fit in the 4,000-character message limit. Shorten the message and try again.",
+        );
+      // A completed recording produces one final transcript and one composer
+      // update. There are no cumulative interim events to append repeatedly.
+      current.onAdd(combined);
+    } catch (e) {
+      if (id === generation.current && !controller.signal.aborted)
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Voice transcription failed. Try again or type your message.",
+        );
+    } finally {
+      if (id === generation.current) {
+        operation.current = null;
+        setDictationState(null);
+      }
+    }
+  }
+
   function stopDictation() {
-    dictationSession.current?.stop();
+    stopRecording.current?.();
   }
   function cancelDictation() {
-    const original = dictationOriginal.current;
-    dictationSession.current?.cancel();
-    dictationSession.current = null;
+    generation.current++;
+    operation.current?.abort();
     operation.current = null;
+    stopRecording.current = null;
     setDictationState(null);
-    latestMessage.current.onAdd(original);
   }
   async function processFile(source = file) {
     if (!source || !consent || busy || disabled) return;
@@ -437,6 +450,10 @@ export function MinkMultimodalInput({
    */
   async function submit() {
     const current = latestMessage.current.message.trim();
+    if (dictationState) {
+      if (dictationState !== "processing") stopDictation();
+      return;
+    }
     if (!current || disabled || busy || !onSubmit) return;
     if (!file) {
       onSubmit(current);
@@ -518,8 +535,9 @@ export function MinkMultimodalInput({
       disabled={disabled || busy}
       className={iconButton + (dictationState ? " bg-red-50 text-red-600" : "")}
       onClick={() => {
-        if (dictationState) stopDictation();
-        else startDictation();
+        if (dictationState === "processing") cancelDictation();
+        else if (dictationState) stopDictation();
+        else void startDictation();
       }}
     >
       {dictationState ? (
@@ -827,26 +845,30 @@ export function MinkMultimodalInput({
           <span className="min-w-0 flex-1">
             {dictationState === "starting"
               ? "Starting microphone…"
-              : "Listening — speech appears in the message box"}
+              : dictationState === "processing"
+                ? "Converting speech to editable text…"
+                : "Listening…"}
           </span>
           <button
             type="button"
             className={iconButton}
             aria-label="Cancel dictation"
-            title="Cancel and remove dictated text"
+            title="Cancel dictation"
             onClick={cancelDictation}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            className={iconButton + " bg-white text-[#6d4dff]"}
-            aria-label="Finish dictation"
-            title="Finish dictation and keep text"
-            onClick={stopDictation}
-          >
-            <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-          </button>
+          {dictationState !== "processing" && (
+            <button
+              type="button"
+              className={iconButton + " bg-white text-[#6d4dff]"}
+              aria-label="Finish dictation"
+              title="Finish dictation"
+              onClick={stopDictation}
+            >
+              <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
       {!open && error && (
@@ -891,5 +913,10 @@ export function shouldUseMinkImageOnStorefront(message: string) {
     /\b(?:home\s?page|storefront|website|web\s?page|hero|banner|carousel|gallery|section)\b/i;
   const placement =
     /\b(?:use|add|put|place|show|feature|create|make|build|design|update|replace)\b/i;
-  return destination.test(message) && placement.test(message);
+  const directImageHandoff =
+    /\b(?:(?:this|here)(?:\s+is|'s)|attached|uploaded|provided)\b.{0,40}\b(?:product\s+)?(?:image|photo|picture)\b|\b(?:use|take|keep|save|add|place|show|feature)\s+(?:this|the|my)\s+(?:product\s+)?(?:image|photo|picture)\b/i;
+  return (
+    (destination.test(message) && placement.test(message)) ||
+    directImageHandoff.test(message)
+  );
 }

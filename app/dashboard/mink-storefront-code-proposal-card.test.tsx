@@ -158,11 +158,8 @@ async function driveToExecute(
 
   render(<MinkStorefrontCodeProposalCard proposal={proposal} />);
   fireEvent.click(
-    await screen.findByRole("button", { name: /review builder draft save/i }),
-  );
-  fireEvent.click(
     await screen.findByRole("button", {
-      name: /approve and save builder draft/i,
+      name: /apply to website builder draft/i,
     }),
   );
 }
@@ -180,11 +177,11 @@ describe("Mink Phase 7C storefront proposal card", () => {
     );
     expect(
       screen.getByRole("button", {
-        name: /approve and save builder draft/i,
+        name: /retry applying to draft/i,
       }),
     ).toBeTruthy();
     expect(
-      screen.queryByRole("button", { name: /review builder draft save/i }),
+      screen.queryByRole("button", { name: /apply to website builder draft/i }),
     ).toBeNull();
   });
 
@@ -207,7 +204,7 @@ describe("Mink Phase 7C storefront proposal card", () => {
     expect(screen.getByText(new RegExp(AUDIT_ID))).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: /approve and save builder draft/i,
+        name: /retry applying to draft/i,
       }),
     ).toBeNull();
   });
@@ -226,12 +223,12 @@ describe("Mink Phase 7C storefront proposal card", () => {
     await screen.findByText(/Website Builder page changed/i);
     expect(
       await screen.findByRole("button", {
-        name: /review builder draft save/i,
+        name: /apply to website builder draft/i,
       }),
     ).toBeTruthy();
     expect(
       screen.queryByRole("button", {
-        name: /approve and save builder draft/i,
+        name: /retry applying to draft/i,
       }),
     ).toBeNull();
   });

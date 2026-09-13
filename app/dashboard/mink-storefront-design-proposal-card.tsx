@@ -2,7 +2,6 @@
 
 import {
   CheckCircle2,
-  Clock3,
   ExternalLink,
   LoaderCircle,
   Palette,
@@ -69,35 +68,26 @@ export function MinkStorefrontDesignProposalCard({
     return () => controller.abort();
   }, [proposal.draftId]);
 
-  async function reviewDraftSave() {
-    setBusy("preview");
+  async function applyDraftSave() {
+    setBusy(approval ? "execute" : "preview");
     setError(null);
     try {
-      const response = await requestDesignAction(proposal.draftId, {
-        action: "preview",
-        // A design proposal is immutable, so its version is always 0. It is
-        // still sent: the server compares it, and a client that stopped
-        // sending the truth would be asking to skip that comparison.
-        expectedDraftVersion: 0,
-        idempotencyKey: crypto.randomUUID(),
-      });
-      setApproval(response.approval ?? null);
-      setResult(null);
-    } catch (requestError) {
-      setError(messageOf(requestError, "This design could not be reviewed."));
-    } finally {
-      setBusy(null);
-    }
-  }
-
-  async function approveDraftSave() {
-    if (!approval) return;
-    setBusy("execute");
-    setError(null);
-    try {
+      let exactApproval = approval;
+      if (!exactApproval) {
+        const previewResponse = await requestDesignAction(proposal.draftId, {
+          action: "preview",
+          expectedDraftVersion: 0,
+          idempotencyKey: crypto.randomUUID(),
+        });
+        exactApproval = previewResponse.approval ?? null;
+        if (!exactApproval)
+          throw new Error("The draft safety check returned no approval.");
+        setApproval(exactApproval);
+        setBusy("execute");
+      }
       const response = await requestDesignAction(proposal.draftId, {
         action: "execute",
-        approvalId: approval.id,
+        approvalId: exactApproval.id,
       });
       if (!response.result)
         throw new Error("The save response was incomplete.");
@@ -134,8 +124,7 @@ export function MinkStorefrontDesignProposalCard({
                 {proposal.destinationLabel}
               </h3>
               <p className="mt-0.5 text-[9px] text-[#716d78]">
-                Private proposal · {proposal.expectedCredits} AI credits · draft
-                save needs approval
+                Private Builder draft · {proposal.expectedCredits} AI credits
               </p>
             </div>
           </div>
@@ -180,8 +169,15 @@ export function MinkStorefrontDesignProposalCard({
           </div>
         ) : null}
 
-        <PaletteChanges palette={summary.palette} />
-        <TypeChanges fonts={summary.fonts} shape={summary.shape} />
+        <details className="rounded-xl border border-[#e7e3ef] bg-[#fbfaff] px-3 py-2.5">
+          <summary className="cursor-pointer text-[10px] font-semibold text-[#4a4260]">
+            Review {changeCount} design change{changeCount === 1 ? "" : "s"}
+          </summary>
+          <div className="mt-2 space-y-2">
+            <PaletteChanges palette={summary.palette} />
+            <TypeChanges fonts={summary.fonts} shape={summary.shape} />
+          </div>
+        </details>
 
         {result ? (
           <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-[10px] leading-4 text-emerald-900">
@@ -199,58 +195,43 @@ export function MinkStorefrontDesignProposalCard({
                   href={result.approval.resource.dashboardPath}
                   className="mt-2 inline-flex items-center gap-1 font-semibold text-emerald-800 underline"
                 >
-                  Open Builder to review <ExternalLink className="h-3 w-3" />
+                  Open Builder <ExternalLink className="h-3 w-3" />
                 </a>
-              </div>
-            </div>
-          </div>
-        ) : approval ? (
-          <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-4 text-amber-950">
-            <div className="flex items-start gap-2">
-              <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <p className="font-semibold">
-                  Approval expires {formatApprovalExpiry(approval.expiresAt)}
-                </p>
-                <p className="mt-1">
-                  This replaces the store&rsquo;s colours, typefaces and corner
-                  radii in the private Builder draft, on every page at once. It
-                  does not publish the storefront.
-                </p>
-                <button
-                  type="button"
-                  disabled={busy !== null}
-                  onClick={() => void approveDraftSave()}
-                  className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#5d3fe3] px-3 py-1.5 font-semibold text-white hover:bg-[#4e32ca] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {busy === "execute" ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <ShieldCheck className="h-3.5 w-3.5" />
-                  )}
-                  Approve and save Builder draft
-                </button>
               </div>
             </div>
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#ded8f4] bg-[#faf8ff] p-3">
-            <p className="max-w-lg text-[9px] leading-4 text-[#5f5969]">
-              Create a short-lived approval from the store&rsquo;s exact current
-              design before saving this to Website Builder.
-            </p>
+            <div className="max-w-lg text-[9px] leading-4 text-[#5f5969]">
+              <p className="font-semibold text-[#403753]">
+                Apply this to your private Builder draft
+              </p>
+              <p>
+                Nothing is published. You can keep editing before you go live.
+              </p>
+              {approval ? (
+                <p className="mt-1 text-amber-800">
+                  The last save could not be confirmed. Retry is safe and cannot
+                  apply twice.
+                </p>
+              ) : null}
+            </div>
             <button
               type="button"
               disabled={busy !== null}
-              onClick={() => void reviewDraftSave()}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-[#6d4dff] bg-white px-3 py-1.5 text-[9px] font-semibold text-[#5132d2] hover:bg-[#f5f1ff] disabled:cursor-not-allowed disabled:border-[#d7d2df] disabled:text-[#9a95a0]"
+              onClick={() => void applyDraftSave()}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-[#5d3fe3] px-3 py-1.5 text-[9px] font-semibold text-white hover:bg-[#4e32ca] disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {busy === "preview" ? (
+              {busy ? (
                 <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
               ) : (
                 <ShieldCheck className="h-3.5 w-3.5" />
               )}
-              Review Builder draft save
+              {busy
+                ? "Applying…"
+                : approval
+                  ? "Retry applying to draft"
+                  : "Apply to Website Builder draft"}
             </button>
           </div>
         )}
@@ -275,10 +256,8 @@ export function MinkStorefrontDesignProposalCard({
         </details>
 
         <div className="rounded-xl border border-[#e5e1eb] bg-[#f8f7fa] px-3 py-2 text-[9px] leading-4 text-[#65616b]">
-          This proposal is immutable and saves only to the private Website
-          Builder draft. Publishing stays a separate step you take in Website
-          Builder. Mink cannot change page content or custom code from here,
-          access repository code, run shell commands, commit or deploy.
+          Applying here changes only your private Website Builder draft.
+          Publishing remains a separate step in Website Builder.
         </div>
       </div>
     </section>
@@ -433,15 +412,8 @@ function Badge({ children }: { children: ReactNode }) {
   );
 }
 
-function formatApprovalExpiry(value: string): string {
-  const at = Date.parse(value);
-  if (Number.isNaN(at)) return "shortly";
-  const minutes = Math.max(0, Math.round((at - Date.now()) / 60_000));
-  return minutes <= 1 ? "in under a minute" : `in about ${minutes} minutes`;
-}
-
 const UNKNOWN_DESIGN_OUTCOME =
-  "We could not confirm whether the design was saved. Open Website Builder to check, then press Approve again if it was not — the same approval is safe to retry and cannot save twice.";
+  "We could not confirm whether the design was saved. Check Website Builder, or retry here — the same save cannot apply twice.";
 
 class DesignActionRequestError extends Error {
   constructor(

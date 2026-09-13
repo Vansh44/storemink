@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from "vitest";
-import { readMinkBoundedJson } from "./bounded-json";
+import { readMinkBoundedBytes, readMinkBoundedJson } from "./bounded-json";
 describe("bounded Mink JSON", () => {
   it("cancels a stalled body when its processing deadline expires", async () => {
     const cancelled = vi.fn();
@@ -49,4 +49,27 @@ describe("bounded Mink JSON", () => {
       ).rejects.toMatchObject({ status: 400 });
     },
   );
+});
+
+describe("bounded Mink bytes", () => {
+  it("reads raw bytes and refuses an oversized stream", async () => {
+    await expect(
+      readMinkBoundedBytes(
+        new Request("https://example.test", {
+          method: "POST",
+          body: new Uint8Array([1, 2, 3]),
+        }),
+        3,
+      ),
+    ).resolves.toEqual(Buffer.from([1, 2, 3]));
+    await expect(
+      readMinkBoundedBytes(
+        new Request("https://example.test", {
+          method: "POST",
+          body: new Uint8Array([1, 2, 3, 4]),
+        }),
+        3,
+      ),
+    ).rejects.toMatchObject({ status: 413 });
+  });
 });

@@ -159,7 +159,7 @@ describe("Mink storefront artifacts", () => {
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
     expect(frame.getAttribute("srcdoc")).toContain("connect-src 'none'");
     expect(
-      screen.getByRole("button", { name: /review builder draft save/i }),
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
     ).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: /publish/i }),
@@ -829,7 +829,7 @@ describe("Mink catalogue artifact", () => {
     );
   });
 
-  it("leads a layout proposal with what the merchant is about to lose", async () => {
+  it("applies a reviewed layout to the private Builder draft in one click", async () => {
     // ★ REMOVALS FIRST, BY NAME. A whole-list replace makes deletion the easy
     //   accident, and a section id is opaque — so a card that showed only ids,
     //   or that buried removals, would be asking for an approval nobody can
@@ -838,11 +838,27 @@ describe("Mink catalogue artifact", () => {
     const draftId = "77777777-7777-4777-8777-777777777777";
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ result: null }),
-      })),
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = init?.body
+          ? (JSON.parse(String(init.body)) as { action: string })
+          : null;
+        const payload =
+          body?.action === "preview"
+            ? { approval: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }
+            : body?.action === "execute"
+              ? {
+                  result: {
+                    auditId: "layout-audit",
+                    approval: {
+                      resource: {
+                        dashboardPath: "/dashboard/builder?page=home",
+                      },
+                    },
+                  },
+                }
+              : { result: null };
+        return { ok: true, status: 200, json: async () => payload };
+      }),
     );
     const artifact: MinkArtifact = {
       type: "storefront_layout_proposal",
@@ -887,8 +903,21 @@ describe("Mink catalogue artifact", () => {
       ),
     );
     expect(
-      screen.getByRole("button", { name: /review builder draft save/i }),
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
     ).toBeEnabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
+    );
+    await screen.findByText(/saved to the private Website Builder draft/i);
+    const actions = (fetch as ReturnType<typeof vi.fn>).mock.calls.flatMap(
+      (call) => {
+        const body = call[1]?.body;
+        return body
+          ? [(JSON.parse(String(body)) as { action: string }).action]
+          : [];
+      },
+    );
+    expect(actions).toEqual(["preview", "execute"]);
   });
 
   it("shows a design proposal as real colours, including what a cleared token falls back to", async () => {
@@ -963,7 +992,7 @@ describe("Mink catalogue artifact", () => {
       ),
     );
     expect(
-      screen.getByRole("button", { name: /review builder draft save/i }),
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
     ).toBeEnabled();
   });
 });

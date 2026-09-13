@@ -128,6 +128,12 @@ both the table and the operating picture. The cards also show the number of
 currently invited stores and feedback totals, so support can correlate a poor
 rating to a safe run ID without opening the merchant's conversation.
 
+The same page has one superadmin-only global voice-model switch between Google
+Chirp 3 and Sarvam Saaras v4. It writes the service-only
+`mink_voice_settings` singleton, and every store's `/api/mink/voice` request
+reads that row before transcription. There is no per-store override. A failed
+settings read fails the request rather than silently using a different model.
+
 The store detail screen owns one superadmin-only Mink control. **Enable Mink
 AI** atomically enables the store, private drafting and all implemented action
 capabilities; **Disable Mink AI** shuts those gates together. The actor is

@@ -120,6 +120,11 @@ describe("Mink system prompt document", () => {
       "Send saves that image through their ordinary Media Library permission",
     );
     expect(template).toContain(
+      'hands over "the product image" for the storefront task already being discussed',
+    );
+    expect(template).toContain("answer in at most two short sentences");
+    expect(template).toContain("single Apply to Website Builder draft button");
+    expect(template).toContain(
       "Never claim that you clicked a button, saved the Builder draft, ran browser checks, published or rolled back the storefront",
     );
   });
