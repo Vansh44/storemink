@@ -6,8 +6,8 @@ class MinkAudioRecorder extends AudioWorkletProcessor {
   }
   process(inputs) {
     const input = inputs[0]?.[0];
-    if (!input || this.frames >= 960000) return true;
-    const samples = input.slice(0, 960000 - this.frames);
+    if (!input || this.frames >= 480000) return true;
+    const samples = input.slice(0, 480000 - this.frames);
     this.frames += samples.length;
     this.port.postMessage(samples, [samples.buffer]);
     return true;

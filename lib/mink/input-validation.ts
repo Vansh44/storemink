@@ -16,7 +16,7 @@ export type ValidatedMinkInput = {
 const invalid = () =>
   new MinkRequestError(
     "invalid_input",
-    "This file is unsupported, damaged or exceeds the limits. Use an image up to 12 megapixels, a plain PDF up to 10 pages, or mono 16 kHz PCM WAV up to 60 seconds; maximum 2 MiB.",
+    "This file is unsupported, damaged or exceeds the limits. Use an image up to 12 megapixels, a plain PDF up to 10 pages, or mono 16 kHz PCM WAV up to 30 seconds; maximum 2 MiB.",
     400,
   );
 export function parseMinkInput(body: Record<string, unknown>) {
@@ -58,7 +58,12 @@ export function parseMinkInput(body: Record<string, unknown>) {
   return { kind, bytes, name: body.name, requestKey: body.requestKey };
 }
 export async function validateMinkInput(
-  input: ReturnType<typeof parseMinkInput>,
+  input: {
+    kind: MinkInputKind;
+    bytes: Buffer<ArrayBufferLike>;
+    name: string;
+    requestKey: string;
+  },
   signal: AbortSignal,
 ): Promise<ValidatedMinkInput> {
   const { bytes, kind } = input;
@@ -122,7 +127,7 @@ export async function validateMinkInput(
       bytes.toString("ascii", 36, 40) !== "data" ||
       bytes.readUInt32LE(40) !== bytes.length - 44 ||
       (bytes.length - 44) % 2 ||
-      bytes.length - 44 > 1_920_000
+      bytes.length - 44 > 960_000
     )
       throw invalid();
     return { kind, mimeType: "audio/wav", bytes };

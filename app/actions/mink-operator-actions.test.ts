@@ -17,9 +17,16 @@ vi.mock("@/lib/observability/logger", () => ({
   logInfo: vi.fn(),
   logError: vi.fn(),
 }));
-import { setMinkBetaAccess } from "./mink-operator-actions";
+import {
+  setMinkBetaAccess,
+  setMinkVoiceProvider,
+} from "./mink-operator-actions";
 import { MINK_ACTION_TOOLS } from "@/lib/mink/product-action-types";
-import { minkActionToolAccess, minkStoreAccess } from "@/drizzle/schema";
+import {
+  minkActionToolAccess,
+  minkStoreAccess,
+  minkVoiceSettings,
+} from "@/drizzle/schema";
 const storeId = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
   vi.resetAllMocks();
@@ -108,5 +115,25 @@ describe("single Mink AI operator switch", () => {
     expect(h.service.mock.results[0].value).rejects.toThrow(
       "constraint failed",
     );
+  });
+});
+
+describe("single global Mink voice switch", () => {
+  it("stores one provider for the platform", async () => {
+    expect(await setMinkVoiceProvider("saaras_v4")).toEqual({
+      success: true,
+      provider: "saaras_v4",
+    });
+    expect(h.insert).toHaveBeenCalledWith(minkVoiceSettings);
+    expect(h.values).toHaveBeenCalledWith(
+      expect.objectContaining({ id: true, provider: "saaras_v4" }),
+    );
+  });
+
+  it("rejects staff and unknown providers without database access", async () => {
+    h.viewer.mockResolvedValueOnce({ role: "member" });
+    expect((await setMinkVoiceProvider("chirp_3")).error).toMatch(/superadmin/);
+    expect((await setMinkVoiceProvider("other")).error).toMatch(/Chirp 3/);
+    expect(h.service).not.toHaveBeenCalled();
   });
 });

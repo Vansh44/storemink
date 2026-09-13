@@ -4780,6 +4780,85 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260913_0111_mink_simple_builder_apply_help",
+      "description": "Explain one-click private Builder draft application and follow-up product image handoff",
+      "file": "sql/20260913_0111_mink_simple_builder_apply_help.sql",
+      "transaction": true,
+      "requires": ["20260913_0110_mink_current_offers_help"],
+      "verify": {
+        "tables": ["help_articles", "media_assets"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains one-click private Builder draft application",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Apply to Website Builder draft</strong> button in chat%' and body like '%saves the private draft in one click%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide explains follow-up product image handoff",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%you hand over the product image for the storefront task already being discussed%' and body like '%do not need to upload or describe it again%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete two-stage layout instruction was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%You still review and approve the layout before it reaches your Website Builder draft%'",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260914_0112_mink_global_voice_provider",
+      "description": "Add one global Mink voice provider and correct dictation guidance",
+      "file": "sql/20260914_0112_mink_global_voice_provider.sql",
+      "transaction": true,
+      "requires": ["20260913_0111_mink_simple_builder_apply_help"],
+      "verify": {
+        "tables": ["mink_voice_settings", "help_articles"],
+        "columns": [
+          "mink_voice_settings.id",
+          "mink_voice_settings.provider",
+          "mink_voice_settings.updated_at",
+          "mink_voice_settings.updated_by"
+        ],
+        "constraints": [
+          "mink_voice_settings_id_check",
+          "mink_voice_settings_provider_check"
+        ],
+        "rlsTables": ["mink_voice_settings"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the global voice provider singleton defaults to Chirp 3",
+            "sql": "select provider from mink_voice_settings where id=true",
+            "equals": "chirp_3"
+          },
+          {
+            "name": "the guide explains one final editable transcript",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%convert that recording into one editable transcript%' and body like '%does not repeat interim phrases%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete live browser transcript wording was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and (body like '%puts recognised words into the message box in real time%' or body like '%the microphone is live dictation, not an attachment%')",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

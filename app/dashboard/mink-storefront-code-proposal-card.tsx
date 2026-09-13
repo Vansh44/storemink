@@ -2,7 +2,6 @@
 
 import {
   CheckCircle2,
-  Clock3,
   Code2,
   ExternalLink,
   LoaderCircle,
@@ -87,37 +86,31 @@ export function MinkStorefrontCodeProposalCard({
     ? proposal.changedFields.join(", ")
     : "none";
 
-  async function reviewDraftSave() {
+  async function applyDraftSave() {
     if (!preview) return;
-    setActionBusy("preview");
+    let exactApproval = approval;
+    setActionBusy(exactApproval ? "execute" : "preview");
     setActionError(null);
     try {
-      const response = await requestStorefrontAction(proposal.draftId, {
-        action: "preview",
-        expectedDraftVersion: preview.draftVersion,
-        idempotencyKey: crypto.randomUUID(),
-      });
-      setApproval(response.approval ?? null);
-      setActionResult(null);
-    } catch (requestError) {
-      setActionError(
-        requestError instanceof Error
-          ? requestError.message
-          : "The Builder draft save could not be reviewed.",
-      );
-    } finally {
-      setActionBusy(null);
-    }
-  }
-
-  async function approveDraftSave() {
-    if (!approval) return;
-    setActionBusy("execute");
-    setActionError(null);
-    try {
+      if (!exactApproval) {
+        const previewResponse = await requestStorefrontAction(
+          proposal.draftId,
+          {
+            action: "preview",
+            expectedDraftVersion: preview.draftVersion,
+            idempotencyKey: crypto.randomUUID(),
+          },
+        );
+        exactApproval = previewResponse.approval ?? null;
+        if (!exactApproval)
+          throw new Error("The draft safety check returned no approval.");
+        setApproval(exactApproval);
+        setActionResult(null);
+        setActionBusy("execute");
+      }
       const response = await requestStorefrontAction(proposal.draftId, {
         action: "execute",
-        approvalId: approval.id,
+        approvalId: exactApproval.id,
       });
       if (!response.result)
         throw new Error("The save response was incomplete.");
@@ -140,7 +133,16 @@ export function MinkStorefrontCodeProposalCard({
         void refreshPreview();
         return;
       }
-      const settled = await reconcileUnknownSave(approval.id);
+      if (!exactApproval) {
+        setApproval(null);
+        setActionError(
+          requestError instanceof Error
+            ? requestError.message
+            : "The Builder draft safety check did not finish.",
+        );
+        return;
+      }
+      const settled = await reconcileUnknownSave(exactApproval.id);
       if (settled) {
         setActionResult(settled);
         setApproval(null);
@@ -200,8 +202,7 @@ export function MinkStorefrontCodeProposalCard({
                 {proposal.title}
               </h3>
               <p className="mt-0.5 text-[9px] text-[#716d78]">
-                Private proposal · {proposal.expectedCredits} AI credits · draft
-                save needs approval
+                Private Builder draft · {proposal.expectedCredits} AI credits
               </p>
             </div>
           </div>
@@ -348,47 +349,28 @@ export function MinkStorefrontCodeProposalCard({
                       href={actionResult.approval.resource.dashboardPath}
                       className="mt-2 inline-flex items-center gap-1 font-semibold text-emerald-800 underline"
                     >
-                      Open Builder to review{" "}
-                      <ExternalLink className="h-3 w-3" />
+                      Open Builder <ExternalLink className="h-3 w-3" />
                     </a>
-                  </div>
-                </div>
-              </div>
-            ) : approval ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-[10px] leading-4 text-amber-950">
-                <div className="flex items-start gap-2">
-                  <Clock3 className="mt-0.5 h-4 w-4 shrink-0" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold">
-                      Approval expires{" "}
-                      {formatApprovalExpiry(approval.expiresAt)}
-                    </p>
-                    <p className="mt-1">
-                      This replaces only the exact custom-code section shown
-                      above. It does not publish the page.
-                    </p>
-                    <button
-                      type="button"
-                      disabled={actionBusy !== null}
-                      onClick={() => void approveDraftSave()}
-                      className="mt-2 inline-flex items-center gap-1.5 rounded-lg bg-[#5d3fe3] px-3 py-1.5 font-semibold text-white hover:bg-[#4e32ca] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      {actionBusy === "execute" ? (
-                        <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                      ) : (
-                        <ShieldCheck className="h-3.5 w-3.5" />
-                      )}
-                      Approve and save Builder draft
-                    </button>
                   </div>
                 </div>
               </div>
             ) : (
               <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#ded8f4] bg-[#faf8ff] p-3">
-                <p className="max-w-lg text-[9px] leading-4 text-[#5f5969]">
-                  Create a short-lived approval from the latest exact page and
-                  section before saving this code to Website Builder.
-                </p>
+                <div className="max-w-lg text-[9px] leading-4 text-[#5f5969]">
+                  <p className="font-semibold text-[#403753]">
+                    Apply this to your private Builder draft
+                  </p>
+                  <p>
+                    Nothing is published. You can keep editing before you go
+                    live.
+                  </p>
+                  {approval ? (
+                    <p className="mt-1 text-amber-800">
+                      The last save could not be confirmed. Retry is safe and
+                      cannot apply twice.
+                    </p>
+                  ) : null}
+                </div>
                 <button
                   type="button"
                   disabled={
@@ -396,15 +378,19 @@ export function MinkStorefrontCodeProposalCard({
                     preview.targetState !== "current" ||
                     !preview.authority.canSaveBuilderDraft
                   }
-                  onClick={() => void reviewDraftSave()}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-[#6d4dff] bg-white px-3 py-1.5 text-[9px] font-semibold text-[#5132d2] hover:bg-[#f5f1ff] disabled:cursor-not-allowed disabled:border-[#d7d2df] disabled:text-[#9a95a0]"
+                  onClick={() => void applyDraftSave()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-[#5d3fe3] px-3 py-1.5 text-[9px] font-semibold text-white hover:bg-[#4e32ca] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {actionBusy === "preview" ? (
+                  {actionBusy ? (
                     <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
                   ) : (
                     <ShieldCheck className="h-3.5 w-3.5" />
                   )}
-                  Review Builder draft save
+                  {actionBusy
+                    ? "Applying…"
+                    : approval
+                      ? "Retry applying to draft"
+                      : "Apply to Website Builder draft"}
                 </button>
               </div>
             )}
@@ -427,10 +413,8 @@ export function MinkStorefrontCodeProposalCard({
         ) : null}
 
         <div className="rounded-xl border border-[#e5e1eb] bg-[#f8f7fa] px-3 py-2 text-[9px] leading-4 text-[#65616b]">
-          This proposal is immutable. Phase 7C can save its exact code to the
-          private Builder draft. Phase 7D requires separate checks and approval
-          to publish or roll back; neither phase can access repository code, run
-          shell commands, commit or deploy.
+          Applying here changes only your private Website Builder draft.
+          Publishing and rollback keep their separate checks and approval.
         </div>
       </div>
     </section>
@@ -785,7 +769,7 @@ function readActionValues(value: unknown): MinkStorefrontCodeActionValues {
 }
 
 const UNKNOWN_STOREFRONT_ACTION_OUTCOME =
-  "StoreMink couldn't confirm whether the Builder draft was saved, so nothing was assumed. Approve this same request again—repeating it is safe and reports what actually happened.";
+  "We couldn't confirm whether the Builder draft was saved. Check Website Builder, or retry here — the same save cannot apply twice.";
 
 class StorefrontActionRequestError extends Error {
   constructor(
@@ -795,13 +779,6 @@ class StorefrontActionRequestError extends Error {
     super(message);
     this.name = "StorefrontActionRequestError";
   }
-}
-
-function formatApprovalExpiry(value: string) {
-  return new Intl.DateTimeFormat(undefined, {
-    hour: "numeric",
-    minute: "2-digit",
-  }).format(new Date(value));
 }
 
 const UUID_PATTERN =

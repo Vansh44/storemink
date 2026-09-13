@@ -2289,6 +2289,26 @@ export const platformAnalyticsSettings = pgTable(
   () => [check("platform_analytics_settings_id_check", sql`id`)],
 );
 
+/** The one voice-transcription provider used by Mink across every store. */
+export const minkVoiceSettings = pgTable(
+  "mink_voice_settings",
+  {
+    id: boolean().default(true).primaryKey().notNull(),
+    provider: text().default("chirp_3").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedBy: text("updated_by"),
+  },
+  () => [
+    check("mink_voice_settings_id_check", sql`id`),
+    check(
+      "mink_voice_settings_provider_check",
+      sql`provider = ANY (ARRAY['chirp_3'::text, 'saaras_v4'::text])`,
+    ),
+  ],
+);
+
 export const productReviews = pgTable(
   "product_reviews",
   {

@@ -257,11 +257,14 @@ one opens its detailed review. Files stay local until explicit Vertex-processing
 consent, except that Send stores an image through the ordinary Media action when
 the merchant explicitly asks to use that image in a named storefront placement;
 .txt/.md imports are decoded locally.
-`lib/mink/speech-recognition.ts` wraps supported browser SpeechRecognition with
-continuous interim results. One mic click starts after browser permission and
-recognised words appear in the controlled composer while the user speaks, which
-enables Send immediately. Finish/60 seconds keeps visible text; Cancel restores
-the exact pre-dictation message. User typing around the live phrase is preserved.
+`lib/mink/voice-recorder.ts` captures one canonical mono 16 kHz PCM WAV locally.
+Finish or the 30-second cap sends that temporary recording to
+`POST /api/mink/voice`; the route authenticates the current store, applies the
+shared input quotas, validates the real WAV bytes and reads the platform-wide
+voice provider before making one transcription request. The composer inserts
+the single final transcript once, after processing, so cumulative interim
+browser results cannot repeat phrases. Text typed during recording is preserved,
+and Cancel aborts the recording or request without changing the message.
 Every newly submitted turn is anchored with its user question near the top of
 the contained message viewport while Mink works, with temporary tail room so
 the browser can establish that position before a long answer exists.
@@ -289,17 +292,17 @@ images and reviewed files render as attachment cards in user messages rather
 than exposing their machine-readable prompt suffixes. Restored image previews
 use the same-origin OG proxy, whose configured-bucket check prevents a forged
 message suffix from becoming a third-party tracking request in the browser.
-StoreMink does not create, upload or retain microphone audio; the browser speech
-service can process it under its own privacy terms. Dictation is not a voice
-conversation and never grants action authority. Extracted image/PDF references
+StoreMink uploads microphone audio only to the selected transcription provider
+and does not persist it in the database, Media Library, memories or chat history.
+Provider processing terms still apply. Dictation is not a voice conversation and
+never grants action authority. Extracted image/PDF references
 still require separate editing/review before addition to the composer. Closing,
 discarding, conversation changes, unmounting or hiding the page cancel pending
 local work. Blob previews are revoked.
 
-The older `voice-recorder.ts`/AudioWorklet and canonical WAV server validation
-remain compatibility code for the Phase 8E input API, but the dashboard composer
-does not expose WAV attachment or recorded-audio transcription. New microphone
-UX must use live browser dictation only.
+The composer still does not expose WAV as a file attachment. Its microphone owns
+the temporary recording lifecycle and the dedicated voice route owns
+transcription; the general reviewed-input route remains separate.
 ★★ THAT SPLIT LEAKED WAV INTO TWO MERCHANT-FACING PLACES, and both are fixed.
 (1) The guide 20260910_0093 republished still read "Voice accepts canonical mono
 16 kHz, 16-bit PCM WAV up to 60 seconds" — contradicting the paragraph three
@@ -326,7 +329,7 @@ form and embedded-file PDFs fail closed. Decoder buffers additionally cap at
 PDF actions are never executed; the
 child is resource isolation, not an OS security sandbox. Next standalone tracing
 includes checker dependencies. WAV validation accepts only canonical mono
-16 kHz/16-bit PCM up to 60 seconds, not claimed MIME or duration metadata.
+16 kHz/16-bit PCM up to 30 seconds, not claimed MIME or duration metadata.
 
 `input-limits.ts` uses database rate limits directly, failing closed: 5/owner/
 minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay keys.
@@ -349,9 +352,10 @@ chat retention only after Send; provider retention still applies. Audio
 attachment, video, spreadsheets, live voice conversation and long-document
 ingestion remain out of scope.
 Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
-`20260910_0092_mink_live_dictation_help.sql` supersedes the recorded-audio Help
-flow with live dictation and documents expired local ADC recovery. The roadmap,
-system prompt and Echos tests describe rollout and limitations.
+`20260914_0112_mink_global_voice_provider.sql` supersedes live browser
+recognition with one final server transcript and corrects the existing guide in
+place. The roadmap, system prompt and Echos tests describe rollout and
+limitations.
 Prompt versions are `read-beta-v14` / `draft-action-beta-v25`; no new agent
 tools or tool-registry version are introduced by input extraction.
 
@@ -869,8 +873,8 @@ turns (still hard-bounded at 20 and still capped at 16 tool calls). The runtime
 prompt tells the model to request independent homepage context and image
 generation together, never repeat an identical successful read, and proceed to
 the layout proposal as soon as both exact results exist. Prompt/registry
-versions are `read-beta-v17`/`read-beta-v13` and
-`draft-action-beta-v33`/`draft-beta-v23`.
+versions are `read-beta-v18`/`read-beta-v14` and
+`draft-action-beta-v34`/`draft-beta-v24`.
 
 `lib/db/client.ts` also retries a transient connection failure that happens on
 `BEGIN` or identity/role setup after an idle socket has already been returned
@@ -885,6 +889,48 @@ falls back to the generic sentence when multiple eligible product names are in
 the incomplete set. Migration `20260913_0110_mink_current_offers_help` edits
 the existing Mink capability/permission and Offers nudge paragraphs in place;
 it adds no new section.
+
+### Simple Mink Website Builder application (2026-09-13)
+
+Mink's Website Builder layout, design and existing custom-code proposal cards
+now turn their existing server-side preview plus execution sequence into one
+merchant click: **Apply to Website Builder draft**. The click still creates a
+five-minute approval bound to the current exact page or design and immediately
+consumes it through the existing action endpoint, so tenant checks, permission
+checks, conflict detection, idempotency and audit records are unchanged. Only
+the private Builder draft changes; live publication and rollback retain their
+separate checks and explicit approvals. Unknown save outcomes retain the exact
+approval and expose one safe retry instead of restarting the flow.
+
+Layout change lists and design details are collapsed behind a concise review
+summary, while custom code keeps its real isolated preview. Generated-image
+cards use a bounded preview and collapse prompt and alt details. The runtime
+prompt limits a successful image or Builder response to two short sentences
+and points to the single in-chat Apply button instead of repeating scene,
+section and navigation instructions.
+
+An admin with Media manage permission can stage an image without first
+depending on the optional extraction provider. A follow-up such as “this is
+the product image” saves the selected file through the ordinary Media action,
+adds its exact owned URL to the turn and lets the ongoing storefront task use
+the image directly. Generic “what is written in this photo?” requests remain
+review-first and do not persist the raw image. Migration
+`20260913_0111_mink_simple_builder_apply_help` edits the existing attachment
+paragraph in place to describe this one-click private-draft and follow-up image
+handoff; it adds no Help Centre section.
+
+### Global Mink voice provider (2026-09-14)
+
+The Mink runs page in the platform operator console contains one global binary
+switch between Google Chirp 3 and Sarvam Saaras v4. The selection is stored in
+the service-only singleton `mink_voice_settings`; there is no per-store override.
+`app/actions/mink-operator-actions.ts` restricts changes to platform
+superadmins, and `POST /api/mink/voice` resolves the singleton for every request,
+so a change applies to dictation from all stores immediately. Chirp uses Cloud
+Speech-to-Text V2 with ADC and automatic language detection. Saaras uses its
+server-side API key and automatic language detection. Provider credentials and
+raw provider errors never reach the browser, and audio or transcript content is
+not written to logs.
 
 ### Single Mink AI operator switch (2026-09-09)
 
@@ -902,11 +948,10 @@ enablement regardless of legacy MINK_BETA_REQUIRE_INVITE; explicit read/delete
 memory access remains available. MINK_AI_ENABLED remains the global emergency
 switch. Legacy MINK_MULTIMODAL_ENABLED has no effect in current revisions.
 
-Latest verification (2026-09-10): 6,459 full-suite tests passed (39 opt-in tests
-skipped), including 67 focused composer/provider/migration checks. Four
-unified-access and live-dictation migration checks passed against a disposable
-PostgreSQL database, including two forward-only replays. Typecheck, lint,
-migration lint, formatting and the production build passed. Live Echos browser
+Latest verification (2026-09-13): 6,823 full-suite tests passed (57 opt-in tests
+skipped), including the one-click Builder safety sequence, unknown-outcome
+retry and follow-up product-image handoff checks. Typecheck, lint, migration
+lint, Help lint, formatting and the production build passed. Live Echos browser
 dictation and the renewed local ADC login remain rollout QA.
 
 ### Mink Phase 8D — Approved memories and reviewed text input (2026-09-07)
@@ -2759,7 +2804,10 @@ wholesip/
 │                              # page-layout proposal;
 │                              # 0109 explains compact chat attachment cards and
 │                              # same-send attached-image storefront placement;
-│                              # 0110 is the first free number. `db-migrations-core.test.mjs`
+│                              # 0110 corrects Mink offer scope and checkout nudges;
+│                              # 0111 documents one-click Builder draft application;
+│                              # 0112 adds the global Mink voice provider and final-transcript flow.
+│                              # `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
 │                              # duplicate group or makes an existing group a triple).
@@ -11707,6 +11755,12 @@ npm run format      # prettier --write
   token usage receives a versioned provider-cost estimate; unavailable usage
   stays null/Unknown rather than looking free. `charged_credits` remains zero,
   so this build does not bill customers.
+  Mink microphone transcription uses the one platform selection in
+  `mink_voice_settings`: Google Chirp 3 calls Cloud Speech-to-Text V2 with the
+  same ADC project and **`MINK_CHIRP_LOCATION`** (default `asia-south1`), while
+  Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
+  service account needs permission to call Speech-to-Text. Neither credential
+  is exposed to the dashboard.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with

@@ -6,11 +6,52 @@ import { getPlatformViewer } from "@/app/actions/platform";
 import {
   minkActionToolAccess,
   minkStoreAccess,
+  minkVoiceSettings,
   stores,
 } from "@/drizzle/schema";
 import { withService } from "@/lib/db/client";
 import { MINK_ACTION_TOOLS } from "@/lib/mink/product-action-types";
 import { logError, logInfo } from "@/lib/observability/logger";
+import {
+  isMinkVoiceProvider,
+  type MinkVoiceProvider,
+} from "@/lib/mink/voice-provider";
+
+export async function setMinkVoiceProvider(
+  provider: unknown,
+): Promise<{ success?: true; provider?: MinkVoiceProvider; error?: string }> {
+  const viewer = await getPlatformViewer();
+  if (viewer?.role !== "superadmin")
+    return { error: "Only a platform superadmin can change the voice model." };
+  if (!isMinkVoiceProvider(provider))
+    return { error: "Choose Google Chirp 3 or Sarvam Saaras v4." };
+  try {
+    const now = new Date().toISOString();
+    await withService((db) =>
+      db
+        .insert(minkVoiceSettings)
+        .values({
+          id: true,
+          provider,
+          updatedAt: now,
+          updatedBy: viewer.email,
+        })
+        .onConflictDoUpdate({
+          target: minkVoiceSettings.id,
+          set: { provider, updatedAt: now, updatedBy: viewer.email },
+        }),
+    );
+    revalidatePath("/platform/dashboard/(console)/mink", "page");
+    logInfo("mink.voice.settings.changed", {
+      provider,
+      operator: viewer.email,
+    });
+    return { success: true, provider };
+  } catch (error) {
+    logError("mink.voice.settings.change_failed", error, { provider });
+    return { error: "Could not change the voice model. Try again." };
+  }
+}
 
 /** One store-level switch. Staff permissions and exact-action approvals are independent. */
 export async function setMinkBetaAccess(
