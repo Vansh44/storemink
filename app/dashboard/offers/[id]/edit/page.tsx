@@ -3,7 +3,7 @@ import { getActingStoreId, requireSectionAccess } from "../../../lib/access";
 import { getStorePlanContext } from "@/lib/plans/entitlements";
 import { getOffer } from "@/app/actions/offer-actions";
 import { OfferForm } from "../../offer-form";
-import { loadOfferScopes, loadOffersAutoApply } from "../../page";
+import { loadOfferScopes, loadOffersAutoApply } from "../../data";
 
 export default async function EditOfferPage({
   params,

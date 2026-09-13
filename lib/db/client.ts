@@ -63,6 +63,19 @@ const TRANSIENT_CONN_CODES = new Set([
   "ECONNREFUSED",
   "EPIPE",
   "ETIMEDOUT",
+  // PostgreSQL connection-class failures and server shutdown/recovery. These
+  // can surface on the first query of an idle pooled socket rather than from
+  // pool.connect(), so acquisition-only retry is not sufficient.
+  "08000",
+  "08001",
+  "08003",
+  "08004",
+  "08006",
+  "08007",
+  "08P01",
+  "57P01",
+  "57P02",
+  "57P03",
 ]);
 function isTransientConnError(err: unknown): boolean {
   const code = (err as { code?: unknown } | null)?.code;
@@ -88,31 +101,43 @@ async function runScoped<T>(
   identity: { uid?: string; email?: string } | null,
   fn: (db: Db) => Promise<T>,
 ): Promise<T> {
-  const client = await acquireClient();
-  try {
-    await client.query("BEGIN");
-    await client.query(`SET LOCAL ROLE ${role}`);
-    if (identity?.uid) {
-      // set_config(..., is_local => true) == SET LOCAL; value is parameterised.
-      await client.query("SELECT set_config('app.current_user_id', $1, true)", [
-        identity.uid,
-      ]);
+  for (let attempt = 0; ; attempt++) {
+    const client = await acquireClient();
+    let callbackStarted = false;
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL ROLE ${role}`);
+      if (identity?.uid) {
+        // set_config(..., is_local => true) == SET LOCAL; value is parameterised.
+        await client.query(
+          "SELECT set_config('app.current_user_id', $1, true)",
+          [identity.uid],
+        );
+      }
+      if (identity?.email) {
+        await client.query(
+          "SELECT set_config('app.current_user_email', $1, true)",
+          [identity.email],
+        );
+      }
+      const db = drizzle(client, { schema: fullSchema });
+      callbackStarted = true;
+      const result = await fn(db);
+      await client.query("COMMIT");
+      client.release();
+      return result;
+    } catch (err) {
+      await client.query("ROLLBACK").catch(() => {});
+      const retryableBeforeWork =
+        !callbackStarted && attempt < 2 && isTransientConnError(err);
+      // Passing true destroys a broken pooled socket instead of returning it
+      // for the next request. Never retry after fn starts: it may have written,
+      // and replaying an uncertain transaction could duplicate business work.
+      if (isTransientConnError(err)) client.release(true);
+      else client.release();
+      if (!retryableBeforeWork) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 120 * (attempt + 1)));
     }
-    if (identity?.email) {
-      await client.query(
-        "SELECT set_config('app.current_user_email', $1, true)",
-        [identity.email],
-      );
-    }
-    const db = drizzle(client, { schema: fullSchema });
-    const result = await fn(db);
-    await client.query("COMMIT");
-    return result;
-  } catch (err) {
-    await client.query("ROLLBACK").catch(() => {});
-    throw err;
-  } finally {
-    client.release();
   }
 }
 

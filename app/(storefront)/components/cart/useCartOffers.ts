@@ -129,6 +129,7 @@ export function useCartOffers(
       lines: items.map((i) => ({
         id: lineKey(i.productId, i.variantId),
         productId: i.productId,
+        productName: i.name,
         variantId: i.variantId ?? null,
         categoryId:
           categoryByLine.get(lineKey(i.productId, i.variantId ?? null)) ?? null,

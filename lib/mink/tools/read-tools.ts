@@ -14,6 +14,7 @@ import {
 } from "../catalog-health-read";
 import { MinkRequestError, MinkToolInputError } from "../errors";
 import { readMinkStorefrontMedia } from "../storefront-media-read";
+import { readMinkCurrentOffers } from "../offers-read";
 import {
   readMinkStorefrontDesignContext,
   readMinkStorefrontPageContext,
@@ -634,6 +635,33 @@ const getSalesSummary: MinkTool = {
       dataAsOf: new Date().toISOString(),
       dashboardPath: `/dashboard/analytics?range=${period}&compare=${comparison}${location.selectedId ? `&location=${encodeURIComponent(location.selectedId)}` : ""}`,
     };
+  },
+};
+
+const listCurrentOffers: MinkTool = {
+  declaration: {
+    name: "list_current_offers",
+    description:
+      "Read the current store's bounded offer list and report which offers are running now, scheduled, ended, exhausted, out of budget, or blocked because automatic offers are switched off. Returns the saved reward, its exact named product/variant/category scope under appliesTo, the separate order trigger, delivery method, channel scope, validity window and usage counters. An order trigger such as 'on any order' does not mean the reward covers every product; use appliesTo for that answer. Use this for questions about active, live, current, scheduled or disabled offers; it never creates, edits, activates or deletes an offer.",
+    parametersJsonSchema: {
+      type: "object",
+      properties: {
+        limit: {
+          type: "integer",
+          description: "Maximum offers to return, from 1 to 20.",
+          minimum: 1,
+          maximum: 20,
+          default: 20,
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  permission: { section: "promotions", action: "view" },
+  timeoutMs: 5_000,
+  artifact: offersArtifact,
+  async execute(actor, args) {
+    return readMinkCurrentOffers(actor, { limit: readLimit(args.limit, 20) });
   },
 };
 
@@ -1306,6 +1334,55 @@ function salesArtifact(output: Record<string, unknown>): MinkArtifact {
   };
 }
 
+function offersArtifact(output: Record<string, unknown>): MinkArtifact {
+  const rows = Array.isArray(output.offers)
+    ? (output.offers as Array<Record<string, unknown>>)
+    : [];
+  return {
+    type: "records",
+    title: "Current offers",
+    recordType: "offer",
+    records: rows.slice(0, 10).map((offer, index) => ({
+      id: `${index}-${String(offer.name ?? "offer")}`,
+      title: String(offer.name ?? "Offer"),
+      subtitle: [
+        offer.reward,
+        offer.appliesTo &&
+        typeof offer.appliesTo === "object" &&
+        typeof (offer.appliesTo as Record<string, unknown>).summary === "string"
+          ? `Applies to ${(offer.appliesTo as Record<string, unknown>).summary}`
+          : undefined,
+        offer.trigger,
+      ]
+        .filter(Boolean)
+        .map(String)
+        .join(" · "),
+      value:
+        offer.delivery === "code" && typeof offer.code === "string"
+          ? `Code ${offer.code}`
+          : String(offer.delivery ?? "automatic"),
+      status: String(offer.availability ?? "ended"),
+      dashboardPath: "/dashboard/offers",
+    })),
+    filters: [
+      {
+        label: "Running now",
+        value: String(Number(output.runningCount ?? 0)),
+      },
+      {
+        label: "Automatic offers",
+        value: output.automaticOffersEnabled === true ? "On" : "Off",
+      },
+    ],
+    dataAsOf: typeof output.dataAsOf === "string" ? output.dataAsOf : undefined,
+    dashboardPath:
+      typeof output.dashboardPath === "string"
+        ? output.dashboardPath
+        : undefined,
+    truncated: output.truncated === true || rows.length > 10,
+  };
+}
+
 function inventoryArtifact(output: Record<string, unknown>): MinkArtifact {
   const items = Array.isArray(output.items)
     ? (output.items as Array<Record<string, unknown>>)
@@ -1591,6 +1668,7 @@ export const minkReadToolRegistry = new MinkToolRegistry([
   searchProducts,
   getCurrentProduct,
   getSalesSummary,
+  listCurrentOffers,
   listLowStock,
   startBusinessBrief,
   getMinkWatches,

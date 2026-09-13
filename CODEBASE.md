@@ -848,6 +848,44 @@ one charged, immutable private proposal that IS an image.
   credentials. Provider access, model id, global location and response parsing
   are therefore verified rather than inferred.
 
+### Mink current-offer reads and compound-run reliability (2026-09-13)
+
+`list_current_offers` is the permission-gated answer to “which offers are
+currently running?”. `lib/mink/offers-read.ts` reads only the trusted current
+store under `promotions:view`, returns at most 20 rows, and distinguishes the
+saved Active switch from real availability: future/ended date windows,
+redemption exhaustion, exhausted budget, and the store-wide automatic-offer
+switch are reported separately. For item rewards, it also resolves the bounded
+`offer_products` scope to exact product, variant/SKU and category names. The
+tool returns that `appliesTo` scope separately from the order trigger: “on any
+order” describes when the order qualifies and never means “all products” when,
+for example, the reward applies only to Almond shake. It returns saved reward,
+delivery, channel scope and bounded counters, but it cannot create, edit,
+activate or delete an offer. The generic records artifact now admits `offer`,
+and the card links back to `/dashboard/offers` without exposing a tenant input.
+
+Compound generated-image plus Website Builder requests now default to 12 model
+turns (still hard-bounded at 20 and still capped at 16 tool calls). The runtime
+prompt tells the model to request independent homepage context and image
+generation together, never repeat an identical successful read, and proceed to
+the layout proposal as soon as both exact results exist. Prompt/registry
+versions are `read-beta-v17`/`read-beta-v13` and
+`draft-action-beta-v33`/`draft-beta-v23`.
+
+`lib/db/client.ts` also retries a transient connection failure that happens on
+`BEGIN` or identity/role setup after an idle socket has already been returned
+by the pool. The broken socket is destroyed and work starts once on a fresh
+connection. Nothing is ever retried after the transaction callback begins, so
+an uncertain write cannot be replayed. This closes the pre-run failure where a
+stale Cloud SQL socket produced the generic “couldn't start” response before
+Mink had called the model. A buy-X-get-Y near miss also carries the single
+eligible cart line's shopper-facing product name from `OfferLine` through
+`NearMissOffer`, so checkout says “Add 1 more Almond shake to get one free”. It
+falls back to the generic sentence when multiple eligible product names are in
+the incomplete set. Migration `20260913_0110_mink_current_offers_help` edits
+the existing Mink capability/permission and Offers nudge paragraphs in place;
+it adds no new section.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
@@ -1435,7 +1473,9 @@ wholesip/
 │   │   │                      # (§39). Coupon email campaigns still live here
 │   │   ├── offers/            # ★ OFFERS (§39): one engine for every discount.
 │   │   │                      # List + new/ + [id]/edit + the shared settings
-│   │   │                      # card. Permission section is still `promotions`
+│   │   │                      # card; data.ts owns shared acting-store reads so
+│   │   │                      # route page files export only valid Next entries.
+│   │   │                      # Permission section is still `promotions`
 │   │   ├── enquiries/         # enquiry inbox + @modal detail
 │   │   ├── users/             # customers + user_groups/ (segments)  [superadmin only]
 │   │   ├── admins/ roles/     # staff invites + role management
@@ -2234,6 +2274,9 @@ wholesip/
 │                          # ceiling claimed before the provider call, and saved into
 │                          # media_assets during generation rather than through an
 │                          # approval -- 9D's own precedent.
+│   │                          # offers-read.ts adds the bounded promotions:view
+│   │                          # current-offer read, including schedule, cap,
+│   │                          # budget and automatic-offer availability blockers.
 │   │                          # storefront-media-read.ts + storefront-media-policy.ts add
 │   │                          # Phase 9D: list_storefront_media (a `media` View read of the
 │   │                          # store's own image URLs) and the guard that REFUSES a layout
@@ -3031,6 +3074,10 @@ wholesip/
    blind spot; the two orders policies that did are fixed by
    `supabase/platform_admin_01_order_policies.sql`, which also FAILS if any
    policy reintroduces the inline pattern).
+   A pooled connection that fails transiently during `BEGIN` or this role/GUC
+   setup is destroyed and retried before the callback starts. Never broaden
+   that retry past callback entry: the callback may write, and an uncertain
+   transaction must not be replayed.
 3. **Route groups**: `(storefront)` = customer site, `dashboard/` = store admin,
    `platform/` = StoreMink itself. Don't put platform pages in the storefront group —
    the proxy rewrite depends on this separation.
@@ -10919,8 +10966,11 @@ Sharma / +919877542162` beside `Customer / 9877542162`);
       **★ `maxSets` EXISTS BECAUSE THE FIRST ONE A MERCHANT BUILDS IS
       UNLIMITED** — a basket of 20 on buy-1-get-1 gives 10 away. 0 in the form
       means no limit and is stored ABSENT, the `max_uses` rule again.
-      The near-miss gained a second shape: `kind: "units"` ("add 1 more and one
-      is free") beside `kind: "spend"`. ★ Two shapes rather than one number,
+      The near-miss gained a second shape: `kind: "units"` ("add 1 more Almond
+      shake to get one free") beside `kind: "spend"`. It carries the single
+      eligible product's shopper-facing name and omits the name when several
+      products form the partial set, rather than inventing which to add.
+      ★ Two shapes rather than one number,
       because a single `gap` would force the UI to guess which it held — and it
       only fires when the cart ALREADY holds a qualifying item, since
       suggesting a set to somebody with none is an advert, not a nudge.
@@ -11644,7 +11694,7 @@ npm run format      # prettier --write
   default-on store invitation remains the merchant access boundary. It reads
   **`MINK_VERTEX_MODEL`** (default `gemini-3.7-flash`),
   **`MINK_VERTEX_LOCATION`** (fallback `GCP_LOCATION`, then `global`), plus
-  bounded optional limits **`MINK_MAX_STEPS_PER_RUN`** (8),
+  bounded optional limits **`MINK_MAX_STEPS_PER_RUN`** (12),
   **`MINK_MAX_TOOL_CALLS_PER_RUN`** (16),
   **`MINK_MAX_PARALLEL_READ_TOOLS`** (4), and
   **`MINK_MAX_OUTPUT_TOKENS`** (2048), **`MINK_IMAGE_MODEL`**

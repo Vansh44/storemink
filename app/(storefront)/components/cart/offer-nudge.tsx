@@ -105,7 +105,14 @@ export function OfferNudge({
         </>
       ) : (
         <>
-          Add <strong>{offer.gap}</strong> more to get {setReward(offer)}
+          Add <strong>{offer.gap}</strong> more
+          {offer.productName ? (
+            <>
+              {" "}
+              <strong>{offer.productName}</strong>
+            </>
+          ) : null}{" "}
+          to get {setReward(offer)}
         </>
       )
     ) : (

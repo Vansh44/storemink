@@ -24,7 +24,7 @@ describe("getMinkConfig", () => {
       model: "gemini-3.7-flash",
       imageModel: "gemini-2.5-flash-image",
       imageLocation: "global",
-      maxSteps: 8,
+      maxSteps: 12,
       maxToolCalls: 16,
       maxParallelReadTools: 4,
       maxOutputTokens: 2_048,
@@ -59,7 +59,7 @@ describe("getMinkConfig", () => {
     process.env.MINK_RUN_TIMEOUT_SECONDS = "5";
 
     expect(getMinkConfig()).toMatchObject({
-      maxSteps: 8,
+      maxSteps: 12,
       maxToolCalls: 16,
       maxParallelReadTools: 4,
       maxOutputTokens: 2_048,

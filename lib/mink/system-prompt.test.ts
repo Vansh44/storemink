@@ -110,6 +110,13 @@ describe("Mink system prompt document", () => {
     );
     expect(template).toContain("use that exact image in a hero_carousel slide");
     expect(template).toContain(
+      "get_storefront_page_context with page_slug=home and generate_storefront_image together",
+    );
+    expect(template).toContain("Use list_current_offers");
+    expect(template).toContain(
+      "Never infer “all products” from an “on any order” trigger",
+    );
+    expect(template).toContain(
       "Send saves that image through their ordinary Media Library permission",
     );
     expect(template).toContain(
