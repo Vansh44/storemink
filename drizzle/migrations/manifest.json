@@ -4736,6 +4736,50 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260913_0110_mink_current_offers_help",
+      "description": "Document exact Mink offer scope and product-named checkout nudges in existing guides",
+      "file": "sql/20260913_0110_mink_current_offers_help.sql",
+      "transaction": true,
+      "requires": ["20260913_0109_mink_attached_image_flow_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide lists current-offer questions",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Which offers are running now, scheduled, disabled or unable to run?%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide explains offer availability and permission",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Offers → View</strong> for offer status%' and body like '%store-wide automatic-offer switch%' and body like '%so \"on any order\" does not mean \"all products\"%'",
+            "equals": "1"
+          },
+          {
+            "name": "the offers guide names the eligible product in a checkout nudge",
+            "sql": "select count(*)::text from help_articles where slug='create-and-manage-offers' and status='published' and body like '%Add 1 more Almond shake to get one free%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete anonymous checkout nudge was removed",
+            "sql": "select count(*)::text from help_articles where slug='create-and-manage-offers' and status='published' and body like '%Add 1 more and one is free%'",
+            "equals": "0"
+          },
+          {
+            "name": "the obsolete permission paragraph was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Inventory → View</strong> for low-stock lists. Asking for a hidden tool%'",
+            "equals": "0"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

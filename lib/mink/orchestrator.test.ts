@@ -210,6 +210,34 @@ describe("runMinkAgent", () => {
     expect(session.sendToolResponses).not.toHaveBeenCalled();
   });
 
+  it("finishes a bounded compound workflow that needs more than eight model turns", async () => {
+    let completedToolTurns = 0;
+    const anotherRead = () =>
+      turn({
+        functionCalls: [{ name: "get_store_profile", args: {} }],
+      });
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () => anotherRead()),
+      sendToolResponses: vi.fn(async () => {
+        completedToolTurns += 1;
+        return completedToolTurns < 8
+          ? anotherRead()
+          : turn({ text: "The image and homepage proposal are ready." });
+      }),
+    };
+
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "Create an image and prepare my homepage carousel.",
+      config: config({ maxSteps: 12 }),
+      registry: registry(),
+      session,
+    });
+
+    expect(result).toMatchObject({ steps: 9, toolCalls: 8 });
+    expect(result.text).toContain("homepage proposal");
+  });
+
   it("rejects an empty final answer", async () => {
     const session: MinkModelSession = {
       sendUserMessage: vi.fn(async () => turn()),

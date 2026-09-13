@@ -72,7 +72,7 @@ export function getMinkConfig(): MinkConfig {
     // Gemini image generation is served at the global Vertex endpoint. Keep a
     // separate override so an operator can move it without moving chat.
     imageLocation: process.env.MINK_IMAGE_LOCATION?.trim() || "global",
-    maxSteps: boundedInt(process.env.MINK_MAX_STEPS_PER_RUN, 8, 1, 20),
+    maxSteps: boundedInt(process.env.MINK_MAX_STEPS_PER_RUN, 12, 1, 20),
     maxToolCalls: boundedInt(
       process.env.MINK_MAX_TOOL_CALLS_PER_RUN,
       16,

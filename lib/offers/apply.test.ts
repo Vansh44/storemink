@@ -1332,6 +1332,7 @@ describe("applyOffers — buy X get Y near miss", () => {
     line({
       id: "s",
       productId: "p-shake",
+      productName: "Almond shake",
       categoryId: "cat-shake",
       quantity: q,
       unitPrice: 100,
@@ -1347,6 +1348,7 @@ describe("applyOffers — buy X get Y near miss", () => {
       kind: "units",
       gap: 1,
       getQuantity: 1,
+      productName: "Almond shake",
     });
   });
 
