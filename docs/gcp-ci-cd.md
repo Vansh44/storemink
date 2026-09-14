@@ -187,7 +187,7 @@ gcloud builds triggers create github \
   --branch-pattern='^dev$' \
   --build-config=cloudbuild.yaml \
   --service-account=projects/storemink-prod/serviceAccounts/705863961054-compute@developer.gserviceaccount.com \
-  --substitutions='_IMAGE=asia-south1-docker.pkg.dev/storemink-prod/storemink/web:dev,_SERVICE=storemink-web-dev,_MIN_INSTANCES=0,_MAX_INSTANCES=2,_DB_POOL_MAX=3,_DB_CONN=storemink-prod:asia-south1:storemink-prod-db,_DB_NAME=storemink_staging,_DB_PASSWORD_SECRET=CLOUDSQL_PROD_APP_PW,_GCS_BUCKET=storemink-media,_FIREBASE_PROJECT_ID=storemink-staging,_FIREBASE_SA_ID=firebase-adminsdk-fbsvc@storemink-staging.iam.gserviceaccount.com,_NEXT_PUBLIC_FIREBASE_API_KEY=<STAGING_WEB_API_KEY>,_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=storemink-staging.firebaseapp.com,_NEXT_PUBLIC_FIREBASE_PROJECT_ID=storemink-staging,_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=storemink-staging.firebasestorage.app,_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=68037646295,_NEXT_PUBLIC_FIREBASE_APP_ID=1:68037646295:web:388ef47d32e39c822b1d92,_NEXT_PUBLIC_ROOT_DOMAIN=dev.storemink.com,_NEXT_PUBLIC_APP_URL=https://dev.storemink.com,_MINK_AI_ENABLED=true'
+  --substitutions='_IMAGE=asia-south1-docker.pkg.dev/storemink-prod/storemink/web:dev,_SERVICE=storemink-web-dev,_MIN_INSTANCES=0,_MAX_INSTANCES=2,_DB_POOL_MAX=3,_DB_CONN=storemink-prod:asia-south1:storemink-prod-db,_DB_NAME=storemink_staging,_DB_PASSWORD_SECRET=CLOUDSQL_PROD_APP_PW,_GCS_BUCKET=storemink-media,_FIREBASE_PROJECT_ID=storemink-staging,_FIREBASE_SA_ID=firebase-adminsdk-fbsvc@storemink-staging.iam.gserviceaccount.com,_NEXT_PUBLIC_FIREBASE_API_KEY=<STAGING_WEB_API_KEY>,_NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN=storemink-staging.firebaseapp.com,_NEXT_PUBLIC_FIREBASE_PROJECT_ID=storemink-staging,_NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET=storemink-staging.firebasestorage.app,_NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID=68037646295,_NEXT_PUBLIC_FIREBASE_APP_ID=1:68037646295:web:388ef47d32e39c822b1d92,_NEXT_PUBLIC_ROOT_DOMAIN=dev.storemink.com,_NEXT_PUBLIC_APP_URL=https://dev.storemink.com,_MINK_AI_ENABLED=true,_SARVAM_API_KEY=<SARVAM_API_KEY>'
 ```
 
 Mink AI is globally enabled by default in every environment. The model,
@@ -372,12 +372,20 @@ inherits staging's database, Firebase project, bucket and every secret name.
 | `_MINK_VERTEX_MODEL`                        | `gemini-3.7-flash`                                                  | `gemini-3.7-flash`                                                  | `gemini-3.7-flash`                                               |
 | `_MINK_VERTEX_LOCATION`                     | `global`                                                            | `global`                                                            | `global`                                                         |
 | `_MINK_CHIRP_LOCATION`                      | `us`                                                                | `us`                                                                | `us`                                                             |
+| `_SARVAM_API_KEY`                           | `<SARVAM_API_KEY>` **←**                                            | _(empty unless configured)_                                         | _(empty unless configured)_                                      |
 | `_MINK_MAX_STEPS_PER_RUN`                   | `12`                                                                | `12`                                                                | `12`                                                             |
 | `_MINK_MAX_TOOL_CALLS_PER_RUN`              | `16`                                                                | `16`                                                                | `16`                                                             |
 | `_MINK_MAX_PARALLEL_READ_TOOLS`             | `4`                                                                 | `4`                                                                 | `4`                                                              |
 | `_MINK_MAX_OUTPUT_TOKENS`                   | `2048`                                                              | `2048`                                                              | `2048`                                                           |
 | `_MINK_MAX_MODEL_RETRIES`                   | `1`                                                                 | `1`                                                                 | `1`                                                              |
 | `_MINK_RUN_TIMEOUT_SECONDS`                 | `180`                                                               | `180`                                                               | `180`                                                            |
+
+> **SARVAM_API_KEY is deliberately not in Secret Manager.** At the operator's
+> direction it is a regular Cloud Build trigger substitution and becomes a
+> regular Cloud Run environment variable. Set `_SARVAM_API_KEY` on each trigger
+> that should support Saaras. Anyone who can inspect that trigger or a deployed
+> revision can read the key. A manual Cloud Run-only value is not durable because
+> this build uses authoritative `--set-env-vars` on every deployment.
 
 > **⚠ COST CUTS OF 2026-08-10 — three values here are now tuned for spend, not
 > for headroom.** Monthly GCP was tracking to ~₹6,400 and had to come down.
