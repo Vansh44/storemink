@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { createElement } from "react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
