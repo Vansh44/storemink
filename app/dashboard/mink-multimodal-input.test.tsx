@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   render,
@@ -136,8 +137,9 @@ describe("review-first multimodal input", () => {
     ).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("records once and inserts one final transcript without repeating it", async () => {
-    render(<LiveComposer initial="Please" />);
+  it("inserts one final transcript and waits for the user to send it", async () => {
+    const submit = vi.fn();
+    render(<LiveComposer initial="Please" onSubmit={submit} />);
     fireEvent.click(screen.getByRole("button", { name: "Dictate message" }));
     expect(recording.start).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -160,6 +162,11 @@ describe("review-first multimodal input", () => {
         /Echos grocery banner/g,
       ),
     ).toHaveLength(1);
+    expect(submit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submit).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledWith("Please Echos grocery banner");
   });
   it("preserves words typed while the recording is in progress", async () => {
     render(<LiveComposer initial="Please" />);

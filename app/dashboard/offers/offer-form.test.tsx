@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // The offer editor was ONE scroll of ten fieldsets — reward, trigger,

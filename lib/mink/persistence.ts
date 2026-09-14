@@ -1,8 +1,19 @@
 import "server-only";
 
-import { and, desc, eq, gt, inArray, sql } from "drizzle-orm";
 import {
+  and,
+  desc,
+  eq,
+  gt,
+  inArray,
+  notExists,
+  sql,
+  type SQL,
+} from "drizzle-orm";
+import {
+  minkBlogPublications,
   minkConversations,
+  minkDrafts,
   minkFeedback,
   minkMessages,
   minkRuns,
@@ -28,6 +39,39 @@ import type { MinkThinkingLevel } from "./thinking";
 
 const DISPLAY_MESSAGES = 50;
 export const MINK_CONVERSATION_LIMIT = 10;
+
+/**
+ * Keep publication evidence alive when pruning the conversation sidebar.
+ *
+ * A conversation cascades through runs to drafts, while the publication ledger
+ * deliberately restricts deletion of its source draft. Keeping this guard in
+ * the DELETE itself also closes the race where a publication is created after
+ * the overflow list is read but before pruning runs.
+ */
+export function minkConversationPrunePredicate(
+  actor: Pick<MinkActorContext, "storeId" | "adminId">,
+  conversationIds: string[],
+): SQL {
+  const hasBlogPublication = sql`
+    select 1
+    from ${minkRuns}
+    inner join ${minkDrafts}
+      on ${minkDrafts.runId} = ${minkRuns.id}
+      and ${minkDrafts.storeId} = ${minkRuns.storeId}
+    inner join ${minkBlogPublications}
+      on ${minkBlogPublications.draftId} = ${minkDrafts.id}
+      and ${minkBlogPublications.storeId} = ${minkDrafts.storeId}
+    where ${minkRuns.conversationId} = ${minkConversations.id}
+      and ${minkRuns.storeId} = ${actor.storeId}
+  `;
+
+  return and(
+    eq(minkConversations.storeId, actor.storeId),
+    eq(minkConversations.adminId, actor.adminId),
+    inArray(minkConversations.id, conversationIds),
+    notExists(hasBlogPublication),
+  )!;
+}
 
 export interface MinkStoredMessage {
   role: "user" | "assistant";
@@ -288,13 +332,9 @@ export async function startMinkRun(input: {
         .offset(MINK_CONVERSATION_LIMIT);
       if (overflow.length) {
         await db.delete(minkConversations).where(
-          and(
-            eq(minkConversations.storeId, actor.storeId),
-            eq(minkConversations.adminId, actor.adminId),
-            inArray(
-              minkConversations.id,
-              overflow.map((row) => row.id),
-            ),
+          minkConversationPrunePredicate(
+            actor,
+            overflow.map((row) => row.id),
           ),
         );
       }

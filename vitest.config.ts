@@ -5,7 +5,28 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: "jsdom",
+    // ★★ NODE BY DEFAULT, jsdom ONLY WHERE IT IS ACTUALLY NEEDED. Every one of
+    // the ~490 test files used to pay for a jsdom instance and only 68 use the
+    // DOM, so the other 420 were building a browser to test a pure function.
+    // It was by far the largest cost in CI: measured on this suite,
+    // `environment` fell from 740s of worker time to 37ms and the whole run
+    // went 180s -> 38s locally, which on the 2-core GitHub runner is the
+    // difference between a 27-minute pipeline and a single-digit one.
+    //
+    // ★ THE 68 OPT IN PER FILE with `// @vitest-environment jsdom` on line 1,
+    // NOT through a glob in this file. A glob is an allowlist, and the coverage
+    // `include` note below records what allowlists do here: they describe the
+    // files someone remembered to add. A docblock travels with the file when it
+    // moves, and a new DOM test that forgets one fails immediately and
+    // unambiguously with `document is not defined` -- which is the whole reason
+    // it is safe to default to the cheaper environment.
+    //
+    // ⚠ `.tsx` IS NOT THE RULE. Twelve of the 68 are plain `.test.ts` (they
+    // reach for localStorage, window or a portal), and some `.test.tsx` files
+    // test pure helpers and run fine in node. The list was derived by running
+    // the suite under `--environment node` and taking what actually failed, not
+    // by guessing from the extension.
+    environment: "node",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
     // ★★ EVERY MOCK IS RESET BEFORE EVERY TEST, so a stubbed implementation
