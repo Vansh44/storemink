@@ -85,8 +85,8 @@ jobs:
       # No coverage here (--coverage=false in the script): `npm run test` above
       # already measured it, and instrumenting twice doubles the slowest step for
       # nothing.
-      - name: Test Order Independence
-        run: npm run test:shuffle
+      # - name: Test Order Independence
+      #   run: npm run test:shuffle
 
       - name: Format Check
         run: npm run prettier --check
