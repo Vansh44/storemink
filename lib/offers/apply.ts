@@ -87,6 +87,10 @@ export interface OfferLine {
    *  `order_items.id` when replaying a stored order. */
   id: string;
   productId: string;
+  /** Shopper-facing product name. Optional because authoritative pricing does
+   *  not need presentation data; when present it lets a near-miss say which
+   *  eligible product to add instead of referring to an anonymous unit. */
+  productName?: string;
   variantId?: string | null;
   categoryId?: string | null;
   quantity: number;
@@ -282,6 +286,10 @@ export interface NearMissOffer {
   amount?: number;
   /** `units` only: how many the offer gives once the set completes. */
   getQuantity?: number;
+  /** `units` only: the single eligible product already represented in the
+   *  incomplete set. Omitted when several different eligible products are in
+   *  that set, because choosing one name would overstate the offer rule. */
+  productName?: string;
   /**
    * What the cart earns from this offer RIGHT NOW, when the gap buys an
    * upgrade rather than the offer itself. Absent means the offer does not
@@ -1772,10 +1780,13 @@ function collectUnitNearMiss(
   if (buy < 1 || get < 1) return;
 
   let have = 0;
+  const productNames = new Set<string>();
   for (const pl of priced) {
     if (!lineEligible(pl, mode)) continue;
     if (!offerCoversLine(offer, pl)) continue;
     have += Math.max(0, Math.trunc(Number(pl.line.quantity) || 0));
+    const productName = pl.line.productName?.trim();
+    if (productName) productNames.add(productName);
   }
   if (have <= 0) return;
 
@@ -1804,5 +1815,6 @@ function collectUnitNearMiss(
     gap: short,
     rewardType: offer.reward.type,
     getQuantity: get,
+    ...(productNames.size === 1 ? { productName: [...productNames][0] } : {}),
   });
 }

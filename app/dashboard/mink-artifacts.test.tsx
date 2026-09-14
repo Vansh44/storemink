@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { MinkArtifact } from "@/lib/mink/types";
@@ -159,7 +160,7 @@ describe("Mink storefront artifacts", () => {
     expect(frame).toHaveAttribute("sandbox", "allow-scripts");
     expect(frame.getAttribute("srcdoc")).toContain("connect-src 'none'");
     expect(
-      screen.getByRole("button", { name: /review builder draft save/i }),
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
     ).toBeDisabled();
     expect(
       screen.queryByRole("button", { name: /publish/i }),
@@ -827,5 +828,172 @@ describe("Mink catalogue artifact", () => {
       "href",
       "/dashboard/orders?q=ECH-1003",
     );
+  });
+
+  it("applies a reviewed layout to the private Builder draft in one click", async () => {
+    // ★ REMOVALS FIRST, BY NAME. A whole-list replace makes deletion the easy
+    //   accident, and a section id is opaque — so a card that showed only ids,
+    //   or that buried removals, would be asking for an approval nobody can
+    //   read. The label comes from the section registry, the same vocabulary
+    //   the Builder outline uses.
+    const draftId = "77777777-7777-4777-8777-777777777777";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+        const body = init?.body
+          ? (JSON.parse(String(init.body)) as { action: string })
+          : null;
+        const payload =
+          body?.action === "preview"
+            ? { approval: { id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa" } }
+            : body?.action === "execute"
+              ? {
+                  result: {
+                    auditId: "layout-audit",
+                    approval: {
+                      resource: {
+                        dashboardPath: "/dashboard/builder?page=home",
+                      },
+                    },
+                  },
+                }
+              : { result: null };
+        return { ok: true, status: 200, json: async () => payload };
+      }),
+    );
+    const artifact: MinkArtifact = {
+      type: "storefront_layout_proposal",
+      draftId,
+      title: "Layout for Home",
+      destinationLabel: "Home · layout",
+      destinationPath: "/dashboard/builder?page=home",
+      explanation: "Swap the newsletter block for testimonials.",
+      target: {
+        pageSlug: "home",
+        expectedPageVersion: "2026-09-12T10:20:30.123456+00:00",
+        expectedSectionsDigest: "a".repeat(64),
+      },
+      patchDigest: "b".repeat(64),
+      summary: {
+        kept: [{ id: "hero-1", type: "hero" }],
+        added: [{ id: "quotes", type: "testimonials" }],
+        removed: [{ id: "signup", type: "newsletter" }],
+        reordered: false,
+      },
+      sectionCount: 2,
+      status: "private_preview",
+      expectedCredits: 3,
+      chargedCredits: 3,
+      creditSource: "plan",
+    };
+
+    render(<MinkArtifacts artifacts={[artifact]} />);
+    expect(screen.getByText("Layout for Home")).toBeInTheDocument();
+    expect(screen.getByText(/Removed from the page \(1\)/)).toBeInTheDocument();
+    expect(screen.getByText("Newsletter")).toBeInTheDocument();
+    expect(screen.getByText("Testimonials / Press")).toBeInTheDocument();
+    // No isolated preview iframe: a structured list is rendered by our own
+    // components, so the honest preview is Website Builder.
+    expect(document.querySelector("iframe")).toBeNull();
+    // It asks once what it has already done, so a restored card cannot offer a
+    // second approval for a layout that was saved an hour ago.
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/mink/drafts/${draftId}/storefront-layout-action`,
+        expect.objectContaining({ cache: "no-store" }),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
+    ).toBeEnabled();
+    fireEvent.click(
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
+    );
+    await screen.findByText(/saved to the private Website Builder draft/i);
+    const actions = (fetch as ReturnType<typeof vi.fn>).mock.calls.flatMap(
+      (call) => {
+        const body = call[1]?.body;
+        return body
+          ? [(JSON.parse(String(body)) as { action: string }).action]
+          : [];
+      },
+    );
+    expect(actions).toEqual(["preview", "execute"]);
+  });
+
+  it("shows a design proposal as real colours, including what a cleared token falls back to", async () => {
+    // ★ THIS IS THE ONE CARD WHOSE SUBJECT IS PURELY VISUAL. "accent: #b91c1c"
+    //   is not something a merchant can judge, and a cleared token rendered as
+    //   an empty swatch says nothing about what the shop will look like — so
+    //   the theme's own colour is drawn in its place.
+    const draftId = "88888888-8888-4888-8888-888888888888";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ result: null }),
+      })),
+    );
+    const artifact: MinkArtifact = {
+      type: "storefront_design_proposal",
+      draftId,
+      title: "Storefront design",
+      destinationLabel: "Storefront design · Basket",
+      destinationPath: "/dashboard/builder",
+      explanation: "Warm the page and set one display face.",
+      target: { expectedDesignDigest: "a".repeat(64) },
+      patchDigest: "b".repeat(64),
+      summary: {
+        palette: [
+          {
+            token: "cream",
+            before: null,
+            after: "#fffdf8",
+            themeDefault: "#fbf7ef",
+          },
+          {
+            token: "accent",
+            before: "#b91c1c",
+            after: null,
+            themeDefault: "#2f6f4f",
+          },
+        ],
+        fonts: [
+          {
+            slot: "display",
+            before: null,
+            after: "instrumentSerif",
+            themeDefault: "inter",
+          },
+        ],
+        shape: [{ key: "card", before: 12, after: 4, themeDefault: 16 }],
+        contrastIssues: [],
+      },
+      status: "private_preview",
+      expectedCredits: 2,
+      chargedCredits: 2,
+      creditSource: "plan",
+    };
+
+    render(<MinkArtifacts artifacts={[artifact]} />);
+    expect(screen.getByText("Storefront design · Basket")).toBeInTheDocument();
+    expect(screen.getByText(/Colours \(2\)/)).toBeInTheDocument();
+    // A cleared token names the theme colour it reverts to, not "none".
+    expect(screen.getByText("#2f6f4f · theme")).toBeInTheDocument();
+    expect(screen.getByText(/instrumentSerif/)).toBeInTheDocument();
+    expect(screen.getByText(/12px/)).toBeInTheDocument();
+    // No isolated preview iframe: the storefront's own renderers are the only
+    // honest preview, which is what the Builder link is for.
+    expect(document.querySelector("iframe")).toBeNull();
+    await waitFor(() =>
+      expect(fetch).toHaveBeenCalledWith(
+        `/api/mink/drafts/${draftId}/storefront-design-action`,
+        expect.objectContaining({ cache: "no-store" }),
+      ),
+    );
+    expect(
+      screen.getByRole("button", { name: /apply to website builder draft/i }),
+    ).toBeEnabled();
   });
 });

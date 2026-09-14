@@ -1,9 +1,24 @@
 "use client";
 
-import { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 import { DEFAULT_CHROME, type StoreChrome } from "@/lib/chrome/types";
 import { resolveStorefrontAppearance } from "@/lib/chrome/types";
 import type { ThemeLayout } from "@/lib/themes/types";
+import {
+  DESIGN_FONT_NAMES,
+  DESIGN_PALETTE_TOKENS,
+  DESIGN_SHAPE_KEYS,
+  designOverrideCssVars,
+  type StorefrontDesignOverrides,
+} from "@/lib/chrome/design";
+
+/** Every token the design layer can write, used to work out which inline
+ *  properties this component owns — and therefore which to put back. */
+const ALL_DESIGN_TOKENS: StorefrontDesignOverrides = {
+  palette: Object.fromEntries(DESIGN_PALETTE_TOKENS.map((t) => [t, "#000000"])),
+  fonts: { body: DESIGN_FONT_NAMES[0], display: DESIGN_FONT_NAMES[0] },
+  shape: Object.fromEntries(DESIGN_SHAPE_KEYS.map((k) => [k, 0])),
+};
 
 const ChromeContext = createContext<StoreChrome | null>(null);
 
@@ -24,16 +39,26 @@ const ChromeContext = createContext<StoreChrome | null>(null);
 export function ChromeProvider({
   chrome,
   themeLayout,
+  themeVars,
   live = false,
   children,
 }: {
   chrome: StoreChrome;
   themeLayout?: ThemeLayout;
+  /** The pinned theme's own CSS variables, so clearing an override can put the
+   *  theme value back rather than falling through to the globals.css default.
+   *  ⚠ THE PRESET'S MAP, NOT THE MERGED ONE the layout writes inline. Passing
+   *  the merged map makes the restore below put back the override that was
+   *  just cleared, which is Reset silently doing nothing. */
+  themeVars?: Record<string, string>;
   /** Preview mode: accept live updates from the builder. */
   live?: boolean;
   children: React.ReactNode;
 }) {
   const [value, setValue] = useState<StoreChrome>(chrome);
+  // The brand colour as last pushed by the builder, if at all — see the design
+  // effect below for why it has to be remembered rather than re-read.
+  const livePrimary = useRef<string | null>(null);
 
   useEffect(() => {
     if (!live) return;
@@ -72,6 +97,38 @@ export function ChromeProvider({
     }
   }, [live, themeLayout, value.appearance]);
 
+  // The merchant's palette, type and corners, repainted as they edit.
+  //
+  // ★ IT RESTORES, IT DOES NOT ONLY SET. Clearing an override has to put the
+  // theme's value back; simply stopping writing the property would leave the
+  // last override stuck (the layout wrote it inline server-side), so "Reset"
+  // would look broken. `managed` is the full token namespace precisely so a
+  // cleared token is still visited.
+  useEffect(() => {
+    if (!live) return;
+    const root = document.querySelector<HTMLElement>(".storefront-root");
+    if (!root) return;
+    const overrides = designOverrideCssVars(value.design);
+    const managed = designOverrideCssVars(ALL_DESIGN_TOKENS);
+    for (const key of Object.keys(managed)) {
+      if (overrides[key] !== undefined) {
+        root.style.setProperty(key, overrides[key]);
+        continue;
+      }
+      // ★★ --brand-primary IS SHARED with the `sm-brand` message below, which
+      // the builder sends on every brand-colour keystroke. Restoring it from
+      // the server-rendered theme value would silently undo a colour the
+      // merchant had just picked, so the live value wins when there is no
+      // accent override.
+      const fallback =
+        key === "--brand-primary" && livePrimary.current
+          ? livePrimary.current
+          : themeVars?.[key];
+      if (fallback) root.style.setProperty(key, fallback);
+      else root.style.removeProperty(key);
+    }
+  }, [live, themeVars, value.design]);
+
   // Adopt server-rendered chrome when it changes (navigation, or a
   // router.refresh after publish) — otherwise the preview keeps rendering a
   // stale copy. Adjusted DURING RENDER rather than in an effect: React handles
@@ -101,6 +158,9 @@ export function ChromeProvider({
       // the whole theme skin (buttons, links, accents) repaints with it.
       if (data?.type === "sm-brand" && data.brand?.primaryColor) {
         const root = document.querySelector<HTMLElement>(".storefront-root");
+        // Remembered so a later design edit restores THIS, not the value the
+        // server rendered before the merchant touched the picker.
+        livePrimary.current = data.brand.primaryColor;
         root?.style.setProperty("--brand-primary", data.brand.primaryColor);
       }
     };

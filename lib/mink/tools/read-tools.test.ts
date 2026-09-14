@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
   readStorefrontSection: vi.fn(),
   readStorefrontDesign: vi.fn(),
   proposeStorefrontCode: vi.fn(),
+  readOffers: vi.fn(),
 }));
 vi.mock("../catalog-health-read", () => ({
   readMinkCatalogHealth: mocks.readCatalog,
@@ -40,6 +41,9 @@ vi.mock("../storefront-context-read", () => ({
 }));
 vi.mock("../storefront-code-proposals", () => ({
   createMinkStorefrontCodeProposal: mocks.proposeStorefrontCode,
+}));
+vi.mock("../offers-read", () => ({
+  readMinkCurrentOffers: mocks.readOffers,
 }));
 
 import { minkReadToolRegistry } from "./read-tools";
@@ -172,6 +176,38 @@ beforeEach(() => {
     destinationPath: "/dashboard/builder?page=home&section=section-1",
     status: "private_preview",
   });
+  mocks.readOffers.mockResolvedValue({
+    runningCount: 1,
+    automaticOffersEnabled: true,
+    offers: [
+      {
+        name: "Almond shake BOGO",
+        availability: "running",
+        delivery: "automatic",
+        reward: "Buy 1, get 1 free",
+        trigger: "on any order",
+        appliesTo: {
+          allProducts: false,
+          products: ["Almond shake"],
+          variants: [],
+          categories: [],
+          summary: "Almond shake",
+          truncated: false,
+        },
+      },
+      {
+        name: "October launch",
+        availability: "scheduled",
+        delivery: "code",
+        code: "OCT10",
+        reward: "10% off the order",
+        trigger: "on any order",
+      },
+    ],
+    truncated: false,
+    dataAsOf: "2026-09-13T10:30:00.000Z",
+    dashboardPath: "/dashboard/offers",
+  });
 });
 
 describe("business brief tool", () => {
@@ -238,6 +274,44 @@ describe("business brief tool", () => {
   );
 });
 
+describe("Phase 9D media library tool", () => {
+  /**
+   * ★ IT IS GATED ON `media`, NOT `builder`, even though its only consumer is
+   *   a Builder proposal. Filenames alone can carry a supplier's name or an
+   *   unreleased product's, and an admin trusted to arrange a page is not
+   *   automatically trusted to enumerate every file the store has uploaded.
+   */
+  it("is withheld from a Builder admin who cannot view Media", async () => {
+    const actor = {
+      ...ACTOR,
+      isSuperadmin: false,
+      permissions: { builder: ["view", "manage"], media: [] },
+    } as MinkActorContext;
+    expect(
+      minkReadToolRegistry.declarationsFor(actor).map((tool) => tool.name),
+    ).not.toContain("list_storefront_media");
+    const result = await minkReadToolRegistry.execute(actor, {
+      name: "list_storefront_media",
+      args: {},
+    });
+    expect(result.response).toMatchObject({
+      error: { code: "permission_denied" },
+    });
+  });
+
+  it("is offered with Media view alone", () => {
+    expect(
+      minkReadToolRegistry
+        .declarationsFor({
+          ...ACTOR,
+          isSuperadmin: false,
+          permissions: { media: ["view"] },
+        } as MinkActorContext)
+        .map((tool) => tool.name),
+    ).toContain("list_storefront_media");
+  });
+});
+
 describe("Mink read-tool declarations", () => {
   it("never lets the model provide a tenant or actor identifier", () => {
     const declarations = minkReadToolRegistry.declarationsFor(ACTOR);
@@ -248,9 +322,11 @@ describe("Mink read-tool declarations", () => {
       "get_storefront_page_context",
       "get_storefront_section_context",
       "get_storefront_design_context",
+      "list_storefront_media",
       "get_catalog_summary",
       "search_products",
       "get_sales_summary",
+      "list_current_offers",
       "list_low_stock",
       "start_business_brief",
       "get_mink_watches",
@@ -328,6 +404,7 @@ describe("Mink read-tool declarations", () => {
       "start_revenue_decline_investigation",
       "search_help_centre",
     ]);
+    expect(declared({ promotions: ["view"] })).toEqual(["list_current_offers"]);
     expect(declared({ dashboard: ["view"], inventory: ["view"] })).toEqual([
       "get_store_profile",
       "list_low_stock",
@@ -404,6 +481,35 @@ describe("Mink read-tool declarations", () => {
         })
         .map((tool) => tool.name),
     ).not.toContain("start_slow_inventory_promotion");
+  });
+
+  it("reads current offers only through Offers View and returns a bounded card", async () => {
+    const actor = {
+      ...ACTOR,
+      isSuperadmin: false,
+      permissions: { promotions: ["view"] },
+    } as MinkActorContext;
+    const result = await minkReadToolRegistry.execute(actor, {
+      id: "call-offers",
+      name: "list_current_offers",
+      args: { limit: 20 },
+    });
+
+    expect(mocks.readOffers).toHaveBeenCalledWith(actor, { limit: 20 });
+    expect(result.response.output).toMatchObject({ runningCount: 1 });
+    expect(result.artifact).toMatchObject({
+      type: "records",
+      title: "Current offers",
+      recordType: "offer",
+      records: expect.arrayContaining([
+        expect.objectContaining({
+          title: "Almond shake BOGO",
+          subtitle: expect.stringContaining("Applies to Almond shake"),
+          status: "running",
+        }),
+      ]),
+      filters: expect.arrayContaining([{ label: "Running now", value: "1" }]),
+    });
   });
 
   it("forwards only exact bounded builder selectors and returns storefront artifacts", async () => {

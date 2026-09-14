@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   render,
@@ -8,33 +9,44 @@ import {
   act,
 } from "@testing-library/react";
 import { useState } from "react";
-import { MinkMultimodalInput } from "./mink-multimodal-input";
-const speech = vi.hoisted(() => ({
+import {
+  MinkMultimodalInput,
+  shouldUseMinkImageOnStorefront,
+} from "./mink-multimodal-input";
+const recording = vi.hoisted(() => ({
   start: vi.fn(),
   stop: vi.fn(),
-  cancel: vi.fn(),
-  callbacks: null as null | {
-    onText: (text: string) => void;
-    onState: (state: "starting" | "listening" | "stopped") => void;
-    onError: (message: string) => void;
-  },
+  done: null as null | ((file: File | null) => void),
+  progress: null as null | ((seconds: number) => void),
+  signal: null as AbortSignal | null,
 }));
-vi.mock("@/lib/mink/speech-recognition", () => ({
-  startMinkSpeechRecognition: speech.start,
+vi.mock("@/lib/mink/voice-recorder", () => ({
+  startMinkRecording: recording.start,
+}));
+const media = vi.hoisted(() => ({ upload: vi.fn() }));
+vi.mock("@/app/actions/media-actions", () => ({
+  uploadMediaAsset: media.upload,
 }));
 const fetchMock = vi.fn();
+const SAVED_URL =
+  "https://storage.googleapis.com/b/stores/s1/media/echos_1.webp";
 beforeEach(() => {
   vi.stubGlobal("fetch", fetchMock);
   fetchMock.mockReset();
-  speech.start.mockReset();
-  speech.stop.mockReset();
-  speech.cancel.mockReset();
-  speech.callbacks = null;
-  speech.start.mockImplementation((_signal, callbacks) => {
-    speech.callbacks = callbacks;
-    callbacks.onState("starting");
-    callbacks.onState("listening");
-    return { stop: speech.stop, cancel: speech.cancel };
+  recording.start.mockReset();
+  recording.stop.mockReset();
+  recording.done = null;
+  recording.progress = null;
+  recording.signal = null;
+  media.upload.mockReset();
+  media.upload.mockResolvedValue({
+    asset: { url: SAVED_URL, filename: "echos.png" },
+  });
+  recording.start.mockImplementation((signal, done, progress) => {
+    recording.signal = signal;
+    recording.done = done;
+    recording.progress = progress;
+    return Promise.resolve(recording.stop);
   });
   fetchMock.mockResolvedValue({
     ok: true,
@@ -53,7 +65,7 @@ async function open() {
   );
   expect(fetchMock).not.toHaveBeenCalled();
 }
-async function choose() {
+async function stageImage() {
   const file = new File(["source"], "echos.png", { type: "image/png" });
   Object.defineProperty(file, "arrayBuffer", {
     value: async () => new TextEncoder().encode("source").buffer,
@@ -61,15 +73,35 @@ async function choose() {
   fireEvent.change(screen.getByLabelText("Choose image or document"), {
     target: { files: [file] },
   });
+  await screen.findByRole("button", { name: "Review echos.png" });
+}
+async function choose() {
+  await stageImage();
+  fireEvent.click(screen.getByRole("button", { name: "Review echos.png" }));
   await screen.findByText("Process for review");
 }
 
-function LiveComposer({ initial = "" }: { initial?: string }) {
+function LiveComposer({
+  initial = "",
+  canSaveMedia = false,
+  onSubmit,
+}: {
+  initial?: string;
+  canSaveMedia?: boolean;
+  onSubmit?: (message: string) => void;
+}) {
   const [value, setValue] = useState(initial);
   return (
-    <MinkMultimodalInput message={value} onAdd={setValue} disabled={false}>
-      {({ attach, voice }) => (
+    <MinkMultimodalInput
+      message={value}
+      onAdd={setValue}
+      disabled={false}
+      canSaveMedia={canSaveMedia}
+      onSubmit={onSubmit}
+    >
+      {({ attach, attachment, voice, submit }) => (
         <div>
+          {attachment}
           {attach}
           <textarea
             aria-label="Message"
@@ -77,7 +109,11 @@ function LiveComposer({ initial = "" }: { initial?: string }) {
             onChange={(event) => setValue(event.target.value)}
           />
           {voice}
-          <button type="button" disabled={!value.trim()}>
+          <button
+            type="button"
+            disabled={!value.trim()}
+            onClick={() => void submit()}
+          >
             Send message
           </button>
         </div>
@@ -101,50 +137,64 @@ describe("review-first multimodal input", () => {
     ).toBeNull();
     expect(fetchMock).not.toHaveBeenCalled();
   });
-  it("starts immediately and streams speech into editable message text without Vertex or auto-send", async () => {
-    render(<LiveComposer initial="Please" />);
+  it("inserts one final transcript and waits for the user to send it", async () => {
+    const submit = vi.fn();
+    render(<LiveComposer initial="Please" onSubmit={submit} />);
     fireEvent.click(screen.getByRole("button", { name: "Dictate message" }));
-    expect(speech.start).toHaveBeenCalledOnce();
+    expect(recording.start).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
-    expect(
-      screen.getByText(/speech appears in the message box/i),
-    ).toBeVisible();
-    act(() => speech.callbacks?.onText("check Echos"));
-    expect(screen.getByLabelText("Message")).toHaveValue("Please check Echos");
-    expect(screen.getByRole("button", { name: "Send message" })).toBeEnabled();
-    act(() => speech.callbacks?.onText("check Echos inventory"));
-    expect(screen.getByLabelText("Message")).toHaveValue(
-      "Please check Echos inventory",
-    );
+    expect(await screen.findByText(/listening/i)).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
-    expect(speech.stop).toHaveBeenCalledOnce();
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Message")).not.toHaveValue(
-      expect.stringContaining("untrusted source text"),
+    expect(recording.stop).toHaveBeenCalledOnce();
+    act(() =>
+      recording.done?.(
+        new File(["wav"], "voice-note.wav", { type: "audio/wav" }),
+      ),
     );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledOnce());
+    await waitFor(() =>
+      expect(screen.getByLabelText("Message")).toHaveValue(
+        "Please Echos grocery banner",
+      ),
+    );
+    expect(
+      (screen.getByLabelText("Message") as HTMLTextAreaElement).value.match(
+        /Echos grocery banner/g,
+      ),
+    ).toHaveLength(1);
+    expect(submit).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(submit).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledWith("Please Echos grocery banner");
   });
-  it("preserves words typed around a live interim phrase", () => {
+  it("preserves words typed while the recording is in progress", async () => {
     render(<LiveComposer initial="Please" />);
     fireEvent.click(screen.getByRole("button", { name: "Dictate message" }));
-    act(() => speech.callbacks?.onText("check Shop stock"));
     fireEvent.change(screen.getByLabelText("Message"), {
-      target: { value: "Please check Shop stock today" },
+      target: { value: "Please check stock today" },
     });
-    act(() => speech.callbacks?.onText("check Shop stock now"));
-    expect(screen.getByLabelText("Message")).toHaveValue(
-      "Please check Shop stock now today",
+    act(() =>
+      recording.done?.(
+        new File(["wav"], "voice-note.wav", { type: "audio/wav" }),
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Message")).toHaveValue(
+        "Please check stock today Echos grocery banner",
+      ),
     );
   });
-  it("cancels live dictation and restores the text that existed before listening", () => {
+  it("cancels dictation without changing existing text", async () => {
     const add = vi.fn();
     render(
       <MinkMultimodalInput message="Existing" onAdd={add} disabled={false} />,
     );
     fireEvent.click(screen.getByRole("button", { name: "Dictate message" }));
-    act(() => speech.callbacks?.onText("temporary words"));
+    await waitFor(() => expect(recording.signal).not.toBeNull());
     fireEvent.click(screen.getByRole("button", { name: "Cancel dictation" }));
-    expect(speech.cancel).toHaveBeenCalledOnce();
-    expect(add).toHaveBeenLastCalledWith("Existing");
+    expect(recording.signal?.aborted).toBe(true);
+    expect(add).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
   it("supports local text drops and a stable nested drag target without uploading", async () => {
@@ -169,6 +219,9 @@ describe("review-first multimodal input", () => {
       screen.getByText("Drop one image or document here"),
     ).toBeInTheDocument();
     fireEvent.drop(zone, { dataTransfer });
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Review echos.txt" }),
+    );
     expect(await screen.findByLabelText("Document text")).toHaveValue(
       "Echos delivery notes",
     );
@@ -180,6 +233,23 @@ describe("review-first multimodal input", () => {
     expect(add).toHaveBeenCalledWith(
       expect.stringContaining("Echos delivery notes"),
     );
+  });
+  it("opens document review when Send is pressed with a staged text file", async () => {
+    const submit = vi.fn();
+    render(<LiveComposer initial="Summarise this" onSubmit={submit} />);
+    const file = new File(["Stock notes"], "stock.txt");
+    Object.defineProperty(file, "arrayBuffer", {
+      value: async () => new TextEncoder().encode("Stock notes").buffer,
+    });
+    fireEvent.change(screen.getByLabelText("Choose image or document"), {
+      target: { files: [file] },
+    });
+    await screen.findByRole("button", { name: "Review stock.txt" });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByLabelText("Document text")).toHaveValue(
+      "Stock notes",
+    );
+    expect(submit).not.toHaveBeenCalled();
   });
   it("rejects multiple files, unsupported files and oversized local text", async () => {
     render(<MinkMultimodalInput message="" onAdd={vi.fn()} disabled={false} />);
@@ -347,5 +417,155 @@ describe("review-first multimodal input", () => {
     });
     await screen.findByRole("alert");
     expect(screen.queryByText("Process for review")).not.toBeInTheDocument();
+  });
+});
+
+describe("Phase 9D saving an attachment to the Media Library", () => {
+  it("recognises explicit storefront placement without treating generic image review as storage intent", () => {
+    expect(
+      shouldUseMinkImageOnStorefront(
+        "Create the home page carousel and use this photo for my offer",
+      ),
+    ).toBe(true);
+    expect(
+      shouldUseMinkImageOnStorefront("What is written in this photo?"),
+    ).toBe(false);
+    expect(shouldUseMinkImageOnStorefront("this is the product image")).toBe(
+      true,
+    );
+  });
+
+  it("saves and sends an attached product photo in one explicit storefront turn", async () => {
+    const submit = vi.fn();
+    render(
+      <LiveComposer
+        initial="Create the homepage carousel and use this photo for my buy 1 get 1 almond shake offer"
+        canSaveMedia
+        onSubmit={submit}
+      />,
+    );
+    await stageImage();
+    await waitFor(() =>
+      expect(
+        screen
+          .getByRole("button", { name: "Review echos.png" })
+          .querySelector("img"),
+      ).toHaveAttribute("src", "blob:local"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(media.upload).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledWith(expect.stringContaining(SAVED_URL));
+    expect(
+      screen.queryByRole("region", { name: "Review attachment" }),
+    ).toBeNull();
+  });
+
+  it("reuses a product image handed over in a follow-up without asking for another upload", async () => {
+    const submit = vi.fn();
+    render(
+      <LiveComposer
+        initial="this is the product image"
+        canSaveMedia
+        onSubmit={submit}
+      />,
+    );
+    await stageImage();
+
+    // Staging a usable image is immediate and does not depend on the optional
+    // extraction provider being available.
+    expect(fetchMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    expect(media.upload).toHaveBeenCalledOnce();
+    expect(submit).toHaveBeenCalledWith(expect.stringContaining(SAVED_URL));
+    expect(submit).toHaveBeenCalledWith(
+      expect.stringContaining("this is the product image"),
+    );
+  });
+
+  it("opens review instead of saving a generic image-analysis request", async () => {
+    const submit = vi.fn();
+    render(
+      <LiveComposer
+        initial="What is written in this photo?"
+        canSaveMedia
+        onSubmit={submit}
+      />,
+    );
+    await stageImage();
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /Review this image/i,
+    );
+    expect(media.upload).not.toHaveBeenCalled();
+    expect(submit).not.toHaveBeenCalled();
+  });
+
+  it("offers no save control to an admin who cannot add to Media", async () => {
+    render(<LiveComposer />);
+    await open();
+    await choose();
+    // §23's rule: a control that always fails in front of the user is worse
+    // than no control. `uploadMediaAsset` re-checks the same permission.
+    expect(
+      screen.queryByRole("button", { name: /Save to Media Library/i }),
+    ).toBeNull();
+  });
+
+  it("saves the image and puts its exact URL into the message", async () => {
+    render(<LiveComposer initial="Use this as my hero" canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText(/Saved to your Media Library/i);
+    expect(media.upload).toHaveBeenCalledOnce();
+    const form = media.upload.mock.calls[0][0] as FormData;
+    expect((form.get("file") as File).name).toBe("echos.png");
+    expect(
+      (screen.getByLabelText("Message") as HTMLTextAreaElement).value,
+    ).toContain(SAVED_URL);
+  });
+
+  it("saves nothing through the extraction endpoint", async () => {
+    render(<LiveComposer canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText(/Saved to your Media Library/i);
+    // Saving a usable image does not call the extraction provider at all.
+    expect(
+      fetchMock.mock.calls.filter((call) => call[1]?.method === "POST"),
+    ).toHaveLength(0);
+  });
+
+  it("keeps the attachment so it can still be processed after saving", async () => {
+    render(<LiveComposer canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText(/Saved to your Media Library/i);
+    expect(screen.getByText("Process for review")).toBeTruthy();
+  });
+
+  it("reports a refused save instead of claiming the image is available", async () => {
+    media.upload.mockResolvedValue({ error: "Uploads are not configured." });
+    render(<LiveComposer canSaveMedia />);
+    await open();
+    await choose();
+    fireEvent.click(
+      screen.getByRole("button", { name: /Save to Media Library/i }),
+    );
+    await screen.findByText("Uploads are not configured.");
+    expect(screen.queryByText(/Saved to your Media Library/i)).toBeNull();
   });
 });

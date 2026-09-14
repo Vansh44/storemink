@@ -38,7 +38,20 @@ export const MINK_PRICING_ACTION_TOOLS = ["bulk_update_prices"] as const;
 export const MINK_STOREFRONT_ACTION_TOOLS = [
   "apply_storefront_code",
   "publish_storefront_code",
+  "apply_storefront_layout",
+  "apply_storefront_design",
 ] as const;
+
+/**
+ * Phase 9E. One tool, and it gates a PROPOSAL rather than an action.
+ *
+ * ★★ EVERY OTHER ENTRY IN THIS REGISTRY GATES A WRITE, because everywhere else
+ * the write is the expensive, irreversible half. Image generation inverts
+ * that: the write is a private Media Library row, and the PROVIDER CALL is
+ * what spends real per-image money. A gate on the save would leave the only
+ * thing an operator would ever want to switch off ungated.
+ */
+export const MINK_MEDIA_ACTION_TOOLS = ["generate_media_image"] as const;
 
 export const MINK_ACTION_TOOLS = [
   ...MINK_PRODUCT_ACTION_TOOLS,
@@ -49,6 +62,7 @@ export const MINK_ACTION_TOOLS = [
   ...MINK_MARKETING_ACTION_TOOLS,
   ...MINK_PRICING_ACTION_TOOLS,
   ...MINK_STOREFRONT_ACTION_TOOLS,
+  ...MINK_MEDIA_ACTION_TOOLS,
 ] as const;
 
 export type MinkProductActionTool = (typeof MINK_PRODUCT_ACTION_TOOLS)[number];
@@ -62,6 +76,7 @@ export type MinkMarketingActionTool =
 export type MinkPricingActionTool = (typeof MINK_PRICING_ACTION_TOOLS)[number];
 export type MinkStorefrontActionTool =
   (typeof MINK_STOREFRONT_ACTION_TOOLS)[number];
+export type MinkMediaActionTool = (typeof MINK_MEDIA_ACTION_TOOLS)[number];
 export type MinkActionTool = (typeof MINK_ACTION_TOOLS)[number];
 export type MinkProductActionOperation = "apply" | "rollback";
 export type MinkProductActionStatus =
@@ -134,6 +149,9 @@ export const MINK_ACTION_TOOL_LABELS: Record<MinkActionTool, string> = {
   activate_offer: "Turning an offer on",
   apply_storefront_code: "Website Builder draft code saves",
   publish_storefront_code: "Checked storefront publication and rollback",
+  apply_storefront_layout: "Website Builder draft layout saves",
+  apply_storefront_design: "Website Builder draft design saves",
+  generate_media_image: "AI image generation",
 };
 
 export function actionToolForDraftKind(

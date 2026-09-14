@@ -2,12 +2,15 @@
 
 import { eq, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
-import { storeChrome } from "@/drizzle/schema";
+import { storeChrome, stores } from "@/drizzle/schema";
 import { withService } from "@/lib/db/client";
 import { dbErrorMessage } from "@/lib/db/errors";
 import { getManagerUserId, getActingStoreId } from "@/app/dashboard/lib/access";
 import { emitEvent } from "@/lib/notifications/record";
 import { TAGS } from "@/lib/storefront/tags";
+import { contrastIssuesFor } from "@/lib/chrome/design";
+import { getThemeDefinition } from "@/lib/themes";
+import { readThemeSelection } from "@/lib/themes/meta";
 import {
   sanitizeChromeForSave,
   normalizeChrome,
@@ -131,6 +134,34 @@ export async function publishChrome(
   // `draft`: it was written by an earlier version of the sanitiser, or by a
   // migration, and this is the value the public will actually render.
   const published = sanitizeChromeForSave(existing.draft);
+
+  // ★★ LEGIBILITY IS ENFORCED HERE AND NOWHERE EARLIER. Saving a draft must
+  // never fail mid-edit — a half-picked palette is a normal intermediate state
+  // and the merchant can see it in the live preview — but PUBLISHING it puts
+  // unreadable body text in front of shoppers, and the storefront has no other
+  // defence. It matters more once a model can propose a palette from a
+  // screenshot: that optimises for resemblance, not for readability.
+  // The store's own theme is resolved first, because changing one token can
+  // break text inherited from the preset that the merchant never touched.
+  const [storeRow] = await withService((db) =>
+    db
+      .select({ settings: stores.settings })
+      .from(stores)
+      .where(eq(stores.id, storeId))
+      .limit(1),
+  );
+  const themeSelection = readThemeSelection(storeRow?.settings);
+  const themeDesign = themeSelection
+    ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
+        .design
+    : null;
+  const contrastIssues = contrastIssuesFor(published.design, themeDesign);
+  if (contrastIssues.length > 0) {
+    return {
+      error: `This colour scheme is not readable, so it can't go live yet. ${contrastIssues.join(" ")}`,
+      data: { contrastIssues },
+    };
+  }
 
   try {
     await withService((db) =>

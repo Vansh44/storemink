@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { render, screen } from "@testing-library/react";
 import { OfferNudge } from "./offer-nudge";
@@ -24,9 +25,14 @@ const text = () => screen.getByRole("paragraph").textContent ?? "";
 
 describe("OfferNudge", () => {
   it("reads as one sentence for a buy-one-get-one", () => {
+    render(<OfferNudge nearMiss={[miss({ productName: "Almond shake" })]} />);
+    expect(text()).toContain("Add 1 more Almond shake to get one free");
+    expect(text()).not.toContain("and one is free");
+  });
+
+  it("keeps a safe generic fallback when several eligible products form the set", () => {
     render(<OfferNudge nearMiss={[miss()]} />);
     expect(text()).toContain("Add 1 more to get one free");
-    expect(text()).not.toContain("and one is free");
   });
 
   it("says what a partial discount is worth", () => {

@@ -238,6 +238,17 @@ export interface PlanLimits {
   /** AI generations per calendar month (null = unlimited). Purchased AI
    *  credits (lib/ai) top this up — the monthly allowance is consumed first. */
   aiGenerationsPerMonth: number | null;
+  /**
+   * The allowance once a Mink conversation SPENDS from the same pool.
+   *
+   * ★★ A SECOND NUMBER, NOT AN EDIT TO THE ONE ABOVE, BECAUSE THE TWO MUST
+   * SWITCH TOGETHER. `aiGenerationsPerMonth` is sized for ~₹0.90 product
+   * descriptions; a Mink run costs 1–8 credits. Charging against the smaller
+   * cap would give a Free store one Mink question a month, and raising the cap
+   * without charging is a pure cost increase. `aiAllowanceFor()` picks between
+   * them from the one flag, so neither half can ship on its own.
+   */
+  aiCreditsPerMonth: number | null;
   /** Max simultaneously-active coupons (null = unlimited). */
   maxActiveCoupons: number | null;
   /**
@@ -293,6 +304,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxProducts: 5,
     maxStaff: 1,
     aiGenerationsPerMonth: 3,
+    aiCreditsPerMonth: 20,
     maxActiveCoupons: 3,
     maxActiveOffers: 3,
     customDomain: false,
@@ -316,6 +328,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxProducts: 50,
     maxStaff: 3,
     aiGenerationsPerMonth: 10,
+    aiCreditsPerMonth: 100,
     maxActiveCoupons: null,
     maxActiveOffers: null,
     // Pro only. Connecting a domain provisions a certificate per merchant on
@@ -343,6 +356,7 @@ export const PLAN_LIMITS: Record<Plan, PlanLimits> = {
     maxProducts: null,
     maxStaff: null,
     aiGenerationsPerMonth: 50,
+    aiCreditsPerMonth: 300,
     maxActiveCoupons: null,
     maxActiveOffers: null,
     customDomain: true,
@@ -389,6 +403,25 @@ export interface PlanMatrixSection {
 
 /** Complete customer-facing comparison. Values that are limits are derived
  * from PLAN_LIMITS; feature availability is enforced from the same object. */
+/**
+ * The monthly AI allowance in force, in credits.
+ *
+ * ⚠ ONE SWITCH FOR BOTH HALVES. Read it wherever the cap is needed — the quota
+ * gate, Mink settlement and the advertised matrix — so the number a merchant is
+ * shown, the number they are billed against and the number the pool enforces
+ * are always the same. `docs/cron-jobs.md`'s standing lesson applies: a release
+ * step that has to be remembered per surface is one that gets forgotten.
+ */
+export function aiAllowanceFor(
+  plan: Plan,
+  minkChargesCredits: boolean,
+): number | null {
+  const limits = PLAN_LIMITS[plan];
+  return minkChargesCredits
+    ? limits.aiCreditsPerMonth
+    : limits.aiGenerationsPerMonth;
+}
+
 export const PLAN_FEATURE_MATRIX: readonly PlanMatrixSection[] = [
   {
     title: "Storefront & catalogue",

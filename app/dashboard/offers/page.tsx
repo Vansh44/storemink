@@ -1,22 +1,10 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
-import {
-  categories,
-  coupons,
-  products,
-  storeLocations,
-  stores,
-  userGroups,
-} from "@/drizzle/schema";
-import { resolveStoreSettings } from "@/lib/settings/registry";
+import { coupons, storeLocations } from "@/drizzle/schema";
 import { requireSectionAccess, getActingStoreId } from "../lib/access";
 import { listOffers, getOfferCapacity } from "@/app/actions/offer-actions";
 import { OffersView } from "./offers-view";
-
-/** ★ Bounded read, matching the picker's own cap. A store on the unlimited
- *  plan can hold thousands of products; scoping by CATEGORY is the answer at
- *  that size, and the picker says so. */
-const PRODUCT_SCOPE_LIMIT = 200;
+import { loadOffersAutoApply } from "./data";
 
 /**
  * Offers (docs/offers-plan.md).
@@ -98,79 +86,4 @@ export default async function OffersPage() {
       canManage={canManage}
     />
   );
-}
-
-/**
- * The store's `offers.autoApply` switch, for the new/edit forms.
- *
- * ★ SCOPED TO THE ACTING STORE rather than the host, so it is correct for a
- * platform operator too — the pattern `app/dashboard/inventory/data.ts` uses
- * for its threshold read.
- *
- * ★ FAILS TO TRUE. An unreadable setting must not put a warning on an offer
- * that works; silence returns the form to exactly what it did before.
- */
-export async function loadOffersAutoApply(storeId: string): Promise<boolean> {
-  try {
-    return await withService(async (db) => {
-      const rows = await db
-        .select({ settings: stores.settings, plan: stores.plan })
-        .from(stores)
-        .where(eq(stores.id, storeId))
-        .limit(1);
-      const values = resolveStoreSettings(
-        rows[0]?.settings as Record<string, unknown>,
-        rows[0]?.plan,
-      );
-      return values["offers.autoApply"] === true;
-    });
-  } catch {
-    return true;
-  }
-}
-
-/** Shared by the new/edit pages so the form's pickers cannot drift from here. */
-export async function loadOfferScopes(storeId: string) {
-  const [locations, groups, productRows, categoryRows] = await Promise.all([
-    withService((db) =>
-      db
-        .select({ id: storeLocations.id, name: storeLocations.name })
-        .from(storeLocations)
-        .where(eq(storeLocations.storeId, storeId))
-        .orderBy(asc(storeLocations.name)),
-    ).catch(() => [] as { id: string; name: string }[]),
-    withService((db) =>
-      db
-        .select({ id: userGroups.id, name: userGroups.name })
-        .from(userGroups)
-        .where(eq(userGroups.storeId, storeId))
-        .orderBy(asc(userGroups.name)),
-    ).catch(() => [] as { id: string; name: string }[]),
-    // ★ PUBLISHED products only. An offer scoped to a draft product discounts
-    // something no shopper can buy, so it reads as a broken offer rather than
-    // an empty one.
-    withService((db) =>
-      db
-        .select({ id: products.id, name: products.name })
-        .from(products)
-        .where(
-          and(eq(products.storeId, storeId), eq(products.status, "published")),
-        )
-        .orderBy(asc(products.name))
-        .limit(PRODUCT_SCOPE_LIMIT),
-    ).catch(() => [] as { id: string; name: string }[]),
-    withService((db) =>
-      db
-        .select({ id: categories.id, name: categories.name })
-        .from(categories)
-        .where(eq(categories.storeId, storeId))
-        .orderBy(asc(categories.name)),
-    ).catch(() => [] as { id: string; name: string }[]),
-  ]);
-  return {
-    locations,
-    groups,
-    products: productRows,
-    categories: categoryRows,
-  };
 }

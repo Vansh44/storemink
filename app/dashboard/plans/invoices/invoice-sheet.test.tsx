@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The printed subscription invoice.
 //
 // This is the document a merchant hands to an accountant, so the tests are about

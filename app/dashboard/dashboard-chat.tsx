@@ -2,7 +2,9 @@
 import Link from "next/link";
 
 import {
+  ArrowDown,
   ArrowUp,
+  FileText,
   LoaderCircle,
   Maximize2,
   MessageSquare,
@@ -32,6 +34,8 @@ import { MinkMultimodalInput } from "./mink-multimodal-input";
 import { MinkArtifacts } from "./mink-artifacts";
 import { MinkFeedbackControls } from "./mink-feedback";
 import { estimateMinkDraftIntent } from "@/lib/mink/draft-types";
+import { readReviewedMinkDocument } from "@/lib/mink/document-input";
+import { readSavedMinkMediaReference } from "@/lib/mink/media-attachment";
 
 const PANEL_WIDTH_KEY = "storemink:mink-panel-width";
 const DEFAULT_PANEL_WIDTH = 380;
@@ -135,6 +139,7 @@ export function DashboardChat({
   const {
     isChatOpen,
     isExpanded,
+    canSaveMedia,
     closeChat,
     toggleExpand,
     messages,
@@ -176,6 +181,7 @@ export function DashboardChat({
     useState<MinkConversationSummary | null>(null);
   const [deleteFailure, setDeleteFailure] = useState<string | null>(null);
   const [panelWidth, setPanelWidth] = useState(DEFAULT_PANEL_WIDTH);
+  const [showJumpToLatest, setShowJumpToLatest] = useState(false);
 
   useEffect(() => {
     if (!isOverlay || !isChatOpen || !isExpanded) return;
@@ -268,9 +274,15 @@ export function DashboardChat({
             turnAnchorSpaceRef.current.style.minHeight = "0px";
           }
         }
+        setShowJumpToLatest(!isMinkScrollNearBottom(scroller));
         return;
       }
-      if (followLatestRef.current) scroller.scrollTop = scroller.scrollHeight;
+      if (followLatestRef.current) {
+        scroller.scrollTop = scroller.scrollHeight;
+        setShowJumpToLatest(false);
+      } else {
+        setShowJumpToLatest(!isMinkScrollNearBottom(scroller));
+      }
     });
     return () => window.cancelAnimationFrame(frame);
   }, [messages, isReplying, error, statusText]);
@@ -314,6 +326,19 @@ export function DashboardChat({
     [send],
   );
 
+  const jumpToLatest = useCallback(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    followLatestRef.current = true;
+    autoAnchorSubmissionRef.current = false;
+    anchoredUserMessageIdRef.current = null;
+    if (turnAnchorSpaceRef.current) {
+      turnAnchorSpaceRef.current.style.minHeight = "0px";
+    }
+    scroller.scrollTo({ top: scroller.scrollHeight, behavior: "smooth" });
+    setShowJumpToLatest(false);
+  }, []);
+
   const beginResize = (event: PointerEvent<HTMLDivElement>) => {
     resizeRef.current = {
       pointerId: event.pointerId,
@@ -346,20 +371,6 @@ export function DashboardChat({
       event.preventDefault();
       updateWidth(panelWidth - step);
     }
-  };
-
-  const composerKeyDown = (event: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (
-      !shouldSubmitMinkComposer({
-        key: event.key,
-        shiftKey: event.shiftKey,
-        isComposing: event.nativeEvent.isComposing,
-      })
-    ) {
-      return;
-    }
-    event.preventDefault();
-    if (input.trim() && !isHistoryLoading && !isReplying) sendFromChat();
   };
 
   if (!isChatOpen) return null;
@@ -487,6 +498,7 @@ export function DashboardChat({
             deletingConversationId={deletingConversationId}
             onNewConversation={() => {
               followLatestRef.current = true;
+              setShowJumpToLatest(false);
               latestUserMessageIdRef.current = null;
               anchoredUserMessageIdRef.current = null;
               if (turnAnchorSpaceRef.current) {
@@ -497,6 +509,7 @@ export function DashboardChat({
             }}
             onSelect={(conversation) => {
               followLatestRef.current = true;
+              setShowJumpToLatest(false);
               latestUserMessageIdRef.current = null;
               anchoredUserMessageIdRef.current = null;
               if (turnAnchorSpaceRef.current) {
@@ -512,7 +525,7 @@ export function DashboardChat({
           />
         )}
 
-        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
+        <main className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-white">
           {!hasThread ? (
             <div className="flex min-h-0 flex-1 touch-pan-y flex-col items-center justify-center overflow-y-auto overscroll-contain p-6 text-center">
               <div className="mb-4">
@@ -534,101 +547,119 @@ export function DashboardChat({
               </button>
             </div>
           ) : (
-            <div
-              ref={scrollRef}
-              data-testid="mink-message-scroller"
-              onScroll={() => {
-                const scroller = scrollRef.current;
-                if (!scroller) return;
-                followLatestRef.current = isMinkScrollNearBottom(scroller);
-              }}
-              onPointerDown={() => {
-                autoAnchorSubmissionRef.current = false;
-              }}
-              onTouchStart={() => {
-                autoAnchorSubmissionRef.current = false;
-              }}
-              onWheel={() => {
-                autoAnchorSubmissionRef.current = false;
-              }}
-              className="mink-message-scroll min-h-0 flex-1 touch-pan-y overflow-y-auto overscroll-contain px-4 py-4"
-            >
-              <div className={`${columnClass} space-y-4`}>
-                {messages.map((message) =>
-                  message.role === "user" ? (
-                    <div
-                      key={message.id}
-                      data-mink-message-id={String(message.id)}
-                      data-mink-message-role="user"
-                      className="flex scroll-mt-4 justify-end"
-                    >
-                      <div className="max-w-[85%] whitespace-pre-wrap break-words rounded-2xl rounded-br-sm bg-[#f4f0ff] px-3.5 py-2.5 text-sm text-[#1a1a1a]">
-                        {message.text}
-                      </div>
-                    </div>
-                  ) : (
-                    <div key={message.id} className="flex min-w-0 gap-2.5 py-1">
-                      <MinkMark size="sm" />
-                      <div className="min-w-0 flex-1">
-                        <div className="mb-1 text-[11px] font-semibold text-[#5c5f62]">
-                          {ASSISTANT_NAME}
-                        </div>
-                        <div className="pr-1">
-                          <MinkAnswer text={message.text} />
-                        </div>
-                        <MinkArtifacts
-                          artifacts={message.artifacts ?? []}
-                          onPrompt={sendFromChat}
-                          promptDisabled={isReplying || isHistoryLoading}
-                        />
-                        <MinkFeedbackControls
-                          message={message}
-                          submitting={feedbackSubmittingRunId === message.runId}
-                          submit={submitFeedback}
-                        />
-                      </div>
-                    </div>
-                  ),
-                )}
-
-                {isReplying && (
-                  <div className="flex gap-2.5" aria-live="polite">
-                    <MinkMark size="sm" />
-                    <div className="flex items-center gap-2 py-2 text-xs text-[#5c5f62]">
-                      <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#6d4dff]" />
-                      {statusText ?? "Thinking…"}
-                    </div>
-                  </div>
-                )}
-
-                {error && (
-                  <div className="flex gap-2.5" role="alert">
-                    <MinkMark size="sm" />
-                    <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-[#fff4f4] px-3.5 py-2.5 text-sm text-[#5c1b14]">
-                      <div>{error.message}</div>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          followLatestRef.current = true;
-                          retry();
-                        }}
-                        className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#6d4dff] hover:underline"
+            <div className="relative min-h-0 flex-1">
+              <div
+                ref={scrollRef}
+                data-testid="mink-message-scroller"
+                onScroll={() => {
+                  const scroller = scrollRef.current;
+                  if (!scroller) return;
+                  const nearBottom = isMinkScrollNearBottom(scroller);
+                  followLatestRef.current = nearBottom;
+                  setShowJumpToLatest(!nearBottom);
+                }}
+                onPointerDown={() => {
+                  autoAnchorSubmissionRef.current = false;
+                }}
+                onTouchStart={() => {
+                  autoAnchorSubmissionRef.current = false;
+                }}
+                onWheel={() => {
+                  autoAnchorSubmissionRef.current = false;
+                }}
+                className="mink-message-scroll h-full min-h-0 touch-pan-y overflow-y-auto overscroll-contain px-4 py-4"
+              >
+                <div className={`${columnClass} space-y-4`}>
+                  {messages.map((message) =>
+                    message.role === "user" ? (
+                      <div
+                        key={message.id}
+                        data-mink-message-id={String(message.id)}
+                        data-mink-message-role="user"
+                        className="flex scroll-mt-4 justify-end"
                       >
-                        <RotateCcw className="h-3 w-3" />
-                        Retry
-                      </button>
-                    </div>
-                  </div>
-                )}
+                        <MinkUserMessage text={message.text} />
+                      </div>
+                    ) : (
+                      <div
+                        key={message.id}
+                        className="flex min-w-0 gap-2.5 py-1"
+                      >
+                        <MinkMark size="sm" />
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 text-[11px] font-semibold text-[#5c5f62]">
+                            {ASSISTANT_NAME}
+                          </div>
+                          <div className="pr-1">
+                            <MinkAnswer text={message.text} />
+                          </div>
+                          <MinkArtifacts
+                            artifacts={message.artifacts ?? []}
+                            onPrompt={sendFromChat}
+                            promptDisabled={isReplying || isHistoryLoading}
+                          />
+                          <MinkFeedbackControls
+                            message={message}
+                            submitting={
+                              feedbackSubmittingRunId === message.runId
+                            }
+                            submit={submitFeedback}
+                          />
+                        </div>
+                      </div>
+                    ),
+                  )}
 
-                <div
-                  ref={turnAnchorSpaceRef}
-                  aria-hidden="true"
-                  data-testid="mink-turn-anchor-space"
-                  className="shrink-0"
-                  style={{ minHeight: 0 }}
-                />
+                  {isReplying && (
+                    <div className="flex gap-2.5" aria-live="polite">
+                      <MinkMark size="sm" />
+                      <div className="flex items-center gap-2 py-2 text-xs text-[#5c5f62]">
+                        <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#6d4dff]" />
+                        {statusText ?? "Thinking…"}
+                      </div>
+                    </div>
+                  )}
+
+                  {error && (
+                    <div className="flex gap-2.5" role="alert">
+                      <MinkMark size="sm" />
+                      <div className="max-w-[85%] rounded-2xl rounded-tl-sm bg-[#fff4f4] px-3.5 py-2.5 text-sm text-[#5c1b14]">
+                        <div>{error.message}</div>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            followLatestRef.current = true;
+                            retry();
+                          }}
+                          className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#6d4dff] hover:underline"
+                        >
+                          <RotateCcw className="h-3 w-3" />
+                          Retry
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  <div
+                    ref={turnAnchorSpaceRef}
+                    aria-hidden="true"
+                    data-testid="mink-turn-anchor-space"
+                    className="shrink-0"
+                    style={{ minHeight: 0 }}
+                  />
+                </div>
               </div>
+              {showJumpToLatest && (
+                <button
+                  type="button"
+                  aria-label="Jump to latest message"
+                  title="Jump to latest"
+                  onClick={jumpToLatest}
+                  className="absolute bottom-4 left-1/2 z-20 flex h-10 w-10 -translate-x-1/2 items-center justify-center rounded-full border border-[#d9d9d9] bg-white text-[#303030] shadow-md transition hover:bg-[#f7f7f7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff]"
+                >
+                  <ArrowDown className="h-5 w-5" aria-hidden="true" />
+                </button>
+              )}
             </div>
           )}
 
@@ -651,22 +682,39 @@ export function DashboardChat({
                   composerRef.current?.focus();
                 }}
                 disabled={isReplying || isHistoryLoading}
+                canSaveMedia={canSaveMedia}
+                onSubmit={sendFromChat}
               >
-                {({ attach, voice }) => (
+                {({ attach, attachment, voice, submit }) => (
                   <form
                     onSubmit={(event) => {
                       event.preventDefault();
-                      sendFromChat();
+                      void submit();
                     }}
                     className="flex w-full min-w-0 max-w-full flex-col gap-2 rounded-3xl border border-[#e5e5e5] bg-white px-3 py-3 shadow-sm transition-all focus-within:border-[#6d4dff] focus-within:ring-1 focus-within:ring-[#6d4dff]"
                   >
+                    {attachment}
                     <textarea
                       ref={composerRef}
                       rows={1}
                       maxLength={4000}
                       value={input}
                       onChange={(event) => setInput(event.target.value)}
-                      onKeyDown={composerKeyDown}
+                      onKeyDown={(event) => {
+                        if (
+                          !shouldSubmitMinkComposer({
+                            key: event.key,
+                            shiftKey: event.shiftKey,
+                            isComposing: event.nativeEvent.isComposing,
+                          })
+                        ) {
+                          return;
+                        }
+                        event.preventDefault();
+                        if (input.trim() && !isHistoryLoading && !isReplying) {
+                          void submit();
+                        }
+                      }}
                       placeholder="Ask anything..."
                       aria-label={`Message ${ASSISTANT_NAME}`}
                       // ★ THESE FOUR SHAPE THE PHONE KEYBOARD, and without them iOS
@@ -794,6 +842,95 @@ export function DashboardChat({
       )}
     </div>
   );
+}
+
+function MinkUserMessage({ text }: { text: string }) {
+  let visibleText = text;
+  const attachments: Array<
+    | { kind: "media"; filename: string; url: string }
+    | { kind: "reference"; filename: string; sourceKind: string }
+  > = [];
+
+  const document = readReviewedMinkDocument(visibleText);
+  if (document) {
+    visibleText = document.message;
+    attachments.unshift({
+      kind: "reference",
+      filename: document.attachment.filename || "Reviewed reference",
+      sourceKind:
+        document.attachment.kind === "image" ? "Reviewed image" : "Document",
+    });
+  }
+  const media = readSavedMinkMediaReference(visibleText);
+  if (media) {
+    visibleText = media.message;
+    attachments.unshift({ kind: "media", ...media.asset });
+  }
+
+  return (
+    <div className="max-w-[85%] space-y-2 rounded-2xl rounded-br-sm bg-[#f4f0ff] px-3.5 py-2.5 text-sm text-[#1a1a1a]">
+      {attachments.length > 0 && (
+        <div className="flex flex-wrap gap-2" aria-label="Message attachments">
+          {attachments.map((attachment, index) =>
+            attachment.kind === "media" ? (
+              <div
+                key={`${attachment.url}:${index}`}
+                className="min-w-0 overflow-hidden rounded-xl border border-black/10 bg-white/80"
+              >
+                {isRenderableMinkMediaUrl(attachment.url) && (
+                  /* eslint-disable-next-line @next/next/no-img-element */
+                  <img
+                    src={`/api/og-image?url=${encodeURIComponent(attachment.url)}`}
+                    alt={attachment.filename || "Attached storefront image"}
+                    className="h-28 w-44 max-w-full object-cover"
+                  />
+                )}
+                <div className="max-w-44 truncate px-2.5 py-2 text-xs font-medium">
+                  {attachment.filename || "Storefront image"}
+                </div>
+              </div>
+            ) : (
+              <div
+                key={`${attachment.filename}:${index}`}
+                className="flex max-w-full items-center gap-2 rounded-xl border border-black/10 bg-white/80 px-3 py-2"
+              >
+                <FileText
+                  className="h-5 w-5 shrink-0 text-[#6d4dff]"
+                  aria-hidden="true"
+                />
+                <span className="min-w-0">
+                  <span className="block truncate text-xs font-medium">
+                    {attachment.filename}
+                  </span>
+                  <span className="block text-[10px] text-[#777]">
+                    {attachment.sourceKind}
+                  </span>
+                </span>
+              </div>
+            ),
+          )}
+        </div>
+      )}
+      {visibleText && (
+        <div className="whitespace-pre-wrap break-words">{visibleText}</div>
+      )}
+    </div>
+  );
+}
+
+function isRenderableMinkMediaUrl(value: string) {
+  // The browser fetches only our same-origin proxy. Its server-side bucket pin
+  // rejects a hand-authored marker pointing at someone else's GCS object.
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "storage.googleapis.com" ||
+        url.hostname.endsWith(".storage.googleapis.com"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function ConversationSidebar({

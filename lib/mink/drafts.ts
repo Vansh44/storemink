@@ -64,6 +64,11 @@ const DRAFT_PERMISSION: Record<
   offer_update: { section: "promotions", action: "manage" },
   offer_activate: { section: "promotions", action: "manage" },
   storefront_custom_code: { section: "builder", action: "manage" },
+  storefront_layout: { section: "builder", action: "manage" },
+  storefront_design: { section: "builder", action: "manage" },
+  // ★ MEDIA, NOT BUILDER. The artefact is a Media Library row; putting it on a
+  // page is a separate 9B layout proposal with its own Builder gate.
+  media_image: { section: "media", action: "manage" },
 };
 
 export interface MinkDraftState {
@@ -380,12 +385,44 @@ export async function rollbackMinkDraftVersion(input: {
 }
 
 function assertEditableDraft(kind: MinkDraftKind): void {
-  if (kind !== "storefront_custom_code") return;
-  throw new MinkRequestError(
-    "mink_storefront_preview_immutable",
-    "This Phase 7B code proposal is preview-only. It cannot be edited, saved or restored.",
-    409,
-  );
+  if (kind === "storefront_custom_code") {
+    throw new MinkRequestError(
+      "mink_storefront_preview_immutable",
+      "This Phase 7B code proposal is preview-only. It cannot be edited, saved or restored.",
+      409,
+    );
+  }
+  // ★ A GENERATED IMAGE IS IMMUTABLE TOO, and that claim is made in three
+  //   places — the review card, the Help-facing docs and the migration — so it
+  //   has to be true here. Its fields describe an object that already exists in
+  //   storage; editing them would let a stored proposal point somewhere its own
+  //   bytes are not, which is exactly what `readStoredGeneratedImage` refuses
+  //   at the save. Refusing the edit is the honest half of the same rule.
+  //   ⚠ No UI reaches this path — the card offers one Save button — but every
+  //   export of the drafts API is reachable without it.
+  if (kind === "media_image") {
+    throw new MinkRequestError(
+      "mink_media_image_immutable",
+      "A generated image cannot be edited. Ask Mink for a new one instead.",
+      409,
+    );
+  }
+  // ★★ SO ARE 9B AND 9C, AND LEAVING THEM OUT BRICKED THEM RATHER THAN
+  //    PROTECTING THEM. Both action paths treat these as immutable by
+  //    requiring `currentVersion === 0` (storefront-layout-actions.ts,
+  //    storefront-design-actions.ts), so an accepted edit bumped the version to
+  //    1 and every later preview and execute refused with "not available for
+  //    approval" — a proposal the merchant had already been charged for could
+  //    never be applied, with nothing saying why. Rollback could not recover
+  //    it either, because rollback increments the version too. Refusing the
+  //    edit up front is the only outcome that leaves the proposal usable.
+  if (kind === "storefront_layout" || kind === "storefront_design") {
+    throw new MinkRequestError(
+      "mink_storefront_proposal_immutable",
+      "This storefront proposal is review-only. It cannot be edited, saved or restored — ask Mink for a new one instead.",
+      409,
+    );
+  }
 }
 
 async function mutateDraft(

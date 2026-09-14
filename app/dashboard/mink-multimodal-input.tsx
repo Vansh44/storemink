@@ -1,17 +1,27 @@
 "use client";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { inputKind, MINK_INPUT_BYTES } from "@/lib/mink/input-policy";
-import { Plus, Mic, Square, X, Upload, FileText, Loader2 } from "lucide-react";
+import {
+  Plus,
+  Mic,
+  Square,
+  X,
+  Upload,
+  FileText,
+  Loader2,
+  Image as ImageIcon,
+} from "lucide-react";
 import {
   decodeMinkDocument,
   DOCUMENT_BYTES,
   addReviewedMinkDocument,
 } from "@/lib/mink/document-input";
 import {
-  startMinkSpeechRecognition,
-  type MinkSpeechRecognitionSession,
-  type MinkSpeechRecognitionState,
-} from "@/lib/mink/speech-recognition";
+  addSavedMinkMediaReference,
+  readSavedMinkMediaReference,
+} from "@/lib/mink/media-attachment";
+import { uploadMediaAsset } from "@/app/actions/media-actions";
+import { startMinkRecording } from "@/lib/mink/voice-recorder";
 
 const COMPOSER_FILE_ACCEPT =
   ".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,image/png,image/jpeg,image/webp,application/pdf,text/plain,text/markdown";
@@ -19,13 +29,30 @@ const COMPOSER_FILE_ACCEPT =
 export function MinkMultimodalInput({
   message,
   onAdd,
+  onSubmit,
   disabled,
+  canSaveMedia = false,
   children,
 }: {
   message: string;
   onAdd: (message: string) => void;
+  onSubmit?: (message: string) => void;
   disabled: boolean;
-  children?: (controls: { attach: ReactNode; voice: ReactNode }) => ReactNode;
+  /**
+   * Whether this admin may add to the store's Media Library (`media` manage).
+   *
+   * ★ RESOLVED SERVER-SIDE AND PASSED DOWN, so the control is simply absent
+   *   for someone who cannot use it. `uploadMediaAsset` re-checks the same
+   *   permission and is the real boundary; this only stops a button that would
+   *   always fail from being on screen -- CODEBASE.md §23's rule.
+   */
+  canSaveMedia?: boolean;
+  children?: (controls: {
+    attach: ReactNode;
+    attachment: ReactNode;
+    voice: ReactNode;
+    submit: () => Promise<void>;
+  }) => ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -37,14 +64,11 @@ export function MinkMultimodalInput({
   const [consent, setConsent] = useState(false);
   const [reviewed, setReviewed] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [dictationState, setDictationState] =
-    useState<MinkSpeechRecognitionState | null>(null);
-  const dictationSession = useRef<MinkSpeechRecognitionSession | null>(null);
-  const dictationOriginal = useRef("");
-  const dictationBefore = useRef("");
-  const dictationAfter = useRef("");
-  const lastEmittedMessage = useRef("");
-  const lastDictationText = useRef("");
+  const [saved, setSaved] = useState<string>("");
+  const [dictationState, setDictationState] = useState<
+    "starting" | "listening" | "processing" | null
+  >(null);
+  const stopRecording = useRef<(() => void) | null>(null);
   const latestMessage = useRef({ message, onAdd });
   useEffect(() => {
     latestMessage.current = { message, onAdd };
@@ -57,9 +81,9 @@ export function MinkMultimodalInput({
     generation.current++;
     operation.current?.abort();
     operation.current = null;
-    dictationSession.current?.cancel();
-    dictationSession.current = null;
+    stopRecording.current = null;
     setBusy(false);
+    setOpen(false);
     setDragging(false);
     dragDepth.current = 0;
     setDictationState(null);
@@ -67,13 +91,14 @@ export function MinkMultimodalInput({
     setText(null);
     setConsent(false);
     setReviewed(false);
+    setSaved("");
     setError("");
   }
   useEffect(
     () => () => {
       generation.current++;
       operation.current?.abort();
-      dictationSession.current?.cancel();
+      stopRecording.current = null;
     },
     [],
   );
@@ -94,10 +119,6 @@ export function MinkMultimodalInput({
     document.addEventListener("visibilitychange", hide);
     return () => document.removeEventListener("visibilitychange", hide);
   }, [dictationState]);
-  // Starting a chat turn must not allow a late extraction to overwrite its composer.
-  useEffect(() => {
-    if (disabled) cancel();
-  }, [disabled]);
   // A missed drop must not navigate away from the dashboard with unsaved work.
   // Other real drop targets keep ownership when they already handled the event.
   useEffect(() => {
@@ -130,7 +151,6 @@ export function MinkMultimodalInput({
   async function choose(next: File) {
     if (disabled || busy || dictationState) return;
     cancel();
-    setOpen(true);
     const id = generation.current;
     try {
       if (/\.(txt|md)$/i.test(next.name)) {
@@ -139,8 +159,10 @@ export function MinkMultimodalInput({
         setBusy(true);
         const decoded = decodeMinkDocument(next.name, await next.arrayBuffer());
         if (id !== generation.current) return;
+        setFile(next);
         setLocalText(true);
         setText(decoded);
+        setOpen(false);
       } else {
         // ★ THE COMPOSER MUST NOT OFFER WAV IN ITS OWN ERROR. `inputKind` is
         // shared with the input API, which still validates a WAV (compatibility
@@ -163,7 +185,20 @@ export function MinkMultimodalInput({
         if (!next.size || next.size > MINK_INPUT_BYTES)
           throw new Error("Choose one non-empty file up to 2 MiB.");
         setLocalText(false);
-        if (await show()) setFile(next);
+        // An admin who may add Media does not need the extraction provider in
+        // order to attach an image to a storefront task. Stage it immediately,
+        // like a normal chat attachment; the Send path below uploads it only
+        // when the message identifies it as an image to use. Opening the card
+        // remains available for optional OCR/review.
+        if (kind === "image" && canSaveMedia) {
+          setFile(next);
+          setOpen(false);
+          return;
+        }
+        if (await show()) {
+          setFile(next);
+          setOpen(false);
+        }
       }
     } catch (e) {
       if (id === generation.current)
@@ -200,93 +235,105 @@ export function MinkMultimodalInput({
       if (id === generation.current) setBusy(false);
     }
   }
-  function startDictation() {
+  async function startDictation() {
     if (disabled || busy || dictationState) return;
     cancel();
     setOpen(false);
     setError("");
-    const original = latestMessage.current.message;
-    dictationOriginal.current = original;
-    dictationBefore.current = original.trimEnd();
-    if (dictationBefore.current) dictationBefore.current += " ";
-    dictationAfter.current = "";
-    lastEmittedMessage.current = original;
-    lastDictationText.current = "";
+    const id = generation.current;
     const controller = new AbortController();
     operation.current = controller;
+    setDictationState("starting");
     try {
-      dictationSession.current = startMinkSpeechRecognition(controller.signal, {
-        onState(state) {
-          if (state === "stopped") {
-            dictationSession.current = null;
+      stopRecording.current = await startMinkRecording(
+        controller.signal,
+        (recording) => {
+          stopRecording.current = null;
+          if (id !== generation.current || controller.signal.aborted) return;
+          if (!recording) {
             operation.current = null;
             setDictationState(null);
-          } else {
-            setDictationState(state);
-          }
-        },
-        onText(speech) {
-          const current = latestMessage.current;
-          const previous = lastDictationText.current;
-          let insert = speech;
-
-          // The parent owns the textarea value, so reconcile any user typing
-          // that happened between recognition events around the live phrase.
-          // If the user edited the phrase itself, keep that edit and add only
-          // newly recognised trailing words instead of restoring old speech.
-          if (
-            current.message !== lastEmittedMessage.current &&
-            current.message !== dictationOriginal.current
-          ) {
-            const position = previous
-              ? current.message.lastIndexOf(previous)
-              : -1;
-            if (position >= 0) {
-              dictationBefore.current = current.message.slice(0, position);
-              dictationAfter.current = current.message.slice(
-                position + previous.length,
-              );
-            } else {
-              const edited = current.message.trimEnd();
-              dictationBefore.current = edited ? `${edited} ` : "";
-              dictationAfter.current = "";
-              insert = speech.startsWith(previous)
-                ? speech.slice(previous.length).trimStart()
-                : "";
-            }
-          }
-          const combined = `${dictationBefore.current}${insert}${dictationAfter.current}`;
-          if (combined.length > 4000) {
-            dictationSession.current?.stop();
-            setError(
-              "Dictation stopped at the 4,000-character message limit. Shorten the message before continuing.",
-            );
+            setError("No speech was recorded. Try again or type your message.");
             return;
           }
-          lastDictationText.current = speech;
-          lastEmittedMessage.current = combined;
-          current.onAdd(combined);
+          setDictationState("processing");
+          void transcribeRecording(recording, id, controller);
         },
-        onError(message) {
-          setError(message);
+        () => {
+          if (id === generation.current) setDictationState("listening");
         },
-      });
+      );
+      if (id === generation.current) setDictationState("listening");
     } catch (e) {
-      operation.current = null;
-      setDictationState(null);
-      setError(e instanceof Error ? e.message : "Microphone unavailable.");
+      if (id === generation.current) {
+        operation.current = null;
+        stopRecording.current = null;
+        setDictationState(null);
+        if (!controller.signal.aborted)
+          setError(e instanceof Error ? e.message : "Microphone unavailable.");
+      }
     }
   }
+
+  async function transcribeRecording(
+    recording: File,
+    id: number,
+    controller: AbortController,
+  ) {
+    try {
+      const response = await fetch("/api/mink/voice", {
+        method: "POST",
+        headers: {
+          "Content-Type": "audio/wav",
+          "X-Mink-Request-Key": crypto.randomUUID(),
+        },
+        body: recording,
+        cache: "no-store",
+        signal: controller.signal,
+      });
+      const data = await response.json();
+      if (id !== generation.current) return;
+      if (!response.ok || typeof data.text !== "string" || !data.text.trim())
+        throw new Error(
+          typeof data.error === "string"
+            ? data.error
+            : "Voice transcription failed. Try again or type your message.",
+        );
+      const current = latestMessage.current;
+      const before = current.message.trimEnd();
+      const transcript = data.text.trim();
+      const combined = before ? `${before} ${transcript}` : transcript;
+      if (combined.length > 4_000)
+        throw new Error(
+          "The transcript does not fit in the 4,000-character message limit. Shorten the message and try again.",
+        );
+      // A completed recording produces one final transcript and one composer
+      // update. There are no cumulative interim events to append repeatedly.
+      current.onAdd(combined);
+    } catch (e) {
+      if (id === generation.current && !controller.signal.aborted)
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Voice transcription failed. Try again or type your message.",
+        );
+    } finally {
+      if (id === generation.current) {
+        operation.current = null;
+        setDictationState(null);
+      }
+    }
+  }
+
   function stopDictation() {
-    dictationSession.current?.stop();
+    stopRecording.current?.();
   }
   function cancelDictation() {
-    const original = dictationOriginal.current;
-    dictationSession.current?.cancel();
-    dictationSession.current = null;
+    generation.current++;
+    operation.current?.abort();
     operation.current = null;
+    stopRecording.current = null;
     setDictationState(null);
-    latestMessage.current.onAdd(original);
   }
   async function processFile(source = file) {
     if (!source || !consent || busy || disabled) return;
@@ -329,7 +376,6 @@ export function MinkMultimodalInput({
       )
         throw new Error("The input returned an invalid result.");
       setText(data.text);
-      setFile(null);
     } catch (e) {
       if (id === generation.current)
         setError(
@@ -340,6 +386,131 @@ export function MinkMultimodalInput({
         setBusy(false);
         setConsent(false);
       }
+    }
+  }
+  /**
+   * Save the staged image into the store's Media Library.
+   *
+   * ★ SEPARATE FROM EXTRACTION IN BOTH DIRECTIONS. It does not need the Vertex
+   *   consent (nothing is sent to a provider) and it does not consume the
+   *   attachment (the merchant may still extract text from it afterwards), so
+   *   `file` is deliberately left in place. Only the SAVED banner changes.
+   *
+   * ★ THE REFERENCE GOES INTO THE COMPOSER, not just a toast: the exact URL is
+   *   what a layout proposal has to cite, and re-finding it costs the model a
+   *   Media Library read and a guess.
+   */
+  async function saveToMediaLibrary() {
+    if (!file || busy || disabled || !canSaveMedia) return;
+    setBusy(true);
+    setError("");
+    const id = ++generation.current;
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      const result = await uploadMediaAsset(form);
+      if (id !== generation.current) return;
+      if (result.error || !result.asset) {
+        throw new Error(result.error || "Could not save this image.");
+      }
+      const asset = result.asset;
+      setSaved(asset.url);
+      // A message too long to hold the reference must not read as a failed
+      // upload: the image IS saved, so the banner stands and only the append
+      // is reported as the thing that did not happen.
+      try {
+        latestMessage.current.onAdd(
+          addSavedMinkMediaReference(latestMessage.current.message, {
+            url: asset.url,
+            filename: asset.filename || file.name,
+          }),
+        );
+      } catch (e) {
+        setError(
+          e instanceof Error
+            ? e.message
+            : "Saved, but the reference could not be added to your message.",
+        );
+      }
+    } catch (e) {
+      if (id === generation.current) {
+        setError(e instanceof Error ? e.message : "Could not save this image.");
+      }
+    } finally {
+      if (id === generation.current) setBusy(false);
+    }
+  }
+
+  /**
+   * Send like a chat composer: a staged attachment participates in this turn.
+   * An image plus an explicit storefront placement request is merchant intent
+   * to keep and use that image, so save it through the ordinary Media Library
+   * action and give Mink its exact URL. Other attachments still require the
+   * established review/consent step before their extracted text is sent.
+   */
+  async function submit() {
+    const current = latestMessage.current.message.trim();
+    if (dictationState) {
+      if (dictationState !== "processing") stopDictation();
+      return;
+    }
+    if (!current || disabled || busy || !onSubmit) return;
+    if (!file) {
+      onSubmit(current);
+      return;
+    }
+
+    const image = /\.(png|jpe?g|webp)$/i.test(file.name);
+    if (!image || !shouldUseMinkImageOnStorefront(current)) {
+      setOpen(true);
+      setError(
+        image
+          ? "Review this image before sending, or say where on your storefront Mink should use it."
+          : "Review this attachment and add its reference before sending.",
+      );
+      return;
+    }
+    if (!canSaveMedia) {
+      setOpen(true);
+      setError(
+        "You need permission to add Media Library images before Mink can use this attachment on the storefront.",
+      );
+      return;
+    }
+
+    setBusy(true);
+    setError("");
+    const source = file;
+    const id = ++generation.current;
+    try {
+      let asset = { url: saved, filename: source.name };
+      if (!saved) {
+        const form = new FormData();
+        form.set("file", source);
+        const result = await uploadMediaAsset(form);
+        if (id !== generation.current) return;
+        if (result.error || !result.asset)
+          throw new Error(result.error || "Could not save this image.");
+        asset = {
+          url: result.asset.url,
+          filename: result.asset.filename || source.name,
+        };
+        setSaved(asset.url);
+      }
+      const prepared = readSavedMinkMediaReference(current)
+        ? current
+        : addSavedMinkMediaReference(current, asset);
+      cancel();
+      setOpen(false);
+      latestMessage.current.onAdd(prepared);
+      onSubmit(prepared);
+    } catch (e) {
+      if (id === generation.current) {
+        setOpen(true);
+        setError(e instanceof Error ? e.message : "Could not save this image.");
+      }
+    } finally {
+      if (id === generation.current) setBusy(false);
     }
   }
   const iconButton =
@@ -364,8 +535,9 @@ export function MinkMultimodalInput({
       disabled={disabled || busy}
       className={iconButton + (dictationState ? " bg-red-50 text-red-600" : "")}
       onClick={() => {
-        if (dictationState) stopDictation();
-        else startDictation();
+        if (dictationState === "processing") cancelDictation();
+        else if (dictationState) stopDictation();
+        else void startDictation();
       }}
     >
       {dictationState ? (
@@ -375,6 +547,48 @@ export function MinkMultimodalInput({
       )}
     </button>
   );
+  const attachment = file ? (
+    <div className="mb-2 flex max-w-full items-center gap-2 rounded-2xl border border-[#dedede] bg-[#f7f7f8] p-2 pr-2.5 text-left shadow-sm">
+      <button
+        type="button"
+        className="flex min-w-0 flex-1 items-center gap-2 text-left"
+        aria-label={`Review ${file.name}`}
+        onClick={() => setOpen(true)}
+      >
+        {preview ? (
+          /* eslint-disable-next-line @next/next/no-img-element */
+          <img
+            src={preview}
+            alt=""
+            className="h-12 w-12 shrink-0 rounded-xl object-cover"
+          />
+        ) : (
+          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-[#6d4dff]">
+            <FileText className="h-5 w-5" aria-hidden="true" />
+          </span>
+        )}
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-[#252525]">
+            {file.name}
+          </span>
+          <span className="block text-xs text-[#777]">
+            {saved
+              ? "Saved to Media Library"
+              : `${Math.max(1, Math.round(file.size / 1024))} KiB`}
+          </span>
+        </span>
+      </button>
+      <button
+        type="button"
+        aria-label={`Remove ${file.name}`}
+        title="Remove attachment"
+        className={iconButton}
+        onClick={cancel}
+      >
+        <X className="h-4 w-4" aria-hidden="true" />
+      </button>
+    </div>
+  ) : null;
   return (
     <div
       className="relative min-w-0"
@@ -474,7 +688,7 @@ export function MinkMultimodalInput({
               Processing…
             </p>
           )}
-          {file && (
+          {file && text === null && (
             <>
               <p className="text-xs text-[#777]">
                 {(file.size / 1024).toFixed(0)} KiB · Not uploaded yet
@@ -499,14 +713,40 @@ export function MinkMultimodalInput({
                 StoreMink will not save the raw file. Provider retention rules
                 apply.
               </label>
-              <button
-                type="button"
-                disabled={disabled || busy || !consent}
-                onClick={() => void processFile()}
-                className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
-              >
-                Process for review
-              </button>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={disabled || busy || !consent}
+                  onClick={() => void processFile()}
+                  className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
+                >
+                  Process for review
+                </button>
+                {canSaveMedia && inputKind(file.name) === "image" && (
+                  <button
+                    type="button"
+                    disabled={disabled || busy || Boolean(saved)}
+                    onClick={() => void saveToMediaLibrary()}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#d5d5d5] bg-white px-4 py-2 text-xs font-medium text-[#333] hover:bg-[#f4f4f4] disabled:opacity-40"
+                  >
+                    <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
+                    {saved ? "Saved to Media Library" : "Save to Media Library"}
+                  </button>
+                )}
+              </div>
+              {canSaveMedia && inputKind(file.name) === "image" && !saved && (
+                <p className="text-xs leading-5 text-[#777]">
+                  Saving keeps this image in your Media Library so Mink can use
+                  it on your storefront. It is a separate step from processing:
+                  neither one requires the other.
+                </p>
+              )}
+              {saved && (
+                <p role="status" className="text-xs leading-5 text-emerald-700">
+                  Saved to your Media Library and added to your message. Mink
+                  can now place it on a page.
+                </p>
+              )}
               <details className="text-xs leading-5 text-[#777]">
                 <summary className="cursor-pointer">Privacy and limits</summary>
                 One file up to 2 MiB: PNG/JPEG/WebP up to 12 MP or a plain PDF
@@ -553,7 +793,15 @@ export function MinkMultimodalInput({
                 className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
                 onClick={() => {
                   try {
-                    onAdd(addReviewedMinkDocument(message, text));
+                    onAdd(
+                      addReviewedMinkDocument(message, text, {
+                        filename: file?.name,
+                        kind:
+                          file && /\.(png|jpe?g|webp)$/i.test(file.name)
+                            ? "image"
+                            : "document",
+                      }),
+                    );
                     cancel();
                     setOpen(false);
                   } catch (e) {
@@ -597,26 +845,30 @@ export function MinkMultimodalInput({
           <span className="min-w-0 flex-1">
             {dictationState === "starting"
               ? "Starting microphone…"
-              : "Listening — speech appears in the message box"}
+              : dictationState === "processing"
+                ? "Converting speech to editable text…"
+                : "Listening…"}
           </span>
           <button
             type="button"
             className={iconButton}
             aria-label="Cancel dictation"
-            title="Cancel and remove dictated text"
+            title="Cancel dictation"
             onClick={cancelDictation}
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
-          <button
-            type="button"
-            className={iconButton + " bg-white text-[#6d4dff]"}
-            aria-label="Finish dictation"
-            title="Finish dictation and keep text"
-            onClick={stopDictation}
-          >
-            <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-          </button>
+          {dictationState !== "processing" && (
+            <button
+              type="button"
+              className={iconButton + " bg-white text-[#6d4dff]"}
+              aria-label="Finish dictation"
+              title="Finish dictation"
+              onClick={stopDictation}
+            >
+              <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
+            </button>
+          )}
         </div>
       )}
       {!open && error && (
@@ -628,12 +880,15 @@ export function MinkMultimodalInput({
         </p>
       )}
       {children ? (
-        children({ attach, voice })
+        children({ attach, attachment, voice, submit })
       ) : (
-        <div className="flex items-center justify-between">
-          {attach}
-          {voice}
-        </div>
+        <>
+          {attachment}
+          <div className="flex items-center justify-between">
+            {attach}
+            {voice}
+          </div>
+        </>
       )}
       {dragging && (
         <div
@@ -645,5 +900,23 @@ export function MinkMultimodalInput({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Keep auto-persistence narrow: the message must both ask to place something
+ * and name a storefront destination. Generic “what is in this image?” still
+ * follows review-first extraction and never stores the raw attachment.
+ */
+export function shouldUseMinkImageOnStorefront(message: string) {
+  const destination =
+    /\b(?:home\s?page|storefront|website|web\s?page|hero|banner|carousel|gallery|section)\b/i;
+  const placement =
+    /\b(?:use|add|put|place|show|feature|create|make|build|design|update|replace)\b/i;
+  const directImageHandoff =
+    /\b(?:(?:this|here)(?:\s+is|'s)|attached|uploaded|provided)\b.{0,40}\b(?:product\s+)?(?:image|photo|picture)\b|\b(?:use|take|keep|save|add|place|show|feature)\s+(?:this|the|my)\s+(?:product\s+)?(?:image|photo|picture)\b/i;
+  return (
+    (destination.test(message) && placement.test(message)) ||
+    directImageHandoff.test(message)
   );
 }

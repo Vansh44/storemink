@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, it, expect } from "vitest";
 import { render, screen, within } from "@testing-library/react";
 import { DEFAULT_BILLING_SETTINGS } from "@/lib/billing/types";

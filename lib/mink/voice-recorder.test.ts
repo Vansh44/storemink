@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { startMinkRecording } from "./voice-recorder";
 const h = {
@@ -138,7 +139,7 @@ describe("microphone privacy lifecycle", () => {
     const done = vi.fn();
     await startMinkRecording(new AbortController().signal, done, vi.fn());
     h.node.port.onmessage?.({ data: new Float32Array(128) });
-    await vi.advanceTimersByTimeAsync(60000);
+    await vi.advanceTimersByTimeAsync(30000);
     expect(h.stop).toHaveBeenCalled();
     expect(done).toHaveBeenCalledTimes(1);
   });

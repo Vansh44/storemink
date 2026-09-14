@@ -20,6 +20,7 @@ import {
   type SectionStyle,
 } from "@/lib/homepage/section-types";
 import type { PageSectionItem } from "@/lib/sections/registry";
+import type { ThemeDesignDefaults } from "@/lib/chrome/design";
 import type { PageDraft } from "@/app/actions/page-actions";
 import type { StoreChrome } from "@/lib/chrome/types";
 import {
@@ -63,6 +64,7 @@ export function InspectorPanel({
   chromeTarget,
   chrome,
   onChromeChange,
+  themeDefaults,
   onClearChrome,
   brand,
   onBrandChange,
@@ -84,6 +86,7 @@ export function InspectorPanel({
   onChromeChange: (next: StoreChrome) => void;
   onClearChrome: () => void;
   brand: BrandAppearance;
+  themeDefaults: ThemeDesignDefaults;
   onBrandChange: (next: BrandAppearance) => void;
   /** A page is being opened — do not tell the merchant to pick one. */
   loading: boolean;
@@ -130,6 +133,7 @@ export function InspectorPanel({
               onChange={onBrandChange}
               chrome={chrome}
               onChromeChange={onChromeChange}
+              themeDefaults={themeDefaults}
             />
           ) : (
             <FooterForm chrome={chrome} onChange={onChromeChange} />

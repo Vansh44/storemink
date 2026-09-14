@@ -62,10 +62,10 @@ async function loadCandidates(
 ): Promise<CandidateRow[]> {
   const storeFilters: SQL[] = [];
   if (filter.plans?.length) {
-    storeFilters.push(sql`s.plan = any(${filter.plans})`);
+    storeFilters.push(sql`s.plan = any(${sql.param(filter.plans)})`);
   }
   if (filter.statuses?.length) {
-    storeFilters.push(sql`s.status = any(${filter.statuses})`);
+    storeFilters.push(sql`s.status = any(${sql.param(filter.statuses)})`);
   }
   if (filter.newerThanDays) {
     storeFilters.push(
@@ -190,7 +190,7 @@ async function judge(
   if (channels.email && addresses.length > 0) {
     try {
       const rows = await db.execute(
-        sql`select email from email_suppressions where email = any(${addresses})`,
+        sql`select email from email_suppressions where email = any(${sql.param(addresses)})`,
       );
       for (const row of rows.rows) {
         const email = (row as { email?: unknown }).email;

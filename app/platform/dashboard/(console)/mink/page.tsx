@@ -4,7 +4,9 @@ import {
   MINK_RUN_STATUSES,
   normalizeMinkRunFilters,
 } from "@/lib/platform/mink-runs";
-import { requireOperator } from "../require-operator";
+import { getMinkVoiceProvider } from "@/lib/mink/voice-settings";
+import { canManage, requireOperator } from "../require-operator";
+import { VoiceProviderSwitch } from "./voice-provider-switch";
 
 export const metadata = { title: "Mink AI runs — StoreMink Admin" };
 export const dynamic = "force-dynamic";
@@ -21,9 +23,12 @@ export default async function PlatformMinkRunsPage({
 }) {
   // The layout and page render concurrently. Gate this cross-tenant service
   // read at the page boundary before querying any merchant's telemetry.
-  await requireOperator();
+  const viewer = await requireOperator();
   const filters = normalizeMinkRunFilters(await searchParams);
-  const data = await getPlatformMinkRuns(filters);
+  const [data, voiceProvider] = await Promise.all([
+    getPlatformMinkRuns(filters),
+    getMinkVoiceProvider(),
+  ]);
 
   return (
     <div className="w-full max-w-[96rem] space-y-6">
@@ -36,6 +41,11 @@ export default async function PlatformMinkRunsPage({
           arguments, tool results, and model reasoning are never shown here.
         </p>
       </header>
+
+      <VoiceProviderSwitch
+        initialProvider={voiceProvider}
+        canManage={canManage(viewer)}
+      />
 
       <form className="grid gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-sm md:grid-cols-2 xl:grid-cols-[1fr_14rem_12rem_10rem_auto]">
         <label className="text-xs font-medium text-slate-600">
@@ -108,7 +118,7 @@ export default async function PlatformMinkRunsPage({
         <Metric
           label="Shadow credits"
           value={formatNumber(data.summary.shadowCredits)}
-          note="no customer debit"
+          note={`no customer debit · ${formatNumber(data.summary.lightRuns)} light / ${formatNumber(data.summary.standardRuns)} standard / ${formatNumber(data.summary.heavyRuns)} heavy`}
         />
         <Metric
           label="Invited stores"
@@ -149,6 +159,15 @@ export default async function PlatformMinkRunsPage({
         />
         <Metric label="Retries" value={formatNumber(data.summary.retryCount)} />
         <Metric label="Tokens" value={formatNumber(data.summary.totalTokens)} />
+        <Metric
+          label="Cache hit"
+          value={
+            data.summary.totalTokens > 0
+              ? `${Math.round((data.summary.cachedTokens / data.summary.totalTokens) * 100)}%`
+              : "—"
+          }
+          note={`${formatNumber(data.summary.cachedTokens)} prompt tokens served from cache`}
+        />
         <Metric
           label="Known model cost"
           value={formatCost(data.summary.knownCostMicrousd)}
@@ -250,7 +269,14 @@ export default async function PlatformMinkRunsPage({
                     {formatDuration(run.latencyMs)}
                   </td>
                   <td className="px-4 py-3">{run.retryCount}</td>
-                  <td className="px-4 py-3">{formatNumber(run.totalTokens)}</td>
+                  <td className="px-4 py-3">
+                    {formatNumber(run.totalTokens)}
+                    {run.cachedTokens ? (
+                      <div className="text-xs text-slate-500">
+                        {formatNumber(run.cachedTokens)} cached
+                      </div>
+                    ) : null}
+                  </td>
                   <td className="whitespace-nowrap px-4 py-3">
                     <div title={run.pricingVersion ?? undefined}>
                       {run.estimatedCostMicrousd === null

@@ -3,6 +3,19 @@
 import { useState } from "react";
 import { ChevronDown, GripVertical, Plus, X } from "lucide-react";
 import type { ChromeLink, FooterGroup, StoreChrome } from "@/lib/chrome/types";
+import {
+  contrastIssuesFor,
+  DESIGN_FONT_NAMES,
+  DESIGN_PALETTE_TOKENS,
+  DESIGN_PILL_MAX,
+  DESIGN_RADIUS_MAX,
+  DESIGN_SHAPE_KEYS,
+  type DesignFont,
+  type DesignPaletteToken,
+  type DesignShapeKey,
+  type StorefrontDesignOverrides,
+  type ThemeDesignDefaults,
+} from "@/lib/chrome/design";
 
 // ---------------------------------------------------------------------------
 // Header + footer editors, inside the builder's inspector.
@@ -392,6 +405,195 @@ export function FooterForm({
   );
 }
 
+const PALETTE_LABELS: Record<DesignPaletteToken, string> = {
+  cream: "Page background",
+  creamDeep: "Alternate background",
+  surface: "Cards and inputs",
+  ink: "Headings and body text",
+  inkSoft: "Muted text",
+  inkFaint: "Faint text",
+  border: "Hairlines and borders",
+  accent: "Accent",
+};
+
+const FONT_LABELS: Record<DesignFont, string> = {
+  inter: "Inter",
+  fraunces: "Fraunces",
+  spaceGrotesk: "Space Grotesk",
+  jakarta: "Plus Jakarta Sans",
+  jost: "Jost",
+  instrumentSerif: "Instrument Serif",
+  outfit: "Outfit",
+  roboto: "Roboto",
+  stickNoBills: "Stick No Bills",
+};
+
+const SHAPE_LABELS: Record<DesignShapeKey, string> = {
+  card: "Cards",
+  control: "Buttons and inputs",
+  sm: "Small controls",
+  pill: "Pills and chips",
+};
+
+/**
+ * Palette, type and corners — the store's own skin over its theme.
+ *
+ * ★ EVERY CONTROL HAS AN EXPLICIT "USE THEME" STATE, and an unset one shows
+ * the value the storefront will really use rather than an empty box. Without
+ * that a merchant cannot tell "I have not chosen" from "I chose this exact
+ * colour", and cannot get back to the theme once they have nudged a picker —
+ * a colour input has no null.
+ */
+function DesignForm({
+  design,
+  themeDefaults,
+  onChange,
+}: {
+  design: StorefrontDesignOverrides;
+  themeDefaults: ThemeDesignDefaults;
+  onChange: (next: StorefrontDesignOverrides) => void;
+}) {
+  const setPalette = (token: DesignPaletteToken, value: string | null) => {
+    const palette = { ...design.palette };
+    if (value === null) delete palette[token];
+    else palette[token] = value;
+    onChange({ ...design, palette });
+  };
+  const setShape = (key: DesignShapeKey, value: number | null) => {
+    const shape = { ...design.shape };
+    if (value === null) delete shape[key];
+    else shape[key] = value;
+    onChange({ ...design, shape });
+  };
+
+  // Judged on the RESOLVED pair, so changing the page background flags body
+  // text inherited from the theme that was never touched here. Shown while
+  // editing rather than only on Publish, where it would be a dead end.
+  const issues = contrastIssuesFor(design, themeDefaults);
+
+  return (
+    <>
+      <Group
+        title="Colours"
+        hint="Leave a colour on its theme value, or set your own. Publishes with the website."
+      >
+        {DESIGN_PALETTE_TOKENS.map((token) => {
+          const overridden = design.palette[token];
+          const themeValue = themeDefaults.palette[token] ?? "#ffffff";
+          return (
+            <div className="sm-b-field" key={token}>
+              <span>{PALETTE_LABELS[token]}</span>
+              <div className="sm-b-colorrow">
+                <input
+                  type="color"
+                  className="sm-b-color"
+                  value={overridden ?? themeValue}
+                  onChange={(e) => setPalette(token, e.target.value)}
+                  aria-label={PALETTE_LABELS[token]}
+                />
+                <input
+                  className="sm-b-input sm-b-input-mono"
+                  value={overridden ?? ""}
+                  placeholder={`Theme ${themeValue}`}
+                  onChange={(e) =>
+                    setPalette(token, e.target.value.trim() || null)
+                  }
+                  aria-label={`${PALETTE_LABELS[token]} hex`}
+                />
+                {overridden ? (
+                  <button
+                    type="button"
+                    className="sm-b-reset"
+                    onClick={() => setPalette(token, null)}
+                    title="Use the theme colour"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+        {issues.length > 0 ? (
+          <p className="sm-b-warn" role="status">
+            {issues.join(" ")} You can keep editing, but this cannot be
+            published until it is readable.
+          </p>
+        ) : null}
+      </Group>
+
+      <Group title="Type" defaultOpen={false}>
+        {(["body", "display"] as const).map((slot) => (
+          <label className="sm-b-field" key={slot}>
+            <span>{slot === "body" ? "Body text" : "Headings"}</span>
+            <select
+              className="sm-b-input"
+              value={design.fonts[slot] ?? "theme"}
+              onChange={(e) =>
+                onChange({
+                  ...design,
+                  fonts: {
+                    ...design.fonts,
+                    [slot]:
+                      e.target.value === "theme"
+                        ? null
+                        : (e.target.value as DesignFont),
+                  },
+                })
+              }
+            >
+              <option value="theme">Theme default</option>
+              {DESIGN_FONT_NAMES.map((font) => (
+                <option key={font} value={font}>
+                  {FONT_LABELS[font]}
+                </option>
+              ))}
+            </select>
+          </label>
+        ))}
+      </Group>
+
+      <Group title="Corners" defaultOpen={false}>
+        {DESIGN_SHAPE_KEYS.map((key) => {
+          const overridden = design.shape[key];
+          const themeValue = themeDefaults.shape[key] ?? 0;
+          const max = key === "pill" ? DESIGN_PILL_MAX : DESIGN_RADIUS_MAX;
+          return (
+            <div className="sm-b-field" key={key}>
+              <span>{SHAPE_LABELS[key]}</span>
+              <div className="sm-b-colorrow">
+                <input
+                  type="range"
+                  min={0}
+                  max={max}
+                  value={overridden ?? themeValue}
+                  onChange={(e) => setShape(key, Number(e.target.value))}
+                  aria-label={SHAPE_LABELS[key]}
+                />
+                <span className="sm-b-hint">
+                  {overridden !== undefined
+                    ? `${overridden}px`
+                    : `Theme ${themeValue}px`}
+                </span>
+                {overridden !== undefined ? (
+                  <button
+                    type="button"
+                    className="sm-b-reset"
+                    onClick={() => setShape(key, null)}
+                    title="Use the theme radius"
+                  >
+                    Reset
+                  </button>
+                ) : null}
+              </div>
+            </div>
+          );
+        })}
+      </Group>
+    </>
+  );
+}
+
 export interface BrandAppearance {
   name: string;
   primaryColor: string;
@@ -412,11 +614,13 @@ export function BrandForm({
   onChange,
   chrome,
   onChromeChange,
+  themeDefaults,
 }: {
   brand: BrandAppearance;
   onChange: (next: BrandAppearance) => void;
   chrome: StoreChrome;
   onChromeChange: (next: StoreChrome) => void;
+  themeDefaults: ThemeDesignDefaults;
 }) {
   const appearance = chrome.appearance;
   const patchAppearance = (patch: Partial<typeof appearance>) =>
@@ -448,6 +652,12 @@ export function BrandForm({
           />
         </div>
       </Group>
+
+      <DesignForm
+        design={chrome.design}
+        themeDefaults={themeDefaults}
+        onChange={(design) => onChromeChange({ ...chrome, design })}
+      />
 
       <Group
         title="Storefront layout"

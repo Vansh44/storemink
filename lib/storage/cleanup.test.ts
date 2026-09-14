@@ -9,7 +9,12 @@ vi.mock("@/lib/storage/gcs", () => ({
     const m = /storage\.googleapis\.com\/[^/]+\/(.+)$/.exec(url || "");
     return m ? m[1] : null;
   },
-  gcsDeletePaths: vi.fn().mockResolvedValue([]),
+  // ★ `vi.fn(impl)`, NOT `vi.fn().mockResolvedValue([])`. Under the config's
+  //   `mockReset: true` the second form is WIPED between tests (the reset
+  //   restores the implementation a mock was CREATED with, and that one was
+  //   created with none), so every test after the first would see `undefined`
+  //   where it expects a promise. The first form survives.
+  gcsDeletePaths: vi.fn(async () => [] as string[]),
 }));
 
 import { extractMediaUrlsFromHtml, deleteStorageUrls } from "./cleanup";

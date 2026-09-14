@@ -24,6 +24,9 @@ export const MINK_DRAFT_KINDS = [
   "offer_update",
   "offer_activate",
   "storefront_custom_code",
+  "storefront_layout",
+  "storefront_design",
+  "media_image",
 ] as const;
 
 export type MinkDraftKind = (typeof MINK_DRAFT_KINDS)[number];
@@ -252,6 +255,95 @@ export const MINK_DRAFT_CONFIG: Record<
       },
     ],
   },
+  storefront_layout: {
+    label: "Storefront layout proposal",
+    expectedCredits: 3,
+    fields: [
+      {
+        key: "page_slug",
+        label: "Page slug",
+        required: true,
+        multiline: false,
+        maxLength: 60,
+      },
+      {
+        key: "expected_page_version",
+        label: "Expected page version",
+        required: true,
+        multiline: false,
+        maxLength: 40,
+      },
+      {
+        key: "expected_sections_digest",
+        label: "Expected sections digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "patch_digest",
+        label: "Patch digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "sections_json",
+        label: "Proposed sections",
+        required: true,
+        multiline: true,
+        maxLength: 128 * 1024,
+      },
+      {
+        key: "explanation",
+        label: "Explanation",
+        required: true,
+        multiline: true,
+        maxLength: 1_000,
+      },
+    ],
+  },
+  storefront_design: {
+    label: "Storefront design brief",
+    // ★ TWO, against 9B's three and 7B's five, and the ladder is the size of
+    // the artefact rather than its reach. A code proposal is generated HTML,
+    // CSS and JS; a layout proposal is a whole section list with every
+    // section's config. A design brief is at most eight colours, two typefaces
+    // and four numbers, produced in one short high-thinking turn. Charging a
+    // layout's weight for it would price the cheapest thing Mink can do like
+    // one of the dearest.
+    expectedCredits: 2,
+    fields: [
+      {
+        key: "expected_design_digest",
+        label: "Expected design digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "patch_digest",
+        label: "Patch digest",
+        required: true,
+        multiline: false,
+        maxLength: 64,
+      },
+      {
+        key: "design_json",
+        label: "Proposed design",
+        required: true,
+        multiline: true,
+        maxLength: 4_096,
+      },
+      {
+        key: "explanation",
+        label: "Explanation",
+        required: true,
+        multiline: true,
+        maxLength: 1_000,
+      },
+    ],
+  },
   storefront_custom_code: {
     label: "Storefront code preview",
     expectedCredits: 5,
@@ -332,6 +424,75 @@ export const MINK_DRAFT_CONFIG: Record<
         required: true,
         multiline: true,
         maxLength: 1_000,
+      },
+    ],
+  },
+  media_image: {
+    label: "Generated image",
+    // ★ THREE, between 9C's two and 7B's five, and the ladder stops being
+    // about the size of the artefact here. Every other weight prices how much
+    // model work a proposal took; this one prices a provider call billed per
+    // IMAGE rather than per token, which is the first Mink capability whose
+    // marginal cost does not move with the conversation around it.
+    // ⚠ The number is provisional: CODEBASE.md is explicit that pricing is the
+    // owner's call, and nothing here has been measured against a real bill.
+    expectedCredits: 3,
+    fields: [
+      {
+        key: "url",
+        label: "Image URL",
+        required: true,
+        multiline: false,
+        maxLength: 500,
+      },
+      {
+        key: "storage_path",
+        label: "Storage path",
+        required: true,
+        multiline: false,
+        maxLength: 500,
+      },
+      {
+        key: "filename",
+        label: "File name",
+        required: true,
+        multiline: false,
+        maxLength: 255,
+      },
+      {
+        key: "content_type",
+        label: "Content type",
+        required: true,
+        multiline: false,
+        maxLength: 40,
+      },
+      {
+        key: "size_bytes",
+        label: "Size in bytes",
+        required: true,
+        multiline: false,
+        maxLength: 12,
+      },
+      {
+        key: "purpose",
+        label: "Placement",
+        required: true,
+        multiline: false,
+        maxLength: 20,
+      },
+      {
+        key: "prompt",
+        label: "Description",
+        required: true,
+        multiline: true,
+        maxLength: 600,
+      },
+      {
+        key: "alt",
+        label: "Alt text",
+        required: true,
+        multiline: true,
+        maxLength: 180,
       },
     ],
   },
@@ -630,8 +791,16 @@ export function normalizeMinkDraftContent(
     // is reviewing, so preserve only these three fields exactly. Target and
     // explanation metadata remain normalized like every other draft field.
     const preserveCode =
-      kind === "storefront_custom_code" &&
-      (field.key === "html" || field.key === "css" || field.key === "js");
+      (kind === "storefront_custom_code" &&
+        (field.key === "html" || field.key === "css" || field.key === "js")) ||
+      // The layout payload is JSON whose digest the approval is bound to, and
+      // whose strings are merchant-visible copy. NFKC-normalising it would
+      // silently rewrite both.
+      (kind === "storefront_layout" && field.key === "sections_json") ||
+      // The design payload holds no prose -- only hex, allowlisted font keys
+      // and integers -- but its digest is what the approval is bound to, so
+      // any rewrite between store and re-read is a false integrity failure.
+      (kind === "storefront_design" && field.key === "design_json");
     const text =
       typeof input === "string"
         ? preserveCode
@@ -683,6 +852,60 @@ export function normalizeMinkDraftContent(
     throw new Error(
       "Target status must be one of: processing, shipped, delivered.",
     );
+  }
+  if (kind === "storefront_layout") {
+    if (
+      result.page_slug !== "home" &&
+      !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(result.page_slug)
+    ) {
+      throw new Error("Page slug must be home or an exact normalized slug.");
+    }
+    if (
+      !/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}(?:\.\d{1,6})?(?:Z|[+-]\d{2}(?::?\d{2})?)$/.test(
+        result.expected_page_version,
+      )
+    ) {
+      throw new Error("Expected page version is invalid.");
+    }
+    for (const key of ["expected_sections_digest", "patch_digest"] as const) {
+      if (!/^[a-f0-9]{64}$/.test(result[key])) {
+        throw new Error(`${key.replace(/_/g, " ")} is invalid.`);
+      }
+    }
+    // SHAPE ONLY here. Every section's config is validated by
+    // lib/mink/storefront-layout-contract.ts, which is server-only because it
+    // hashes with node:crypto — and this module is imported by client
+    // components, so it cannot reach for it. The server path that creates the
+    // proposal runs the real contract before anything is stored.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.sections_json);
+    } catch {
+      throw new Error("Proposed sections must be valid JSON.");
+    }
+    if (!Array.isArray(parsed) || parsed.length === 0) {
+      throw new Error("Proposed sections must be a non-empty list.");
+    }
+  }
+  if (kind === "storefront_design") {
+    for (const key of ["expected_design_digest", "patch_digest"] as const) {
+      if (!/^[a-f0-9]{64}$/.test(result[key])) {
+        throw new Error(`${key.replace(/_/g, " ")} is invalid.`);
+      }
+    }
+    // SHAPE ONLY, for `storefront_layout`'s reason: every colour, typeface and
+    // radius is validated by lib/mink/storefront-design-contract.ts, which is
+    // server-only because it hashes with node:crypto while this module is
+    // imported by client components.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(result.design_json);
+    } catch {
+      throw new Error("Proposed design must be valid JSON.");
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error("Proposed design must be an object.");
+    }
   }
   if (kind === "storefront_custom_code") {
     if (

@@ -246,6 +246,76 @@ describe("chrome-actions", () => {
       );
     });
 
+    // ★★ LEGIBILITY IS A PUBLISH GATE, NOT A SAVE GATE. A half-picked palette
+    // mid-edit is a normal intermediate state and must not fail autosave, but
+    // putting unreadable body text in front of shoppers is not recoverable by
+    // the merchant noticing later — and the storefront has no other defence.
+    // `selectByTable`, not the positional queue: publishChrome reads
+    // store_chrome AND stores, and a positional queue cannot say which is which.
+    it("refuses to publish a colour scheme that cannot be read", async () => {
+      dbHolder.current = makeDbMock({
+        selectByTable: {
+          store_chrome: [
+            [
+              {
+                draft: {
+                  ...DRAFT,
+                  design: { palette: { ink: "#999999", cream: "#aaaaaa" } },
+                },
+                published: {},
+                updated_at: "TOKEN",
+              },
+            ],
+          ],
+          stores: [[{ settings: {} }]],
+        },
+      });
+
+      const result = await publishChrome("TOKEN");
+
+      expect(result.error).toMatch(/not readable/i);
+      // `data` is Record<string, unknown>, so match the array itself rather
+      // than indexing into an unknown.
+      expect(result.data?.contrastIssues).toEqual([
+        expect.stringMatching(/body text/i),
+      ]);
+      // Nothing went live.
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    it("publishes a legible colour scheme", async () => {
+      dbHolder.current = makeDbMock({
+        selectByTable: {
+          store_chrome: [
+            [
+              {
+                draft: {
+                  ...DRAFT,
+                  design: {
+                    palette: { ink: "#111111", cream: "#ffffff" },
+                    fonts: { body: "jost" },
+                  },
+                },
+                published: {},
+                updated_at: "TOKEN",
+              },
+            ],
+          ],
+          stores: [[{ settings: {} }]],
+        },
+      });
+
+      const result = await publishChrome("TOKEN");
+
+      expect(result.success).toBe(true);
+      expect(dbHolder.current.calls.set[0].published).toMatchObject({
+        design: {
+          palette: { ink: "#111111", cream: "#ffffff" },
+          fonts: { body: "jost", display: null },
+        },
+      });
+    });
+
     it("publishes without a token when the caller sends none", async () => {
       dbHolder.current = makeDbMock({ selectQueue: [[ROW]] });
 

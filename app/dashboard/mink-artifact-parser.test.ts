@@ -149,4 +149,128 @@ describe("readMinkArtifacts", () => {
       ]),
     ).toEqual([]);
   });
+
+  it("★ RE-CHECKS EVERY DESIGN COLOUR ON THE WAY OUT OF STORED HISTORY", () => {
+    // The card writes these into an inline `style` attribute, and stored
+    // conversation JSON is the one surface that never went through
+    // `validateStorefrontDesign` — so hex is proved again here rather than
+    // merely length-bounded.
+    const valid = {
+      type: "storefront_design_proposal",
+      draftId: "11111111-1111-4111-8111-111111111111",
+      title: "Storefront design",
+      destinationLabel: "Storefront design · Basket",
+      destinationPath: "/dashboard/builder",
+      explanation: "Warm the page background.",
+      target: { expectedDesignDigest: "a".repeat(64) },
+      patchDigest: "b".repeat(64),
+      summary: {
+        palette: [
+          {
+            token: "cream",
+            before: null,
+            after: "#fffdf8",
+            themeDefault: "#fbf7ef",
+          },
+        ],
+        fonts: [
+          { slot: "body", before: null, after: "jost", themeDefault: "inter" },
+        ],
+        shape: [{ key: "card", before: null, after: 4, themeDefault: 16 }],
+        contrastIssues: [],
+      },
+      status: "private_preview",
+      expectedCredits: 2,
+      chargedCredits: 2,
+      creditSource: "plan",
+    };
+    expect(readMinkArtifacts([valid])).toEqual([valid]);
+
+    const palette = (after: unknown) => ({
+      ...valid,
+      summary: {
+        ...valid.summary,
+        palette: [
+          { token: "cream", before: null, after, themeDefault: "#fbf7ef" },
+        ],
+      },
+    });
+    expect(
+      readMinkArtifacts([
+        palette("url(javascript:alert(1))"),
+        palette("red"),
+        palette("#fff"),
+        { ...valid, target: { expectedDesignDigest: "short" } },
+        { ...valid, destinationPath: "https://attacker.example" },
+        {
+          ...valid,
+          summary: {
+            ...valid.summary,
+            shape: [
+              { key: "card", before: null, after: 9_999, themeDefault: 16 },
+            ],
+          },
+        },
+        {
+          ...valid,
+          summary: {
+            ...valid.summary,
+            // Eight tokens is the whole palette, so a longer list is forged.
+            palette: Array.from({ length: 9 }, () => ({
+              token: "cream",
+              before: null,
+              after: "#fffdf8",
+              themeDefault: "#fbf7ef",
+            })),
+          },
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("★★ PINS A RESTORED GENERATED IMAGE TO THIS PLATFORM'S OWN MEDIA HOST", () => {
+    // The card draws `<img src={url}>` from stored conversation JSON. Without
+    // this, a forged history row would have the dashboard fetch an arbitrary
+    // third-party address the moment a merchant reopens the thread — a
+    // tracking beacon at best, and the one field here that becomes a live
+    // request rather than text on a page.
+    const valid = {
+      type: "media_image_proposal",
+      draftId: "22222222-2222-4222-8222-222222222222",
+      title: "Hero image",
+      destinationLabel: "Media Library · Hero image",
+      destinationPath: "/dashboard/media",
+      url: "https://storage.googleapis.com/sm-media/stores/a0000000-0000-4000-8000-000000000001/mink-generated/33333333-3333-4333-8333-333333333333.jpg",
+      alt: "Grains and pulses arranged on a linen cloth",
+      prompt: "A warm overhead still life of loose grains on linen.",
+      purpose: "hero",
+      aspectRatio: "16:9",
+      placement: "The full-width banner at the top of a page",
+      saved: false,
+      status: "private_preview",
+      expectedCredits: 3,
+      chargedCredits: 3,
+      creditSource: "plan",
+    };
+    expect(readMinkArtifacts([valid])).toEqual([valid]);
+
+    expect(
+      readMinkArtifacts([
+        { ...valid, url: "https://attacker.example/pixel.jpg" },
+        // A real host, a real-looking path, and NOT under mink-generated: the
+        // near miss a prefix-only check would let through.
+        {
+          ...valid,
+          url: "https://storage.googleapis.com/sm-media/stores/a0000000-0000-4000-8000-000000000001/media/33333333-3333-4333-8333-333333333333.jpg",
+        },
+        { ...valid, url: "http://storage.googleapis.com/a/b" },
+        { ...valid, purpose: "product_photo" },
+        { ...valid, aspectRatio: "3000:1" },
+        { ...valid, destinationPath: "/dashboard/builder" },
+        { ...valid, saved: "yes" },
+        { ...valid, alt: "" },
+        { ...valid, creditSource: "attacker" },
+      ]),
+    ).toEqual([]);
+  });
 });

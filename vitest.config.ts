@@ -5,9 +5,62 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   test: {
-    environment: "jsdom",
+    // ★★ NODE BY DEFAULT, jsdom ONLY WHERE IT IS ACTUALLY NEEDED. Every one of
+    // the ~490 test files used to pay for a jsdom instance and only 68 use the
+    // DOM, so the other 420 were building a browser to test a pure function.
+    // It was by far the largest cost in CI: measured on this suite,
+    // `environment` fell from 740s of worker time to 37ms and the whole run
+    // went 180s -> 38s locally, which on the 2-core GitHub runner is the
+    // difference between a 27-minute pipeline and a single-digit one.
+    //
+    // ★ THE 68 OPT IN PER FILE with `// @vitest-environment jsdom` on line 1,
+    // NOT through a glob in this file. A glob is an allowlist, and the coverage
+    // `include` note below records what allowlists do here: they describe the
+    // files someone remembered to add. A docblock travels with the file when it
+    // moves, and a new DOM test that forgets one fails immediately and
+    // unambiguously with `document is not defined` -- which is the whole reason
+    // it is safe to default to the cheaper environment.
+    //
+    // ⚠ `.tsx` IS NOT THE RULE. Twelve of the 68 are plain `.test.ts` (they
+    // reach for localStorage, window or a portal), and some `.test.tsx` files
+    // test pure helpers and run fine in node. The list was derived by running
+    // the suite under `--environment node` and taking what actually failed, not
+    // by guessing from the extension.
+    environment: "node",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // ★★ EVERY MOCK IS RESET BEFORE EVERY TEST, so a stubbed implementation
+    // cannot leak forward into a test that never asked for it. That leak is
+    // the single cause behind every order-dependent test this repo has found:
+    // `vi.clearAllMocks()` clears CALLS, not IMPLEMENTATIONS, so a
+    // `mockResolvedValue` set inside one test survived into all of them, and
+    // the offenders were declared LAST in their files so nothing followed them
+    // and nothing went red. One hid a razorpay suite charging ₹150 for a ₹200
+    // order (CODEBASE.md §8).
+    //
+    // ★ IT WAS A PREREQUISITE REFACTOR, NOT A FLAG, and that is why it took
+    // until now. In this Vitest `mockReset` restores the implementation a mock
+    // was CREATED with — so `vi.fn(() => x)` survives and
+    // `vi.fn().mockResolvedValue(x)` is WIPED, because that one was created
+    // with no implementation at all. This repo used both forms, including at
+    // `vi.mock` factory level where nothing re-establishes them per test.
+    // Turning the flag on without converting those is a suite that fails for
+    // reasons unrelated to the code under test. Four files needed it; the
+    // conversions and one genuinely order-dependent describe block landed with
+    // this change.
+    //
+    // ⚠ SO WRITE FACTORY MOCKS AS `vi.fn(impl)`. `vi.fn().mockResolvedValue()`
+    // inside a `vi.mock` factory now yields `undefined` from the second test
+    // onward — and an undefined return usually fails somewhere other than the
+    // line that caused it ("not iterable", a whole-object mismatch, a bogus
+    // "Not authenticated"). Per-test overrides in `beforeEach`/`it` are
+    // unaffected: they run after the reset.
+    //
+    // ⚠ IT DOES NOT RETIRE `test:shuffle`. This removes the dominant cause of
+    // order-dependence, not the category: module-level mutable state, shared
+    // fixtures and holder objects can still couple one test to another, and
+    // only running the files in a different order can show that.
+    mockReset: true,
     // ★ A GIT WORKTREE IS A SECOND COPY OF THIS REPO, INSIDE IT. Background
     // agents create them under .claude/worktrees/, so test discovery found every
     // spec twice — the run reported 384 files instead of 195, and failures from

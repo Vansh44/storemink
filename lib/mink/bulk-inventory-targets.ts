@@ -291,7 +291,7 @@ async function readLocationCandidates(
         where store_id = ${actor.storeId}::uuid
           and active = true
           and name = requested.name
-          and ${locationIds === null ? sql`true` : sql`id = any(${locationIds}::uuid[])`}
+          and ${locationIds === null ? sql`true` : sql`id = any(${sql.param(locationIds)}::uuid[])`}
         order by id
         limit 2
       ) bounded_matches

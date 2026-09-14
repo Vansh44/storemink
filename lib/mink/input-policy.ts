@@ -3,7 +3,7 @@ export const MINK_INPUT_BYTES = 2 * 1024 * 1024;
 export const MINK_INPUT_BODY_BYTES = 2_800_000;
 export const MINK_INPUT_ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf,.wav";
 export const MINK_AUDIO_RATE = 16000;
-export const MINK_AUDIO_SECONDS = 60;
+export const MINK_AUDIO_SECONDS = 30;
 export type MinkInputKind = "image" | "pdf" | "audio";
 export function inputKind(name: string): MinkInputKind {
   if (/\.(png|jpe?g|webp)$/i.test(name)) return "image";
@@ -13,7 +13,7 @@ export function inputKind(name: string): MinkInputKind {
 }
 export function encodeMinkWav(samples: Float32Array): ArrayBuffer {
   if (!samples.length || samples.length > MINK_AUDIO_RATE * MINK_AUDIO_SECONDS)
-    throw new Error("Record between 1 sample and 60 seconds.");
+    throw new Error("Record between 1 sample and 30 seconds.");
   const bytes = new ArrayBuffer(44 + samples.length * 2);
   const view = new DataView(bytes);
   const label = (offset: number, value: string) => {

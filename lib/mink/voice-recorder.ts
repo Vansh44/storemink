@@ -1,4 +1,8 @@
-import { encodeMinkWav, MINK_AUDIO_RATE } from "./input-policy";
+import {
+  encodeMinkWav,
+  MINK_AUDIO_RATE,
+  MINK_AUDIO_SECONDS,
+} from "./input-policy";
 /** Browser-only microphone lifecycle. Tracks close on every success/error/cancel path. */
 export async function startMinkRecording(
   signal: AbortSignal,
@@ -64,7 +68,7 @@ export async function startMinkRecording(
     context = new AudioContext({ sampleRate: MINK_AUDIO_RATE });
     if (context.sampleRate !== MINK_AUDIO_RATE || !context.audioWorklet)
       throw new Error(
-        "This browser cannot record the supported audio format. Attach a mono 16 kHz WAV instead.",
+        "This browser cannot record the supported audio format. Type your message instead.",
       );
     await context.audioWorklet.addModule("/mink-audio-recorder.js");
     signal.throwIfAborted();
@@ -72,14 +76,17 @@ export async function startMinkRecording(
     node.port.onmessage = (event: MessageEvent<Float32Array>) => {
       if (finished) return;
       const chunk = event.data;
-      if (!(chunk instanceof Float32Array) || total + chunk.length > 960000) {
+      if (
+        !(chunk instanceof Float32Array) ||
+        total + chunk.length > MINK_AUDIO_RATE * MINK_AUDIO_SECONDS
+      ) {
         stop(false);
         return;
       }
       chunks.push(chunk);
       total += chunk.length;
       progress(Math.floor(total / MINK_AUDIO_RATE));
-      if (total >= 960000) stop(true);
+      if (total >= MINK_AUDIO_RATE * MINK_AUDIO_SECONDS) stop(true);
     };
     const mute = context.createGain();
     mute.gain.value = 0;
@@ -90,7 +97,7 @@ export async function startMinkRecording(
       .connect(context.destination);
     await context.resume();
     signal.throwIfAborted();
-    timer = setTimeout(() => stop(true), 60_000);
+    timer = setTimeout(() => stop(true), MINK_AUDIO_SECONDS * 1_000);
     return () => stop(true);
   } catch (error) {
     stop(false);

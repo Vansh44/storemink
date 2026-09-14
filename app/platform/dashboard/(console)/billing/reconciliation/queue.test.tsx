@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 // The operator reconciliation queue.
 //
 // These are money discrepancies, so what the screen SAYS matters: the direction

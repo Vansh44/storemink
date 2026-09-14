@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
 // ★★ THE SWITCH THAT MADE EVERY AUTOMATIC OFFER INERT, from the merchant's side.

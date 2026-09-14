@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import {
   act,
   cleanup,
@@ -24,6 +25,12 @@ const catalog = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({ useRouter: () => router }));
 vi.mock("@/app/actions/pos-sale-actions", () => ({
+  // Placeholder shape only — the operative value is set in `beforeEach`, the
+  // one place that may reference ITEM (a `vi.mock` factory is hoisted above
+  // it). Kept a VALID shape rather than a bare `vi.fn()`: the component reads
+  // `res.error` inside a timer callback, so an undefined result would surface
+  // as an unhandled rejection attributed to whichever test happened to be
+  // running. See the beforeEach note for why an empty list is not the default.
   lookupProducts: vi.fn(async () => ({ items: [] })),
   placePosSale: vi.fn(),
   resolvePosCustomerByPhone: vi.fn(),
@@ -64,9 +71,10 @@ import {
   shouldBlockPosScan,
   shouldRefocusPosSearch,
 } from "./sell-client";
-import type {
-  PosCatalogItem,
-  RegisterConfig,
+import {
+  lookupProducts,
+  type PosCatalogItem,
+  type RegisterConfig,
 } from "@/app/actions/pos-sale-actions";
 import type { PosExchangeContext } from "@/app/actions/pos-return-actions";
 
@@ -129,6 +137,18 @@ beforeEach(() => {
   catalog.byId.mockImplementation((productId: string) =>
     productId === ITEM.productId ? ITEM : null,
   );
+  // ★★ THE SERVER FALLBACK RETURNS THE CATALOGUE, and it must, because a
+  // register opened on a COLD catalogue arms a real 150ms timer
+  // (sell-client.tsx: the `if (catalog.ready) return;` effect) that calls this
+  // action and pushes its result into `serverItems`. The factory default of
+  // `{ items: [] }` models "the shop sells nothing", so ~150ms after any cold
+  // render the product grid EMPTIED — and every later `getByRole(/multigrain
+  // bread/i)` in that test threw. That is a wall-clock dependency, not an
+  // ordering one: the tests passed only while three render/click cycles
+  // finished inside 150ms, and went red on a loaded parallel worker. It is
+  // exactly the flake `test:shuffle` reports and cannot reproduce in
+  // isolation. Set here, AFTER clearAllMocks, per the restore-defaults rule.
+  vi.mocked(lookupProducts).mockResolvedValue({ items: [ITEM] });
 });
 
 describe("Sell cart", () => {
@@ -393,6 +413,15 @@ describe("Sell cart", () => {
         screen.getByRole("button", { name: /multigrain bread/i }),
       );
     });
+
+    // ★ CROSS THE COLD-CATALOGUE WINDOW ON PURPOSE. A cold register arms a
+    // real 150ms timer that refreshes the grid from the server, and this test
+    // used to race it: it passed only when all three cycles finished inside
+    // that window, so a loaded worker turned it red with no code change.
+    // Waiting for the fallback to land makes the sequence deterministic AND
+    // closer to the real one — a cashier who rings up on a cold till has
+    // almost certainly been served by the server path first.
+    await waitFor(() => expect(lookupProducts).toHaveBeenCalled());
 
     // The catalogue warms up mid-sale, which is when the restore becomes
     // possible — and must not happen.

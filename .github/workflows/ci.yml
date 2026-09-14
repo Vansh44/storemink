@@ -9,11 +9,35 @@ on:
 permissions:
   contents: read
 
-jobs:
-  ci:
-    name: Next.js CI
-    runs-on: ubuntu-latest
+# ★★ A SUPERSEDED RUN IS CANCELLED. Two pushes 22 seconds apart used to produce
+# two complete 27-minute runs (34834587449 and 34834617499, both finishing at
+# 11:10) — 54 billed minutes for one answer nobody read, because only the newer
+# commit's result matters. Safe here because this workflow DEPLOYS NOTHING: the
+# Cloud Build triggers own that (cloudbuild.yaml), so cancelling a run of it
+# cannot leave anything half-finished.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
+# ★★ FOUR PARALLEL JOBS, NOT ONE SEQUENTIAL ONE. Measured on run 34834617499,
+# the single job took 26.7 minutes and the two test invocations were 79% of it
+# (669s + 591s of 1603s). Nothing here depends on anything else here — lint does
+# not need the build, the build does not need the tests — so running them in
+# sequence bought nothing but wall clock.
+#
+# ⚠ IT COSTS A LITTLE MORE BILLED TIME, and that is the trade: each job pays its
+# own checkout + `npm ci` (~45s). Wall clock is the LONGEST job instead of the
+# sum, so the extra minutes buy roughly four times less waiting. The
+# concurrency group above more than pays for it on any branch that gets two
+# pushes in a row.
+#
+# ⚠ KEEP THE JOBS INDEPENDENT. Adding `needs:` to chain them re-introduces the
+# sequence this split exists to remove. If a job ever genuinely needs another's
+# output, it needs an artifact, not an ordering.
+jobs:
+  checks:
+    name: Lint, types and content
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -54,8 +78,43 @@ jobs:
       - name: Help Content Lint
         run: npm run help:lint
 
+      - name: Format Check
+        run: npm run prettier --check
+
+  test:
+    name: Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
       - name: Run Tests
         run: npm run test
+
+  shuffle:
+    name: Test order independence
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
 
       # ★★ CATCHES ORDER-DEPENDENT TESTS, which `npm run test` cannot: it runs
       # files in declaration order, so a test that only passes because it happens
@@ -63,6 +122,13 @@ jobs:
       # 2026-08-13, commit a10bbed) — all from `vi.clearAllMocks()` clearing CALLS
       # but not IMPLEMENTATIONS, so a mockResolvedValue leaked forward. One of
       # them hid a razorpay suite charging 150 for a 200 order.
+      #
+      # ★ STILL EARNS ITS PLACE AFTER `mockReset: true`. That config flag
+      # (vitest.config.ts) closes the dominant CAUSE — a stubbed implementation
+      # reaching a test that never asked for one — but not the category:
+      # module-level mutable state, shared fixtures and `vi.hoisted` holders
+      # still couple one test to another, and only a different file order can
+      # show that.
       #
       # ★ FIXED SEED, deliberately. A random seed explores more permutations, but
       # it makes the suite non-deterministically red — and a red that comes and
@@ -82,14 +148,27 @@ jobs:
       # for option --sequence.seed"). Vitest prints the seed it used, so any
       # failure — here or locally — is reproducible from the log.
       #
-      # No coverage here (--coverage=false in the script): `npm run test` above
+      # No coverage here (--coverage=false in the script): the `test` job above
       # already measured it, and instrumenting twice doubles the slowest step for
       # nothing.
       - name: Test Order Independence
         run: npm run test:shuffle
 
-      - name: Format Check
-        run: npm run prettier --check
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
 
       # CI verification only — catches build breaks before deploy. Deploys are
       # OWNED by the Cloud Build triggers (cloudbuild.yaml): staging -> service

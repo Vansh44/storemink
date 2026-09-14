@@ -123,7 +123,7 @@ guarded-action slice now include:
 - a page-gated operator inspector at `/dashboard/mink` for redacted status,
   latency, retries, tool names, tokens and cost—never conversation content or
   provider reasoning;
-- a 73-case live evaluation corpus and `npm run mink:eval` gate for tool choice,
+- a 78-case live evaluation corpus and `npm run mink:eval` gate for tool choice,
   security refusals, malformed calls, latency and manual grounding review;
 - a phase-wise manual acceptance catalogue in
   `docs/mink-ai-test-prompts.md` covering read prompts, runtime UX, permissions,
@@ -391,7 +391,7 @@ MINK_VERTEX_DEEP_ENABLED=false
 MINK_VERTEX_LOCATION=global
 MINK_MAX_STEPS_PER_RUN=12
 MINK_MAX_PARALLEL_READ_TOOLS=4
-MINK_RUN_TIMEOUT_SECONDS=120
+MINK_RUN_TIMEOUT_SECONDS=180
 ```
 
 Production authentication remains Application Default Credentials from the
@@ -1513,6 +1513,245 @@ Exit criteria:
   Sharp); the newly added pinned PDF dependency has no reported advisory, and
   input image decoding uses the existing direct Sharp 0.35.3 dependency.
   Dependency upgrades outside this feature are not claimed as completed.
+
+- **9B — Proposed page layouts: implemented locally; rollout acceptance pending.**
+  With drafting plus Website Builder Manage, Mink can create one immutable,
+  3-credit private proposal for a page's WHOLE structured section list —
+  adding, removing, reordering and reconfiguring blocks such as a hero,
+  gallery, testimonials or featured products — behind its own default-off
+  operator gate and a separate five-minute human approval that writes only
+  `store_pages.sections`. It closes the gap Phase 7B left: 7B can edit only the
+  HTML/CSS/JS inside an EXISTING custom-code section, so a store without one
+  could not have its storefront changed at all.
+  Every section passes the registry's own `validateConfig` and is rendered by
+  StoreMink components, so the output cannot carry script, styles, event
+  handlers or an unsanitised URL; the review card therefore needs no isolated
+  iframe and links to Website Builder instead. Custom code is the boundary:
+  a proposal must carry every existing custom-code section across unchanged
+  and cannot add, edit or delete one, checked in both directions (an omitted
+  section is a deletion). Sections the model is not changing are kept BY
+  REFERENCE and resolved server-side to the exact stored object, which is what
+  lets a page with custom code be proposed at all — the Builder read never
+  exposes that source. The optimistic lock is the page version plus a digest
+  of the whole ordered list, asserted at proposal, at preview and again inside
+  the write; the approval stores digests rather than the 128 KB lists.
+  Publication, header/footer, section-level custom code, repository access,
+  shell and deployment remain unavailable. Migration 0101 adds the tool to all
+  four vocabularies (including the draft-version allowlist a probe caught),
+  the draft kind and the draft/approval/audit target shapes, backfills the tool
+  for already-enabled stores, and repairs the same NULL hole in 7B's applied
+  target checks; 0102 corrects the three published Help sentences that said
+  Mink could not change a page's sections. ECH-P9B prompts cover the merchant
+  flow, the custom-code refusals, conflict, expiry and replay.
+  Local verification (2026-09-12): the full regression suite passed, both
+  static gates passed, and the new database constraints were probed by
+  inserting the real payload shapes against a live PostgreSQL — accepted where
+  they should be, refused for a missing digest, a rollback operation, a
+  pending row carrying a result and a wrong resource type. No live Vertex call
+  and no application database were used; live Echos acceptance remains pending.
+
+- **9C — Proposed storefront design: implemented locally; rollout acceptance
+  pending.** With drafting plus Website Builder Manage, Mink can create one
+  immutable, 2-credit private proposal for the store's WHOLE design — the eight
+  curated palette tokens, the body and display typefaces and the four corner
+  radii — behind its own default-off operator gate and a separate five-minute
+  human approval that writes only `store_chrome.draft.design`. It closes the
+  half of "I like this website, make mine like it" that 9B cannot reach: a
+  section list is the page's structure, and a merchant asking that question is
+  talking about colour and type first.
+  Phase 9A had already built the per-store design layer and made contrast a
+  PUBLISH gate; here the contract tightens it to a proposal gate, because the
+  panel cannot refuse a merchant mid-edit while a model produces a complete
+  brief in one shot and, as `lib/chrome/design.ts` says of exactly this case,
+  optimises for resemblance rather than readability. The contract also REFUSES
+  what `validateStorefrontDesign` would silently drop — an unparseable colour,
+  an unknown typeface, an out-of-range radius — because dropped silently, "set
+  the accent to brand red" becomes a proposal that never mentions the accent,
+  which the merchant approves and which changes nothing.
+  Three things differ from 9B and each follows from where the design lives.
+  The lock is the design DIGEST, not the row clock: `store_chrome` carries the
+  header, footer, appearance variants and design in one row, the builder
+  autosaves it on a keystroke, and the chat panel floats above the builder
+  canvas — so a row-clock lock would kill an approval every time a merchant
+  nudged an unrelated field. The write replaces ONE key and carries the rest of
+  the chrome through, read under the same lock. And a store with no chrome row
+  at all — the commonest state, since it means nobody has opened the Brand
+  panel — is proposed against `DEFAULT_CHROME` rather than refused.
+  Omission is benign here, unlike 9B's: a token left out inherits the pinned
+  theme, which is a designed, reversible state the storefront renders
+  correctly, so "put this back to the theme" is a one-turn instruction.
+  Page content, sections, custom code, header/footer, publication, repository
+  access, shell and deployment remain unavailable.
+  Migration 0103 adds the tool to all four vocabularies, `storefront_chrome` to
+  both resource-type allowlists, the draft kind and the three target shapes —
+  and repairs a NULL hole a probe found in all eight applied storefront target
+  checks: `(outcome = 'executed' AND result_id = resource_id) OR (outcome <>
+'executed' AND result_id IS NULL)` is NULL rather than false when `result_id`
+  is NULL, and a NULL CHECK is SATISFIED, so an executed row recording no
+  result at all was accepted. ECH-P9C prompts cover the merchant flow, the
+  contrast and vocabulary refusals, the footer-edit non-conflict, expiry and
+  replay.
+  Local verification (2026-09-12): the full regression suite passed, both
+  static gates passed, and every new constraint was probed by inserting the
+  real payload shapes against a live PostgreSQL — accepted where it should be,
+  refused for an absent `design_json`, a wrong destination type, a resource id
+  that is not the store, a missing digest, a pending row carrying a result, an
+  executed row with no result and an unwidened resource type. The 0101 hole was
+  reproduced before the repair and refused after it. No live Vertex call and no
+  application database were used; live Echos acceptance remains pending.
+  Enrolling the tool also surfaced that Phase 9B never enrolled its own:
+  `apply_storefront_layout` reached four database allowlists and not
+  `MINK_ACTION_TOOLS`, so a store enabled after 0101 had no gate row and every
+  layout save was refused, and a store disabled and re-enabled lost the gate
+  permanently. Both are enrolled now, with a credential-free guard comparing
+  the registry against the newest migration's own allowlist in both directions.
+  ⚠ One thing that acceptance must confirm rather than assume: the tool
+  declaration uses nullable JSON-Schema unions (`type: ["string", "null"]`,
+  with `null` listed in the typeface `enum`) so that "put this back to the
+  theme" is expressible. That is standard JSON Schema and the SDK field is
+  literally `parametersJsonSchema`, but no live provider call has exercised it.
+  If Vertex rejects the union, the declaration must fall back to plain types —
+  the contract, the prompt and the card already treat an ABSENT key exactly as
+  they treat `null`, so nothing else changes.
+
+- **9D — Media the model can use: implemented locally; rollout acceptance
+  pending.** Two halves of one gap, neither of which works alone.
+  `list_storefront_media` (a `media` View read, bounded at 40, newest first)
+  returns the exact public URLs of the store's Media Library; and a layout
+  proposal's images are now REFUSED unless every one of them is either a URL
+  that read returned or a URL already on the page being changed. Separately,
+  an image attached in the chat composer can be kept: **Save to Media Library**
+  sends it through the store's own `uploadMediaAsset` — the same permission,
+  normalisation, storage path and orphan cleanup as the Media page — and puts
+  its exact URL into the message.
+  ★★ THE REFUSAL IS A REPAIR, NOT A RESTRICTION. `grep -rn "media_assets"
+lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
+  the store had a picture. Meanwhile `safeHref` blocks only `javascript:`,
+  `data:` and `vbscript:` and accepts every other string, so 9B's whole
+  structured-layout capability — hero, gallery, media_text, testimonials,
+  carousel — could only ever be proposed with INVENTED image URLs, which
+  validate, store, render on the card as "Added: Gallery", get approved, and
+  land in `store_pages.sections` as broken images. Nothing errored at any step.
+  ★ THE ALLOWLIST IS "WHAT THE MODEL WAS SHOWN", nothing wider. A store-owned
+  GCS PREFIX rule was considered and rejected: the builder's own uploads land
+  under `stores/{storeId}/uploads/` with no row anywhere, so no read tool can
+  list them and the model could only ever reach one by CONSTRUCTING a path —
+  the invented-URL defect again, wearing a prefix that makes it look checked.
+  ⚠ The consequence is stated rather than papered over: a theme-seeded store
+  keeps its artwork at `/themes/{id}/*.webp`, in no store's Media Library, so
+  on a page with no images a model asked for a gallery has nothing to use and
+  must say so. That is the right answer.
+  ★ MEDIA IS ITS OWN PERMISSION, not `builder`. Filenames alone can carry a
+  supplier's name or an unreleased product's, and an admin trusted to arrange a
+  page is not automatically trusted to enumerate every file the store holds.
+  ★ SAVING IS NOT A MINK ACTION: no credit, no approval, no model tool. It is a
+  second, separate consent beside 8E's extraction consent — extraction still
+  persists nothing, and a merchant may do either, both or neither. Mink's only
+  involvement is that it can afterwards SEE the result.
+  ★ THE GUARD FINDS MEDIA BY THE `_url` SUFFIX rather than by enumerating the
+  seventeen section types, so a new field is covered by construction; the
+  convention is pinned by a test that scans the section registry's source and
+  fails on a media-shaped field named anything else. `href`/`cta_href` are
+  deliberately untouched: a link is a place a shopper is sent, and merchants
+  legitimately point one anywhere.
+  ★★ AND THE ADVERSARIAL PROBE FOUND SOMETHING ELSE. `= any(${values}::text[])`
+  was the house idiom at THIRTEEN call sites across five modules, and it does
+  not work: drizzle expands a bare array into a placeholder LIST, so it
+  compiles to `any(($1, $2)::text[])` — a row constructor cast to an array,
+  which PostgreSQL refuses outright ("cannot cast type record to text[]", or
+  "malformed array literal" for a single element). Every one of those queries
+  threw at runtime, always, and several sit behind callers that swallow errors
+  by design, so a broken query looked like a feature that never matched. All
+  thirteen now use `sql.param(...)`, with a source-scanning guard so the shape
+  cannot come back. ⚠ Verified against a real PostgreSQL: the unit tests mock
+  the driver, so all of them passed both before and after.
+  Migration 0105 corrects the three published sentences that said Mink cannot
+  use images and that an attachment can never be kept. ECH-P9D prompts cover
+  the empty library, the invented URL, the save, the reorder that must NOT be
+  refused, and the deleted-asset conflict.
+  Local verification (2026-09-12): the full regression suite passed, both
+  static gates passed, migration 0105 applied clean against a live PostgreSQL
+  with its three content postconditions, and the two new source-scanning
+  guards were mutation-checked (a `background_image` field and a reverted
+  `sql.param` each failed exactly the test written for it). No live Vertex call
+  was made; live Echos acceptance remains pending.
+
+- **9E — Generated images: implemented locally; rollout acceptance pending.**
+  9D closed the safety question and left the supply one: a theme-seeded store
+  has artwork in no Media Library, so "redesign my homepage" produced a layout
+  whose best block could not be filled. `generate_storefront_image` adds one
+  charged, immutable private proposal that IS an image — created immediately,
+  uploaded under `stores/{storeId}/mink-generated/`, and shown on its own card.
+  ★★ SAFETY IS STRUCTURAL, NOT A WORD FILTER. Mink has no tool that writes
+  `products.images`, and 9D means the only place a generated URL can land is a
+  layout section the merchant separately approves — so a generated image can be
+  decoration and cannot become a product photo. A brand/product keyword
+  blocklist was considered and REJECTED as security theatre: it fails on every
+  misspelling and every brand nobody listed while reading like a guarantee.
+  ★★ THE IMAGE IS GENERATED AT PROPOSAL TIME, NOT AT APPROVAL, inverting
+  9B/9C deliberately. Those propose a change to something already visible; here
+  the artefact is a picture, and a card describing a prompt asks somebody to
+  approve an image nobody has looked at. The accepted cost is that a discarded
+  proposal has already spent a provider call — the right way round, since the
+  alternative spends the same money on an image that may be wrong.
+  ★★ SAVING IS PART OF GENERATION, NOT AN APPROVAL OR A SECOND MERCHANT
+  task. A `media_assets` row changes nothing a shopper can see, while making
+  the exact returned URL immediately eligible for 9D's ownership check. This is
+  what lets one request such as "make a banner for my homepage" create the
+  picture and prepare the separately approved layout proposal in the same run.
+  Uploaded attachments keep their explicit Save control. An explicit authored
+  request to use the attachment in a named storefront placement also makes Send
+  save it through the ordinary Media action before Mink runs; generic image
+  analysis remains transient. No approval row, no audit row and no new resource
+  type are introduced.
+  ★★ THE OPERATOR GATE SITS ON THE GENERATION, the only one in
+  `mink_action_tool_access` that does. Everywhere else the write is the
+  expensive half; here the write is a private library row and the provider call
+  is what spends real per-image money.
+  ★★ IT IS THE FIRST MINK CALL BILLED PER REQUEST RATHER THAN PER TOKEN, so
+  `reserveMinkImageGeneration` is a spend ceiling rather than polite rate
+  limiting — 3/owner/minute, 10/store/hour, 25/store/day, 200/global/hour and
+  2 per run, claimed before the provider call AND before the credit charge.
+  ★ PURPOSE PINS THE ASPECT RATIO and the caller never does; the fixed exclusion
+  clause, `personGeneration: ALLOW_NONE`, prominent-person block and four strict
+  harm filters are fixed in code. Vertex applies SynthID to Gemini-generated
+  images by default. A filtered image surfaces the provider's own reason; a
+  provider FAILURE never reads as a merchant mistake.
+  ★ ALT TEXT IS REQUIRED at proposal time by the contract and by the database:
+  nothing else in the product will ever ask for it.
+  Migration 0106 moves exactly two vocabularies and adds one target shape, both
+  enumerated by querying `pg_get_constraintdef`; 0107 corrects the two published
+  sentences promising Mink never creates a picture — both written by 0105 two
+  days earlier, and true then. Migration 0108 updates the same merchant guide
+  for automatic generated-image saving and same-request layout preparation.
+  Migration 0109 updates that paragraph again for supplied images: the composer
+  shows compact attachment cards, explicit storefront placement saves the real
+  image and prepares the layout in one turn, and promotional copy remains
+  editable carousel content. Generic extraction remains review-first. The
+  overall run deadline is now 180 seconds so a bounded media read, page read and
+  proposal are not cut off by the former two-minute default.
+  ECH-P9E prompts cover the offer-what-you-have case, purpose inference,
+  same-run generation-plus-placement, the product-photo refusal and the rate
+  limit.
+  Local verification (2026-09-12): migration 0106 applied clean against a live
+  PostgreSQL with its seven postconditions, and its target check was probed
+  with twelve deliberately malformed rows (the complete row went in, all eleven
+  malformed ones were refused). Four load-bearing guards were mutation-checked
+  — the restored card's URL pin, `personGeneration`, the draft-kind check on
+  the save and the url/path integrity check — each failing exactly the test
+  written for it. Migration 0107 applied clean with its four content
+  postconditions, and `help:audit:local` reports no operator-only or internal
+  vocabulary in the corrected paragraphs. A live dashboard request then reached
+  Vertex and exposed the retired `imagen-4.0-generate-001` endpoint as the
+  provider failure. The runtime now uses Google's recommended
+  `gemini-2.5-flash-image` replacement through `generateContent` at `global`;
+  a one-attempt live smoke call with the same project credentials returned a
+  valid 16:9 JPEG (611,734 bytes).
+  Local verification (2026-09-13): all 6,814 active tests pass (57 skipped), as
+  do TypeScript, ESLint, migration lint, Help content lint and the Next 16
+  production build. The attachment flow has focused coverage for compact
+  previews, one-Send storefront persistence, generic review-first handling,
+  sent-message cards and jump-to-latest scrolling.
 
 Phase 8A does not start schedules or perform actions in response to a signal.
 The remaining original Phase 8 objectives below belong to later subphases.

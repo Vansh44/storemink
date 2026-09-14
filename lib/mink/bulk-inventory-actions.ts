@@ -908,7 +908,7 @@ async function lockInventoryLevels(
   if (!ids.length) return;
   await db.execute(sql`
     select id from public.inventory_levels
-    where store_id = ${storeId}::uuid and id = any(${ids}::uuid[])
+    where store_id = ${storeId}::uuid and id = any(${sql.param(ids)}::uuid[])
     order by id
     for update
   `);

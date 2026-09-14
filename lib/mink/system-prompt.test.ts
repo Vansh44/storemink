@@ -97,6 +97,34 @@ describe("Mink system prompt document", () => {
       "only the signed-in human can request and approve the exact Builder draft save",
     );
     expect(template).toContain(
+      "Resolve the user's complete requested outcome before choosing tools",
+    );
+    expect(template).toContain(
+      '"for my homepage", "as the hero" or "put it on the About page"',
+    );
+    expect(template).toContain(
+      "saved to the store's Media Library and shown to the merchant",
+    );
+    expect(template).toContain(
+      "continue in the same run with the exact returned URL",
+    );
+    expect(template).toContain("use that exact image in a hero_carousel slide");
+    expect(template).toContain(
+      "get_storefront_page_context with page_slug=home and generate_storefront_image together",
+    );
+    expect(template).toContain("Use list_current_offers");
+    expect(template).toContain(
+      "Never infer “all products” from an “on any order” trigger",
+    );
+    expect(template).toContain(
+      "Send saves that image through their ordinary Media Library permission",
+    );
+    expect(template).toContain(
+      'hands over "the product image" for the storefront task already being discussed',
+    );
+    expect(template).toContain("answer in at most two short sentences");
+    expect(template).toContain("single Apply to Website Builder draft button");
+    expect(template).toContain(
       "Never claim that you clicked a button, saved the Builder draft, ran browser checks, published or rolled back the storefront",
     );
   });

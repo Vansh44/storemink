@@ -37,6 +37,13 @@ describe("Mink draft contracts", () => {
       // piece of drafting.
       offer_activate: 0,
       storefront_custom_code: 5,
+      storefront_layout: 3,
+      storefront_design: 2,
+      // ★ THREE, and the ladder stops being about the size of the artefact
+      // here: every other weight prices how much model work a proposal took,
+      // while this one prices a provider call billed per IMAGE. ⚠ Provisional
+      // and unmeasured against a real bill.
+      media_image: 3,
     });
   });
 

@@ -91,7 +91,7 @@ export async function claimPosCustomer(
       const found = (await db.execute(sql`
         select id from public.users
          where store_id = ${input.storeId}::uuid
-           and phone = any(${phones}::text[])
+           and phone = any(${sql.param(phones)}::text[])
            and id like 'pos\\_%'
            and claimed_at is null
          limit 1

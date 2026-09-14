@@ -14,6 +14,7 @@ const ZERO_USAGE: MinkUsage = {
   outputTokens: 0,
   thoughtTokens: 0,
   totalTokens: 0,
+  cachedTokens: 0,
 };
 
 const ACTOR: MinkActorContext = {
@@ -35,9 +36,14 @@ function config(overrides: Partial<MinkConfig> = {}): MinkConfig {
   return {
     enabled: true,
     betaRequireInvite: true,
+    // Off, matching production: the orchestrator must behave identically
+    // whether or not a run is billed.
+    chargeCredits: false,
     projectId: "project-1",
     location: "global",
     model: "gemini-3.7-flash",
+    imageModel: "gemini-2.5-flash-image",
+    imageLocation: "global",
     maxSteps: 8,
     maxToolCalls: 16,
     maxParallelReadTools: 4,
@@ -83,6 +89,7 @@ describe("runMinkAgent", () => {
           outputTokens: 5,
           thoughtTokens: 2,
           totalTokens: 27,
+          cachedTokens: 12,
         },
       }),
     );
@@ -97,6 +104,7 @@ describe("runMinkAgent", () => {
             outputTokens: 3,
             thoughtTokens: 1,
             totalTokens: 14,
+            cachedTokens: 7,
           },
         }),
       ),
@@ -131,6 +139,10 @@ describe("runMinkAgent", () => {
         outputTokens: 8,
         thoughtTokens: 3,
         totalTokens: 41,
+        // 7 + 12. Each step re-sends the same deterministic system+tools
+        // prefix, so the run-level cached figure has to be the SUM across
+        // steps — that total is what the cost estimate prices against.
+        cachedTokens: 19,
       },
       artifacts: [],
     });
@@ -196,6 +208,34 @@ describe("runMinkAgent", () => {
       }),
     ).rejects.toMatchObject({ code: "step_limit_reached" });
     expect(session.sendToolResponses).not.toHaveBeenCalled();
+  });
+
+  it("finishes a bounded compound workflow that needs more than eight model turns", async () => {
+    let completedToolTurns = 0;
+    const anotherRead = () =>
+      turn({
+        functionCalls: [{ name: "get_store_profile", args: {} }],
+      });
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () => anotherRead()),
+      sendToolResponses: vi.fn(async () => {
+        completedToolTurns += 1;
+        return completedToolTurns < 8
+          ? anotherRead()
+          : turn({ text: "The image and homepage proposal are ready." });
+      }),
+    };
+
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "Create an image and prepare my homepage carousel.",
+      config: config({ maxSteps: 12 }),
+      registry: registry(),
+      session,
+    });
+
+    expect(result).toMatchObject({ steps: 9, toolCalls: 8 });
+    expect(result.text).toContain("homepage proposal");
   });
 
   it("rejects an empty final answer", async () => {

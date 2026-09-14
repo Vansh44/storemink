@@ -23,6 +23,7 @@ import {
   MINK_STOREFRONT_CODE_CHUNK_CHARS,
   MINK_STOREFRONT_SANDBOX_CONTRACT,
 } from "./storefront-code-contract";
+import { describeMinkStorefrontDesign } from "./storefront-design-contract";
 import type { MinkActorContext } from "./types";
 
 const MAX_PAGES = 40;
@@ -161,6 +162,16 @@ export async function readMinkStorefrontPageContext(
         digestMinkStorefrontValue(publishedSections),
       draftSectionCount: sections.length,
       publishedSectionCount: publishedSections.length,
+      /**
+       * ★ THE DIGEST OF THE WHOLE DRAFT LIST, not of one section.
+       *
+       * A layout proposal's optimistic lock is over the ORDERED LIST -- adding
+       * a section changes nothing about any existing section's own digest, so
+       * per-section digests cannot detect it. Without this a merchant could
+       * add a block in Website Builder between the read and the proposal, and
+       * the proposal would silently delete it.
+       */
+      sectionsDigest: digestMinkStorefrontValue(sections),
     },
     sections: sections.map(sectionSummary),
     contentTrust: "untrusted_storefront_data" as const,
@@ -339,6 +350,16 @@ export async function readMinkStorefrontDesignContext(actor: MinkActorContext) {
             designTokens: { "--brand-primary": brand.primaryColor },
             layout: {},
           },
+      // ★★ THE OPTIMISTIC LOCK VALUE, AND THE RUBRIC THE PROPOSAL IS MARKED
+      // AGAINST. `chrome.draft.design` was already here, but a digest of it was
+      // not -- and a patch cannot be written without one. The theme defaults
+      // are here for the same reason contrast is checked against the RESOLVED
+      // pair: overriding the page background alone can break ink the merchant
+      // never touched, so the colours underneath have to be visible.
+      design: describeMinkStorefrontDesign(
+        draftChrome.design,
+        theme?.preset.design ?? null,
+      ),
       chrome: {
         draft: draftChrome,
         published: publishedChrome,

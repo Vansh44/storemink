@@ -249,7 +249,10 @@ export default async function DashboardLayout({
       // frame (100vh, overflow hidden) that only this element should have.
       className={`dashboard-shell dashboard-frame ${dashFont.variable} ${dashMono.variable} flex flex-col`}
     >
-      <ChatProvider minkEnabled={minkEnabled}>
+      <ChatProvider
+        minkEnabled={minkEnabled}
+        canSaveMedia={can(permissions, "media", "manage", isSuperadmin)}
+      >
         <MobileNavProvider>
           <DashboardTopbar
             email={profile.email}
