@@ -83,6 +83,40 @@ describe("validateStorefrontDesign", () => {
     expect(design.shape).toEqual({ pill: 999 });
   });
 
+  it("reads a null radius as INHERIT, never as a 0px override", () => {
+    // ★★ `Number(null)` is 0 and `Number.isInteger(0)` is true, so a bare
+    //    coercion stored square corners for a caller asking to go back to the
+    //    theme — and the Mink tool schema declares every radius as
+    //    ["integer", "null"] with "or null to inherit the pinned theme", so
+    //    this is the documented way to clear one. Nothing reported it: the
+    //    design contract's dropped-value pass exempts null on purpose.
+    const { design } = validateStorefrontDesign(
+      { shape: { card: null, control: null, sm: null, pill: null } },
+      theme,
+    );
+    expect(design.shape).toEqual({});
+  });
+
+  it("does not turn other falsy junk into a 0px radius either", () => {
+    // "", false and [] all coerce to 0, which is why the test is "is this a
+    // number" rather than "does it coerce".
+    const { design } = validateStorefrontDesign(
+      { shape: { card: "", control: false, sm: [], pill: {} } },
+      theme,
+    );
+    expect(design.shape).toEqual({});
+  });
+
+  it("still accepts a real 0 and a numeric string, which are radii", () => {
+    // 0 is a legitimate choice (square corners on purpose), and the value
+    // round-trips through jsonb and form-shaped callers.
+    const { design } = validateStorefrontDesign(
+      { shape: { card: 0, control: "12" } },
+      theme,
+    );
+    expect(design.shape).toEqual({ card: 0, control: 12 });
+  });
+
   it("reads absent input as inherit-everything rather than failing", () => {
     expect(validateStorefrontDesign(undefined, theme).design).toEqual(
       EMPTY_DESIGN_OVERRIDES,

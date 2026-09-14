@@ -46,7 +46,10 @@ export function ChromeProvider({
   chrome: StoreChrome;
   themeLayout?: ThemeLayout;
   /** The pinned theme's own CSS variables, so clearing an override can put the
-   *  theme value back rather than falling through to the globals.css default. */
+   *  theme value back rather than falling through to the globals.css default.
+   *  ⚠ THE PRESET'S MAP, NOT THE MERGED ONE the layout writes inline. Passing
+   *  the merged map makes the restore below put back the override that was
+   *  just cleared, which is Reset silently doing nothing. */
   themeVars?: Record<string, string>;
   /** Preview mode: accept live updates from the builder. */
   live?: boolean;

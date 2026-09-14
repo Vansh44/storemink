@@ -101,6 +101,31 @@ function normalizeHex(value: unknown): string | null {
   return s.length === 4 ? `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}` : s;
 }
 
+/**
+ * A corner radius in whole pixels, or null for "this is not a radius".
+ *
+ * ★★ `null` IS NOT ZERO, AND A BARE `Number()` MADE IT ZERO. Every caller says
+ * "inherit the pinned theme" by omitting a key or sending null — the Mink tool
+ * schema declares each radius as `["integer", "null"]` with "or null to inherit
+ * the pinned theme", and the design context publishes
+ * `nullMeans: "inherit_the_pinned_theme"`. But `Number(null)` is 0 and
+ * `Number.isInteger(0)` is true, so "put the corners back to the theme" stored
+ * a real 0px override and squared off every card, button and chip instead.
+ * Silently, too: the design contract's dropped-value report exempts `null` on
+ * purpose, so nothing was named back to the model or shown on the review card.
+ *
+ * ⚠ `""`, `false` and `[]` all coerce to 0 the same way, which is why the test
+ * is "is this a number or a numeric string" rather than "does it coerce".
+ * A numeric string is accepted because the value round-trips through jsonb and
+ * through form-shaped callers; an empty or blank one is not a number.
+ */
+function radiusPixels(value: unknown, max: number): number | null {
+  if (typeof value !== "number" && typeof value !== "string") return null;
+  if (typeof value === "string" && !value.trim()) return null;
+  const n = Number(value);
+  return Number.isInteger(n) && n >= 0 && n <= max ? n : null;
+}
+
 function channel(hex: string, at: number): number {
   return parseInt(hex.slice(at, at + 2), 16) / 255;
 }
@@ -184,9 +209,9 @@ export function validateStorefrontDesign(
 
   const shape: Partial<Record<DesignShapeKey, number>> = {};
   for (const key of DESIGN_SHAPE_KEYS) {
-    const n = Number(rawShape[key]);
     const max = key === "pill" ? DESIGN_PILL_MAX : DESIGN_RADIUS_MAX;
-    if (Number.isInteger(n) && n >= 0 && n <= max) shape[key] = n;
+    const radius = radiusPixels(rawShape[key], max);
+    if (radius !== null) shape[key] = radius;
   }
 
   const design: StorefrontDesignOverrides = {
