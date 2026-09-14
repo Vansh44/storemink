@@ -143,4 +143,23 @@ describe("microphone privacy lifecycle", () => {
     expect(h.stop).toHaveBeenCalled();
     expect(done).toHaveBeenCalledTimes(1);
   });
+  it("automatically finishes after speech followed by a natural pause", async () => {
+    const done = vi.fn();
+    await startMinkRecording(new AbortController().signal, done, vi.fn());
+    h.node.port.onmessage?.({ data: new Float32Array(3200).fill(0.08) });
+    expect(done).not.toHaveBeenCalled();
+    h.node.port.onmessage?.({ data: new Float32Array(19200) });
+    expect(done).toHaveBeenCalledOnce();
+    expect(done).toHaveBeenCalledWith(
+      expect.objectContaining({ name: "voice-note.wav", type: "audio/wav" }),
+    );
+    expect(h.stop).toHaveBeenCalledOnce();
+  });
+  it("does not finish from silence before the user has spoken", async () => {
+    const done = vi.fn();
+    await startMinkRecording(new AbortController().signal, done, vi.fn());
+    h.node.port.onmessage?.({ data: new Float32Array(24000) });
+    expect(done).not.toHaveBeenCalled();
+    expect(h.stop).not.toHaveBeenCalled();
+  });
 });

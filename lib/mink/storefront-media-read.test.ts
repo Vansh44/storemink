@@ -12,7 +12,7 @@ vi.mock("@/lib/db/client", () => ({
 
 import {
   readMinkStorefrontMedia,
-  readOwnedMediaUrls,
+  readOwnedStorefrontImageUrls,
 } from "./storefront-media-read";
 
 const ACTOR: MinkActorContext = {
@@ -60,7 +60,9 @@ describe("Phase 9D media library read", () => {
     });
     expect(result.scope).toBe("current_store");
     expect(result.contentTrust).toBe("untrusted_storefront_data");
-    expect(result.usage).toContain("only a url returned here");
+    expect(result.usage).toContain(
+      "catalogue image returned by search_products",
+    );
 
     const compiled = new PgDialect().sqlToQuery(mocks.execute.mock.calls[0][0]);
     expect(compiled.params).toContain("store-1");
@@ -108,7 +110,7 @@ describe("Phase 9D media library read", () => {
 describe("Phase 9D ownership membership", () => {
   it("asks about the candidates rather than listing the whole library", async () => {
     mocks.execute.mockResolvedValue({ rows: [{ url: row(1).url }] });
-    const owned = await readOwnedMediaUrls("store-1", [
+    const owned = await readOwnedStorefrontImageUrls("store-1", [
       row(1).url,
       row(2).url,
       row(1).url,
@@ -117,12 +119,18 @@ describe("Phase 9D ownership membership", () => {
     const compiled = new PgDialect().sqlToQuery(mocks.execute.mock.calls[0][0]);
     // Deduplicated, and bound as one array parameter, never interpolated.
     expect(compiled.params).toContainEqual([row(1).url, row(2).url]);
+    expect(compiled.sql).toContain('from "products"');
+    expect(compiled.sql).toContain("unnest");
     expect(compiled.sql).not.toContain(row(1).url);
   });
 
   it("makes no query at all when nothing needs checking", async () => {
-    expect([...(await readOwnedMediaUrls("store-1", []))]).toEqual([]);
-    expect([...(await readOwnedMediaUrls("store-1", ["   "]))]).toEqual([]);
+    expect([...(await readOwnedStorefrontImageUrls("store-1", []))]).toEqual(
+      [],
+    );
+    expect([
+      ...(await readOwnedStorefrontImageUrls("store-1", ["   "])),
+    ]).toEqual([]);
     expect(mocks.execute).not.toHaveBeenCalled();
   });
 });

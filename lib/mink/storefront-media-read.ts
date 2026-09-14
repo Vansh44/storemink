@@ -2,11 +2,12 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import { can } from "@/app/dashboard/lib/permissions";
+import { products } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import type { MinkActorContext } from "./types";
 
 // ---------------------------------------------------------------------------
-// Phase 9D - the Media Library, finally visible to the model.
+// Phase 9D - store-owned storefront imagery, finally visible to the model.
 //
 // ★★ BEFORE THIS, `grep -rn "media_assets" lib/mink/` RETURNED NOTHING. Mink
 // had eighteen read tools and not one of them knew the store had a picture. So
@@ -14,8 +15,9 @@ import type { MinkActorContext } from "./types";
 // media_text, testimonials, carousel -- could only ever be proposed with
 // INVENTED image URLs, which `safeHref` happily accepts (see
 // storefront-media-policy.ts). This read is the other half of that fix: the
-// guard refuses what the store does not own, and this is how the model learns
-// what it does.
+// guard refuses what the store does not own. This reader teaches the model
+// about Media Library assets; product reads separately teach it about exact
+// catalogue photographs.
 //
 // ★ IT IS A `media` READ, NOT A `builder` ONE, even though its only consumer
 // today is a Builder proposal. The Media Library is its own dashboard section
@@ -71,11 +73,12 @@ export async function readMinkStorefrontMedia(
     })),
     truncated: rows.length > limit,
     /**
-     * The whole point of the tool, said in the payload as well as the
-     * declaration: an image not on this list cannot go into a layout proposal.
+     * State all allowed discovery paths in the payload as well as the tool
+     * declaration. This list is not exhaustive once a product read has supplied
+     * an exact current-store catalogue photograph.
      */
     usage:
-      "A storefront layout proposal may cite only a url returned here or an image already on the page it targets.",
+      "A storefront layout proposal may cite a url returned here, an exact catalogue image returned by search_products or get_current_product, or an image already on the page it targets.",
     contentTrust: "untrusted_storefront_data" as const,
     scope: "current_store" as const,
     dataAsOf: new Date().toISOString(),
@@ -95,7 +98,8 @@ function boundedText(value: unknown, max: number): string {
 }
 
 /**
- * Which of these exact URLs the store's Media Library actually holds.
+ * Which of these exact URLs the store owns as a Media Library asset or product
+ * catalogue photograph.
  *
  * ★ IT ASKS ABOUT THE CANDIDATES, IT DOES NOT LIST THE LIBRARY. A store may
  *   hold thousands of assets and a proposal cites at most a few dozen, so
@@ -107,7 +111,7 @@ function boundedText(value: unknown, max: number): string {
  *   that is about to save the layout. A second connection there would answer
  *   about a library state the write is not protected against.
  */
-export async function selectOwnedMediaUrls(
+export async function selectOwnedStorefrontImageUrls(
   db: Db,
   storeId: string,
   candidates: readonly string[],
@@ -117,18 +121,35 @@ export async function selectOwnedMediaUrls(
   );
   if (unique.length === 0) return new Set();
   const result = await db.execute(sql`
-    select url from media_assets
-    where store_id = ${storeId}
-      and url = any(${sql.param(unique)}::text[])
+    select url
+    from (
+      select url
+      from media_assets
+      where store_id = ${storeId}
+        and url = any(${sql.param(unique)}::text[])
+      union
+      select ${products.imageUrl} as url
+      from ${products}
+      where ${products.storeId} = ${storeId}
+        and ${products.imageUrl} = any(${sql.param(unique)}::text[])
+      union
+      select product_image.url
+      from ${products}
+      cross join lateral unnest(${products.images}) as product_image(url)
+      where ${products.storeId} = ${storeId}
+        and product_image.url = any(${sql.param(unique)}::text[])
+    ) owned
   `);
   return new Set((result.rows as { url: string }[]).map((row) => row.url));
 }
 
 /** The same question outside a transaction, for the proposal path. */
-export function readOwnedMediaUrls(
+export function readOwnedStorefrontImageUrls(
   storeId: string,
   candidates: readonly string[],
 ): Promise<Set<string>> {
   if (candidates.length === 0) return Promise.resolve(new Set());
-  return withService((db) => selectOwnedMediaUrls(db, storeId, candidates));
+  return withService((db) =>
+    selectOwnedStorefrontImageUrls(db, storeId, candidates),
+  );
 }

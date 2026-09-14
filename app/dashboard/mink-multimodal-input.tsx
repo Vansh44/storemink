@@ -4,7 +4,6 @@ import { inputKind, MINK_INPUT_BYTES } from "@/lib/mink/input-policy";
 import {
   Plus,
   Mic,
-  Square,
   X,
   Upload,
   FileText,
@@ -68,7 +67,6 @@ export function MinkMultimodalInput({
   const [dictationState, setDictationState] = useState<
     "starting" | "listening" | "processing" | null
   >(null);
-  const stopRecording = useRef<(() => void) | null>(null);
   const latestMessage = useRef({ message, onAdd });
   useEffect(() => {
     latestMessage.current = { message, onAdd };
@@ -81,7 +79,6 @@ export function MinkMultimodalInput({
     generation.current++;
     operation.current?.abort();
     operation.current = null;
-    stopRecording.current = null;
     setBusy(false);
     setOpen(false);
     setDragging(false);
@@ -98,7 +95,6 @@ export function MinkMultimodalInput({
     () => () => {
       generation.current++;
       operation.current?.abort();
-      stopRecording.current = null;
     },
     [],
   );
@@ -245,10 +241,9 @@ export function MinkMultimodalInput({
     operation.current = controller;
     setDictationState("starting");
     try {
-      stopRecording.current = await startMinkRecording(
+      await startMinkRecording(
         controller.signal,
         (recording) => {
-          stopRecording.current = null;
           if (id !== generation.current || controller.signal.aborted) return;
           if (!recording) {
             operation.current = null;
@@ -267,7 +262,6 @@ export function MinkMultimodalInput({
     } catch (e) {
       if (id === generation.current) {
         operation.current = null;
-        stopRecording.current = null;
         setDictationState(null);
         if (!controller.signal.aborted)
           setError(e instanceof Error ? e.message : "Microphone unavailable.");
@@ -325,14 +319,10 @@ export function MinkMultimodalInput({
     }
   }
 
-  function stopDictation() {
-    stopRecording.current?.();
-  }
   function cancelDictation() {
     generation.current++;
     operation.current?.abort();
     operation.current = null;
-    stopRecording.current = null;
     setDictationState(null);
   }
   async function processFile(source = file) {
@@ -450,10 +440,7 @@ export function MinkMultimodalInput({
    */
   async function submit() {
     const current = latestMessage.current.message.trim();
-    if (dictationState) {
-      if (dictationState !== "processing") stopDictation();
-      return;
-    }
+    if (dictationState) return;
     if (!current || disabled || busy || !onSubmit) return;
     if (!file) {
       onSubmit(current);
@@ -530,21 +517,15 @@ export function MinkMultimodalInput({
   const voice = (
     <button
       type="button"
-      aria-label={dictationState ? "Stop dictation" : "Dictate message"}
-      title={dictationState ? "Stop dictation" : "Dictate message"}
-      disabled={disabled || busy}
-      className={iconButton + (dictationState ? " bg-red-50 text-red-600" : "")}
+      aria-label={dictationState ? "Dictation in progress" : "Dictate message"}
+      title={dictationState ? "Dictation in progress" : "Dictate message"}
+      disabled={disabled || busy || Boolean(dictationState)}
+      className={iconButton}
       onClick={() => {
-        if (dictationState === "processing") cancelDictation();
-        else if (dictationState) stopDictation();
-        else void startDictation();
+        void startDictation();
       }}
     >
-      {dictationState ? (
-        <Square className="h-4 w-4 fill-current" aria-hidden="true" />
-      ) : (
-        <Mic className="h-5 w-5" aria-hidden="true" />
-      )}
+      <Mic className="h-5 w-5" aria-hidden="true" />
     </button>
   );
   const attachment = file ? (
@@ -847,7 +828,7 @@ export function MinkMultimodalInput({
               ? "Starting microphone…"
               : dictationState === "processing"
                 ? "Converting speech to editable text…"
-                : "Listening…"}
+                : "Listening… pause when you are finished."}
           </span>
           <button
             type="button"
@@ -858,17 +839,6 @@ export function MinkMultimodalInput({
           >
             <X className="h-4 w-4" aria-hidden="true" />
           </button>
-          {dictationState !== "processing" && (
-            <button
-              type="button"
-              className={iconButton + " bg-white text-[#6d4dff]"}
-              aria-label="Finish dictation"
-              title="Finish dictation"
-              onClick={stopDictation}
-            >
-              <Square className="h-3.5 w-3.5 fill-current" aria-hidden="true" />
-            </button>
-          )}
         </div>
       )}
       {!open && error && (

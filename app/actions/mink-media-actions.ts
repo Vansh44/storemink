@@ -22,7 +22,7 @@ import {
 // ★ THE ONLY THING THE BROWSER SENDS IS A DRAFT ID. Filename, URL, alt text
 // and content type all come from the stored proposal, so nothing about the row
 // this writes can be chosen by the caller -- which matters more than usual,
-// because `media_assets.url` is exactly what 9D's `selectOwnedMediaUrls`
+// because `media_assets.url` is exactly what 9D's owned-storefront-image check
 // treats as proof that an image belongs to the store.
 // ---------------------------------------------------------------------------
 

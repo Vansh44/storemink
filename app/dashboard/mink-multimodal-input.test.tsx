@@ -144,8 +144,13 @@ describe("review-first multimodal input", () => {
     expect(recording.start).toHaveBeenCalledOnce();
     expect(fetchMock).not.toHaveBeenCalled();
     expect(await screen.findByText(/listening/i)).toBeVisible();
-    fireEvent.click(screen.getByRole("button", { name: "Stop dictation" }));
-    expect(recording.stop).toHaveBeenCalledOnce();
+    expect(
+      screen.getByRole("button", { name: "Dictation in progress" }),
+    ).toBeDisabled();
+    expect(
+      screen.queryByRole("button", { name: /stop|finish dictation/i }),
+    ).toBeNull();
+    // The recorder ends itself after speech followed by silence.
     act(() =>
       recording.done?.(
         new File(["wav"], "voice-note.wav", { type: "audio/wav" }),

@@ -23,7 +23,7 @@ import {
   assertLayoutMediaIsOwned,
   collectSectionMediaUrls,
 } from "./storefront-media-policy";
-import { readOwnedMediaUrls } from "./storefront-media-read";
+import { readOwnedStorefrontImageUrls } from "./storefront-media-read";
 import type { MinkDraftContent } from "./draft-types";
 import type { MinkActorContext, MinkArtifact } from "./types";
 
@@ -318,7 +318,7 @@ export function readStoredLayoutSections(
  *   an existing block carries that block's images with it, and refusing those
  *   would make the commonest safe edit -- reordering -- impossible. Only URLs
  *   the page does NOT already have are worth a database round trip, so a
- *   pure reorder asks the Media Library nothing at all.
+ *   pure reorder asks the ownership database nothing at all.
  */
 export async function assertProposalMediaIsOwned(
   storeId: string,
@@ -331,7 +331,7 @@ export async function assertProposalMediaIsOwned(
       collectSectionMediaUrls(proposed).filter((url) => !onPage.has(url)),
     ),
   ];
-  const owned = await readOwnedMediaUrls(storeId, candidates);
+  const owned = await readOwnedStorefrontImageUrls(storeId, candidates);
   return assertLayoutMediaIsOwned(proposed, [...onPage, ...owned]);
 }
 
