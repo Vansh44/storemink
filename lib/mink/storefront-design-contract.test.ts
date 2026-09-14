@@ -115,6 +115,27 @@ describe("validateMinkStorefrontDesignPatch", () => {
     expect(result.value.design.palette.accent).toBeUndefined();
   });
 
+  it("★ and a null RADIUS inherits too, rather than squaring the corners", () => {
+    // ★★ The one place `null` used to mean something else. `Number(null)` is 0
+    //    and `Number.isInteger(0)` is true, so the validator wrote a real 0px
+    //    override — and this contract's dropped-value pass exempts null by
+    //    design, so "put the corners back to the theme" stored square corners
+    //    with nothing named back to the model or shown on the review card.
+    const result = validateMinkStorefrontDesignPatch(
+      patch({
+        design: {
+          palette: {},
+          fonts: { body: null, display: null },
+          shape: { card: null, control: null, sm: null, pill: null },
+        },
+      }),
+      THEME,
+    );
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.design.shape).toEqual({});
+  });
+
   it("★ REFUSES an illegible palette, though 9A makes contrast a publish gate", () => {
     // The panel cannot refuse a merchant mid-edit; a model produces a complete
     // brief in one shot and optimises for resemblance. Refusing keeps Mink to

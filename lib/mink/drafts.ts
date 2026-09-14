@@ -407,6 +407,22 @@ function assertEditableDraft(kind: MinkDraftKind): void {
       409,
     );
   }
+  // ★★ SO ARE 9B AND 9C, AND LEAVING THEM OUT BRICKED THEM RATHER THAN
+  //    PROTECTING THEM. Both action paths treat these as immutable by
+  //    requiring `currentVersion === 0` (storefront-layout-actions.ts,
+  //    storefront-design-actions.ts), so an accepted edit bumped the version to
+  //    1 and every later preview and execute refused with "not available for
+  //    approval" — a proposal the merchant had already been charged for could
+  //    never be applied, with nothing saying why. Rollback could not recover
+  //    it either, because rollback increments the version too. Refusing the
+  //    edit up front is the only outcome that leaves the proposal usable.
+  if (kind === "storefront_layout" || kind === "storefront_design") {
+    throw new MinkRequestError(
+      "mink_storefront_proposal_immutable",
+      "This storefront proposal is review-only. It cannot be edited, saved or restored — ask Mink for a new one instead.",
+      409,
+    );
+  }
 }
 
 async function mutateDraft(

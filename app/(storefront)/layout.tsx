@@ -147,15 +147,22 @@ export default async function StorefrontLayout({
     ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
         .design
     : null;
+  // ★★ THE PRESET'S OWN MAP, KEPT SEPARATE FROM THE MERGED ONE. The inline
+  // style below wants the merchant's overrides ON TOP; ChromeProvider wants
+  // the map WITHOUT them, because its job when an override is CLEARED in the
+  // builder is to put the theme's value back. Handing it the merged map made
+  // it restore the very override that had just been cleared, so Reset
+  // repainted the old colour and looked broken until a reload.
+  const presetVars: Record<string, string> = design
+    ? designToCssVars(design, brand.primaryColor)
+    : { "--brand-primary": brand.primaryColor };
   // The merchant's own palette, type and shape sit ON TOP of the preset. Spread
   // LAST so an override wins; it emits only tokens actually set, so an
   // un-overridden store keeps inheriting the theme and a later preset upgrade
   // still reaches it.
   const designOverrides = designOverrideCssVars(chrome.design);
   const themeVars: Record<string, string> = {
-    ...(design
-      ? designToCssVars(design, brand.primaryColor)
-      : { "--brand-primary": brand.primaryColor }),
+    ...presetVars,
     ...designOverrides,
   };
 
@@ -206,7 +213,7 @@ export default async function StorefrontLayout({
               <ChromeProvider
                 chrome={chrome}
                 themeLayout={design?.layout}
-                themeVars={themeVars}
+                themeVars={presetVars}
                 live={previewing}
               >
                 <div className={rootClass} style={themeVars as CSSProperties}>

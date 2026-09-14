@@ -266,6 +266,11 @@ export function validateMinkStorefrontLayoutPatch(
  * So a proposed custom_code section must match an EXISTING one byte for byte,
  * by id. Reordering it is fine; changing a character of it is not, and
  * inventing one is not.
+ *
+ * ⚠ AND THE RULE IS SYMMETRIC: every custom_code section on the CURRENT page
+ * must still be a custom_code section in the proposal, under the same id.
+ * Dropping the id deletes the code; re-using it for another type overwrites
+ * the code while the review card still calls the section "kept".
  */
 export function assertLayoutPreservesCustomCode(
   proposed: PageSectionItem[],
@@ -298,19 +303,37 @@ export function assertLayoutPreservesCustomCode(
     }
   }
   // ★★ AND THE REVERSE PASS, WHICH THE LOOP ABOVE CANNOT DO. It walks the
-  //    PROPOSED list, so a custom-code section the proposal simply OMITS is
-  //    never visited -- and omission is deletion under a whole-list replace.
-  //    That is the easiest accident this contract can produce and the most
-  //    expensive: custom code is the merchant's own hand-written work, and the
-  //    review card shows a section's LABEL rather than its content, so
-  //    approving "Removed: Custom code" would hide what is being destroyed.
-  //    Deleting one in Website Builder is two clicks; there is no reason for
-  //    this path to be able to.
-  const proposedIds = new Set(proposed.map((section) => section.id));
+  //    PROPOSED list, so an existing custom-code section is never visited when
+  //    the proposal stops carrying it -- and under a whole-list replace there
+  //    are TWO ways to stop carrying one:
+  //
+  //    1. OMITTING IT, which is deletion. The easiest accident this contract
+  //       can produce and the most expensive: custom code is the merchant's own
+  //       hand-written work, and the review card shows a section's LABEL rather
+  //       than its content, so approving "Removed: Custom code" would hide what
+  //       is being destroyed.
+  //    2. ★★ REUSING ITS ID FOR A DIFFERENT TYPE, which is worse, because it is
+  //       invisible in the loop above AND on the card. The loop above only
+  //       visits sections that are ALREADY custom_code, so a proposed
+  //       `{id: <the code section's id>, type: "hero"}` is skipped there; and
+  //       the id still exists in the current list, so `summarizeLayoutChange`
+  //       files it under KEPT and prints the NEW type's label. The merchant
+  //       reads "Kept: Hero" and approves the destruction of their code. So the
+  //       TYPE is matched here, never merely the id.
+  //
+  //    Deleting or replacing one in Website Builder is two clicks; there is no
+  //    reason for this path to be able to.
+  const proposedTypes = new Map(
+    proposed.map((section) => [section.id, section.type]),
+  );
   for (const [index, section] of current.entries()) {
-    if (section.type !== "custom_code" || proposedIds.has(section.id)) continue;
+    if (section.type !== "custom_code") continue;
+    const replacement = proposedTypes.get(section.id);
+    if (replacement === "custom_code") continue;
     issues.push(
-      `Section ${index + 1} of the current page: existing custom code cannot be removed here. Keep it in the list, or remove it in Website Builder.`,
+      replacement === undefined
+        ? `Section ${index + 1} of the current page: existing custom code cannot be removed here. Keep it in the list, or remove it in Website Builder.`
+        : `Section ${index + 1} of the current page: existing custom code cannot be replaced with a ${replacement} section here. Send {id: ${JSON.stringify(section.id)}, keep: true} to keep it, or change it in Website Builder.`,
     );
   }
   return issues;

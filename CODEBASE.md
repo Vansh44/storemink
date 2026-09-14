@@ -404,13 +404,22 @@ storefront's seventeen renderers inside a chat bubble.
   makes the whole feature uncallable with nothing failing loudly.
 - **★★ CUSTOM CODE MUST SURVIVE BYTE FOR BYTE, IN BOTH DIRECTIONS.**
   `assertLayoutPreservesCustomCode` walks the proposed list (refusing an
-  invented, retyped or edited `custom_code` section) AND the current one
-  (refusing one the proposal simply OMITS). The second pass is not symmetry for
-  its own sake: the first loop cannot see a section that is absent, so without
-  it a merchant's own hand-written code is the easiest thing this path can
-  destroy — and the card shows a section's LABEL, not its content, so
-  "Removed: Custom code" would hide exactly what is going. Caught by a test,
-  not by review.
+  invented, retyped or edited `custom_code` section) AND the current one. The
+  second pass is not symmetry for its own sake: the first loop only visits
+  sections that are ALREADY `custom_code`, so it cannot see a section the
+  proposal has stopped carrying — and there are TWO ways to stop carrying one.
+  **★★ THE SECOND WAS LIVE AND THE FIRST FIX MISSED IT.** OMITTING the section
+  is deletion, and was caught from the start by matching ids. **REUSING ITS ID
+  FOR ANOTHER TYPE** (`{id: <the code section's id>, type: "hero"}`) was not:
+  the id is still present, so the omission check passed, and
+  `summarizeLayoutChange` files the section under **kept** and prints the NEW
+  type's label — so the card read "Kept: Hero" over the destruction of the
+  merchant's own HTML/CSS/JS, with nothing raised at proposal time or again at
+  the write. The reverse pass therefore matches the TYPE by id, never the id
+  alone, and names `{id, keep: true}` in the refusal because that is the only
+  way to carry a section whose source the model is never shown. The card
+  showing a LABEL rather than content is exactly why this cannot be left to
+  human review. Both directions caught by tests, not by review.
 - **★ NO `pages.customCode` GATE, unlike 7B/7C.** That entitlement governs
   running merchant HTML/CSS/JS on the storefront. A hero is neither, so
   requiring it would withhold ordinary layout editing from the majority of
@@ -480,6 +489,21 @@ default-off tool gate and a separate five-minute human approval that writes only
   ⚠ `null` is NOT a dropped value — it is how a caller says INHERIT THE THEME,
   the entire vocabulary for clearing an override — so only a present, non-null
   value that failed to survive is reported.
+  **★★ AND THAT EXEMPTION IS WHY A NULL RADIUS WENT WRONG SILENTLY.**
+  `validateStorefrontDesign` coerced every `shape` value with a bare
+  `Number()`, and `Number(null)` is 0 while `Number.isInteger(0)` is true — so
+  "put the corners back to the theme", which the tool schema declares as
+  `["integer", "null"]` and the reader publishes as
+  `nullMeans: "inherit_the_pinned_theme"`, stored a real **0px override** and
+  squared off every card, button and chip. Nothing reported it: the
+  dropped-value pass above skips `null` by design, so the model was told
+  nothing and the review card showed the 0 as an intended choice. `radiusPixels`
+  now tests whether the value IS a number (or a non-blank numeric string)
+  rather than whether it coerces, since `""`, `false` and `[]` all reach 0 the
+  same way. ⚠ A real `0` is still a legitimate radius and is preserved — the
+  `pos.maxDiscountPercent` / `products.return_window_days` rule again: an
+  explicit zero is a setting, not an absent value. Palette and fonts were
+  always correct; only shape had the hole.
 - **★★ CONTRAST IS A PROPOSAL GATE HERE THOUGH 9A MAKES IT A PUBLISH GATE, and
   the difference is the actor, not the rule.** The panel cannot refuse a
   merchant mid-edit: a half-picked palette must not fail autosave, and they can

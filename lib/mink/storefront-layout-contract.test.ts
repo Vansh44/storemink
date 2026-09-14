@@ -184,6 +184,37 @@ describe("assertLayoutPreservesCustomCode", () => {
     expect(issues.join(" ")).toContain("not a custom-code section");
   });
 
+  it("REFUSES overwriting custom code by reusing its id for another type", () => {
+    // ★★ THE CASE NEITHER LOOP USED TO VISIT. The proposed-side loop only
+    //    inspects sections that are ALREADY custom_code, so a hero wearing the
+    //    code section's id is skipped there; and the id is still present, so
+    //    the omission pass skipped it too. The merchant's HTML/CSS/JS would
+    //    have been overwritten with nothing raised anywhere.
+    const issues = assertLayoutPreservesCustomCode(
+      [richText("a"), richText("code-1")],
+      current,
+    );
+    expect(issues).toEqual([
+      expect.stringMatching(/cannot be replaced with a rich_text section/),
+    ]);
+    // The remedy has to be in the message: `keep` is the only way to carry a
+    // section whose source the model is never shown.
+    expect(issues[0]).toContain('{id: "code-1", keep: true}');
+  });
+
+  it("and that swap reads as KEPT on the card, which is why it is refused", () => {
+    // Not a redundant assertion: it is the whole reason the guard cannot be
+    // left to the review card. The id survives, so the summary files it under
+    // `kept` and prints the NEW type's label — "Kept: Rich text" over the
+    // destruction of the merchant's own code.
+    const summary = summarizeLayoutChange(
+      [richText("a"), richText("code-1")],
+      current,
+    );
+    expect(summary.removed).toEqual([]);
+    expect(summary.kept).toContainEqual({ id: "code-1", type: "rich_text" });
+  });
+
   it("says nothing about pages that have no custom code at all", () => {
     expect(
       assertLayoutPreservesCustomCode([richText("a")], [richText("a")]),
