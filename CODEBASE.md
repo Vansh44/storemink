@@ -295,7 +295,9 @@ message suffix from becoming a third-party tracking request in the browser.
 StoreMink uploads microphone audio only to the selected transcription provider
 and does not persist it in the database, Media Library, memories or chat history.
 Provider processing terms still apply. Dictation is not a voice conversation and
-never grants action authority. Extracted image/PDF references
+never grants action authority. A successful transcription updates only the
+editable composer; it does not start a Mink request until the user presses the
+Send arrow or submits the composer themselves. Extracted image/PDF references
 still require separate editing/review before addition to the composer. Closing,
 discarding, conversation changes, unmounting or hiding the page cancel pending
 local work. Blob previews are revoked.
@@ -4768,14 +4770,18 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      includes only successful prior runs. Tool arguments/results stay redacted
      in telemetry; raw prompt/output/thought/total token counts are recorded
      with `charged_credits=0` for shadow costing. Migration
-     `20260829_0036_mink_conversation_ux` caps retained data at the newest ten
-     conversations per actor/store, with serialized creation and cascading
-     deletion of the oldest. The UI restores the newest thread after refresh,
-     exposes all ten in a dedicated responsive sidebar, allows confirmed
-     same-origin deletion, renders supported Markdown without raw HTML,
-     remembers a bounded drag/keyboard panel width, and grows the multiline
-     composer to a scrollable cap. The dashboard and Help Centre share the same
-     solid-purple robot identity. Explicit Stop and Retry remain available.
+     `20260829_0036_mink_conversation_ux` caps the visible history at the newest
+     ten conversations per actor/store, with serialized creation and cascading
+     deletion of old overflow conversations. Overflow pruning excludes any
+     conversation whose source draft is retained by the blog-publication ledger,
+     so scheduled/published business evidence cannot make a new Mink run fail;
+     protected older rows remain outside the bounded visible list. The UI
+     restores the newest thread after refresh, exposes all ten in a dedicated
+     responsive sidebar, allows confirmed same-origin deletion, renders
+     supported Markdown without raw HTML, remembers a bounded drag/keyboard
+     panel width, and grows the multiline composer to a scrollable cap. The
+     dashboard and Help Centre share the same solid-purple robot identity.
+     Explicit Stop and Retry remain available.
      Migration `20260829_0039_mink_phase_2` adds the invitation and feedback
      tables, trusted run context, extractive conversation summaries and shadow
      credit/cost cohorts. When a long thread passes 16 messages, persistence
