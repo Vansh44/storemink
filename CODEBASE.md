@@ -954,9 +954,12 @@ the service-only singleton `mink_voice_settings`; there is no per-store override
 superadmins, and `POST /api/mink/voice` resolves the singleton for every request,
 so a change applies to dictation from all stores immediately. Chirp uses Cloud
 Speech-to-Text V2 with ADC and automatic language detection. Saaras uses its
-server-side API key and automatic language detection. Provider credentials and
-raw provider errors never reach the browser, and audio or transcript content is
-not written to logs.
+server-side API key and automatic language detection. By explicit operator
+choice, `SARVAM_API_KEY` is supplied as the regular `_SARVAM_API_KEY` Cloud Build
+trigger substitution and copied into the authoritative Cloud Run environment
+rather than Secret Manager; principals who can inspect a trigger or revision can
+therefore read it. Provider credentials and raw provider errors never reach the
+browser, and audio or transcript content is not written to logs.
 
 ### Single Mink AI operator switch (2026-09-09)
 
