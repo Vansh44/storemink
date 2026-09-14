@@ -78,7 +78,7 @@ gcloud artifacts repositories create storemink \
 ```bash
 gcloud iam service-accounts create storemink-run --display-name="StoreMink Cloud Run"
 SA=storemink-run@storemink-prod.iam.gserviceaccount.com
-for role in roles/aiplatform.user roles/secretmanager.secretAccessor \
+for role in roles/aiplatform.user roles/speech.client roles/secretmanager.secretAccessor \
             roles/iam.serviceAccountTokenCreator roles/cloudsql.client; do
   gcloud projects add-iam-policy-binding storemink-prod \
     --member="serviceAccount:$SA" --role="$role"
@@ -88,7 +88,11 @@ gcloud storage buckets add-iam-policy-binding gs://storemink-media \
   --member="serviceAccount:$SA" --role=roles/storage.objectAdmin
 ```
 
-`aiplatform.user` → Vertex works with no API key. `objectAdmin` + `tokenCreator` → GCS uploads AND signed video URLs work with no `GCP_SA_KEY`. `cloudsql.client` → open the `/cloudsql/<connection>` socket. (Firebase uses explicit `FIREBASE_*` creds, so the runtime SA needs **no** Identity Platform role.)
+`aiplatform.user` → Vertex works with no API key. `speech.client` → Chirp 3
+can make Speech-to-Text recognition requests. `objectAdmin` + `tokenCreator` →
+GCS uploads AND signed video URLs work with no `GCP_SA_KEY`. `cloudsql.client`
+→ open the `/cloudsql/<connection>` socket. (Firebase uses explicit
+`FIREBASE_*` creds, so the runtime SA needs **no** Identity Platform role.)
 
 ### 4. Secrets → Secret Manager
 

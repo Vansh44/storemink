@@ -32,11 +32,13 @@ describe("global voice provider switch", () => {
       name: "Use Sarvam Saaras v4 globally",
     });
     expect(control).toHaveAttribute("aria-checked", "false");
+    expect(control.firstElementChild).toHaveClass("left-0.5", "translate-x-0");
     fireEvent.click(control);
     await waitFor(() => expect(h.save).toHaveBeenCalledWith("saaras_v4"));
     await waitFor(() =>
       expect(control).toHaveAttribute("aria-checked", "true"),
     );
+    expect(control.firstElementChild).toHaveClass("left-0.5", "translate-x-5");
     expect(screen.getByText(/used by Mink for every store/i)).toBeVisible();
   });
 

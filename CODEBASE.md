@@ -11799,10 +11799,11 @@ npm run format      # prettier --write
   so this build does not bill customers.
   Mink microphone transcription uses the one platform selection in
   `mink_voice_settings`: Google Chirp 3 calls Cloud Speech-to-Text V2 with the
-  same ADC project and **`MINK_CHIRP_LOCATION`** (default `asia-south1`), while
+  same ADC project and **`MINK_CHIRP_LOCATION`** (default `us`, where Chirp 3
+  language-agnostic transcription is generally available), while
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
-  service account needs permission to call Speech-to-Text. Neither credential
-  is exposed to the dashboard.
+  service account holds least-privilege **`roles/speech.client`** to call
+  Speech-to-Text. Neither credential is exposed to the dashboard.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with
