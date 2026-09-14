@@ -30,7 +30,7 @@ import {
   assertLayoutMediaIsOwned,
   collectSectionMediaUrls,
 } from "./storefront-media-policy";
-import { selectOwnedMediaUrls } from "./storefront-media-read";
+import { selectOwnedStorefrontImageUrls } from "./storefront-media-read";
 import type {
   MinkStorefrontLayoutActionApproval,
   MinkStorefrontLayoutActionResult,
@@ -314,7 +314,7 @@ export async function executeMinkStorefrontLayoutAction(input: {
         ),
       ),
     ];
-    const owned = await selectOwnedMediaUrls(
+    const owned = await selectOwnedStorefrontImageUrls(
       db,
       input.actor.storeId,
       candidates,
@@ -328,7 +328,7 @@ export async function executeMinkStorefrontLayoutAction(input: {
         db,
         approval,
         "conflicted",
-        "An image in the approved layout is no longer in this store's Media Library.",
+        "An image in the approved layout is no longer in this store's Media Library or product catalogue.",
         target.updatedAt,
       );
       return { error: targetConflict() };

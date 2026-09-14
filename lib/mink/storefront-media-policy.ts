@@ -14,11 +14,11 @@ import type { PageSectionItem } from "@/lib/sections/registry";
 // refusal at the contract, not a warning on the card.
 //
 // ★ THE ALLOWLIST IS "WHAT THE MODEL WAS ACTUALLY SHOWN", nothing wider.
-// Two sources, and each is a URL that provably exists:
+// Three sources, and each is a URL that provably exists:
 //   1. every media URL already on the CURRENT page (preservation -- a proposal
 //      that keeps or moves an existing block must never be refused for it);
-//   2. every `media_assets.url` for this store, which is exactly what
-//      `list_storefront_media` returns.
+//   2. every `media_assets.url` returned by `list_storefront_media`;
+//   3. every exact catalogue photograph returned by a product read tool.
 // A store-owned GCS PREFIX rule was considered and rejected: the builder's own
 // uploads land under `stores/{storeId}/uploads/` with no row anywhere, so no
 // read tool can list them and the model could only ever reach one by
@@ -26,10 +26,10 @@ import type { PageSectionItem } from "@/lib/sections/registry";
 // prefix that makes it look checked.
 //
 // ⚠ THE CONSEQUENCE, STATED RATHER THAN PAPERED OVER: a theme-seeded store
-// keeps its imagery at `/themes/{id}/*.webp`, which is in the Media Library of
-// no store. So on a page that has no images yet, a model asked for a gallery
-// has nothing to use and must say so. That is the right answer -- "add these
-// to your Media Library and I will use them" beats two broken images.
+// keeps its imagery at `/themes/{id}/*.webp`, which is owned by no store row.
+// So on a page that has no images yet, a model asked for a general gallery may
+// have nothing to use and must say so. Asking for real imagery is better than
+// putting two broken images on the page.
 //
 // ★ LINKS ARE DELIBERATELY NOT RESTRICTED. `href` and `cta_href` are places a
 // shopper is sent, and a merchant legitimately points them at Instagram, a
@@ -97,7 +97,7 @@ export function assertLayoutMediaIsOwned(
       if (allowed.has(url) || reported.has(url)) continue;
       reported.add(url);
       issues.push(
-        `Section ${index + 1}: ${JSON.stringify(url.slice(0, URL_ECHO_CHARS))} is not an image this store has. Use list_storefront_media and cite a url it returned, keep an image already on this page, or ask the merchant to add it to the Media Library first.`,
+        `Section ${index + 1}: ${JSON.stringify(url.slice(0, URL_ECHO_CHARS))} is not an image this store has. Cite an exact catalogue image returned by search_products or get_current_product, use list_storefront_media and cite a url it returned, keep an image already on this page, or ask the merchant to add it first.`,
       );
     }
   }

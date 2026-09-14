@@ -258,13 +258,15 @@ consent, except that Send stores an image through the ordinary Media action when
 the merchant explicitly asks to use that image in a named storefront placement;
 .txt/.md imports are decoded locally.
 `lib/mink/voice-recorder.ts` captures one canonical mono 16 kHz PCM WAV locally.
-Finish or the 30-second cap sends that temporary recording to
-`POST /api/mink/voice`; the route authenticates the current store, applies the
-shared input quotas, validates the real WAV bytes and reads the platform-wide
-voice provider before making one transcription request. The composer inserts
-the single final transcript once, after processing, so cumulative interim
+After speech begins, 1.2 seconds of sustained silence finishes the utterance;
+the 30-second cap remains a stalled-audio fallback. The temporary recording is
+sent to `POST /api/mink/voice`; the route authenticates the current store,
+applies the shared input quotas, validates the real WAV bytes and reads the
+platform-wide voice provider before making one transcription request. The
+composer inserts the single final transcript once, after processing, so cumulative interim
 browser results cannot repeat phrases. Text typed during recording is preserved,
-and Cancel aborts the recording or request without changing the message.
+the merchant does not have to press Stop or Finish, and Cancel aborts the
+recording or request without changing the message.
 Every newly submitted turn is anchored with its user question near the top of
 the contained message viewport while Mink works, with temporary tail room so
 the browser can establish that position before a long answer exists.
@@ -355,11 +357,12 @@ attachment, video, spreadsheets, live voice conversation and long-document
 ingestion remain out of scope.
 Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
 `20260914_0112_mink_global_voice_provider.sql` supersedes live browser
-recognition with one final server transcript and corrects the existing guide in
-place. The roadmap, system prompt and Echos tests describe rollout and
-limitations.
-Prompt versions are `read-beta-v14` / `draft-action-beta-v25`; no new agent
-tools or tool-registry version are introduced by input extraction.
+recognition with one final server transcript;
+`20260915_0113_mink_conversation_voice_catalog_images.sql` corrects the same
+guide for automatic end-of-speech. The roadmap, system prompt and Echos tests
+describe rollout and limitations. Prompt versions are `read-beta-v19` /
+`draft-action-beta-v35`; tool-registry versions are `read-beta-v15` /
+`draft-beta-v25` after catalogue-image grounding.
 
 ### Mink Phase 9B — Proposed page layouts (2026-09-12)
 
@@ -621,8 +624,11 @@ than a warning on the card.
 - **`lib/mink/storefront-media-read.ts` — `list_storefront_media`.** Bounded at
   40, newest first, returning `media_assets.url` VERBATIM (it is the string a
   proposal must echo back, so it is neither shortened nor re-derived from the
-  bucket path) plus filename, type, size. `selectOwnedMediaUrls(db, storeId,
-candidates)` answers membership rather than listing the library: a store may
+  bucket path) plus filename, type, size. `search_products` and
+  `get_current_product` separately return the current store's exact catalogue
+  image URLs. `selectOwnedStorefrontImageUrls(db, storeId, candidates)` answers
+  membership across Media and product primary/gallery images rather than
+  listing either source: a store may
   hold thousands of assets, a proposal cites a few dozen, and the same question
   has to run INSIDE the execute transaction, where a long read is a lock held
   open.
@@ -631,10 +637,11 @@ candidates)` answers membership rather than listing the library: a store may
   unreleased product's, and an admin trusted to arrange a page is not
   automatically trusted to enumerate every file the store has uploaded.
 - **★★ `lib/mink/storefront-media-policy.ts` — THE ALLOWLIST IS "WHAT THE MODEL
-  WAS SHOWN", NOTHING WIDER.** Two sources, each provably real: a URL already on
-  the CURRENT page (so a proposal that keeps or moves a block is never refused
-  for its own images — and a pure reorder asks the database nothing at all), and
-  a `media_assets.url` for this store. A store-owned **GCS PREFIX** rule was
+  WAS SHOWN", NOTHING WIDER.** Three sources, each provably real: a URL already
+  on the CURRENT page (so a proposal that keeps or moves a block is never refused
+  for its own images — and a pure reorder asks the database nothing at all), a
+  `media_assets.url` for this store, or an exact current-store product primary
+  or gallery URL returned by a product read. A store-owned **GCS PREFIX** rule was
   considered and REJECTED: the builder's own `ImageUpload` writes to
   `stores/{storeId}/uploads/` with no row anywhere, so no read tool can list
   one and the model could only ever reach it by CONSTRUCTING a path — the
@@ -656,10 +663,10 @@ candidates)` answers membership rather than listing the library: a store may
 - **★ CHECKED AT PROPOSAL AND AGAIN AT THE WRITE, under the same transaction.**
   At proposal because charging for something that cannot be approved is a bill
   for nothing; at the write because the page digest already proves the page has
-  not moved, so the **Media Library** is the only thing that can have changed —
-  an asset deleted between approval and execution would otherwise go live as a
-  broken image. It conflicts and audits, exactly like the custom-code guard
-  beside it.
+  not moved, so the **owned image source** is the only thing that can have
+  changed — a Media Library asset or catalogue photograph removed between
+  approval and execution would otherwise go live as a broken image. It
+  conflicts and audits, exactly like the custom-code guard beside it.
 - **★★ SAVING AN ATTACHMENT IS THE MERCHANT'S UPLOAD, NOT A MODEL ACTION.**
   8E deliberately discards attachment bytes ("never database/GCS/Media/memory
   objects") — right for EXTRACTION, and exactly what made "make my hero this
@@ -678,6 +685,12 @@ candidates)` answers membership rather than listing the library: a store may
   `canSaveMedia` is resolved in the dashboard layout and threaded through
   `ChatProvider`, so the control is absent for an admin who cannot use it (§23's
   rule); `uploadMediaAsset` re-checks and is the real boundary.
+- **★ A NAMED-PRODUCT PROMOTION USES THE CATALOGUE PHOTO DIRECTLY.** Product
+  search includes the deduplicated primary/gallery URLs already owned by the
+  current store. The prompt resolves the product and homepage together, uses
+  the authentic photo in the private carousel proposal, and renders BOGO or
+  other promotional wording as editable section copy. It does not make a fake
+  replacement product photograph or send the merchant to Media first.
 - **★ NO NEW TOOL VOCABULARY, NO GATE, NO SCHEMA.** `list_storefront_media` is a
   READ tool, so it is permission-filtered and never enters
   `mink_action_tool_access`; the save reuses an existing gated action. Migration
@@ -2835,7 +2848,9 @@ wholesip/
 │                              # same-send attached-image storefront placement;
 │                              # 0110 corrects Mink offer scope and checkout nudges;
 │                              # 0111 documents one-click Builder draft application;
-│                              # 0112 adds the global Mink voice provider and final-transcript flow.
+│                              # 0112 adds the global Mink voice provider and final-transcript flow;
+│                              # 0113 fixes protected-history pruning, automatic dictation finish
+│                              # and catalogue-product imagery for storefront proposals.
 │                              # `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
@@ -4794,8 +4809,9 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      `20260829_0036_mink_conversation_ux` caps the visible history at the newest
      ten conversations per actor/store, with serialized creation and cascading
      deletion of old overflow conversations. Overflow pruning excludes any
-     conversation whose source draft is retained by the blog-publication ledger,
-     so scheduled/published business evidence cannot make a new Mink run fail;
+     conversation whose source draft is retained by the blog-publication ledger
+     or append-only action audit, so scheduled/published or completed-action
+     evidence cannot make a new Mink run fail;
      protected older rows remain outside the bounded visible list. The UI
      restores the newest thread after refresh, exposes all ten in a dedicated
      responsive sidebar, allows confirmed same-origin deletion, renders

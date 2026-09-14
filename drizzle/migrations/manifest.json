@@ -4859,6 +4859,40 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260915_0113_mink_conversation_voice_catalog_images",
+      "description": "Keep new Mink chats available, auto-finish dictation, and use catalogue product images",
+      "file": "sql/20260915_0113_mink_conversation_voice_catalog_images.sql",
+      "transaction": true,
+      "requires": ["20260914_0112_mink_global_voice_provider"],
+      "verify": {
+        "tables": ["help_articles", "mink_conversations", "mink_action_audit"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "dictation guidance uses automatic end of speech",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%pause briefly and StoreMink automatically converts%' and body not like '%choose Finish to convert the recording%'",
+            "equals": "1"
+          },
+          {
+            "name": "product promotion guidance includes catalogue photographs",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%searches the named product in your catalogue%' and body like '%authentic product photo%'",
+            "equals": "1"
+          },
+          {
+            "name": "conversation guidance preserves protected evidence without blocking new chat",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%stays safely outside the recent list instead of blocking the new conversation%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide gained no new section while being corrected",
+            "sql": "select ((length(body) - length(replace(body,'<h2','')))/3)::text from help_articles where slug='use-mink-ai-in-your-dashboard'",
+            "equals": "36"
+          }
+        ]
+      }
     }
   ]
 }

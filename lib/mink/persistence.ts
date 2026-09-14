@@ -12,6 +12,8 @@ import {
 } from "drizzle-orm";
 import {
   minkBlogPublications,
+  minkActionApprovals,
+  minkActionAudit,
   minkConversations,
   minkDrafts,
   minkFeedback,
@@ -41,7 +43,8 @@ const DISPLAY_MESSAGES = 50;
 export const MINK_CONVERSATION_LIMIT = 10;
 
 /**
- * Keep publication evidence alive when pruning the conversation sidebar.
+ * Keep publication and executed-action evidence alive when pruning the
+ * conversation sidebar.
  *
  * A conversation cascades through runs to drafts, while the publication ledger
  * deliberately restricts deletion of its source draft. Keeping this guard in
@@ -64,12 +67,28 @@ export function minkConversationPrunePredicate(
     where ${minkRuns.conversationId} = ${minkConversations.id}
       and ${minkRuns.storeId} = ${actor.storeId}
   `;
+  const hasActionAudit = sql`
+    select 1
+    from ${minkRuns}
+    inner join ${minkDrafts}
+      on ${minkDrafts.runId} = ${minkRuns.id}
+      and ${minkDrafts.storeId} = ${minkRuns.storeId}
+    inner join ${minkActionApprovals}
+      on ${minkActionApprovals.draftId} = ${minkDrafts.id}
+      and ${minkActionApprovals.storeId} = ${minkDrafts.storeId}
+    inner join ${minkActionAudit}
+      on ${minkActionAudit.approvalId} = ${minkActionApprovals.id}
+      and ${minkActionAudit.storeId} = ${minkActionApprovals.storeId}
+    where ${minkRuns.conversationId} = ${minkConversations.id}
+      and ${minkRuns.storeId} = ${actor.storeId}
+  `;
 
   return and(
     eq(minkConversations.storeId, actor.storeId),
     eq(minkConversations.adminId, actor.adminId),
     inArray(minkConversations.id, conversationIds),
     notExists(hasBlogPublication),
+    notExists(hasActionAudit),
   )!;
 }
 
@@ -393,11 +412,11 @@ export async function startMinkRun(input: {
         model,
         thinkingLevel: input.thinkingLevel ?? "low",
         promptVersion: actor.draftingEnabled
-          ? "draft-action-beta-v34"
-          : "read-beta-v18",
+          ? "draft-action-beta-v35"
+          : "read-beta-v19",
         toolRegistryVersion: actor.draftingEnabled
-          ? "draft-beta-v24"
-          : "read-beta-v14",
+          ? "draft-beta-v25"
+          : "read-beta-v15",
         riskTier: actor.draftingEnabled ? "R1" : "R0",
         currentPath: actor.currentPath ?? null,
         selectedResourceType: actor.selectedResource?.type ?? null,

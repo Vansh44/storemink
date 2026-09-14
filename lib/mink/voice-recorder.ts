@@ -3,6 +3,20 @@ import {
   MINK_AUDIO_RATE,
   MINK_AUDIO_SECONDS,
 } from "./input-policy";
+
+// End dictation after the speaker pauses, like a message composer rather than
+// a voice-note recorder. The detector is armed only after real speech so room
+// noise or silence immediately after permission cannot submit an empty clip.
+export const MINK_SPEECH_RMS_THRESHOLD = 0.012;
+export const MINK_MIN_SPEECH_MS = 180;
+export const MINK_END_SILENCE_MS = 1_200;
+
+function chunkRms(chunk: Float32Array): number {
+  if (chunk.length === 0) return 0;
+  let energy = 0;
+  for (const sample of chunk) energy += sample * sample;
+  return Math.sqrt(energy / chunk.length);
+}
 /** Browser-only microphone lifecycle. Tracks close on every success/error/cancel path. */
 export async function startMinkRecording(
   signal: AbortSignal,
@@ -22,6 +36,8 @@ export async function startMinkRecording(
   let node: AudioWorkletNode | undefined;
   let finished = false;
   let total = 0;
+  let voicedSamples = 0;
+  let lastSpeechSample = 0;
   let chunks: Float32Array[] = [];
   let timer: ReturnType<typeof setTimeout> | undefined;
   const stop = (keep = false) => {
@@ -85,8 +101,19 @@ export async function startMinkRecording(
       }
       chunks.push(chunk);
       total += chunk.length;
+      if (chunkRms(chunk) >= MINK_SPEECH_RMS_THRESHOLD) {
+        voicedSamples += chunk.length;
+        lastSpeechSample = total;
+      }
       progress(Math.floor(total / MINK_AUDIO_RATE));
-      if (total >= MINK_AUDIO_RATE * MINK_AUDIO_SECONDS) stop(true);
+      const speechArmed =
+        voicedSamples >= (MINK_AUDIO_RATE * MINK_MIN_SPEECH_MS) / 1_000;
+      const silenceSamples = (MINK_AUDIO_RATE * MINK_END_SILENCE_MS) / 1_000;
+      if (
+        total >= MINK_AUDIO_RATE * MINK_AUDIO_SECONDS ||
+        (speechArmed && total - lastSpeechSample >= silenceSamples)
+      )
+        stop(true);
     };
     const mute = context.createGain();
     mute.gain.value = 0;

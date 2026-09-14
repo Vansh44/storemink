@@ -20,7 +20,7 @@ describe("Mink persistence", () => {
     expect(title.endsWith("…")).toBe(true);
   });
 
-  it("excludes conversations whose drafts are protected by blog publications", () => {
+  it("excludes conversations whose drafts hold protected publication or action evidence", () => {
     const storeId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
     const conversationId = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
     const query = new PgDialect().sqlToQuery(
@@ -33,6 +33,15 @@ describe("Mink persistence", () => {
     expect(query.sql).toContain('from "mink_runs"');
     expect(query.sql).toContain('inner join "mink_drafts"');
     expect(query.sql).toContain('inner join "mink_blog_publications"');
-    expect(query.params).toEqual([storeId, "owner", conversationId, storeId]);
+    expect(query.sql).toContain('inner join "mink_action_approvals"');
+    expect(query.sql).toContain('inner join "mink_action_audit"');
+    expect(query.sql.match(/not exists/g)).toHaveLength(2);
+    expect(query.params).toEqual([
+      storeId,
+      "owner",
+      conversationId,
+      storeId,
+      storeId,
+    ]);
   });
 });

@@ -108,7 +108,15 @@ describe("Mink system prompt document", () => {
     expect(template).toContain(
       "continue in the same run with the exact returned URL",
     );
-    expect(template).toContain("use that exact image in a hero_carousel slide");
+    expect(template).toContain(
+      "use its authentic image in a hero_carousel slide",
+    );
+    expect(template).toContain(
+      "interpret “create a photo showing this offer” as creating the promotional carousel visual",
+    );
+    expect(template).toContain(
+      "ends automatically after the user speaks and then pauses",
+    );
     expect(template).toContain(
       "get_storefront_page_context with page_slug=home and generate_storefront_image together",
     );
