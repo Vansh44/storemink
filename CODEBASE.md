@@ -3257,11 +3257,29 @@ wholesip/
    `mockResolvedValue`/`mockRejectedValue` set inside one test leaks into every
    test after it — and the offenders were declared LAST in their files, so nothing
    followed them. One hid a razorpay suite charging ₹150 for a ₹200 order.
-   **Restore defaults explicitly in `beforeEach`**; `resetAllMocks()` is NOT the
-   fix here, because in this Vitest `mockReset` restores an implementation passed
-   to `vi.fn(impl)` but WIPES a `mockResolvedValue` set at a `vi.mock` factory, and
-   this repo uses both forms — which is also why a global `mockReset: true` is a
-   prerequisite refactor rather than a config flag.
+   **★★ THAT LEAK IS CLOSED AT SOURCE NOW: `mockReset: true` IS SET IN
+   `vitest.config.ts`.** Every mock is reset before every test, so a stubbed
+   implementation cannot reach a test that never asked for it, and restoring
+   defaults by hand in `beforeEach` is no longer the only defence. It was a
+   PREREQUISITE REFACTOR rather than a flag because in this Vitest `mockReset`
+   restores the implementation a mock was CREATED with — `vi.fn(() => x)`
+   survives, `vi.fn().mockResolvedValue(x)` is WIPED — and this repo used both
+   forms, including at `vi.mock` factory level where nothing re-establishes
+   them per test. Measured before flipping it: **4 files, 8 tests**. Three were
+   the mechanical conversion; the fourth was real — `customer-profile.test.ts`'s
+   claiming block set only `claimPosCustomer` and had been borrowing
+   `getServerUser` from a SIBLING describe, so it reported "Not authenticated"
+   for a flow with nothing to do with authentication.
+   **⚠ SO WRITE FACTORY MOCKS AS `vi.fn(impl)`.** A `vi.fn().mockResolvedValue()`
+   inside a `vi.mock` factory now returns `undefined` from the second test
+   onward, and an undefined return fails somewhere other than the line that
+   caused it ("not iterable", a whole-object mismatch, a bogus auth error).
+   Per-test overrides in `beforeEach`/`it` are unaffected — they run after the
+   reset. Existing `vi.clearAllMocks()` calls are redundant now but harmless.
+   **⚠ AND IT DOES NOT RETIRE `test:shuffle`.** It removes the dominant CAUSE of
+   order-dependence, not the category: module-level mutable state, shared
+   fixtures and `vi.hoisted` holder objects still couple one test to another,
+   and only running the files in a different order can show that.
    ⚠ The seed is FIXED (one ordering, reproducible): a randomly-red suite teaches
    people to re-run rather than trust it. One seed is one permutation, so it
    catches regressions this ordering exposes, not all of them — hunt for more with
@@ -11781,10 +11799,11 @@ npm run format      # prettier --write
   so this build does not bill customers.
   Mink microphone transcription uses the one platform selection in
   `mink_voice_settings`: Google Chirp 3 calls Cloud Speech-to-Text V2 with the
-  same ADC project and **`MINK_CHIRP_LOCATION`** (default `asia-south1`), while
+  same ADC project and **`MINK_CHIRP_LOCATION`** (default `us`, where Chirp 3
+  language-agnostic transcription is generally available), while
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
-  service account needs permission to call Speech-to-Text. Neither credential
-  is exposed to the dashboard.
+  service account holds least-privilege **`roles/speech.client`** to call
+  Speech-to-Text. Neither credential is exposed to the dashboard.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with

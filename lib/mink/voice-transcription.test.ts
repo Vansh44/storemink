@@ -15,7 +15,7 @@ beforeEach(() => {
   vi.resetAllMocks();
   vi.stubGlobal("fetch", fetchMock);
   vi.stubEnv("GCP_PROJECT_ID", "storemink-test");
-  vi.stubEnv("MINK_CHIRP_LOCATION", "asia-south1");
+  vi.stubEnv("MINK_CHIRP_LOCATION", "");
   vi.stubEnv("SARVAM_API_KEY", "sarvam-secret");
   h.token.mockResolvedValue({ token: "adc-token" });
   h.getClient.mockResolvedValue({ getAccessToken: h.token });
@@ -50,7 +50,7 @@ describe("Mink voice providers", () => {
     ).resolves.toEqual({ text: "hello store", languageCode: "en-IN" });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(url).toContain(
-      "asia-south1-speech.googleapis.com/v2/projects/storemink-test",
+      "us-speech.googleapis.com/v2/projects/storemink-test",
     );
     expect(init.headers).toMatchObject({ Authorization: "Bearer adc-token" });
     expect(JSON.parse(String(init.body))).toMatchObject({

@@ -42,7 +42,7 @@ export function VoiceProviderSwitch({
             every store.
           </p>
         </div>
-        <div className="flex items-center gap-3 text-xs font-medium text-slate-600">
+        <div className="ml-auto flex items-center gap-3 whitespace-nowrap text-xs font-medium text-slate-600">
           <span>Google Chirp 3</span>
           <button
             type="button"
@@ -56,8 +56,8 @@ export function VoiceProviderSwitch({
             } disabled:cursor-not-allowed disabled:opacity-60`}
           >
             <span
-              className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
-                sarvam ? "translate-x-5" : "translate-x-0.5"
+              className={`absolute left-0.5 top-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform ${
+                sarvam ? "translate-x-5" : "translate-x-0"
               }`}
             />
           </button>

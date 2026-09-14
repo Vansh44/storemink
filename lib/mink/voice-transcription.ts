@@ -32,7 +32,7 @@ async function transcribeWithChirp3(
 ): Promise<MinkVoiceTranscript> {
   const project = process.env.GCP_PROJECT_ID;
   if (!project) throw new Error("GCP_PROJECT_ID is not configured.");
-  const location = process.env.MINK_CHIRP_LOCATION || "asia-south1";
+  const location = process.env.MINK_CHIRP_LOCATION || "us";
   const token = await googleAccessToken();
   const response = await fetch(
     `https://${location}-speech.googleapis.com/v2/projects/${encodeURIComponent(project)}/locations/${encodeURIComponent(location)}/recognizers/_:recognize`,

@@ -13,9 +13,14 @@ vi.mock("@/lib/db/client", () => ({
   withUser: holder.withUser,
 }));
 vi.mock("./access", () => ({
-  requireMinkStoreInvite: vi
-    .fn()
-    .mockResolvedValue({ enabled: true, draftingEnabled: true }),
+  // ★ `vi.fn(impl)`, NOT `vi.fn().mockResolvedValue(...)`: the config's
+  //   `mockReset: true` wipes the second form, and an undefined invite makes
+  //   `draftingEnabled` undefined rather than true — which fails as a
+  //   whole-object mismatch several fields away from the real cause.
+  requireMinkStoreInvite: vi.fn(async () => ({
+    enabled: true,
+    draftingEnabled: true,
+  })),
 }));
 vi.mock("@/lib/ai/brand-voice", () => ({
   getBrandSoulForStore: holder.brandVoice,

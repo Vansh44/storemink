@@ -27,8 +27,12 @@ vi.mock("@/lib/store/resolve", () => ({
   FALLBACK_STORE_ID: "a0000000-0000-4000-8000-000000000001",
 }));
 vi.mock("@/lib/storage/cleanup", () => ({
-  deleteStorageUrls: vi.fn().mockResolvedValue(undefined),
-  extractMediaUrlsFromHtml: vi.fn().mockReturnValue([]),
+  // ★ `vi.fn(impl)`, NOT `vi.fn().mockReturnValue(...)` — the latter is wiped
+  //   by the config's `mockReset: true`, and a wiped `extractMediaUrlsFromHtml`
+  //   returns undefined into a `for…of`, which fails as "not iterable" rather
+  //   than as the assertion the test was written for.
+  deleteStorageUrls: vi.fn(async () => undefined),
+  extractMediaUrlsFromHtml: vi.fn((): string[] => []),
 }));
 vi.mock("@/lib/storage/gcs", () => ({
   gcsPathFromUrl: (url: string) => {
