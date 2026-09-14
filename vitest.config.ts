@@ -8,6 +8,38 @@ export default defineConfig({
     environment: "jsdom",
     globals: true,
     setupFiles: ["./vitest.setup.ts"],
+    // ★★ EVERY MOCK IS RESET BEFORE EVERY TEST, so a stubbed implementation
+    // cannot leak forward into a test that never asked for it. That leak is
+    // the single cause behind every order-dependent test this repo has found:
+    // `vi.clearAllMocks()` clears CALLS, not IMPLEMENTATIONS, so a
+    // `mockResolvedValue` set inside one test survived into all of them, and
+    // the offenders were declared LAST in their files so nothing followed them
+    // and nothing went red. One hid a razorpay suite charging ₹150 for a ₹200
+    // order (CODEBASE.md §8).
+    //
+    // ★ IT WAS A PREREQUISITE REFACTOR, NOT A FLAG, and that is why it took
+    // until now. In this Vitest `mockReset` restores the implementation a mock
+    // was CREATED with — so `vi.fn(() => x)` survives and
+    // `vi.fn().mockResolvedValue(x)` is WIPED, because that one was created
+    // with no implementation at all. This repo used both forms, including at
+    // `vi.mock` factory level where nothing re-establishes them per test.
+    // Turning the flag on without converting those is a suite that fails for
+    // reasons unrelated to the code under test. Four files needed it; the
+    // conversions and one genuinely order-dependent describe block landed with
+    // this change.
+    //
+    // ⚠ SO WRITE FACTORY MOCKS AS `vi.fn(impl)`. `vi.fn().mockResolvedValue()`
+    // inside a `vi.mock` factory now yields `undefined` from the second test
+    // onward — and an undefined return usually fails somewhere other than the
+    // line that caused it ("not iterable", a whole-object mismatch, a bogus
+    // "Not authenticated"). Per-test overrides in `beforeEach`/`it` are
+    // unaffected: they run after the reset.
+    //
+    // ⚠ IT DOES NOT RETIRE `test:shuffle`. This removes the dominant cause of
+    // order-dependence, not the category: module-level mutable state, shared
+    // fixtures and holder objects can still couple one test to another, and
+    // only running the files in a different order can show that.
+    mockReset: true,
     // ★ A GIT WORKTREE IS A SECOND COPY OF THIS REPO, INSIDE IT. Background
     // agents create them under .claude/worktrees/, so test discovery found every
     // spec twice — the run reported 384 files instead of 195, and failures from

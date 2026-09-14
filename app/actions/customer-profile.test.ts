@@ -155,7 +155,18 @@ describe("updateCustomerProfile", () => {
 // Adopting a till-created customer (roadmap Step 4 / pos_13).
 // ---------------------------------------------------------------------------
 describe("updateCustomerProfile — claiming a till-created customer", () => {
+  // ★★ ITS OWN IDENTITY AND ITS OWN db, NOT THE SIBLING DESCRIBE'S. This block
+  //    used to set `claimPosCustomer` alone and passed only because
+  //    `getServerUser`'s implementation LEAKED out of the describe above — a
+  //    sibling block, so nothing scopes that hook here. Three of these tests
+  //    went red the moment `mockReset: true` stopped the leak, reporting "Not
+  //    authenticated" for a flow that has nothing to do with authentication.
+  //    They were green by accident of file position, which is the whole class
+  //    of defect the shuffle gate and this config flag exist to remove.
   beforeEach(() => {
+    dbHolder.current = makeDbMock();
+    vi.mocked(updateAuthUser).mockResolvedValue();
+    vi.mocked(getServerUser).mockResolvedValue(serverUser() as any);
     vi.mocked(claimPosCustomer).mockResolvedValue({ claimed: false });
   });
 
@@ -223,7 +234,7 @@ describe("updateCustomerProfile — claiming a till-created customer", () => {
   it("does not announce a signup for a row that was adopted", async () => {
     vi.mocked(claimPosCustomer).mockResolvedValue({ claimed: true });
     dbHolder.current = makeDbMock({ returning: [{ inserted: false }] });
-    vi.mocked(emitEvent).mockClear(); // this file's beforeEach does not
+    vi.mocked(emitEvent).mockClear(); // redundant under mockReset, kept explicit
     await updateCustomerProfile(makeFormData({ firstName: "Asha" }));
     expect(emitEvent).not.toHaveBeenCalled();
   });
