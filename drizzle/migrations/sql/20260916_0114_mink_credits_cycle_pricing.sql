@@ -21,9 +21,23 @@ INSERT INTO public.mink_credit_pack_prices (pack_id, price_inr)
 VALUES ('small', 59), ('popular', 129), ('bulk', 299)
 ON CONFLICT (pack_id) DO NOTHING;
 
--- Preserve this month's already-used allowance when a paid store moves from a
+-- Carry this month's already-used allowance over when a paid store moves from a
 -- calendar key to its plan-anchored key. GREATEST avoids double-counting if a
 -- deployment is retried after the new application has already written there.
+--
+-- The counter is an aggregate, so it cannot be split across two windows: the
+-- carry is made ONLY when the current 30-day window already covered the whole
+-- recorded calendar month (starts_at <= the 1st). A window that opened
+-- mid-month holds usage spent in the PREVIOUS window, and attributing that to
+-- the new one would leave the merchant short for up to 30 more days than the
+-- calendar key they are being moved off. Those stores start the window clean;
+-- the one-time cost is bounded at a single allowance per store.
+--
+-- The offsets are 720 hours rather than `interval '30 days'`, which Postgres
+-- resolves in the SESSION time zone, so the key matches
+-- MINK_CREDIT_CYCLE_MS (30 * 24 * 60 * 60 * 1000) in lib/ai/quota.ts whatever
+-- the runner's time zone is. `n`, not `offset`: OFFSET is a reserved keyword
+-- and is a syntax error as an unquoted column alias.
 INSERT INTO public.ai_usage (store_id, period, used)
 SELECT
   usage.store_id,
@@ -37,14 +51,16 @@ JOIN public.billing_subscriptions AS subscription
   ON subscription.store_id = usage.store_id
 CROSS JOIN LATERAL (
   SELECT max(
-    subscription.current_period_start + (series.offset * interval '30 days')
+    subscription.current_period_start + (series.n * interval '720 hours')
   ) AS starts_at
-  FROM generate_series(0, 240) AS series(offset)
+  FROM generate_series(0, 240) AS series(n)
   WHERE subscription.current_period_start IS NOT NULL
-    AND subscription.current_period_start + (series.offset * interval '30 days') <= now()
+    AND subscription.current_period_start + (series.n * interval '720 hours') <= now()
 ) AS boundary
 WHERE usage.period = to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM')
   AND boundary.starts_at IS NOT NULL
+  AND boundary.starts_at
+      <= (date_trunc('month', now() AT TIME ZONE 'UTC') AT TIME ZONE 'UTC')
 ON CONFLICT (store_id, period) DO UPDATE
 SET used = greatest(public.ai_usage.used, EXCLUDED.used);
 

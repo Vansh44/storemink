@@ -290,6 +290,15 @@ export interface AiUsageSummary {
   creditBalance: number;
   /** Exact monthly refresh instant for the included Mink allowance. */
   resetsAt: string;
+  /**
+   * False when the read FAILED and these numbers are a safe placeholder rather
+   * than the store's real balance. ★ A failed read reports `cap: null`, which
+   * is byte-identical to an unmetered plan — so a caller that renders the
+   * summary (rather than merely failing open on it) must check this first, or
+   * it tells a store with nothing left that it has unlimited credits at exactly
+   * the moment the database is unreachable.
+   */
+  available: boolean;
 }
 
 /** Current plan-cycle usage for the dashboard. */
@@ -324,6 +333,7 @@ export async function getAiUsage(storeId: string): Promise<AiUsageSummary> {
         cap: allowanceFor(effectivePlan(storeRows[0] ?? {})),
         creditBalance: creditRows[0]?.balance ?? 0,
         resetsAt: cycle.resetsAt,
+        available: true,
       };
     });
   } catch (err) {
@@ -333,6 +343,7 @@ export async function getAiUsage(storeId: string): Promise<AiUsageSummary> {
       cap: null,
       creditBalance: 0,
       resetsAt: minkCreditCycleAt().resetsAt,
+      available: false,
     };
   }
 }

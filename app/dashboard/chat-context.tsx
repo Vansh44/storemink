@@ -63,10 +63,19 @@ export interface MinkCreditSummary {
   resetsAt: string;
 }
 
+/**
+ * A summary held in state is, by construction, one the server could really
+ * read: `cap: null` means an unmetered plan and nothing else. ★ getAiUsage
+ * reports the same `cap: null` when its READ FAILS, so a payload that is not
+ * explicitly `available` is discarded rather than rendered — otherwise a
+ * transient database failure would paint a full green ring reading "Unlimited
+ * Mink credits" over a store with nothing left.
+ */
 function readMinkCredits(value: unknown): MinkCreditSummary | null {
   if (!value || typeof value !== "object") return null;
   const row = value as Record<string, unknown>;
   if (
+    row.available !== true ||
     typeof row.used !== "number" ||
     (typeof row.cap !== "number" && row.cap !== null) ||
     typeof row.creditBalance !== "number" ||

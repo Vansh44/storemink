@@ -986,6 +986,26 @@ back to Plans & Billing. The same footer carries the platform-owned “Powered b
 StoreMink” mark in both panel and full-screen chat; neither element changes the
 merchant storefront brand.
 
+★★ THE ROUTE READS `config.enabled` ITSELF, because nothing below it does.
+`getMinkActorContext` enforces the per-store invite and `dashboard:view` and
+knows nothing about `MINK_AI_ENABLED` — so a route that only forwards
+`betaRequireInvite` keeps serving while the global emergency switch is off, and
+that switch stops being global. It is also `rateLimit`ed per actor like every
+sibling Mink read: the composer refreshes on every completed run AND on every
+dashboard mount whether or not chat is opened, and resolving the actor alone
+costs a permissions read, a store/locations read and the brand-voice read.
+
+★★ AND AN UNREADABLE BALANCE IS A 503, NEVER A RENDERED ONE.
+`getAiUsage` swallows its own failure and reports `cap: null` — byte-identical
+to an unmetered plan, and no plan in `PLAN_LIMITS` actually has one — so
+serving the fallback would paint a full green ring reading “Unlimited Mink
+credits” over a store with nothing left, at exactly the moment the database is
+unreachable. `AiUsageSummary.available` is the fact that separates them: false
+only in that catch, checked by the route before it answers and again by
+`readMinkCredits` before the composer stores a summary. ⚠ `minkRunAffordability`
+deliberately keeps failing OPEN on the same `cap: null` — a blip must not refuse
+a run — so the flag narrows what is DISPLAYED, never what is allowed.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
@@ -4171,6 +4191,20 @@ running subscription is how you get chargebacks.
     duration instead of calendar-month arithmetic (yearly plans receive the
     same 30-day included-credit windows inside the paid year); a store without
     that paid-cycle anchor retains the UTC calendar-month fallback.
+    ★★ THE 0114 BACKFILL CARRIES THE OLD CALENDAR COUNTER ONLY WHEN THE
+    CURRENT WINDOW ALREADY COVERED THE WHOLE RECORDED MONTH. `ai_usage.used` is
+    an aggregate and cannot be split across two windows, so a store whose
+    30-day window opened mid-month holds credits spent in the PREVIOUS one —
+    attributing those to the new key leaves the merchant short for up to 30
+    more days than the calendar key they are being moved off. Those stores
+    start the window clean; the one-time cost is bounded at one allowance per
+    store, and `GREATEST` still makes a retried deployment idempotent.
+    ⚠ Its offsets are `interval '720 hours'`, not `interval '30 days'`, which
+    Postgres resolves in the SESSION time zone — the generated key has to equal
+    `MINK_CREDIT_CYCLE_MS` whatever zone the migration runner is in. And the
+    `generate_series` alias is `n`: `OFFSET` is a RESERVED keyword and is a
+    plain syntax error as an unquoted column alias, which aborts the whole
+    transaction and, since `migrate` precedes `deploy`, the release with it.
     `AiUsageSummary.resetsAt` is the single reset date rendered by Plans and the
     Mink composer. Called BEFORE Gemini in every AI action; blocked stores get
     a plan-aware message.
