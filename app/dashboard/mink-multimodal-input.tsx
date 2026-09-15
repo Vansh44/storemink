@@ -733,7 +733,7 @@ export function MinkMultimodalInput({
                 One file up to 2 MiB: PNG/JPEG/WebP up to 12 MP or a plain PDF
                 up to 10 pages. Text and Markdown documents are read locally up
                 to 8 KiB. Remove secrets and customer details. Beta extraction
-                deducts no AI credits but incurs provider usage and shared
+                deducts no Mink credits but incurs provider usage and shared
                 limits. Sending the reviewed text is a separate chat request.
               </details>
             </>

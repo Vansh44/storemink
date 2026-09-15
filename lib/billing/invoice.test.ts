@@ -458,7 +458,7 @@ describe("buildAiCreditsInvoice", () => {
         amountPaise: 299_00,
         tax: NO_TAX,
       }).lines[0].description,
-    ).toBe("AI credits · Bulk (150 credits)");
+    ).toBe("Mink credits · Bulk (150 credits)");
   });
 });
 

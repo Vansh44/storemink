@@ -393,7 +393,7 @@ export default async function StoreDetailPage({
             </div>
           </Card>
 
-          <Card title="AI usage" icon={<Sparkles className="h-4 w-4" />}>
+          <Card title="Mink usage" icon={<Sparkles className="h-4 w-4" />}>
             <Facts
               rows={[
                 [
@@ -538,7 +538,7 @@ export default async function StoreDetailPage({
             )}
           </Card>
 
-          <Card title="AI credit ledger">
+          <Card title="Mink credit ledger">
             {!audit || audit.creditLedger.length === 0 ? (
               <p className="text-sm text-slate-500">No credit activity.</p>
             ) : (

@@ -4,6 +4,7 @@ import {
   getPlanPricingLive,
 } from "@/lib/plans/pricing";
 import { PricingPanel } from "../pricing-panel";
+import { getMinkCreditPacksLive } from "@/lib/ai/credit-pricing";
 import { canManage, requireOperator } from "../require-operator";
 
 export const metadata = { title: "Pricing — StoreMink Admin" };
@@ -18,9 +19,10 @@ export default async function PricingPage() {
   const viewer = await requireOperator();
   if (!canManage(viewer)) redirect("/dashboard");
 
-  const [pricing, extraLocation] = await Promise.all([
+  const [pricing, extraLocation, minkCreditPacks] = await Promise.all([
     getPlanPricingLive(),
     getExtraLocationPricingLive(),
+    getMinkCreditPacksLive(),
   ]);
 
   return (
@@ -30,12 +32,16 @@ export default async function PricingPage() {
           Pricing
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Plan prices and the extra-location add-on. Existing subscribers keep
-          the price they authorised — a change applies to new subscriptions.
+          Plan prices, the extra-location add-on, and Mink credit top-ups.
+          Existing subscribers keep the plan price they authorised.
         </p>
       </header>
 
-      <PricingPanel pricing={pricing} extraLocation={extraLocation} />
+      <PricingPanel
+        pricing={pricing}
+        extraLocation={extraLocation}
+        minkCreditPacks={minkCreditPacks}
+      />
     </div>
   );
 }

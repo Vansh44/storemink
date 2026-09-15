@@ -36,6 +36,8 @@ import { MinkFeedbackControls } from "./mink-feedback";
 import { estimateMinkDraftIntent } from "@/lib/mink/draft-types";
 import { readReviewedMinkDocument } from "@/lib/mink/document-input";
 import { readSavedMinkMediaReference } from "@/lib/mink/media-attachment";
+import { BrandMark } from "@/app/platform/brand-mark";
+import type { MinkCreditSummary } from "./chat-context";
 
 const PANEL_WIDTH_KEY = "storemink:mink-panel-width";
 const DEFAULT_PANEL_WIDTH = 380;
@@ -154,6 +156,7 @@ export function DashboardChat({
     statusText,
     error,
     feedbackSubmittingRunId,
+    minkCredits,
     send,
     cancel,
     retry,
@@ -669,7 +672,7 @@ export function DashboardChat({
                 <div className="mb-1.5 flex items-center justify-between gap-2 px-1 text-[10px] text-[#6c6573]">
                   <span>{draftEstimate.label} proposal</span>
                   <span className="font-semibold text-[#5b3fd0]">
-                    Expected cost: {draftEstimate.expectedCredits} AI credit
+                    Expected cost: {draftEstimate.expectedCredits} Mink credit
                     {draftEstimate.expectedCredits === 1 ? "" : "s"}
                   </span>
                 </div>
@@ -762,6 +765,14 @@ export function DashboardChat({
                   </form>
                 )}
               </MinkMultimodalInput>
+              <div className="relative mt-2 flex min-h-6 items-center justify-center px-1">
+                <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#8c9196]">
+                  Powered by <BrandMark size={13} /> StoreMink
+                </span>
+                <div className="absolute right-1 top-0">
+                  <MinkCreditIndicator summary={minkCredits} />
+                </div>
+              </div>
             </div>
           </div>
         </main>
@@ -842,6 +853,132 @@ export function DashboardChat({
       )}
     </div>
   );
+}
+
+function MinkCreditIndicator({
+  summary,
+}: {
+  summary: MinkCreditSummary | null;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const state = summary ? minkCreditIndicatorState(summary) : null;
+  const includedLeft = state?.includedLeft ?? null;
+  const totalLeft = state?.totalLeft ?? null;
+  const fraction = state?.fraction ?? 0;
+  const color = state?.color ?? "#dc2626";
+  const circumference = 2 * Math.PI * 8;
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  if (!summary) return null;
+  const label =
+    totalLeft === null
+      ? "Unlimited Mink credits"
+      : `${totalLeft} Mink credit${totalLeft === 1 ? "" : "s"} left`;
+
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-label={label}
+        aria-expanded={open}
+        title={label}
+        onClick={() => setOpen((value) => !value)}
+        className="flex h-6 w-6 items-center justify-center rounded-full transition hover:bg-[#f2f2f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff]"
+      >
+        <svg
+          viewBox="0 0 20 20"
+          className="h-5 w-5 -rotate-90"
+          aria-hidden="true"
+        >
+          <circle
+            cx="10"
+            cy="10"
+            r="8"
+            fill="none"
+            stroke="#e5e7eb"
+            strokeWidth="3"
+          />
+          <circle
+            cx="10"
+            cy="10"
+            r="8"
+            fill="none"
+            stroke={color}
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeDasharray={circumference}
+            strokeDashoffset={circumference * (1 - fraction)}
+          />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="dialog"
+          aria-label="Mink credit balance"
+          className="absolute bottom-8 right-0 z-50 w-64 rounded-xl border border-[#dedede] bg-white p-3 text-left shadow-xl"
+        >
+          <p className="text-sm font-semibold text-[#1a1a1a]">Mink credits</p>
+          <p className="mt-1 text-2xl font-bold text-[#1a1a1a]">
+            {totalLeft === null ? "Unlimited" : totalLeft}
+          </p>
+          {totalLeft !== null && (
+            <p className="text-xs text-[#6b7280]">
+              {includedLeft} included + {summary.creditBalance} top-up remaining
+            </p>
+          )}
+          <p className="mt-2 border-t border-[#ededed] pt-2 text-xs text-[#6b7280]">
+            Included credits reset{" "}
+            {new Date(summary.resetsAt).toLocaleDateString("en-GB", {
+              day: "2-digit",
+              month: "short",
+              year: "numeric",
+            })}
+            .
+          </p>
+          <Link
+            href="/dashboard/plans"
+            onNavigate={() => setOpen(false)}
+            className="mt-2 inline-flex text-xs font-semibold text-[#6d4dff] hover:underline"
+          >
+            View credits and usage
+          </Link>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function minkCreditIndicatorState(summary: MinkCreditSummary) {
+  const includedLeft =
+    summary.cap === null ? null : Math.max(0, summary.cap - summary.used);
+  const totalLeft =
+    includedLeft === null ? null : includedLeft + summary.creditBalance;
+  const fraction =
+    summary.cap === null
+      ? 1
+      : Math.min(1, (totalLeft ?? 0) / Math.max(summary.cap, 1));
+  return {
+    includedLeft,
+    totalLeft,
+    fraction,
+    color: fraction > 0.5 ? "#16a34a" : fraction > 0.2 ? "#f59e0b" : "#dc2626",
+  };
 }
 
 function MinkUserMessage({ text }: { text: string }) {

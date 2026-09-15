@@ -52,6 +52,14 @@ vi.mock("@/lib/billing/credit-invoice", () => invoice);
 
 vi.mock("@/lib/notifications/record", () => ({ emitEvent: vi.fn() }));
 vi.mock("@/lib/ai/quota", () => ({ getAiUsage: vi.fn() }));
+vi.mock("@/lib/ai/credit-pricing", () => ({
+  getMinkCreditPackLive: vi.fn(async (id: string) =>
+    id === "small"
+      ? { id: "small", name: "Small", credits: 25, priceInr: 59 }
+      : null,
+  ),
+  getMinkCreditPacksLive: vi.fn(async () => []),
+}));
 
 import {
   confirmCreditPurchase,

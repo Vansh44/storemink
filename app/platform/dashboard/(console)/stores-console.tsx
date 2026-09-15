@@ -655,7 +655,7 @@ export function StoresConsole({
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">
-                    Grant AI credits to {toGrant.name}
+                    Grant Mink credits to {toGrant.name}
                   </h2>
                   <p className="mt-1 text-sm text-gray-500">
                     Free of cost, never expire, recorded in the credit ledger

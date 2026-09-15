@@ -9,7 +9,8 @@ vi.mock("@/lib/db/client", () => ({
     fn({ execute: h.execute }),
 }));
 vi.mock("@/lib/ai/quota", () => ({
-  currentPeriod: () => "2026-09",
+  getMinkCreditCycle: () =>
+    Promise.resolve({ period: "cycle:2026-09-15", resetsAt: "2026-10-15" }),
   getAiUsage: h.usage,
 }));
 vi.mock("@/lib/observability/logger", () => ({
@@ -102,7 +103,7 @@ describe("minkRunAffordability", () => {
     h.usage.mockResolvedValue({ used: 20, cap: 20, creditBalance: 0 });
     const result = await minkRunAffordability(actor, true);
     expect(result.allowed).toBe(false);
-    expect(result.error).toContain("Buy AI credits");
+    expect(result.error).toContain("Buy Mink credits");
   });
 
   it("never blocks an unlimited plan", async () => {

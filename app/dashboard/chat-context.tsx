@@ -3,6 +3,7 @@
 import {
   createContext,
   useContext,
+  useEffect,
   useState,
   useCallback,
   useMemo,
@@ -40,6 +41,7 @@ interface ChatContextType {
   statusText: string | null;
   error: { code: string; message: string } | null;
   feedbackSubmittingRunId: string | null;
+  minkCredits: MinkCreditSummary | null;
   send: (raw?: string) => void;
   cancel: () => void;
   retry: () => void;
@@ -52,6 +54,32 @@ interface ChatContextType {
     issueCategory?: MinkFeedbackIssue | null;
     details?: string;
   }) => Promise<MinkUiError | null>;
+}
+
+export interface MinkCreditSummary {
+  used: number;
+  cap: number | null;
+  creditBalance: number;
+  resetsAt: string;
+}
+
+function readMinkCredits(value: unknown): MinkCreditSummary | null {
+  if (!value || typeof value !== "object") return null;
+  const row = value as Record<string, unknown>;
+  if (
+    typeof row.used !== "number" ||
+    (typeof row.cap !== "number" && row.cap !== null) ||
+    typeof row.creditBalance !== "number" ||
+    typeof row.resetsAt !== "string"
+  ) {
+    return null;
+  }
+  return {
+    used: row.used,
+    cap: row.cap,
+    creditBalance: row.creditBalance,
+    resetsAt: row.resetsAt,
+  };
 }
 
 const ChatContext = createContext<ChatContextType | undefined>(undefined);
@@ -67,10 +95,31 @@ export function ChatProvider({
 }) {
   const [isChatOpen, setIsChatOpen] = useState(false);
   const [isExpanded, setIsExpanded] = useState(false);
+  const [minkCredits, setMinkCredits] = useState<MinkCreditSummary | null>(
+    null,
+  );
   // Conversation state lives here (not in each surface) so a message typed in
   // the Home box carries over into the panel/full view that opens.
   const mink = useMinkAi({ enabled: minkEnabled });
   const { send } = mink;
+
+  const refreshMinkCredits = useCallback(async () => {
+    if (!minkEnabled) return;
+    try {
+      const response = await fetch("/api/mink/credits", { cache: "no-store" });
+      if (!response.ok) return;
+      const summary = readMinkCredits(await response.json());
+      if (summary) setMinkCredits(summary);
+    } catch {
+      // The balance is helpful chrome, never a reason to take chat offline.
+    }
+  }, [minkEnabled]);
+
+  useEffect(() => {
+    if (mink.isReplying) return;
+    const timer = window.setTimeout(() => void refreshMinkCredits(), 0);
+    return () => window.clearTimeout(timer);
+  }, [mink.isReplying, refreshMinkCredits]);
 
   const toggleChat = useCallback(() => setIsChatOpen((prev) => !prev), []);
   const closeChat = useCallback(() => {
@@ -93,6 +142,7 @@ export function ChatProvider({
       isChatOpen,
       isExpanded,
       canSaveMedia,
+      minkCredits,
       toggleChat,
       closeChat,
       toggleExpand,
@@ -103,6 +153,7 @@ export function ChatProvider({
       isChatOpen,
       isExpanded,
       canSaveMedia,
+      minkCredits,
       toggleChat,
       closeChat,
       toggleExpand,
@@ -141,6 +192,7 @@ export function useChat() {
       statusText: null,
       error: null,
       feedbackSubmittingRunId: null,
+      minkCredits: null,
       send: () => {},
       cancel: () => {},
       retry: () => {},

@@ -89,7 +89,7 @@ function planFeatures(plan: Plan): string[] {
   return [
     `${l.maxProducts === null ? "Unlimited" : l.maxProducts} products`,
     `${l.maxStaff === null ? "Unlimited" : l.maxStaff} staff account${l.maxStaff === 1 ? "" : "s"}`,
-    `${l.aiGenerationsPerMonth === null ? "Unlimited" : l.aiGenerationsPerMonth} AI generations / month`,
+    `${l.aiGenerationsPerMonth === null ? "Unlimited" : l.aiGenerationsPerMonth} Mink credits / month`,
     l.customDomain ? "Custom domain" : "Subdomain only",
     l.onlinePayments ? "Online payments (own gateway)" : "Cash on Delivery",
     ...(l.customerBlogSubmissions ? ["Customer blog submissions"] : []),
@@ -174,7 +174,7 @@ export function PlansBillingClient({
     refresh();
   }
 
-  const { used, cap, creditBalance } = data.usage;
+  const { used, cap, creditBalance, resetsAt } = data.usage;
   const remaining = cap === null ? null : Math.max(0, cap - used);
   const plan = normalizePlan(data.plan);
   const planMeta = PLAN_META[plan];
@@ -187,12 +187,10 @@ export function PlansBillingClient({
   // once (render must stay pure — no Date.now() inline).
   const [now] = useState(() => Date.now());
 
-  // The monthly allowance resets at the start of the next calendar month (UTC,
-  // matching lib/ai/quota.ts currentPeriod). Show a live countdown, not a
-  // static "1st of the month".
+  // The allowance follows the store's plan-start anniversary, not the calendar
+  // month. The server owns that calculation; the client only phrases it.
   const resetCountdown = (() => {
-    const d = new Date(now);
-    const nextReset = Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+    const nextReset = new Date(resetsAt).getTime();
     const days = Math.ceil((nextReset - now) / 86_400_000);
     if (days <= 0) return "today";
     if (days === 1) return "tomorrow";
@@ -230,7 +228,7 @@ export function PlansBillingClient({
       rzpOrderId: start.rzpOrderId,
       amountPaise: start.amountPaise,
       name: "StoreMink",
-      description: `${pack.credits} AI credits — ${start.packName} pack`,
+      description: `${pack.credits} Mink credits — ${start.packName} pack`,
       onSuccess: async (res) => {
         const confirm = await confirmCreditPurchase(
           start.purchaseId,
@@ -243,7 +241,7 @@ export function PlansBillingClient({
             "Payment received — your credits will appear here in a few minutes.",
           );
         } else {
-          toast.success(`${confirm.creditsAdded} AI credits added!`);
+          toast.success(`${confirm.creditsAdded} Mink credits added!`);
         }
         startRefresh(() => router.refresh());
       },
@@ -265,8 +263,7 @@ export function PlansBillingClient({
           Plans &amp; Billing
         </h1>
         <p className="mt-1 text-sm text-[#5b6472]">
-          Your subscription, AI usage &amp; credits, and the plans you can move
-          to.
+          Your subscription, Mink credits, and the plans you can move to.
         </p>
       </div>
 
@@ -416,15 +413,15 @@ export function PlansBillingClient({
         )}
       </section>
 
-      {/* ─────────────── 2. Credits & usage ─────────────── */}
+      {/* ─────────────── 2. Mink credits & usage ─────────────── */}
       <section className="rounded-xl border border-[rgba(17,24,39,0.08)] bg-white p-6 shadow-sm">
         <h2 className="text-lg font-semibold text-[#111827]">
-          Credits &amp; usage
+          Mink credits &amp; usage
         </h2>
         <p className="mt-1 text-sm text-[#5b6472]">
-          Every AI generation (product copy, SEO, brand voice, coupon emails)
-          uses your plan&apos;s monthly allowance first, then your purchased
-          credits — credits never expire.
+          Mink conversations and supported AI tasks use your plan&apos;s
+          included credits first, then your top-up credits. Top-up credits never
+          expire.
         </p>
 
         <div className="mt-5 grid gap-6 sm:grid-cols-2">
@@ -436,7 +433,7 @@ export function PlansBillingClient({
               </div>
               <div className="flex-1">
                 <h3 className="text-base font-semibold text-[#111827]">
-                  This month
+                  Included credits
                 </h3>
                 <p className="text-sm text-[#5b6472]">
                   {planMeta.name} plan allowance
@@ -461,9 +458,7 @@ export function PlansBillingClient({
                   {cap === null ? used : remaining}
                 </span>
                 <span className="text-sm text-[#5b6472]">
-                  {cap === null
-                    ? "generations used"
-                    : `of ${cap} generations left`}
+                  {cap === null ? "credits used" : `of ${cap} credits left`}
                 </span>
               </div>
               {cap !== null && (
@@ -475,7 +470,7 @@ export function PlansBillingClient({
                 </div>
               )}
               <p className="mt-2 text-xs text-[#5b6472]">
-                Resets {resetCountdown}.
+                Resets {resetCountdown} ({formatDate(resetsAt)}).
               </p>
             </div>
           </div>
@@ -488,7 +483,7 @@ export function PlansBillingClient({
               </div>
               <div>
                 <h3 className="text-base font-semibold text-[#111827]">
-                  AI credits
+                  Top-up Mink credits
                 </h3>
                 <p className="text-sm text-[#5b6472]">Never expire</p>
               </div>
@@ -510,10 +505,10 @@ export function PlansBillingClient({
         {/* Buy credits */}
         <div className="mt-6">
           <h3 className="text-base font-semibold text-[#111827]">
-            Top up credits
+            Top up Mink credits
           </h3>
           <p className="mt-1 text-sm text-[#5b6472]">
-            Cheaper per generation than upgrading a plan for a one-off burst.
+            Add non-expiring credits for a one-off burst of Mink work.
           </p>
           <div className="mt-4">
             {!data.canBuyCredits ? (
@@ -580,12 +575,12 @@ export function PlansBillingClient({
           <div className="flex items-center gap-2">
             <History className="h-4 w-4 text-[#5b6472]" />
             <h3 className="text-base font-semibold text-[#111827]">
-              Recent credit activity
+              Recent Mink credit activity
             </h3>
           </div>
           {data.ledger.length === 0 ? (
             <p className="mt-3 text-sm text-[#5b6472]">
-              No credit activity yet — purchases, grants and spends show up
+              No Mink credit activity yet — purchases, grants and spends show up
               here.
             </p>
           ) : (
@@ -923,7 +918,7 @@ function UpgradeModal({
       rzpOrderId: start.rzpOrderId,
       amountPaise: start.amountPaise,
       name: "StoreMink",
-      description: `${selectedPack.credits} AI credits — one-time purchase`,
+      description: `${selectedPack.credits} Mink credits — one-time purchase`,
       onSuccess: async (res) => {
         const confirmed = await confirmCreditPurchase(
           start.purchaseId,
@@ -936,7 +931,7 @@ function UpgradeModal({
             "The credit payment was received and is being reconciled. Don't pay again.",
           );
         } else {
-          toast.success(`${confirmed.creditsAdded} AI credits added.`);
+          toast.success(`${confirmed.creditsAdded} Mink credits added.`);
         }
         onActivated();
       },
@@ -1096,7 +1091,7 @@ function UpgradeModal({
     }
   }
 
-  const steps = ["Choose plan", "AI credits", "Review & pay"];
+  const steps = ["Choose plan", "Mink credits", "Review & pay"];
   const recurringLabel = selectedPeriod === "yearly" ? "year" : "month";
 
   return (
@@ -1229,10 +1224,10 @@ function UpgradeModal({
             {stage === 2 && (
               <div>
                 <h3 className="text-lg font-semibold text-[#111827]">
-                  Optional AI credits
+                  Optional Mink credits
                 </h3>
                 <p className="mt-1 text-sm text-[#5b6472]">
-                  AI credits are a one-time purchase, never renew, and never
+                  Mink credits are a one-time purchase, never renew, and never
                   expire. They use a separate payment and invoice from your
                   plan.
                 </p>
@@ -1419,7 +1414,7 @@ function UpgradeModal({
                   disabled={stage === 1 && selectedPlan === currentPlan}
                   className="dash-btn dash-btn-primary w-full justify-center"
                 >
-                  {stage === 1 ? "Continue to AI credits" : "Review purchase"}
+                  {stage === 1 ? "Continue to Mink credits" : "Review purchase"}
                 </button>
               ) : isNewSubscription ? (
                 <button

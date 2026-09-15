@@ -292,7 +292,7 @@ export function StoreManageBar({
 
       {creditsOpen && (
         <Modal
-          title={`Grant AI credits — ${name}`}
+          title={`Grant Mink credits — ${name}`}
           onClose={() => setCreditsOpen(false)}
         >
           <label className="block text-sm font-medium text-slate-700">

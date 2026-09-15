@@ -707,8 +707,8 @@ export const EVENTS: readonly EventDef[] = [
   },
   {
     key: "ai.credits_low",
-    label: "AI credits running low",
-    description: "Your AI generation allowance is nearly used up.",
+    label: "Mink credits running low",
+    description: "Your included Mink credits are nearly used up.",
     group: "Plan & billing",
     section: "ai",
     severity: "warning",
@@ -716,7 +716,7 @@ export const EVENTS: readonly EventDef[] = [
   },
   {
     key: "ai.credits_purchased",
-    label: "AI credits purchased",
+    label: "Mink credits purchased",
     description: "A credit pack was bought and added to your balance.",
     group: "Plan & billing",
     section: "ai",

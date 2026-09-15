@@ -27,7 +27,7 @@ const BLURB: Record<string, string> = {
   account: "Your name, email and password.",
   admins: "Invite colleagues and control what each of them can reach.",
   roles: "Define what a role can see and change.",
-  ai: "Your plan, invoices and AI credits.",
+  ai: "Your plan, invoices and Mink credits.",
   channels:
     "Connect your own payment gateway so money settles directly to you.",
   billing: "Tax rates, tax classes and how your invoices look.",

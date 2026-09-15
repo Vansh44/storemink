@@ -4893,6 +4893,46 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260916_0114_mink_credits_cycle_pricing",
+      "description": "Name Mink credits, anchor monthly refreshes to plan start, and add operator top-up pricing",
+      "file": "sql/20260916_0114_mink_credits_cycle_pricing.sql",
+      "transaction": true,
+      "requires": ["20260915_0113_mink_conversation_voice_catalog_images"],
+      "verify": {
+        "tables": ["mink_credit_pack_prices", "ai_usage", "help_articles"],
+        "columns": [
+          "mink_credit_pack_prices.pack_id",
+          "mink_credit_pack_prices.price_inr",
+          "mink_credit_pack_prices.updated_at",
+          "mink_credit_pack_prices.updated_by"
+        ],
+        "constraints": [
+          "mink_credit_pack_prices_pack_id_check",
+          "mink_credit_pack_prices_price_check"
+        ],
+        "rlsTables": ["mink_credit_pack_prices"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the three Mink credit price rows are available",
+            "sql": "select count(*)::text from mink_credit_pack_prices where pack_id in ('small','popular','bulk')",
+            "equals": "3"
+          },
+          {
+            "name": "the merchant guide names the shared balance and plan-start refresh",
+            "sql": "select count(*)::text from help_articles where slug='understand-ai-usage-and-credits' and status='published' and title='Understand Mink credits and usage' and body like '%counted from the paid plan cycle start%' and body like '%Top up Mink credits%'",
+            "equals": "1"
+          },
+          {
+            "name": "merchant invoice guidance uses Mink credit terminology",
+            "sql": "select count(*)::text from help_articles where slug='view-and-pay-storemink-invoices' and status='published' and body like '%Mink-credit invoice is a paid receipt%' and body not like '%AI-credit invoice is a paid receipt%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

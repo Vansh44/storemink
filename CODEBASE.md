@@ -118,7 +118,8 @@ one that gets forgotten.
 **Migration 0100** adds `credit_source` / `plan_credits` / `balance_credits` to
 `mink_usage_ledger` and `consume_mink_run_credits`. It spends from `ai_usage`
 then `ai_credit_balances` — the same pool and the same order as
-`consume_mink_draft_credits`, so "AI credits" and "Mink credits" are one
+`consume_mink_draft_credits`, so legacy internal “AI credit” identifiers and
+merchant-facing **Mink credits** refer to one
 currency a merchant never has to reconcile.
 ★ A NULL `credit_source` means "not settled" and is what makes settlement
 idempotent under a retry; `'none'` is the different fact that a settled run
@@ -206,7 +207,8 @@ mixed with correct ones.
 hardcoded 3 for every run — a one-tool lookup and a six-step proposal metered
 identically — so the number told an operator nothing. It bands by measured size
 instead, in the SAME credits a product description spends (`lib/ai/quota.ts`):
-one pool, one currency, so "AI credits" and "Mink credits" stay the same thing.
+one pool and one currency; merchant-facing UI consistently calls it **Mink
+credits** while legacy database identifiers retain their existing names.
 
 ★★ THE UNIT IS `weightedMinkUnits` = `input + 5 × (output + thought)`, AND THE
 5 IS NOT A TUNING CHOICE. Every rate variant in `cost.ts` — global and
@@ -974,6 +976,16 @@ rather than Secret Manager; principals who can inspect a trigger or revision can
 therefore read it. Provider credentials and raw provider errors never reach the
 browser, and audio or transcript content is not written to logs.
 
+### Mink credit balance in chat (2026-09-16)
+
+The Plans page and composer call the shared balance **Mink credits**. The
+composer refreshes `GET /api/mink/credits` after each completed run and renders
+a small green/amber/red remaining-balance ring below the input. Its popover
+separates the current plan-cycle allowance from non-expiring top-ups and links
+back to Plans & Billing. The same footer carries the platform-owned “Powered by
+StoreMink” mark in both panel and full-screen chat; neither element changes the
+merchant storefront brand.
+
 ### Single Mink AI operator switch (2026-09-09)
 
 `app/actions/mink-operator-actions.ts` atomically upserts store enablement,
@@ -1572,10 +1584,9 @@ wholesip/
 │   │   ├── channels/          # ★ Channels (§18/§35): connect the store's OWN Razorpay
 │   │   │                      # and Shiprocket accounts; pause/resume, sync warehouse
 │   │   │                      # pickup mappings and configure the tracking webhook
-│   │   ├── ai/                # ★ AI usage (§16): monthly bar + credit balance +
-│   │   │                      # ledger + buy-credit packs (platform Razorpay)
+│   │   ├── ai/                # RETIRED as a destination; credit usage lives in plans/
 │   │   ├── plans/             # ★ Plans & Billing (§34): subscription status,
-│   │   │                      # payable subscription invoices, AI usage/top-ups,
+│   │   │                      # payable invoices, plan-anchored Mink usage/top-ups,
 │   │   │                      # invoice history and the accessible three-step
 │   │   │                      # plan → one-time AI credits → review/payment dialog
 │   │   ├── orders/[id]/invoice/  # ★ printable invoice for one order (§17)
@@ -2263,7 +2274,8 @@ wholesip/
 │   │                          # normalize/sanitize. Read cached via getStoreMenus.
 │   ├── ai/gemini.ts           # Gemini/Vertex AI client for AI copy (dual backend, §7);
 │   │                          # emits ai.generate telemetry (latency + tokens) via observability
-│   ├── ai/credits.ts          # ★ AI credit pack catalog (pure — the one place to reprice)
+│   ├── ai/credits.ts          # ★ fixed Mink pack identities/sizes + default prices (pure)
+│   ├── ai/credit-pricing.ts   # ★ live operator price overrides used by display + checkout
 │   ├── db/pg-types.ts         # Keeps timestamp/timestamptz text at PostgreSQL's full
 │   │                          # microsecond precision for exact optimistic checkpoints.
 │   ├── mink/                  # ★ Dashboard agent foundation (docs/mink-ai-dashboard-plan.md):
@@ -4148,16 +4160,21 @@ running subscription is how you get chargebacks.
     Merchants edit their voice at `/dashboard/branding` (section `branding`):
     five guided questions + "Generate with AI" (a fixed brand-strategist prompt
     composes the guide from the answers, review-before-save) + a free-form
-    guide textarea — `app/actions/brand-voice-actions.ts` (tested). **AI quota
-    (first live plan-limit enforcement):** `lib/ai/quota.ts` `consumeAiQuota`
-    meters generations per store per calendar month against the EFFECTIVE
+    guide textarea — `app/actions/brand-voice-actions.ts` (tested). **Mink
+    credit quota (first live plan-limit enforcement):** `lib/ai/quota.ts`
+    `consumeAiQuota` meters work per store against the EFFECTIVE
     plan's `aiGenerationsPerMonth` cap (3/10/50; null = unlimited, no
     metering) via the atomic `try_ai_generation` RPC + `ai_usage` table
     (single conditional UPDATE, the coupon-usage pattern; fails OPEN on
-    transient errors). Called BEFORE Gemini in every AI action; blocked
-    stores get a plan-aware message and the branding page shows "X of Y used
-    this month".
-    **AI credits (purchasable top-ups):** once the monthly allowance is
+    transient errors). Paid stores use consecutive 30-day windows anchored to
+    `billing_subscriptions.current_period_start`, matching StoreMink's billing
+    duration instead of calendar-month arithmetic (yearly plans receive the
+    same 30-day included-credit windows inside the paid year); a store without
+    that paid-cycle anchor retains the UTC calendar-month fallback.
+    `AiUsageSummary.resetsAt` is the single reset date rendered by Plans and the
+    Mink composer. Called BEFORE Gemini in every AI action; blocked stores get
+    a plan-aware message.
+    **Mink credits (purchasable top-ups):** once the included allowance is
     spent, `consumeAiQuota` falls back to the store's credit balance
     (never-expiring integers) via `try_spend_ai_credit` — the expiring
     resource burns before the permanent one. Storage in
@@ -4166,10 +4183,13 @@ running subscription is how you get chargebacks.
     UNIQUE partial index on purchase refs makes crediting idempotent per
     Razorpay payment id) and `ai_credit_purchases` (pending→paid/failed) —
     all SERVICE-ROLE ONLY. RPCs `add_ai_credits` (idempotent for purchases)
-    - `try_spend_ai_credit` (single conditional UPDATE). Pack catalog in
-      `lib/ai/credits.ts` (25/₹59, 60/₹129, 150/₹299 — the one place to
-      reprice). Merchants see usage + balance + ledger and buy packs at
-      **`/dashboard/ai`** (section `ai`, group Administration) —
+    - `try_spend_ai_credit` (single conditional UPDATE). `lib/ai/credits.ts`
+      fixes the three pack identities and sizes (25/60/150), while
+      `mink_credit_pack_prices` + `lib/ai/credit-pricing.ts` overlay the live
+      operator-controlled rupee prices. Display and checkout use the same live
+      resolver so a reprice cannot show one amount and charge another.
+      Merchants see usage + balance + ledger and buy packs at
+      **`/dashboard/plans`** (permission section remains `ai`) —
       `app/actions/ai-credit-actions.ts`: `startCreditPurchase` (available on
       Free, Basic and Pro) → Razorpay modal on the **PLATFORM's own account**
       (env `RAZORPAY_KEY_ID`/`RAZORPAY_KEY_SECRET`; totally separate from a
@@ -4183,8 +4203,9 @@ running subscription is how you get chargebacks.
       `20260816_0004_ai_credit_invoice_paid_repair` corrects already-paid packs
       whose invoices were historically left `open`; repeated payment confirmation
       retries this idempotent receipt transition, so a transient document write
-      self-heals without granting credits twice. Operators grant free credits from the
-      stores console (`grantAiCredits`, superadmin-only, audited with the
+      self-heals without granting credits twice. Operators edit all three pack
+      prices under `/platform/pricing` and grant free credits from the stores
+      console (`grantAiCredits`, superadmin-only, audited with the
       operator's email as the ledger ref) and see per-store AI used / credit
       balance / gateway state (batch-enriched `listAllStores`) plus a History
       drawer (`getStoreAudit`: plan_events + credit ledger).

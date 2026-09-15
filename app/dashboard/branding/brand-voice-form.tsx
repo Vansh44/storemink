@@ -100,7 +100,7 @@ export function BrandVoiceForm({
               <strong>
                 {Math.min(usage.used, usage.cap)} of {usage.cap}
               </strong>{" "}
-              AI generations used this month.
+              Mink credits used in this plan cycle.
             </>
           )}
         </p>

@@ -7254,6 +7254,31 @@ export const planPrices = pgTable("plan_prices", {
   updatedBy: text("updated_by"),
 });
 
+// Platform-global operator overrides for the three fixed Mink top-up packs.
+// Credits/name/order stay in code; only price is editable, so an operator
+// cannot accidentally create a pack the checkout does not understand.
+export const minkCreditPackPrices = pgTable(
+  "mink_credit_pack_prices",
+  {
+    packId: text("pack_id").primaryKey().notNull(),
+    priceInr: integer("price_inr").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    check(
+      "mink_credit_pack_prices_pack_id_check",
+      sql`pack_id = ANY (ARRAY['small'::text, 'popular'::text, 'bulk'::text])`,
+    ),
+    check(
+      "mink_credit_pack_prices_price_check",
+      sql`${table.priceInr} > 0 AND ${table.priceInr} <= 500000`,
+    ),
+  ],
+);
+
 // ---- Returns & refunds (supabase/pos_12_returns.sql) ----------------------
 // Two tables because they are two facts: a return can be refunded across
 // several tenders, and a refund can happen with no return (a cancellation).

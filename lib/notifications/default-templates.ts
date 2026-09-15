@@ -81,8 +81,8 @@ const INTRO: Record<string, string> = {
     "Your plan is about to expire. Renew to keep your paid features.",
   "subscription.payment_failed":
     "We couldn't collect your plan payment. Update your payment method to avoid losing paid features.",
-  "ai.credits_low": "Your AI generation allowance is nearly used up.",
-  "ai.credits_purchased": "Your AI credits have been topped up.",
+  "ai.credits_low": "Your included Mink credits are nearly used up.",
+  "ai.credits_purchased": "Your Mink credits have been topped up.",
 };
 
 interface TemplateFact {

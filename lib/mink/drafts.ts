@@ -7,7 +7,7 @@ import {
   minkDrafts,
   minkDraftVersions,
 } from "@/drizzle/schema";
-import { currentPeriod } from "@/lib/ai/quota";
+import { getMinkCreditCycle } from "@/lib/ai/quota";
 import { withService, type Db } from "@/lib/db/client";
 import { limitsFor } from "@/lib/plans";
 import {
@@ -135,6 +135,7 @@ export async function createMinkDraftProposal(input: {
   const expectedCredits = MINK_DRAFT_CONFIG[kind].expectedCredits;
   const draftId = crypto.randomUUID();
   const planCap = limitsFor(actor.effectivePlan).aiGenerationsPerMonth;
+  const cycle = await getMinkCreditCycle(actor.storeId);
 
   return withService(async (db) => {
     await db.insert(minkDrafts).values({
@@ -161,7 +162,7 @@ export async function createMinkDraftProposal(input: {
         p_admin => ${actor.adminId},
         p_run => ${actor.runId}::uuid,
         p_draft => ${draftId}::uuid,
-        p_period => ${currentPeriod()},
+        p_period => ${cycle.period},
         p_plan_cap => ${planCap},
         p_credits => ${expectedCredits},
         p_kind => ${kind}
@@ -178,7 +179,7 @@ export async function createMinkDraftProposal(input: {
           ),
         );
       throw new MinkToolInputError(
-        `This ${MINK_DRAFT_CONFIG[kind].label.toLocaleLowerCase("en-IN")} needs ${expectedCredits} AI credits. The store's monthly allowance and AI-credit balance do not have enough remaining.`,
+        `This ${MINK_DRAFT_CONFIG[kind].label.toLocaleLowerCase("en-IN")} needs ${expectedCredits} Mink credits. The store's included allowance and top-up balance do not have enough remaining.`,
       );
     }
     if (!isCreditSource(source)) {

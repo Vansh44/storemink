@@ -235,8 +235,8 @@ export interface PlanLimits {
   maxProducts: number | null;
   /** Max staff accounts incl. the owner (null = unlimited). */
   maxStaff: number | null;
-  /** AI generations per calendar month (null = unlimited). Purchased AI
-   *  credits (lib/ai) top this up — the monthly allowance is consumed first. */
+  /** Legacy-sized Mink credits per plan cycle (null = unlimited). Purchased
+   *  top-ups (lib/ai) extend this after the included allowance is consumed. */
   aiGenerationsPerMonth: number | null;
   /**
    * The allowance once a Mink conversation SPENDS from the same pool.
@@ -279,7 +279,7 @@ export interface PlanLimits {
   analyticsCustomization: boolean;
   /** May open drill-down analytics reports, CSV and Search Console data. */
   detailedAnalytics: boolean;
-  /** May buy additional AI credits after the included allowance is used. */
+  /** May buy additional Mink credits after the included allowance is used. */
   aiCreditTopUps: boolean;
   /** May send coupon email campaigns. */
   emailCampaigns: boolean;
@@ -577,13 +577,13 @@ export const PLAN_FEATURE_MATRIX: readonly PlanMatrixSection[] = [
         pro: true,
       },
       {
-        label: "Included AI generations each month",
+        label: "Included Mink credits each month",
         free: String(PLAN_LIMITS.free.aiGenerationsPerMonth),
         basic: String(PLAN_LIMITS.basic.aiGenerationsPerMonth),
         pro: String(PLAN_LIMITS.pro.aiGenerationsPerMonth),
       },
       {
-        label: "Buy additional AI credits",
+        label: "Buy additional Mink credits",
         free: true,
         basic: true,
         pro: true,
