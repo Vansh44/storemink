@@ -8,8 +8,10 @@ import {
   minkDraftVersions,
 } from "@/drizzle/schema";
 import { getMinkCreditCycle } from "@/lib/ai/quota";
+import { getMinkConfig } from "@/lib/mink/config";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
 import { withService, type Db } from "@/lib/db/client";
-import { limitsFor } from "@/lib/plans";
+import { aiAllowanceFor } from "@/lib/plans";
 import {
   MINK_DRAFT_CONFIG,
   isMinkDraftKind,
@@ -134,8 +136,20 @@ export async function createMinkDraftProposal(input: {
   const before = normalizeOptionalContent(kind, input.before);
   const expectedCredits = MINK_DRAFT_CONFIG[kind].expectedCredits;
   const draftId = crypto.randomUUID();
-  const planCap = limitsFor(actor.effectivePlan).aiGenerationsPerMonth;
-  const cycle = await getMinkCreditCycle(actor.storeId);
+  // ★ aiAllowanceFor, NOT limitsFor(...).aiGenerationsPerMonth. This read the
+  // legacy number directly, so the moment MINK_CHARGE_CREDITS is switched on a
+  // draft proposal would meter against 3/10/50 while a conversational run
+  // metered against 20/100/300 — two halves of one pool quoting different caps,
+  // which is the single-read rule lib/ai/quota.ts documents.
+  const [cycle, allowances] = await Promise.all([
+    getMinkCreditCycle(actor.storeId),
+    getPlanAllowancesLive(),
+  ]);
+  const planCap = aiAllowanceFor(
+    actor.effectivePlan,
+    getMinkConfig().chargeCredits,
+    allowances,
+  );
 
   return withService(async (db) => {
     await db.insert(minkDrafts).values({

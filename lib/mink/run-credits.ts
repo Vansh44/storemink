@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
 import { getAiUsage, getMinkCreditCycle } from "@/lib/ai/quota";
 import { aiAllowanceFor, PLAN_META } from "@/lib/plans";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
 import { logError, logInfo } from "@/lib/observability/logger";
 import { minkCreditBand, minkRunCreditCharge } from "./metering";
 import type { MinkActorContext, MinkUsage } from "./types";
@@ -107,12 +108,16 @@ export async function settleMinkRunCredits(input: {
     bandCredits,
     alreadyCharged: input.alreadyCharged,
   });
-  // The RAISED allowance: this path only runs when charging is on, and the
-  // two are the same switch (lib/plans.ts aiAllowanceFor).
-  const planCap = aiAllowanceFor(input.actor.effectivePlan, true);
-
   try {
-    const cycle = await getMinkCreditCycle(input.actor.storeId);
+    // Parallel with the cycle read this already awaited, so honouring an
+    // operator override costs no extra wall-clock on the settlement path.
+    const [cycle, allowances] = await Promise.all([
+      getMinkCreditCycle(input.actor.storeId),
+      getPlanAllowancesLive(),
+    ]);
+    // The RAISED allowance: this path only runs when charging is on, and the
+    // two are the same switch (lib/plans.ts aiAllowanceFor).
+    const planCap = aiAllowanceFor(input.actor.effectivePlan, true, allowances);
     const result = await withService((db) =>
       db.execute(sql`
         select public.consume_mink_run_credits(

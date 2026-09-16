@@ -3,13 +3,20 @@
 import { useState, useTransition } from "react";
 import {
   saveMinkCreditPackPricing,
+  savePlanCreditAllowances,
   savePlanPricing,
   type PlanPriceInput,
 } from "@/app/actions/platform";
 // The KEY comes from the pure module: lib/plans/pricing.ts is `server-only`, so
 // importing a runtime value from it into this client component fails the build
 // (the TYPES are fine — they are erased).
-import { EXTRA_LOCATION_KEY } from "@/lib/plans";
+import {
+  EXTRA_LOCATION_KEY,
+  PLAN_IDS,
+  PLAN_META,
+  type Plan,
+  type PlanAllowances,
+} from "@/lib/plans";
 import type { ExtraLocationPricing, PlanPricing } from "@/lib/plans/pricing";
 import type { CreditPack } from "@/lib/ai/credits";
 
@@ -68,10 +75,15 @@ export function PricingPanel({
   pricing,
   extraLocation,
   minkCreditPacks,
+  minkAllowances,
+  minkChargesCredits,
 }: {
   pricing: PlanPricing;
   extraLocation: ExtraLocationPricing;
   minkCreditPacks: CreditPack[];
+  minkAllowances: PlanAllowances;
+  /** Which of the two allowance columns the quota gate is reading TODAY. */
+  minkChargesCredits: boolean;
 }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(pricing, extraLocation));
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
@@ -216,8 +228,161 @@ export function PricingPanel({
           the price you charge.
         </p>
       </section>
+      <MinkCreditAllowances
+        allowances={minkAllowances}
+        chargesCredits={minkChargesCredits}
+      />
       <MinkCreditPricing packs={minkCreditPacks} />
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Included Mink credits per plan — the one plan LIMIT an operator can move
+// without a deploy.
+//
+// ★ BOTH HALVES ARE ON SCREEN, not just the one in force. MINK_CHARGE_CREDITS
+// switches between them (lib/plans.ts aiAllowanceFor) and they are sized for
+// different things: the left column for ~Rs 0.90 product descriptions, the
+// right for 1-8 credit Mink conversations. Showing only the live one would
+// leave the other editable by nobody until the day charging is switched on,
+// which is the worst moment to discover a tier is mis-sized. The badge says
+// which is being enforced right now so the two are never confused.
+// ---------------------------------------------------------------------------
+function MinkCreditAllowances({
+  allowances,
+  chargesCredits,
+}: {
+  allowances: PlanAllowances;
+  chargesCredits: boolean;
+}) {
+  const [rows, setRows] = useState(() =>
+    PLAN_IDS.map((plan) => ({
+      plan,
+      generationsPerMonth: String(allowances[plan].generationsPerMonth ?? ""),
+      creditsPerMonth: String(allowances[plan].creditsPerMonth ?? ""),
+    })),
+  );
+  const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
+  const [pending, start] = useTransition();
+
+  const set = (
+    plan: Plan,
+    key: "generationsPerMonth" | "creditsPerMonth",
+    value: string,
+  ) => {
+    setRows((current) =>
+      current.map((row) =>
+        row.plan === plan
+          ? { ...row, [key]: value.replace(/[^\d]/g, "") }
+          : row,
+      ),
+    );
+    setMsg({});
+  };
+
+  const save = () => {
+    start(async () => {
+      const result = await savePlanCreditAllowances(
+        rows.map((row) => ({
+          plan: row.plan,
+          generationsPerMonth: Number(row.generationsPerMonth || 0),
+          creditsPerMonth: Number(row.creditsPerMonth || 0),
+        })),
+      );
+      setMsg(
+        result.error
+          ? { error: result.error }
+          : { ok: "Included Mink credits updated." },
+      );
+    });
+  };
+
+  const inForce = (
+    <span className="ml-2 rounded-full bg-[var(--stq-ok)]/15 px-2 py-0.5 text-[11px] font-semibold text-[var(--stq-ok)]">
+      in force
+    </span>
+  );
+
+  return (
+    <section className="stq-card">
+      <header className="mb-4">
+        <h2 className="text-lg font-bold">Included Mink credits</h2>
+        <p className="text-sm text-[var(--stq-muted)]">
+          What each plan grants every 30 days, before any top-up pack. Applies
+          to every store on that plan at its next request —{" "}
+          <b>including stores already subscribed</b>, unlike a price change.
+        </p>
+      </header>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[var(--stq-muted)]">
+              <th className="py-2 pr-4 font-medium">Plan</th>
+              <th className="py-2 pr-4 font-medium">
+                Per 30 days{!chargesCredits && inForce}
+              </th>
+              <th className="py-2 font-medium">
+                Per 30 days once Mink charges{chargesCredits && inForce}
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row) => (
+              <tr key={row.plan} className="border-t border-[var(--stq-line)]">
+                <td className="py-3 pr-4 font-semibold">
+                  {PLAN_META[row.plan].name}
+                </td>
+                <td className="py-3 pr-4">
+                  <input
+                    className="stq-input w-28"
+                    inputMode="numeric"
+                    value={row.generationsPerMonth}
+                    onChange={(event) =>
+                      set(row.plan, "generationsPerMonth", event.target.value)
+                    }
+                    aria-label={`${row.plan} included Mink credits per 30 days`}
+                  />
+                </td>
+                <td className="py-3">
+                  <input
+                    className="stq-input w-28"
+                    inputMode="numeric"
+                    value={row.creditsPerMonth}
+                    onChange={(event) =>
+                      set(row.plan, "creditsPerMonth", event.target.value)
+                    }
+                    aria-label={`${row.plan} included Mink credits per 30 days once Mink charges`}
+                  />
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          type="button"
+          onClick={save}
+          disabled={pending}
+          className="stq-btn stq-btn-primary"
+        >
+          {pending ? "Saving…" : "Save included credits"}
+        </button>
+        {msg.ok && (
+          <span className="text-sm text-[var(--stq-ok)]">{msg.ok}</span>
+        )}
+        {msg.error && (
+          <span className="text-sm text-[var(--stq-bad)]">{msg.error}</span>
+        )}
+      </div>
+      <p className="mt-3 text-xs text-[var(--stq-muted)]">
+        A merchant&rsquo;s balance is not topped up retroactively: raising an
+        allowance gives every store on that plan the higher cap from its current
+        30-day window, and lowering one can leave a store already over the new
+        cap until the window turns.
+      </p>
+    </section>
   );
 }
 

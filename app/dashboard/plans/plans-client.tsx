@@ -51,7 +51,9 @@ import {
   PLAN_LIMITS,
   PLAN_META,
   PLAN_RANK,
+  allowanceLabel,
   normalizePlan,
+  type IncludedMinkCredits,
   type Plan,
 } from "@/lib/plans";
 import type { PlanPricing } from "@/lib/plans/pricing";
@@ -83,13 +85,16 @@ function formatDate(iso: string): string {
 }
 
 // The bullets shown for each plan in "Available plans", derived from the plan
-// limits so they can never drift from what's actually enforced.
-function planFeatures(plan: Plan): string[] {
+// limits so they can never drift from what's actually enforced. ★ The Mink
+// allowance is the one row an operator can move without a deploy, so it comes
+// in resolved rather than from PLAN_LIMITS — reading the constant here would
+// advertise a number the quota gate is no longer enforcing.
+function planFeatures(plan: Plan, included: IncludedMinkCredits): string[] {
   const l = PLAN_LIMITS[plan];
   return [
     `${l.maxProducts === null ? "Unlimited" : l.maxProducts} products`,
     `${l.maxStaff === null ? "Unlimited" : l.maxStaff} staff account${l.maxStaff === 1 ? "" : "s"}`,
-    `${l.aiGenerationsPerMonth === null ? "Unlimited" : l.aiGenerationsPerMonth} Mink credits / month`,
+    `${allowanceLabel(included[plan])} Mink credits / month`,
     l.customDomain ? "Custom domain" : "Subdomain only",
     l.onlinePayments ? "Online payments (own gateway)" : "Cash on Delivery",
     ...(l.customerBlogSubmissions ? ["Customer blog submissions"] : []),
@@ -110,11 +115,16 @@ export function PlansBillingClient({
   packs,
   canManage,
   pricing,
+  includedCredits,
 }: {
   initialData: AiUsagePageData;
   subscription: SubscriptionView;
   packs: CreditPack[];
   canManage: boolean;
+  /** Resolved server-side, with the MINK_CHARGE_CREDITS switch already applied
+   *  — the flag is server-only, so a client that guessed at it would advertise
+   *  the half that is not being enforced. */
+  includedCredits: IncludedMinkCredits;
   /** Resolved server-side (code defaults + operator overrides). Never read
    *  PLAN_META prices here — they ignore what an operator has set, so the card
    *  and the charge would disagree. */
@@ -714,7 +724,7 @@ export function PlansBillingClient({
                 <p className="mt-1 text-xs text-[#5b6472]">{meta.tagline}</p>
 
                 <ul className="mt-4 flex-1 space-y-2">
-                  {planFeatures(p).map((f) => (
+                  {planFeatures(p, includedCredits).map((f) => (
                     <li
                       key={f}
                       className="flex items-start gap-2 text-sm text-[#344054]"

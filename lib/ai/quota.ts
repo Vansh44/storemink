@@ -12,10 +12,12 @@ import {
 import {
   aiAllowanceFor,
   effectivePlan,
+  type PlanAllowances,
   planAllows,
   PLAN_META,
   NO_COMP,
 } from "@/lib/plans";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
 import { getMinkConfig } from "@/lib/mink/config";
 import { recordEvent } from "@/lib/notifications/record";
 
@@ -42,8 +44,11 @@ import { recordEvent } from "@/lib/notifications/record";
  * each call site so the quota gate, the dashboard's "X of Y used", the Mink
  * affordability check and settlement can never quote different numbers.
  */
-function allowanceFor(plan: Parameters<typeof aiAllowanceFor>[0]) {
-  return aiAllowanceFor(plan, getMinkConfig().chargeCredits);
+function allowanceFor(
+  plan: Parameters<typeof aiAllowanceFor>[0],
+  allowances: PlanAllowances,
+) {
+  return aiAllowanceFor(plan, getMinkConfig().chargeCredits, allowances);
 }
 
 /** Legacy UTC calendar bucket used when no paid-plan anchor exists. */
@@ -146,8 +151,12 @@ export async function consumeAiQuota(storeId: string): Promise<QuotaResult> {
       }
     | undefined;
   let cycle: MinkCreditCycle;
+  // Read alongside the plan row and the cycle rather than after them: an
+  // operator override decides whether this store is BLOCKED, so it has to be
+  // live, and in the same Promise.all it costs no extra wall-clock.
+  let allowances: PlanAllowances;
   try {
-    [[storeRow], cycle] = await Promise.all([
+    [[storeRow], cycle, allowances] = await Promise.all([
       withService((db) =>
         db
           .select({
@@ -161,6 +170,7 @@ export async function consumeAiQuota(storeId: string): Promise<QuotaResult> {
           .limit(1),
       ),
       getMinkCreditCycle(storeId),
+      getPlanAllowancesLive(),
     ]);
   } catch (err) {
     console.error(
@@ -171,7 +181,7 @@ export async function consumeAiQuota(storeId: string): Promise<QuotaResult> {
   }
 
   const plan = effectivePlan(storeRow ?? NO_COMP);
-  const cap = allowanceFor(plan);
+  const cap = allowanceFor(plan, allowances);
   if (cap === null) return { allowed: true, source: "plan" }; // unlimited
 
   let ok: boolean;
@@ -304,7 +314,10 @@ export interface AiUsageSummary {
 /** Current plan-cycle usage for the dashboard. */
 export async function getAiUsage(storeId: string): Promise<AiUsageSummary> {
   try {
-    const cycle = await getMinkCreditCycle(storeId);
+    const [cycle, allowances] = await Promise.all([
+      getMinkCreditCycle(storeId),
+      getPlanAllowancesLive(),
+    ]);
     return await withService(async (db) => {
       const storeRows = await db
         .select({
@@ -330,7 +343,7 @@ export async function getAiUsage(storeId: string): Promise<AiUsageSummary> {
         .limit(1);
       return {
         used: usageRows[0]?.used ?? 0,
-        cap: allowanceFor(effectivePlan(storeRows[0] ?? {})),
+        cap: allowanceFor(effectivePlan(storeRows[0] ?? {}), allowances),
         creditBalance: creditRows[0]?.balance ?? 0,
         resetsAt: cycle.resetsAt,
         available: true,

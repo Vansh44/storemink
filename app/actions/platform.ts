@@ -22,6 +22,7 @@ import {
   homepageSections,
   mediaAssets,
   minkCreditPackPrices,
+  minkPlanAllowances,
   orderReturns,
   planEvents,
   planPrices,
@@ -68,6 +69,7 @@ import {
 } from "@/lib/plans/pricing";
 import { minkCreditCycleAt } from "@/lib/ai/quota";
 import { DEFAULT_MINK_CREDIT_PACKS } from "@/lib/ai/credits";
+import { bustPlanAllowances } from "@/lib/plans/allowances";
 
 // A Storemink platform operator (from platform_admins, by JWT email).
 export interface PlatformViewer {
@@ -1129,6 +1131,94 @@ export async function saveMinkCreditPackPricing(
     return { error: "Couldn't save Mink credit prices. Please try again." };
   }
   revalidatePath("/platform/pricing");
+  revalidatePath("/dashboard/plans");
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Included Mink credits per plan (migration 0115).
+//
+// The only plan LIMIT an operator can move without a deploy. Everything else in
+// PLAN_LIMITS decides what the code must DO — a product cap, a feature flag —
+// while this is a number the same code enforces either way, and it is the one
+// merchants ask to have raised.
+// ---------------------------------------------------------------------------
+
+/** Bound on a single plan's included allowance. High enough for an enterprise
+ *  grant, low enough that a slipped digit is refused rather than handing a tier
+ *  an effectively unmetered pool. Mirrored by the database CHECKs. */
+const MAX_PLAN_ALLOWANCE = 100_000;
+
+export interface PlanAllowanceInput {
+  plan: string;
+  generationsPerMonth: number;
+  creditsPerMonth: number;
+}
+
+export async function savePlanCreditAllowances(
+  input: PlanAllowanceInput[],
+): Promise<ActionResult> {
+  const viewer = await getPlatformViewer();
+  if (viewer?.role !== "superadmin") {
+    return { error: "Only a platform superadmin can change allowances." };
+  }
+  const ids = PLAN_IDS as readonly string[];
+  if (
+    !Array.isArray(input) ||
+    input.length !== ids.length ||
+    new Set(input.map((row) => row.plan)).size !== ids.length ||
+    input.some((row) => !ids.includes(row.plan))
+  ) {
+    return { error: "Submit one allowance for each plan." };
+  }
+  for (const row of input) {
+    // ★ BOTH HALVES ARE VALIDATED, including the one not currently in force.
+    // MINK_CHARGE_CREDITS switches between them, and a bad value stored in the
+    // dormant half would only surface at the moment charging is switched on —
+    // the worst possible time to discover a tier has a cap of 0.
+    for (const [label, value] of [
+      ["included credits", row.generationsPerMonth],
+      ["included credits once charging is on", row.creditsPerMonth],
+    ] as const) {
+      if (!Number.isInteger(value) || value < 1 || value > MAX_PLAN_ALLOWANCE) {
+        return {
+          error: `${row.plan}: ${label} must be a whole number between 1 and ${MAX_PLAN_ALLOWANCE}.`,
+        };
+      }
+    }
+  }
+
+  try {
+    await withService(async (db) => {
+      for (const row of input) {
+        await db
+          .insert(minkPlanAllowances)
+          .values({
+            plan: row.plan,
+            generationsPerMonth: row.generationsPerMonth,
+            creditsPerMonth: row.creditsPerMonth,
+            updatedBy: viewer.email ?? null,
+          })
+          .onConflictDoUpdate({
+            target: minkPlanAllowances.plan,
+            set: {
+              generationsPerMonth: row.generationsPerMonth,
+              creditsPerMonth: row.creditsPerMonth,
+              updatedBy: viewer.email ?? null,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+      }
+    });
+  } catch (error) {
+    logError("savePlanCreditAllowances failed", error);
+    return { error: "Couldn't save Mink allowances. Please try again." };
+  }
+  // The public pricing table and both console lists read through the cached
+  // loader — without this the change would not show until the window lapsed,
+  // while the quota gate (live) enforced it immediately.
+  bustPlanAllowances();
+  revalidatePath("/platform");
   revalidatePath("/dashboard/plans");
   return { success: true };
 }

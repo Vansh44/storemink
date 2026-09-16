@@ -403,194 +403,328 @@ export interface PlanMatrixSection {
 
 /** Complete customer-facing comparison. Values that are limits are derived
  * from PLAN_LIMITS; feature availability is enforced from the same object. */
+// ---------------------------------------------------------------------------
+// Included Mink credits — code default ← operator override
+// ---------------------------------------------------------------------------
+//
+// The allowance is the one plan limit an operator can move without a deploy
+// (`mink_plan_allowances`, read by lib/plans/allowances.ts). Everything else in
+// PLAN_LIMITS stays compiled in: a product cap or a feature flag changes what
+// the code must DO, while this is a number the same code enforces either way.
+//
+// The merge is here rather than in the server-only reader so the pure rule sits
+// beside the constants it overrides, and so client components can hold the
+// resolved shape (lib/plans/pricing.ts keeps EXTRA_LOCATION_KEY here for the
+// same reason — a `server-only` module cannot export even a type to a client
+// component without failing the build).
+
+/** Both halves of one plan's allowance. `null` = unmetered. */
+export interface PlanAllowance {
+  /** In force while MINK_CHARGE_CREDITS is off. */
+  generationsPerMonth: number | null;
+  /** In force once it is on. */
+  creditsPerMonth: number | null;
+}
+
+export type PlanAllowances = Record<Plan, PlanAllowance>;
+
 /**
- * The monthly AI allowance in force, in credits.
+ * What the constants say, before any operator override.
+ *
+ * ★ Also the explicit "I checked, there is no override" value — the NO_COMP
+ * precedent. `aiAllowanceFor` takes the allowances REQUIRED rather than
+ * optional for exactly that reason: an optional argument lets a call site
+ * silently keep enforcing the compiled-in number while an operator believes
+ * they changed it, with nothing failing anywhere.
+ */
+export const DEFAULT_PLAN_ALLOWANCES: PlanAllowances = Object.fromEntries(
+  PLAN_IDS.map((id) => [
+    id,
+    {
+      generationsPerMonth: PLAN_LIMITS[id].aiGenerationsPerMonth,
+      creditsPerMonth: PLAN_LIMITS[id].aiCreditsPerMonth,
+    },
+  ]),
+) as PlanAllowances;
+
+export interface PlanAllowanceRow {
+  plan: string;
+  generations_per_month: number;
+  credits_per_month: number;
+}
+
+/**
+ * Fold stored rows onto the defaults. Pure, so the merge rule is testable
+ * without a database.
+ *
+ * A row for an unknown plan id is IGNORED (resolvePricing's rule): the tier
+ * list lives in code, so a row left behind by a renamed plan must not conjure
+ * an allowance for a plan that no longer exists. A non-positive or
+ * non-integer stored value is ignored too — the database CHECKs already
+ * refuse one, and falling back to the constant beats enforcing a cap of 0,
+ * which would block every AI action on that tier.
+ */
+export function resolvePlanAllowances(
+  rows: readonly PlanAllowanceRow[],
+): PlanAllowances {
+  const out: PlanAllowances = Object.fromEntries(
+    PLAN_IDS.map((id) => [id, { ...DEFAULT_PLAN_ALLOWANCES[id] }]),
+  ) as PlanAllowances;
+  for (const row of rows) {
+    if (!(PLAN_IDS as readonly string[]).includes(row.plan)) continue;
+    const usable = (value: unknown): number | null =>
+      typeof value === "number" && Number.isInteger(value) && value > 0
+        ? value
+        : null;
+    const generations = usable(Number(row.generations_per_month));
+    const credits = usable(Number(row.credits_per_month));
+    const plan = row.plan as Plan;
+    if (generations !== null) out[plan].generationsPerMonth = generations;
+    if (credits !== null) out[plan].creditsPerMonth = credits;
+  }
+  return out;
+}
+
+/**
+ * The monthly Mink allowance in force, in credits.
  *
  * ⚠ ONE SWITCH FOR BOTH HALVES. Read it wherever the cap is needed — the quota
  * gate, Mink settlement and the advertised matrix — so the number a merchant is
  * shown, the number they are billed against and the number the pool enforces
  * are always the same. `docs/cron-jobs.md`'s standing lesson applies: a release
  * step that has to be remembered per surface is one that gets forgotten.
+ *
+ * ⚠ `allowances` is REQUIRED, and deliberately has no default. Pass
+ * `DEFAULT_PLAN_ALLOWANCES` only where you mean "operator overrides do not
+ * apply here"; everywhere else resolve them (lib/plans/allowances.ts).
  */
 export function aiAllowanceFor(
   plan: Plan,
   minkChargesCredits: boolean,
+  allowances: PlanAllowances,
 ): number | null {
-  const limits = PLAN_LIMITS[plan];
+  const allowance = allowances[plan] ?? DEFAULT_PLAN_ALLOWANCES[plan];
   return minkChargesCredits
-    ? limits.aiCreditsPerMonth
-    : limits.aiGenerationsPerMonth;
+    ? allowance.creditsPerMonth
+    : allowance.generationsPerMonth;
 }
 
-export const PLAN_FEATURE_MATRIX: readonly PlanMatrixSection[] = [
-  {
-    title: "Storefront & catalogue",
-    rows: [
-      {
-        label: "Hosted storefront and StoreMink subdomain",
-        free: true,
-        basic: true,
-        pro: true,
-      },
-      {
-        label: "Themes and visual page builder",
-        free: true,
-        basic: true,
-        pro: true,
-      },
-      {
-        label: "Products",
-        free: String(PLAN_LIMITS.free.maxProducts),
-        basic: String(PLAN_LIMITS.basic.maxProducts),
-        pro: "Unlimited",
-      },
-      {
-        label: "Custom HTML, CSS and JavaScript sections",
-        free: false,
-        basic: PLAN_LIMITS.basic.customCode,
-        pro: PLAN_LIMITS.pro.customCode,
-      },
-      {
-        label: "Custom domain",
-        free: false,
-        basic: false,
-        pro: PLAN_LIMITS.pro.customDomain,
-      },
-      {
-        label: "Remove Powered by StoreMink badge",
-        free: PLAN_LIMITS.free.removeBadge,
-        basic: PLAN_LIMITS.basic.removeBadge,
-        pro: PLAN_LIMITS.pro.removeBadge,
-      },
-    ],
-  },
-  {
-    title: "Selling & fulfilment",
-    rows: [
-      { label: "Cash on delivery", free: true, basic: true, pro: true },
-      {
-        label: "Online payments (your own gateway)",
-        free: PLAN_LIMITS.free.onlinePayments,
-        basic: PLAN_LIMITS.basic.onlinePayments,
-        pro: PLAN_LIMITS.pro.onlinePayments,
-      },
-      {
-        label: "GST invoices and tax classes",
-        free: true,
-        basic: true,
-        pro: true,
-      },
-      {
-        label: "Inventory, orders and returns",
-        free: true,
-        basic: true,
-        pro: true,
-      },
-      {
-        label: "Shiprocket integration",
-        free: PLAN_LIMITS.free.shippingIntegration,
-        basic: PLAN_LIMITS.basic.shippingIntegration,
-        pro: PLAN_LIMITS.pro.shippingIntegration,
-      },
-      { label: "Point of Sale", free: false, basic: false, pro: true },
-      {
-        label: "Multi-location stock, transfers and store pickup",
-        free: false,
-        basic: false,
-        pro: true,
-      },
-      {
-        label: "Included POS locations",
-        free: "—",
-        basic: "—",
-        pro: String(PLAN_LIMITS.pro.posLocationsIncluded),
-      },
-      {
-        label: "Authorised tills per location",
-        free: "—",
-        basic: "—",
-        pro: String(PLAN_LIMITS.pro.posDevicesPerLocation),
-      },
-    ],
-  },
-  {
-    title: "Customers & marketing",
-    rows: [
-      {
-        label: "Customer accounts, reviews and enquiries",
-        free: true,
-        basic: true,
-        pro: true,
-      },
-      {
-        label: "Customer blog submissions",
-        free: PLAN_LIMITS.free.customerBlogSubmissions,
-        basic: PLAN_LIMITS.basic.customerBlogSubmissions,
-        pro: PLAN_LIMITS.pro.customerBlogSubmissions,
-      },
-      {
-        label: "Customer groups",
-        free: PLAN_LIMITS.free.customerGroups,
-        basic: PLAN_LIMITS.basic.customerGroups,
-        pro: PLAN_LIMITS.pro.customerGroups,
-      },
-      {
-        label: "Active coupons",
-        free: String(PLAN_LIMITS.free.maxActiveCoupons),
-        basic: "Unlimited",
-        pro: "Unlimited",
-      },
-      {
-        label: "Coupon email campaigns",
-        free: false,
-        basic: false,
-        pro: PLAN_LIMITS.pro.emailCampaigns,
-      },
-    ],
-  },
-  {
-    title: "Team, analytics & AI",
-    rows: [
-      {
-        label: "Staff accounts (including owner)",
-        free: String(PLAN_LIMITS.free.maxStaff),
-        basic: String(PLAN_LIMITS.basic.maxStaff),
-        pro: "Unlimited",
-      },
-      {
-        label: "Custom roles and permissions",
-        free: PLAN_LIMITS.free.customRoles,
-        basic: PLAN_LIMITS.basic.customRoles,
-        pro: PLAN_LIMITS.pro.customRoles,
-      },
-      { label: "Core analytics dashboard", free: true, basic: true, pro: true },
-      {
-        label: "Custom dashboard, detailed reports and Search Console",
-        free: false,
-        basic: true,
-        pro: true,
-      },
-      {
-        label: "GA4, Meta Pixel, conversion and gross margin analytics",
-        free: false,
-        basic: false,
-        pro: true,
-      },
-      {
-        label: "Included Mink credits each month",
-        free: String(PLAN_LIMITS.free.aiGenerationsPerMonth),
-        basic: String(PLAN_LIMITS.basic.aiGenerationsPerMonth),
-        pro: String(PLAN_LIMITS.pro.aiGenerationsPerMonth),
-      },
-      {
-        label: "Buy additional Mink credits",
-        free: true,
-        basic: true,
-        pro: true,
-      },
-    ],
-  },
-] as const;
+/** The allowance in force for every plan, with the MINK_CHARGE_CREDITS switch
+ *  already applied. */
+export type IncludedMinkCredits = Record<Plan, number | null>;
+
+/**
+ * Resolve every plan at once, for the surfaces that only DISPLAY the number.
+ *
+ * ★ The switch is applied HERE, server-side, so a client component is handed
+ * one number per plan and never has to know that two halves exist — the flag
+ * is server-only (lib/mink/config.ts), and a client that guessed at it would
+ * advertise the half that is not being enforced.
+ */
+export function includedMinkCredits(
+  allowances: PlanAllowances,
+  minkChargesCredits: boolean,
+): IncludedMinkCredits {
+  return Object.fromEntries(
+    PLAN_IDS.map((id) => [
+      id,
+      aiAllowanceFor(id, minkChargesCredits, allowances),
+    ]),
+  ) as IncludedMinkCredits;
+}
+
+/**
+ * Complete customer-facing comparison.
+ *
+ * ★ A FUNCTION, NOT A CONST, because one of its rows is now operator-editable.
+ * A module-level constant cannot await the override, so as a const it would
+ * advertise the compiled-in allowance while the quota gate enforced a
+ * different one — the advertised/enforced drift `aiAllowanceFor`'s own note
+ * exists to prevent. Every other row is a code fact and is unchanged.
+ */
+export function planFeatureMatrix(
+  included: IncludedMinkCredits,
+): readonly PlanMatrixSection[] {
+  return [
+    {
+      title: "Storefront & catalogue",
+      rows: [
+        {
+          label: "Hosted storefront and StoreMink subdomain",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "Themes and visual page builder",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "Products",
+          free: String(PLAN_LIMITS.free.maxProducts),
+          basic: String(PLAN_LIMITS.basic.maxProducts),
+          pro: "Unlimited",
+        },
+        {
+          label: "Custom HTML, CSS and JavaScript sections",
+          free: false,
+          basic: PLAN_LIMITS.basic.customCode,
+          pro: PLAN_LIMITS.pro.customCode,
+        },
+        {
+          label: "Custom domain",
+          free: false,
+          basic: false,
+          pro: PLAN_LIMITS.pro.customDomain,
+        },
+        {
+          label: "Remove Powered by StoreMink badge",
+          free: PLAN_LIMITS.free.removeBadge,
+          basic: PLAN_LIMITS.basic.removeBadge,
+          pro: PLAN_LIMITS.pro.removeBadge,
+        },
+      ],
+    },
+    {
+      title: "Selling & fulfilment",
+      rows: [
+        { label: "Cash on delivery", free: true, basic: true, pro: true },
+        {
+          label: "Online payments (your own gateway)",
+          free: PLAN_LIMITS.free.onlinePayments,
+          basic: PLAN_LIMITS.basic.onlinePayments,
+          pro: PLAN_LIMITS.pro.onlinePayments,
+        },
+        {
+          label: "GST invoices and tax classes",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "Inventory, orders and returns",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "Shiprocket integration",
+          free: PLAN_LIMITS.free.shippingIntegration,
+          basic: PLAN_LIMITS.basic.shippingIntegration,
+          pro: PLAN_LIMITS.pro.shippingIntegration,
+        },
+        { label: "Point of Sale", free: false, basic: false, pro: true },
+        {
+          label: "Multi-location stock, transfers and store pickup",
+          free: false,
+          basic: false,
+          pro: true,
+        },
+        {
+          label: "Included POS locations",
+          free: "—",
+          basic: "—",
+          pro: String(PLAN_LIMITS.pro.posLocationsIncluded),
+        },
+        {
+          label: "Authorised tills per location",
+          free: "—",
+          basic: "—",
+          pro: String(PLAN_LIMITS.pro.posDevicesPerLocation),
+        },
+      ],
+    },
+    {
+      title: "Customers & marketing",
+      rows: [
+        {
+          label: "Customer accounts, reviews and enquiries",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "Customer blog submissions",
+          free: PLAN_LIMITS.free.customerBlogSubmissions,
+          basic: PLAN_LIMITS.basic.customerBlogSubmissions,
+          pro: PLAN_LIMITS.pro.customerBlogSubmissions,
+        },
+        {
+          label: "Customer groups",
+          free: PLAN_LIMITS.free.customerGroups,
+          basic: PLAN_LIMITS.basic.customerGroups,
+          pro: PLAN_LIMITS.pro.customerGroups,
+        },
+        {
+          label: "Active coupons",
+          free: String(PLAN_LIMITS.free.maxActiveCoupons),
+          basic: "Unlimited",
+          pro: "Unlimited",
+        },
+        {
+          label: "Coupon email campaigns",
+          free: false,
+          basic: false,
+          pro: PLAN_LIMITS.pro.emailCampaigns,
+        },
+      ],
+    },
+    {
+      title: "Team, analytics & AI",
+      rows: [
+        {
+          label: "Staff accounts (including owner)",
+          free: String(PLAN_LIMITS.free.maxStaff),
+          basic: String(PLAN_LIMITS.basic.maxStaff),
+          pro: "Unlimited",
+        },
+        {
+          label: "Custom roles and permissions",
+          free: PLAN_LIMITS.free.customRoles,
+          basic: PLAN_LIMITS.basic.customRoles,
+          pro: PLAN_LIMITS.pro.customRoles,
+        },
+        {
+          label: "Core analytics dashboard",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "Custom dashboard, detailed reports and Search Console",
+          free: false,
+          basic: true,
+          pro: true,
+        },
+        {
+          label: "GA4, Meta Pixel, conversion and gross margin analytics",
+          free: false,
+          basic: false,
+          pro: true,
+        },
+        {
+          label: "Included Mink credits each month",
+          free: allowanceLabel(included.free),
+          basic: allowanceLabel(included.basic),
+          pro: allowanceLabel(included.pro),
+        },
+        {
+          label: "Buy additional Mink credits",
+          free: true,
+          basic: true,
+          pro: true,
+        },
+      ],
+    },
+  ];
+}
+
+/** How one plan's included allowance reads on a pricing table. */
+export function allowanceLabel(value: number | null): string {
+  return value === null ? "Unlimited" : String(value);
+}
 
 // ---------------------------------------------------------------------------
 // Expiry warnings (notifications §22 — "fire on the crossing, not the state")

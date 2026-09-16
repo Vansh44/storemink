@@ -976,6 +976,66 @@ rather than Secret Manager; principals who can inspect a trigger or revision can
 therefore read it. Provider credentials and raw provider errors never reach the
 browser, and audio or transcript content is not written to logs.
 
+### Operator-editable included Mink credits (2026-09-16)
+
+`mink_plan_allowances` (migration 0115) is the first and only plan LIMIT an
+operator can move without a deploy. Everything else in `PLAN_LIMITS` decides
+what the code must DO — a product cap, a feature flag — while this is a number
+the same code enforces either way, and it is the one merchants ask to have
+raised. Edited at `/dashboard/pricing` on the platform host beside plan prices
+and the top-up packs; `savePlanCreditAllowances` is superadmin-only and bounds
+each value to 1–100,000, mirrored by the database CHECKs.
+
+★★ IT IS AN OVERRIDE TABLE AND IS DELIBERATELY NOT SEEDED. An empty table has
+to behave identically to the constants, so the migration cannot change a single
+store's allowance (invariant 1), the deploy is order-independent — before it
+runs, the relation does not exist and `readAllowances` falls to the defaults —
+and a later change to the compiled-in numbers still reaches every plan nobody
+has overridden. `lib/plans/allowances.ts` is the `plan_prices` shape exactly:
+cached `getPlanAllowances` for display, uncached `getPlanAllowancesLive`
+wherever the number decides whether a merchant is BLOCKED. ⚠ The live form is
+also the only safe one outside a render scope — `unstable_cache` throws in a
+server action or a route handler, which is where every enforcement call sits.
+
+★★ BOTH HALVES ARE STORED AND BOTH ARE VALIDATED, because
+`MINK_CHARGE_CREDITS` switches between them (`aiAllowanceFor`). Storing only
+the live one would make the other unreachable at the exact moment it starts
+being enforced; validating only the live one would hide a cap of 0 in the
+dormant column until the day charging is switched on. The operator panel shows
+both columns with an "in force" badge on the one the quota gate is reading.
+
+★★ `aiAllowanceFor` TAKES THE ALLOWANCES REQUIRED, NOT OPTIONAL — the `NO_COMP`
+technique. An optional argument lets a call site keep enforcing the compiled-in
+number while an operator believes they changed it, with nothing failing
+anywhere; making it required turned that into one build error per site.
+`DEFAULT_PLAN_ALLOWANCES` is the explicit "overrides do not apply here" value.
+★ `includedMinkCredits(allowances, charging)` applies the switch ONCE,
+server-side, so client surfaces (`plans-client`, `stores-console`) are handed
+one number per plan and never have to know two halves exist — the flag is
+server-only, and a client that guessed at it would advertise the half that is
+not being enforced. `PLAN_FEATURE_MATRIX` became `planFeatureMatrix(included)`
+for the same reason: a module-level const cannot await the override, so it
+would have promised the compiled-in figure on the public pricing table.
+
+★★ AND THREADING IT FOUND A LIVE DEFECT. `lib/mink/drafts.ts` read
+`limitsFor(plan).aiGenerationsPerMonth` DIRECTLY rather than through
+`aiAllowanceFor` — so the moment `MINK_CHARGE_CREDITS` is switched on, a draft
+proposal would meter against the legacy 3/10/50 cap while a conversational run
+metered against 20/100/300: two halves of one credit pool quoting different
+caps, with nothing failing anywhere. `lib/plans-allowance-coverage.test.ts` is
+the guard — TypeScript cannot catch a field read that typechecks perfectly, so
+it greps `app` and `lib` for any `.aiGenerationsPerMonth` / `.aiCreditsPerMonth`
+outside `lib/plans.ts` and fails, and it asserts the scan still matches inside
+the catalog so a guard that silently stops matching cannot pass forever.
+⚠ Every enforcement call site folds the read into a `Promise.all` it was
+already awaiting (the store row and the cycle in `consumeAiQuota`, the cycle in
+`getAiUsage` / `settleMinkRunCredits` / `createMinkDraftProposal`), so honouring
+an override costs no extra wall-clock on the path before every AI action.
+⚠ Not operator-editable: `null` (unmetered). The column is NOT NULL with a
+`> 0` CHECK, because a nullable override cannot distinguish "no override" from
+"unlimited", and the value that gets that wrong hands a whole tier a free
+unmetered pool.
+
 ### Mink credit balance in chat (2026-09-16)
 
 The Plans page and composer call the shared balance **Mink credits**. The
@@ -2296,6 +2356,10 @@ wholesip/
 │   │                          # emits ai.generate telemetry (latency + tokens) via observability
 │   ├── ai/credits.ts          # ★ fixed Mink pack identities/sizes + default prices (pure)
 │   ├── ai/credit-pricing.ts   # ★ live operator price overrides used by display + checkout
+│   ├── plans/allowances.ts    # ★ live operator overrides for the INCLUDED Mink credits
+│   │                          # a plan grants (mink_plan_allowances). Same shape as
+│   │                          # plans/pricing.ts: cached for display, live for the
+│   │                          # quota gate; an empty table = the code defaults.
 │   ├── db/pg-types.ts         # Keeps timestamp/timestamptz text at PostgreSQL's full
 │   │                          # microsecond precision for exact optimistic checkpoints.
 │   ├── mink/                  # ★ Dashboard agent foundation (docs/mink-ai-dashboard-plan.md):
@@ -4183,8 +4247,10 @@ running subscription is how you get chargebacks.
     guide textarea — `app/actions/brand-voice-actions.ts` (tested). **Mink
     credit quota (first live plan-limit enforcement):** `lib/ai/quota.ts`
     `consumeAiQuota` meters work per store against the EFFECTIVE
-    plan's `aiGenerationsPerMonth` cap (3/10/50; null = unlimited, no
-    metering) via the atomic `try_ai_generation` RPC + `ai_usage` table
+    plan's allowance (3/10/50 by default, and the first plan limit an
+    OPERATOR can change without a deploy — see “Operator-editable included
+    Mink credits” above; null = unlimited, no metering) via the atomic
+    `try_ai_generation` RPC + `ai_usage` table
     (single conditional UPDATE, the coupon-usage pattern; fails OPEN on
     transient errors). Paid stores use consecutive 30-day windows anchored to
     `billing_subscriptions.current_period_start`, matching StoreMink's billing

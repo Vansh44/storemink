@@ -4933,6 +4933,38 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260916_0115_mink_plan_allowances",
+      "description": "Operator-editable included Mink credits per plan",
+      "file": "sql/20260916_0115_mink_plan_allowances.sql",
+      "transaction": true,
+      "requires": ["20260916_0114_mink_credits_cycle_pricing"],
+      "verify": {
+        "tables": ["mink_plan_allowances"],
+        "columns": [
+          "mink_plan_allowances.plan",
+          "mink_plan_allowances.generations_per_month",
+          "mink_plan_allowances.credits_per_month",
+          "mink_plan_allowances.updated_at",
+          "mink_plan_allowances.updated_by"
+        ],
+        "constraints": [
+          "mink_plan_allowances_plan_check",
+          "mink_plan_allowances_generations_check",
+          "mink_plan_allowances_credits_check"
+        ],
+        "rlsTables": ["mink_plan_allowances"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the override table starts empty so the code defaults still apply",
+            "sql": "select count(*)::text from mink_plan_allowances",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }
