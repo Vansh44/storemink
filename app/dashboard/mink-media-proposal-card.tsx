@@ -68,7 +68,7 @@ export function MinkMediaProposalCard({ proposal }: { proposal: Proposal }) {
                 {proposal.destinationLabel}
               </h3>
               <p className="mt-0.5 text-[9px] text-[#716d78]">
-                Private image · {proposal.expectedCredits} AI credits ·{" "}
+                Private image · {proposal.expectedCredits} Mink credits ·{" "}
                 {proposal.aspectRatio}
               </p>
             </div>

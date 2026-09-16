@@ -1,6 +1,9 @@
 import { listAllStores } from "@/app/actions/platform";
 import { StoresConsole } from "../stores-console";
 import { canManage, requireOperator } from "../require-operator";
+import { getPlanAllowances } from "@/lib/plans/allowances";
+import { getMinkConfig } from "@/lib/mink/config";
+import { includedMinkCredits } from "@/lib/plans";
 
 export const metadata = { title: "Stores — StoreMink Admin" };
 
@@ -20,7 +23,14 @@ export default async function StoresPage({
 }) {
   const viewer = await requireOperator();
   const { q } = await searchParams;
-  const stores = await listAllStores(q);
+  const [stores, allowances] = await Promise.all([
+    listAllStores(q),
+    getPlanAllowances(),
+  ]);
+  const includedCredits = includedMinkCredits(
+    allowances,
+    getMinkConfig().chargeCredits,
+  );
 
   return (
     <div className="w-full max-w-7xl space-y-6">
@@ -45,6 +55,7 @@ export default async function StoresPage({
         email={viewer.email}
         q={q ?? ""}
         rootDomain={ROOT_DOMAIN}
+        includedCredits={includedCredits}
       />
     </div>
   );

@@ -364,7 +364,7 @@ export function renderNotification(
     case "ai.credits_low": {
       const left = num(p.balance);
       return {
-        title: "AI credits running low",
+        title: "Mink credits running low",
         body:
           left === null
             ? "Top up to keep generating."
@@ -376,7 +376,7 @@ export function renderNotification(
     case "ai.credits_purchased": {
       const credits = num(p.credits);
       return {
-        title: "AI credits added",
+        title: "Mink credits added",
         body:
           credits === null
             ? null

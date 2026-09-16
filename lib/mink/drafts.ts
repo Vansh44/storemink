@@ -7,9 +7,11 @@ import {
   minkDrafts,
   minkDraftVersions,
 } from "@/drizzle/schema";
-import { currentPeriod } from "@/lib/ai/quota";
+import { getMinkCreditCycle } from "@/lib/ai/quota";
+import { getMinkConfig } from "@/lib/mink/config";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
 import { withService, type Db } from "@/lib/db/client";
-import { limitsFor } from "@/lib/plans";
+import { aiAllowanceFor } from "@/lib/plans";
 import {
   MINK_DRAFT_CONFIG,
   isMinkDraftKind,
@@ -134,7 +136,20 @@ export async function createMinkDraftProposal(input: {
   const before = normalizeOptionalContent(kind, input.before);
   const expectedCredits = MINK_DRAFT_CONFIG[kind].expectedCredits;
   const draftId = crypto.randomUUID();
-  const planCap = limitsFor(actor.effectivePlan).aiGenerationsPerMonth;
+  // ★ aiAllowanceFor, NOT limitsFor(...).aiGenerationsPerMonth. This read the
+  // legacy number directly, so the moment MINK_CHARGE_CREDITS is switched on a
+  // draft proposal would meter against 3/10/50 while a conversational run
+  // metered against 20/100/300 — two halves of one pool quoting different caps,
+  // which is the single-read rule lib/ai/quota.ts documents.
+  const [cycle, allowances] = await Promise.all([
+    getMinkCreditCycle(actor.storeId),
+    getPlanAllowancesLive(),
+  ]);
+  const planCap = aiAllowanceFor(
+    actor.effectivePlan,
+    getMinkConfig().chargeCredits,
+    allowances,
+  );
 
   return withService(async (db) => {
     await db.insert(minkDrafts).values({
@@ -161,7 +176,7 @@ export async function createMinkDraftProposal(input: {
         p_admin => ${actor.adminId},
         p_run => ${actor.runId}::uuid,
         p_draft => ${draftId}::uuid,
-        p_period => ${currentPeriod()},
+        p_period => ${cycle.period},
         p_plan_cap => ${planCap},
         p_credits => ${expectedCredits},
         p_kind => ${kind}
@@ -178,7 +193,7 @@ export async function createMinkDraftProposal(input: {
           ),
         );
       throw new MinkToolInputError(
-        `This ${MINK_DRAFT_CONFIG[kind].label.toLocaleLowerCase("en-IN")} needs ${expectedCredits} AI credits. The store's monthly allowance and AI-credit balance do not have enough remaining.`,
+        `This ${MINK_DRAFT_CONFIG[kind].label.toLocaleLowerCase("en-IN")} needs ${expectedCredits} Mink credits. The store's included allowance and top-up balance do not have enough remaining.`,
       );
     }
     if (!isCreditSource(source)) {

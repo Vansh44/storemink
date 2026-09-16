@@ -4,6 +4,9 @@ import {
   getPlanPricingLive,
 } from "@/lib/plans/pricing";
 import { PricingPanel } from "../pricing-panel";
+import { getMinkCreditPacksLive } from "@/lib/ai/credit-pricing";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
+import { getMinkConfig } from "@/lib/mink/config";
 import { canManage, requireOperator } from "../require-operator";
 
 export const metadata = { title: "Pricing — StoreMink Admin" };
@@ -18,10 +21,16 @@ export default async function PricingPage() {
   const viewer = await requireOperator();
   if (!canManage(viewer)) redirect("/dashboard");
 
-  const [pricing, extraLocation] = await Promise.all([
-    getPlanPricingLive(),
-    getExtraLocationPricingLive(),
-  ]);
+  const [pricing, extraLocation, minkCreditPacks, minkAllowances] =
+    await Promise.all([
+      getPlanPricingLive(),
+      getExtraLocationPricingLive(),
+      getMinkCreditPacksLive(),
+      // Live, like the prices beside it: the panel is about to write these
+      // back, so showing a cached value would let an operator overwrite a
+      // change somebody else made inside the revalidation window.
+      getPlanAllowancesLive(),
+    ]);
 
   return (
     <div className="w-full max-w-6xl space-y-6">
@@ -30,12 +39,19 @@ export default async function PricingPage() {
           Pricing
         </h1>
         <p className="mt-1 text-sm text-slate-500">
-          Plan prices and the extra-location add-on. Existing subscribers keep
-          the price they authorised — a change applies to new subscriptions.
+          Plan prices, the extra-location add-on, included Mink credits and
+          top-up packs. Existing subscribers keep the plan price they
+          authorised; an allowance change reaches every store on that plan.
         </p>
       </header>
 
-      <PricingPanel pricing={pricing} extraLocation={extraLocation} />
+      <PricingPanel
+        pricing={pricing}
+        extraLocation={extraLocation}
+        minkCreditPacks={minkCreditPacks}
+        minkAllowances={minkAllowances}
+        minkChargesCredits={getMinkConfig().chargeCredits}
+      />
     </div>
   );
 }

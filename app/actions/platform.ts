@@ -15,11 +15,14 @@ import {
   aiUsage,
   blogComments,
   blogs,
+  billingSubscriptions,
   cardColors,
   categories,
   emailCampaigns,
   homepageSections,
   mediaAssets,
+  minkCreditPackPrices,
+  minkPlanAllowances,
   orderReturns,
   planEvents,
   planPrices,
@@ -64,7 +67,9 @@ import {
   type ExtraLocationPricing,
   type PlanPricing,
 } from "@/lib/plans/pricing";
-import { currentPeriod } from "@/lib/ai/quota";
+import { minkCreditCycleAt } from "@/lib/ai/quota";
+import { DEFAULT_MINK_CREDIT_PACKS } from "@/lib/ai/credits";
+import { bustPlanAllowances } from "@/lib/plans/allowances";
 
 // A Storemink platform operator (from platform_admins, by JWT email).
 export interface PlatformViewer {
@@ -108,8 +113,8 @@ export interface PlatformStoreRow {
   custom_domain: string | null;
   created_at: string;
   owner_email: string | null; // superadmin who set the store up (from admins)
-  ai_used: number; // AI generations consumed this calendar month
-  credit_balance: number; // purchased/granted AI credits remaining
+  ai_used: number; // included Mink credits consumed in the current plan cycle
+  credit_balance: number; // purchased/granted Mink credits remaining
   /** BYO payment gateway state: none = not connected. Never the keys. */
   gateway: "none" | "enabled" | "paused";
 }
@@ -217,8 +222,8 @@ export async function listAllStores(q?: string): Promise<PlatformStoreRow[]> {
       );
       if (!list.length) return list;
 
-      // Enrich in four batch queries (never per-store): owner email, this
-      // month's AI usage, the credit balance, and the BYO gateway state.
+      // Enrich in batch queries (never per-store): owner email, each store's
+      // current plan-anchored Mink usage, top-up balance and gateway state.
       const ids = list.map((s) => s.id);
       const owners = await db
         .select({
@@ -229,13 +234,33 @@ export async function listAllStores(q?: string): Promise<PlatformStoreRow[]> {
         .from(admins)
         .where(and(inArray(admins.storeId, ids), eq(admins.role, "superadmin")))
         .orderBy(asc(admins.createdAt));
+      const subscriptions = await db
+        .select({
+          store_id: billingSubscriptions.storeId,
+          started_at: billingSubscriptions.currentPeriodStart,
+        })
+        .from(billingSubscriptions)
+        .where(inArray(billingSubscriptions.storeId, ids));
+      const startByStore = new Map(
+        subscriptions.map((row) => [row.store_id, row.started_at]),
+      );
+      const periodByStore = new Map(
+        ids.map((id) => [
+          id,
+          minkCreditCycleAt(new Date(), startByStore.get(id)).period,
+        ]),
+      );
       const usage = await db
-        .select({ store_id: aiUsage.storeId, used: aiUsage.used })
+        .select({
+          store_id: aiUsage.storeId,
+          period: aiUsage.period,
+          used: aiUsage.used,
+        })
         .from(aiUsage)
         .where(
           and(
             inArray(aiUsage.storeId, ids),
-            eq(aiUsage.period, currentPeriod()),
+            inArray(aiUsage.period, [...new Set(periodByStore.values())]),
           ),
         );
       const credits = await db
@@ -259,7 +284,11 @@ export async function listAllStores(q?: string): Promise<PlatformStoreRow[]> {
         if (!ownerByStore.has(o.store_id) && o.email)
           ownerByStore.set(o.store_id, o.email);
       }
-      const usedByStore = new Map(usage.map((u) => [u.store_id, u.used]));
+      const usedByStore = new Map(
+        usage
+          .filter((row) => periodByStore.get(row.store_id) === row.period)
+          .map((row) => [row.store_id, row.used]),
+      );
       const creditsByStore = new Map(
         credits.map((c) => [c.store_id, c.balance]),
       );
@@ -439,7 +468,7 @@ export async function setStorePlan(
   return { success: true };
 }
 
-// Grant free AI credits to a store (platform superadmin only). Goes through
+// Grant free Mink credits to a store (platform superadmin only). Goes through
 // the same atomic add_ai_credits RPC as purchases, so every grant lands in the
 // append-only ai_credit_ledger with the operator's email as the ref.
 const MAX_CREDIT_GRANT = 10_000;
@@ -1042,6 +1071,156 @@ export interface PlanPriceInput {
   /** Struck-through list price. Null / 0 / blank clears the offer. */
   baseMonthlyInr: number | null;
   baseYearlyInr: number | null;
+}
+
+export interface MinkCreditPackPriceInput {
+  packId: string;
+  priceInr: number;
+}
+
+export async function saveMinkCreditPackPricing(
+  input: MinkCreditPackPriceInput[],
+): Promise<ActionResult> {
+  const viewer = await getPlatformViewer();
+  if (viewer?.role !== "superadmin") {
+    return { error: "Only a platform superadmin can change pricing." };
+  }
+  const ids = DEFAULT_MINK_CREDIT_PACKS.map((pack) => pack.id);
+  if (
+    !Array.isArray(input) ||
+    input.length !== ids.length ||
+    new Set(input.map((row) => row.packId)).size !== ids.length ||
+    input.some((row) => !ids.includes(row.packId))
+  ) {
+    return { error: "Submit one price for each Mink credit pack." };
+  }
+  for (const row of input) {
+    if (
+      !Number.isInteger(row.priceInr) ||
+      row.priceInr < 1 ||
+      row.priceInr > MAX_PLAN_PRICE_INR
+    ) {
+      return {
+        error: `${row.packId} price must be a whole number between 1 and ${MAX_PLAN_PRICE_INR}.`,
+      };
+    }
+  }
+
+  try {
+    await withService(async (db) => {
+      for (const row of input) {
+        await db
+          .insert(minkCreditPackPrices)
+          .values({
+            packId: row.packId,
+            priceInr: row.priceInr,
+            updatedBy: viewer.email ?? null,
+          })
+          .onConflictDoUpdate({
+            target: minkCreditPackPrices.packId,
+            set: {
+              priceInr: row.priceInr,
+              updatedBy: viewer.email ?? null,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+      }
+    });
+  } catch (error) {
+    logError("saveMinkCreditPackPricing failed", error);
+    return { error: "Couldn't save Mink credit prices. Please try again." };
+  }
+  revalidatePath("/platform/pricing");
+  revalidatePath("/dashboard/plans");
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Included Mink credits per plan (migration 0115).
+//
+// The only plan LIMIT an operator can move without a deploy. Everything else in
+// PLAN_LIMITS decides what the code must DO — a product cap, a feature flag —
+// while this is a number the same code enforces either way, and it is the one
+// merchants ask to have raised.
+// ---------------------------------------------------------------------------
+
+/** Bound on a single plan's included allowance. High enough for an enterprise
+ *  grant, low enough that a slipped digit is refused rather than handing a tier
+ *  an effectively unmetered pool. Mirrored by the database CHECKs. */
+const MAX_PLAN_ALLOWANCE = 100_000;
+
+export interface PlanAllowanceInput {
+  plan: string;
+  generationsPerMonth: number;
+  creditsPerMonth: number;
+}
+
+export async function savePlanCreditAllowances(
+  input: PlanAllowanceInput[],
+): Promise<ActionResult> {
+  const viewer = await getPlatformViewer();
+  if (viewer?.role !== "superadmin") {
+    return { error: "Only a platform superadmin can change allowances." };
+  }
+  const ids = PLAN_IDS as readonly string[];
+  if (
+    !Array.isArray(input) ||
+    input.length !== ids.length ||
+    new Set(input.map((row) => row.plan)).size !== ids.length ||
+    input.some((row) => !ids.includes(row.plan))
+  ) {
+    return { error: "Submit one allowance for each plan." };
+  }
+  for (const row of input) {
+    // ★ BOTH HALVES ARE VALIDATED, including the one not currently in force.
+    // MINK_CHARGE_CREDITS switches between them, and a bad value stored in the
+    // dormant half would only surface at the moment charging is switched on —
+    // the worst possible time to discover a tier has a cap of 0.
+    for (const [label, value] of [
+      ["included credits", row.generationsPerMonth],
+      ["included credits once charging is on", row.creditsPerMonth],
+    ] as const) {
+      if (!Number.isInteger(value) || value < 1 || value > MAX_PLAN_ALLOWANCE) {
+        return {
+          error: `${row.plan}: ${label} must be a whole number between 1 and ${MAX_PLAN_ALLOWANCE}.`,
+        };
+      }
+    }
+  }
+
+  try {
+    await withService(async (db) => {
+      for (const row of input) {
+        await db
+          .insert(minkPlanAllowances)
+          .values({
+            plan: row.plan,
+            generationsPerMonth: row.generationsPerMonth,
+            creditsPerMonth: row.creditsPerMonth,
+            updatedBy: viewer.email ?? null,
+          })
+          .onConflictDoUpdate({
+            target: minkPlanAllowances.plan,
+            set: {
+              generationsPerMonth: row.generationsPerMonth,
+              creditsPerMonth: row.creditsPerMonth,
+              updatedBy: viewer.email ?? null,
+              updatedAt: new Date().toISOString(),
+            },
+          });
+      }
+    });
+  } catch (error) {
+    logError("savePlanCreditAllowances failed", error);
+    return { error: "Couldn't save Mink allowances. Please try again." };
+  }
+  // The public pricing table and both console lists read through the cached
+  // loader — without this the change would not show until the window lapsed,
+  // while the quota gate (live) enforced it immediately.
+  bustPlanAllowances();
+  revalidatePath("/platform");
+  revalidatePath("/dashboard/plans");
+  return { success: true };
 }
 
 export async function getPlanPricingForConsole(): Promise<

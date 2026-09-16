@@ -2,8 +2,9 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
-import { currentPeriod, getAiUsage } from "@/lib/ai/quota";
+import { getAiUsage, getMinkCreditCycle } from "@/lib/ai/quota";
 import { aiAllowanceFor, PLAN_META } from "@/lib/plans";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
 import { logError, logInfo } from "@/lib/observability/logger";
 import { minkCreditBand, minkRunCreditCharge } from "./metering";
 import type { MinkActorContext, MinkUsage } from "./types";
@@ -62,7 +63,7 @@ export async function minkRunAffordability(
     if (remaining >= 1) return { allowed: true };
     return {
       allowed: false,
-      error: `This store has used all ${usage.cap} AI credits included in the ${PLAN_META[actor.effectivePlan].name} plan this month and has no AI credits left. Buy AI credits under Plans & Billing, or upgrade the plan.`,
+      error: `This store has used all ${usage.cap} Mink credits included in the ${PLAN_META[actor.effectivePlan].name} plan for this cycle and has no top-up Mink credits left. Buy Mink credits under Plans & Billing, or upgrade the plan.`,
     };
   } catch (error) {
     logError("mink.affordability_read_failed", error, {
@@ -107,18 +108,23 @@ export async function settleMinkRunCredits(input: {
     bandCredits,
     alreadyCharged: input.alreadyCharged,
   });
-  // The RAISED allowance: this path only runs when charging is on, and the
-  // two are the same switch (lib/plans.ts aiAllowanceFor).
-  const planCap = aiAllowanceFor(input.actor.effectivePlan, true);
-
   try {
+    // Parallel with the cycle read this already awaited, so honouring an
+    // operator override costs no extra wall-clock on the settlement path.
+    const [cycle, allowances] = await Promise.all([
+      getMinkCreditCycle(input.actor.storeId),
+      getPlanAllowancesLive(),
+    ]);
+    // The RAISED allowance: this path only runs when charging is on, and the
+    // two are the same switch (lib/plans.ts aiAllowanceFor).
+    const planCap = aiAllowanceFor(input.actor.effectivePlan, true, allowances);
     const result = await withService((db) =>
       db.execute(sql`
         select public.consume_mink_run_credits(
           p_store => ${input.actor.storeId}::uuid,
           p_admin => ${input.actor.adminId},
           p_run => ${input.runId}::uuid,
-          p_period => ${currentPeriod()},
+          p_period => ${cycle.period},
           p_plan_cap => ${planCap},
           p_credits => ${outstanding}
         ) as source

@@ -14,7 +14,7 @@ import {
   PLAN_IDS,
   PLAN_META,
   effectivePlan,
-  limitsFor,
+  type IncludedMinkCredits,
   normalizePlan,
   type Plan,
 } from "@/lib/plans";
@@ -63,12 +63,16 @@ export function StoresConsole({
   canManage,
   q,
   rootDomain,
+  includedCredits,
 }: {
   stores: PlatformStoreRow[];
   canManage: boolean;
   email: string;
   q: string;
   rootDomain: string;
+  /** Resolved server-side: the cap an operator has set, not the compiled-in
+   *  one, so this column matches what the quota gate is enforcing. */
+  includedCredits: IncludedMinkCredits;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(q);
@@ -328,15 +332,13 @@ export function StoresConsole({
                     </td>
                     <td className="px-6 py-4">
                       {(() => {
-                        const cap = limitsFor(
-                          effectivePlan(s),
-                        ).aiGenerationsPerMonth;
+                        const cap = includedCredits[effectivePlan(s)];
                         return (
                           <>
                             <div className="text-gray-700">
                               {s.ai_used}
                               <span className="text-gray-400">
-                                /{cap === null ? "∞" : cap} AI
+                                /{cap === null ? "∞" : cap} Mink
                               </span>
                             </div>
                             <div className="mt-0.5 text-xs text-gray-500">
@@ -655,7 +657,7 @@ export function StoresConsole({
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">
-                    Grant AI credits to {toGrant.name}
+                    Grant Mink credits to {toGrant.name}
                   </h2>
                   <p className="mt-1 text-sm text-gray-500">
                     Free of cost, never expire, recorded in the credit ledger

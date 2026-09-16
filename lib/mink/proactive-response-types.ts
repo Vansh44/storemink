@@ -34,7 +34,7 @@ export const RESPONSE_TITLES: Record<ResponseSignal, string> = {
   returns: "Review increased return activity",
 };
 export const RESPONSE_LIMITS =
-  "One read-only investigation; at most 20 detail rows, inventory detail from at most 3 affected locations. No business changes, messages, model calls or extra AI credits. Any later action needs its own preview and approval.";
+  "One read-only investigation; at most 20 detail rows, inventory detail from at most 3 affected locations. No business changes, messages, model calls or extra Mink credits. Any later action needs its own preview and approval.";
 export function isResponseSignal(value: unknown): value is ResponseSignal {
   return (
     typeof value === "string" &&

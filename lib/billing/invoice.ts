@@ -249,7 +249,7 @@ export function buildAiCreditsInvoice(input: {
     [
       {
         kind: "ai_credits",
-        description: `AI credits · ${input.packLabel} (${Math.max(0, Math.floor(input.credits))} credits)`,
+        description: `Mink credits · ${input.packLabel} (${Math.max(0, Math.floor(input.credits))} credits)`,
         quantity: 1,
         unitAmountPaise: nonNeg(input.amountPaise),
         amountPaise: nonNeg(input.amountPaise),

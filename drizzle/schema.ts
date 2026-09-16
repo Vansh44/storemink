@@ -7254,6 +7254,65 @@ export const planPrices = pgTable("plan_prices", {
   updatedBy: text("updated_by"),
 });
 
+// Platform-global operator overrides for the three fixed Mink top-up packs.
+// Credits/name/order stay in code; only price is editable, so an operator
+// cannot accidentally create a pack the checkout does not understand.
+export const minkCreditPackPrices = pgTable(
+  "mink_credit_pack_prices",
+  {
+    packId: text("pack_id").primaryKey().notNull(),
+    priceInr: integer("price_inr").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    check(
+      "mink_credit_pack_prices_pack_id_check",
+      sql`pack_id = ANY (ARRAY['small'::text, 'popular'::text, 'bulk'::text])`,
+    ),
+    check(
+      "mink_credit_pack_prices_price_check",
+      sql`${table.priceInr} > 0 AND ${table.priceInr} <= 500000`,
+    ),
+  ],
+);
+
+// Platform-global operator overrides for the included Mink credits a plan
+// grants. Tier list, every other limit and the code DEFAULT stay in
+// lib/plans.ts; an absent row means "no override", so an empty table behaves
+// exactly like the constants (the plan_prices contract).
+export const minkPlanAllowances = pgTable(
+  "mink_plan_allowances",
+  {
+    plan: text().primaryKey().notNull(),
+    // Two numbers because MINK_CHARGE_CREDITS switches between them
+    // (lib/plans.ts aiAllowanceFor) — storing only the live one makes the
+    // other unreachable at the moment it starts being enforced.
+    generationsPerMonth: integer("generations_per_month").notNull(),
+    creditsPerMonth: integer("credits_per_month").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    check(
+      "mink_plan_allowances_plan_check",
+      sql`plan = ANY (ARRAY['free'::text, 'basic'::text, 'pro'::text])`,
+    ),
+    check(
+      "mink_plan_allowances_generations_check",
+      sql`${table.generationsPerMonth} > 0 AND ${table.generationsPerMonth} <= 100000`,
+    ),
+    check(
+      "mink_plan_allowances_credits_check",
+      sql`${table.creditsPerMonth} > 0 AND ${table.creditsPerMonth} <= 100000`,
+    ),
+  ],
+);
+
 // ---- Returns & refunds (supabase/pos_12_returns.sql) ----------------------
 // Two tables because they are two facts: a return can be refunded across
 // several tenders, and a refund can happen with no return (a cancellation).

@@ -4,11 +4,13 @@ import { sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
 import { logError } from "@/lib/observability/logger";
 import {
+  aiAllowanceFor,
   effectivePlan,
-  limitsFor,
   normalizePlan,
   type Plan,
 } from "@/lib/plans";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
+import { getMinkConfig } from "@/lib/mink/config";
 
 // ---------------------------------------------------------------------------
 // Everything an operator needs to know about ONE store, on one screen.
@@ -126,6 +128,9 @@ export async function loadStoreDetail(
   storeId: string,
 ): Promise<StoreDetail | null> {
   try {
+    // Read before the one big round trip, so the cap an operator is shown is
+    // the cap the quota gate is really enforcing for this store.
+    const allowances = await getPlanAllowancesLive();
     return await withService(async (db) => {
       const result = await db.execute(sql`
         select
@@ -273,7 +278,11 @@ export async function loadStoreDetail(
         },
         ai: {
           used: num(row.ai_used),
-          cap: limitsFor(effective).aiGenerationsPerMonth,
+          cap: aiAllowanceFor(
+            effective,
+            getMinkConfig().chargeCredits,
+            allowances,
+          ),
           creditBalance: num(row.credit_balance),
         },
         mink: {

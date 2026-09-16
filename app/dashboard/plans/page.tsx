@@ -4,9 +4,11 @@ import {
   getMySubscription,
   getPayableInvoices,
 } from "@/app/actions/subscribe-actions";
-import { CREDIT_PACKS } from "@/lib/ai/credits";
+import { getMinkCreditPacksLive } from "@/lib/ai/credit-pricing";
 import { getPlanPricingLive } from "@/lib/plans/pricing";
-import { PLAN_META, normalizePlan } from "@/lib/plans";
+import { getPlanAllowancesLive } from "@/lib/plans/allowances";
+import { getMinkConfig } from "@/lib/mink/config";
+import { PLAN_META, includedMinkCredits, normalizePlan } from "@/lib/plans";
 import { PlansBillingClient } from "./plans-client";
 import { OpenInvoices } from "./open-invoices";
 import { CompActiveNotice, CompOfferCard } from "./comp-offer";
@@ -20,16 +22,23 @@ export default async function PlansBillingPage() {
   // LIVE, not the cached read: this page quotes a price and then charges it.
   // Reading through a cache a reprice had not yet reached would show one number
   // in the upgrade dialog and take a different one from the card.
-  const [data, subscription, pricing, invoices] = await Promise.all([
-    getAiUsagePageData(),
-    getMySubscription(),
-    getPlanPricingLive(),
-    // ★ What they OWE, above everything else on the page. Manual collection is
-    // still required for amounts above the AFA limit, revoked mandates and
-    // provider incidents, so burying it would downgrade merchants who never
-    // knew there was a bill.
-    getPayableInvoices(),
-  ]);
+  const [data, subscription, pricing, invoices, packs, allowances] =
+    await Promise.all([
+      getAiUsagePageData(),
+      getMySubscription(),
+      getPlanPricingLive(),
+      // ★ What they OWE, above everything else on the page. Manual collection is
+      // still required for amounts above the AFA limit, revoked mandates and
+      // provider incidents, so burying it would downgrade merchants who never
+      // knew there was a bill.
+      getPayableInvoices(),
+      getMinkCreditPacksLive(),
+      getPlanAllowancesLive(),
+    ]);
+  const includedCredits = includedMinkCredits(
+    allowances,
+    getMinkConfig().chargeCredits,
+  );
   const canManage = access.can("ai", "manage");
   const paidPlanName = PLAN_META[normalizePlan(data.paidPlan)].name;
   return (
@@ -50,9 +59,10 @@ export default async function PlansBillingPage() {
       <PlansBillingClient
         initialData={data}
         subscription={subscription}
-        packs={[...CREDIT_PACKS]}
+        packs={packs}
         canManage={canManage}
         pricing={pricing}
+        includedCredits={includedCredits}
       />
     </div>
   );

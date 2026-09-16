@@ -10,6 +10,7 @@ import {
   isMinkScrollNearBottom,
   latestMinkUserMessageId,
   minkComposerHeight,
+  minkCreditIndicatorState,
   minkHistoryStartsOpen,
   minkTurnAnchorSpace,
   shouldSubmitMinkComposer,
@@ -39,6 +40,7 @@ const baseChatState = {
   statusText: null,
   error: null,
   feedbackSubmittingRunId: null,
+  minkCredits: null,
   send: vi.fn(),
   cancel: vi.fn(),
   retry: vi.fn(),
@@ -163,6 +165,40 @@ describe("Mink full view", () => {
       "text-base",
       "sm:text-sm",
     );
+  });
+
+  it("shows StoreMink attribution and an inspectable live Mink credit balance below the composer", () => {
+    vi.mocked(useChat).mockReturnValue({
+      ...baseChatState,
+      minkCredits: {
+        used: 8,
+        cap: 20,
+        creditBalance: 5,
+        resetsAt: "2026-10-15T06:30:00.000Z",
+      },
+    } as unknown as ReturnType<typeof useChat>);
+
+    render(createElement(DashboardChat, { variant: "overlay" }));
+
+    expect(
+      screen.getByText(
+        (_content, node) =>
+          node?.tagName === "SPAN" &&
+          node.textContent?.replace(/\s+/g, " ").trim() ===
+            "Powered by StoreMink",
+      ),
+    ).toBeVisible();
+    const balance = screen.getByRole("button", {
+      name: "17 Mink credits left",
+    });
+    expect(balance).toBeVisible();
+    fireEvent.click(balance);
+    expect(
+      screen.getByRole("dialog", { name: "Mink credit balance" }),
+    ).toHaveTextContent("12 included + 5 top-up remaining");
+    expect(
+      screen.getByRole("link", { name: "View credits and usage" }),
+    ).toHaveAttribute("href", "/dashboard/plans");
   });
 
   it("keeps a submitted question at the top while a long answer grows below it", async () => {
@@ -323,6 +359,36 @@ describe("★★ minkTurnAnchorSpace", () => {
     expect(
       minkTurnAnchorSpace({ viewportHeight: 611.5, reservePx: 82.5 }),
     ).toBe("529px");
+  });
+});
+
+describe("Mink credit indicator", () => {
+  const summary = {
+    cap: 20,
+    creditBalance: 0,
+    resetsAt: "2026-10-15T06:30:00.000Z",
+  };
+
+  it("moves from green to yellow to red as usable credits run out", () => {
+    expect(minkCreditIndicatorState({ ...summary, used: 5 }).color).toBe(
+      "#16a34a",
+    );
+    expect(minkCreditIndicatorState({ ...summary, used: 14 }).color).toBe(
+      "#f59e0b",
+    );
+    expect(minkCreditIndicatorState({ ...summary, used: 18 }).color).toBe(
+      "#dc2626",
+    );
+  });
+
+  it("includes non-expiring top-ups in the displayed balance", () => {
+    expect(
+      minkCreditIndicatorState({
+        ...summary,
+        used: 20,
+        creditBalance: 7,
+      }),
+    ).toMatchObject({ includedLeft: 0, totalLeft: 7 });
   });
 });
 

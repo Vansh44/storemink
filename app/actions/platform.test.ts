@@ -53,7 +53,12 @@ vi.mock("@/lib/db/client", () => ({
   withAnon: vi.fn((fn: any) => Promise.resolve(fn(dbHolder.current.db))),
 }));
 
-import { deleteStore, setStorePlan, grantAiCredits } from "./platform";
+import {
+  deleteStore,
+  setStorePlan,
+  grantAiCredits,
+  savePlanCreditAllowances,
+} from "./platform";
 import { getServerUser } from "@/lib/auth/server-user";
 import { deleteAuthUser } from "@/lib/auth/firebase-users";
 import { isFirebaseAdminConfigured } from "@/lib/auth/firebase-admin";
@@ -424,5 +429,101 @@ describe("deleteStore", () => {
     const res = await deleteStore("s1");
     expect(res.warning).toMatch(/Identity Platform is not configured/i);
     expect(deleteAuthUser).not.toHaveBeenCalled();
+  });
+});
+
+describe("savePlanCreditAllowances", () => {
+  const ok = [
+    { plan: "free", generationsPerMonth: 5, creditsPerMonth: 30 },
+    { plan: "basic", generationsPerMonth: 15, creditsPerMonth: 150 },
+    { plan: "pro", generationsPerMonth: 60, creditsPerMonth: 400 },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getServerUser).mockResolvedValue({
+      id: "op-1",
+      email: OPERATOR_EMAIL,
+      phone: null,
+      phoneConfirmed: true,
+      metadata: {},
+    } as any);
+    setup([viewer()]);
+  });
+
+  it("rejects a non-superadmin operator", async () => {
+    setup([viewer("member")]);
+    const res = await savePlanCreditAllowances(ok);
+    expect(res.error).toMatch(/superadmin/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("requires exactly one row per plan", async () => {
+    setup([viewer()]);
+    expect((await savePlanCreditAllowances(ok.slice(0, 2))).error).toMatch(
+      /one allowance for each plan/i,
+    );
+    setup([viewer()]);
+    // Three rows, but one plan twice — a shape that would leave a tier on its
+    // old allowance while looking like a complete save.
+    expect(
+      (await savePlanCreditAllowances([ok[0], ok[1], { ...ok[1] }])).error,
+    ).toMatch(/one allowance for each plan/i);
+    setup([viewer()]);
+    expect(
+      (
+        await savePlanCreditAllowances([
+          ok[0],
+          ok[1],
+          { ...ok[2], plan: "growth" },
+        ])
+      ).error,
+    ).toMatch(/one allowance for each plan/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("rejects zero, fractional, negative and oversized allowances", async () => {
+    for (const bad of [0, -1, 2.5, 100_001]) {
+      setup([viewer()]);
+      const res = await savePlanCreditAllowances([
+        { ...ok[0], generationsPerMonth: bad },
+        ok[1],
+        ok[2],
+      ]);
+      expect(res.error).toMatch(/whole number between 1 and 100000/i);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
+    }
+  });
+
+  // ★ The dormant half is validated too. MINK_CHARGE_CREDITS switches between
+  // the columns, so a bad value stored in the one not currently in force would
+  // only surface on the day charging is switched on.
+  it("validates the allowance that is not currently being enforced", async () => {
+    setup([viewer()]);
+    const res = await savePlanCreditAllowances([
+      { ...ok[0], creditsPerMonth: 0 },
+      ok[1],
+      ok[2],
+    ]);
+    expect(res.error).toMatch(/once charging is on/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("upserts one row per plan and records the operator", async () => {
+    setup([viewer()]);
+    const res = await savePlanCreditAllowances(ok);
+    expect(res).toEqual({ success: true });
+    expect(dbHolder.current.calls.insert).toHaveLength(3);
+    // calls.insert holds the TABLE; calls.values holds the payload.
+    expect(dbHolder.current.calls.values).toEqual([
+      expect.objectContaining({
+        plan: "free",
+        generationsPerMonth: 5,
+        creditsPerMonth: 30,
+        updatedBy: OPERATOR_EMAIL,
+      }),
+      expect.objectContaining({ plan: "basic", generationsPerMonth: 15 }),
+      expect.objectContaining({ plan: "pro", creditsPerMonth: 400 }),
+    ]);
   });
 });

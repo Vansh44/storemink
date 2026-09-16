@@ -22,7 +22,10 @@ import {
 import { aiCreditLedger, aiCreditPurchases, stores } from "@/drizzle/schema";
 import { getManagerUserId, getActingStoreId } from "@/app/dashboard/lib/access";
 import { effectivePlan, NO_COMP } from "@/lib/plans";
-import { CREDIT_PACKS, getCreditPack } from "@/lib/ai/credits";
+import {
+  getMinkCreditPackLive,
+  getMinkCreditPacksLive,
+} from "@/lib/ai/credit-pricing";
 import { getAiUsage, type AiUsageSummary } from "@/lib/ai/quota";
 import { getPlatformRazorpayCreds } from "@/lib/payments/provider";
 import {
@@ -280,7 +283,9 @@ export async function startCreditPurchase(
   const userId = await getManagerUserId("ai");
   if (!userId) return { error: "You don't have permission to do this." };
 
-  const pack = getCreditPack(packId);
+  // Live, uncached: the number inserted into the purchase and sent to Razorpay
+  // must be the same operator-controlled price the merchant just saw.
+  const pack = await getMinkCreditPackLive(packId);
   if (!pack) return { error: "Unknown credit pack." };
 
   const storeId = await getActingStoreId();
@@ -482,5 +487,5 @@ export async function confirmCreditPurchase(
 
 /** The pack catalog for the buy panel (server → client serializable). */
 export async function getCreditPacks() {
-  return [...CREDIT_PACKS];
+  return getMinkCreditPacksLive();
 }

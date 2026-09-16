@@ -25,12 +25,17 @@ import {
   platformWebsiteSchema,
 } from "@/lib/seo/brand-identity";
 import {
-  PLAN_FEATURE_MATRIX,
+  planFeatureMatrix,
+  allowanceLabel,
+  includedMinkCredits,
+  type IncludedMinkCredits,
   PLAN_LIMITS,
   PLAN_META,
   type PlanMatrixValue,
 } from "@/lib/plans";
 import { getPlanPricing } from "@/lib/plans/pricing";
+import { getPlanAllowances } from "@/lib/plans/allowances";
+import { getMinkConfig } from "@/lib/mink/config";
 import { BrandMark } from "./brand-mark";
 import { SiteFooter } from "./site-footer";
 import { SiteHeader } from "./site-header";
@@ -54,7 +59,6 @@ const PLANS = [
       "GST invoicing and tax classes",
       "Cash on delivery checkout",
       "Full admin dashboard",
-      `${PLAN_LIMITS.free.aiGenerationsPerMonth} AI generations a month`,
     ],
     cta: "Start free",
     popular: false,
@@ -69,7 +73,6 @@ const PLANS = [
       `${PLAN_LIMITS.basic.maxStaff} staff accounts with roles`,
       "Customer groups and blog submissions",
       "Shiprocket fulfilment and custom code",
-      `${PLAN_LIMITS.basic.aiGenerationsPerMonth} AI generations a month`,
     ],
     cta: `Choose ${PLAN_META.basic.name}`,
     popular: true,
@@ -87,7 +90,6 @@ const PLANS = [
       "Your own custom domain",
       "Advanced analytics — GA4, Meta Pixel and conversion insights",
       "Unlimited products and staff",
-      `${PLAN_LIMITS.pro.aiGenerationsPerMonth} AI generations a month`,
     ],
     cta: `Choose ${PLAN_META.pro.name}`,
     popular: false,
@@ -112,7 +114,7 @@ function MatrixValue({ value }: { value: PlanMatrixValue }) {
   return <span>{value}</span>;
 }
 
-function PlanComparison() {
+function PlanComparison({ included }: { included: IncludedMinkCredits }) {
   return (
     <div className="smh-matrix-wrap">
       <h3>Compare every feature</h3>
@@ -127,7 +129,7 @@ function PlanComparison() {
             </tr>
           </thead>
           <tbody>
-            {PLAN_FEATURE_MATRIX.flatMap((section) => [
+            {planFeatureMatrix(included).flatMap((section) => [
               <tr className="smh-matrix-section" key={section.title}>
                 <th colSpan={4} scope="colgroup">
                   {section.title}
@@ -425,7 +427,18 @@ function GrowthArt() {
 }
 
 export default async function StoreminkLanding() {
-  const pricing = await getPlanPricing();
+  // The allowance is operator-editable (lib/plans/allowances.ts), so the
+  // advertised number is resolved here rather than compiled into PLANS —
+  // otherwise the pricing table would promise one figure while the quota gate
+  // enforced another.
+  const [pricing, allowances] = await Promise.all([
+    getPlanPricing(),
+    getPlanAllowances(),
+  ]);
+  const included = includedMinkCredits(
+    allowances,
+    getMinkConfig().chargeCredits,
+  );
   const cheapestPaidInr = Math.min(
     ...PLANS.map((plan) => pricing[plan.meta.id].monthlyInr).filter(
       (price) => price > 0,
@@ -436,7 +449,10 @@ export default async function StoreminkLanding() {
     id: plan.meta.id,
     name: plan.meta.name,
     who: plan.who,
-    features: plan.features,
+    features: [
+      ...plan.features,
+      `${allowanceLabel(included[plan.meta.id])} Mink credits a month`,
+    ],
     cta: plan.cta,
     popular: plan.popular,
     ...pricing[plan.meta.id],
@@ -795,7 +811,7 @@ export default async function StoreminkLanding() {
               <div className="smh-pricing-component">
                 <PricingCards plans={pricingCards} />
               </div>
-              <PlanComparison />
+              <PlanComparison included={included} />
               <p className="smh-pricing-foot">
                 <CircleCheck size={16} /> Your store data is never deleted by a
                 plan downgrade or failed payment.
