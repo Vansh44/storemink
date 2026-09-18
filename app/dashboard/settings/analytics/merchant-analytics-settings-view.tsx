@@ -35,9 +35,19 @@ function Switch({
         checked ? "bg-emerald-500" : "bg-slate-300"
       } disabled:cursor-not-allowed disabled:opacity-50`}
     >
+      {/*
+        ★ `left-1` IS LOAD-BEARING, not decoration. An absolutely positioned
+        box with `left: auto` falls back to its STATIC position, and the UA
+        stylesheet sets `text-align: center` on <button> — which Tailwind's
+        preflight does not reset. The knob is an empty out-of-flow inline, so
+        its static position is the CENTRE of the 44px track (measured: 22px),
+        not 0. Without an explicit `left` the knob sat right of centre when
+        off and overflowed the track by 18px when on.
+        Geometry: 44px track − 16px knob − 4px inset ⇒ travel is 20px.
+      */}
       <span
-        className={`absolute top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${
-          checked ? "translate-x-6" : "translate-x-1"
+        className={`absolute left-1 top-1 h-4 w-4 rounded-full bg-white shadow transition-transform ${
+          checked ? "translate-x-5" : "translate-x-0"
         }`}
       />
     </button>

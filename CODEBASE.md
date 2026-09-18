@@ -3410,6 +3410,23 @@ wholesip/
      rubber-band bounce cannot reveal that near-white body behind a dark
      full-screen till. Scoped to that element, NOT html/body: globally it would
      also disable pull-to-refresh on the storefront.
+   - **★★ AN ABSOLUTE BOX THAT TRANSLATES MUST DECLARE ITS OWN `left`.** The UA
+     stylesheet sets `text-align: center` on `<button>` and Tailwind's preflight
+     does NOT reset it — so a `position: absolute` child with `left: auto` falls
+     back to its STATIC position, which for an empty out-of-flow inline inside a
+     centred button is the MIDDLE of the box, not its left edge. Measured in a
+     browser on the 44px analytics toggle: the knob's static position was 22px,
+     so `translate-x-6` put it at 46px and it hung **18px outside the pill**
+     whenever the switch was on, while the off state sat right of centre. Two
+     switches shipped that way (`settings/analytics`, the operator analytics
+     panel); the ones built as `inline-flex items-center` were always fine,
+     because a flex container places its items itself and ignores `text-align`.
+     ⚠ jsdom computes no layout, so a render test cannot catch this and neither
+     can TypeScript — `app/toggle-knob-coverage.test.ts` scans every className
+     expression in `app/` and `components/` (across newlines, since the knob's
+     classes are split by the conditional) and fails on any `absolute` +
+     `translate-x-` with no `left-`/`right-`/`inset-`. Mutation-checked by
+     reintroducing the original bug.
    - **⚠ `dashboard.css` IS UNLAYERED, so it beats every Tailwind utility**
      regardless of specificity (utilities live in `@layer utilities`). That is
      fine for rules that predate the utilities at a call site, but a NEW base
