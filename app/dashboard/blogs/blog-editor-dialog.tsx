@@ -47,6 +47,7 @@ import {
 } from "@/app/actions/blog-actions";
 import type { BlogFormData } from "@/app/actions/blog-actions";
 import type { Blog } from "./page";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 // ── Helpers ───────────────────────────────────────────────────
 
@@ -216,15 +217,7 @@ export function BlogEditorDialog({
   }, [open, blog, editor, resetForm]);
 
   // ── Unsaved changes warning ─────────────────────────────────
-  useEffect(() => {
-    const handler = (e: BeforeUnloadEvent) => {
-      if (hasUnsaved) {
-        e.preventDefault();
-      }
-    };
-    window.addEventListener("beforeunload", handler);
-    return () => window.removeEventListener("beforeunload", handler);
-  }, [hasUnsaved]);
+  useUnsavedChangesWarning(hasUnsaved);
 
   // ── Autosave (every 30s, only while editing existing blog) ──
   useEffect(() => {

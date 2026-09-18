@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Check, ExternalLink, Lock, ShieldCheck } from "lucide-react";
@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/merchant-analytics-settings";
 import type { MerchantPixelSettings } from "@/lib/analytics/merchant-pixels";
 import { Button } from "@/components/ui/button";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 function Switch({
   checked,
@@ -207,17 +208,9 @@ export function MerchantAnalyticsSettingsView({
   const [pending, startTransition] = useTransition();
   const dirty = JSON.stringify(values) !== JSON.stringify(saved);
 
-  // ★ Nothing on this page autosaves, so a reload discards everything typed.
-  // The reported loss was exactly that — paste, toggle, refresh — and the
-  // browser's own prompt is the only thing that can interrupt it. Armed only
-  // while there is something to lose. (The builder guards its draft the same
-  // way; see use-autosave.)
-  useEffect(() => {
-    if (!dirty) return;
-    const warn = (event: BeforeUnloadEvent) => event.preventDefault();
-    window.addEventListener("beforeunload", warn);
-    return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  // Nothing on this page autosaves, so a reload discards everything typed —
+  // the loss that was reported here.
+  useUnsavedChangesWarning(dirty);
 
   function update(patch: Partial<MerchantPixelSettings>) {
     setValues((current) => ({ ...current, ...patch }));

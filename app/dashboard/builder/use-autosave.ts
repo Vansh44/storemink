@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { savePageDraft } from "@/app/actions/page-actions";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import type { PageSectionItem } from "@/lib/sections/registry";
 
 // ---------------------------------------------------------------------------
@@ -147,15 +148,12 @@ export function useAutosave({
   }, [enqueueSave, applyStatus]);
 
   // Warn before closing the tab while edits are unsaved or failing.
-  useEffect(() => {
-    function onBeforeUnload(e: BeforeUnloadEvent) {
-      if (["dirty", "saving", "error"].includes(statusRef.current)) {
-        e.preventDefault();
-      }
-    }
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, []);
+  // ⚠ A GETTER, not the rendered status: applyStatus writes statusRef the
+  // instant a save begins, ahead of the re-render, and narrowing this to the
+  // rendered value would drop the warning for that window.
+  useUnsavedChangesWarning(() =>
+    ["dirty", "saving", "error"].includes(statusRef.current),
+  );
 
   return { status, markDirty, flush, unblock };
 }

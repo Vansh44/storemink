@@ -10,6 +10,7 @@ import {
   saveStoreSettings,
   type EditorSetting,
 } from "@/app/actions/store-settings";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 function Toggle({
   on,
@@ -70,6 +71,8 @@ export function FeatureToggles({
   >(() => Object.fromEntries(initialSettings.map((s) => [s.key, s.value])));
 
   const dirty = initialSettings.some((s) => values[s.key] !== s.value);
+
+  useUnsavedChangesWarning(dirty);
 
   const handleSave = () => {
     startTransition(async () => {

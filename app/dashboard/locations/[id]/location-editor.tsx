@@ -13,6 +13,7 @@
 // checkbox is not a permission.
 
 import { useState, useTransition } from "react";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -61,6 +62,8 @@ export function LocationEditor({
     (c) => caps[c] !== location.capabilities[c],
   );
 
+  useUnsavedChangesWarning(dirty);
+
   // The shop's street address. Nothing collected this before, so a shopper was
   // told to collect from a named shop and never told where it was.
   // Every editable field of the location lives here. The list page's pencil
@@ -87,6 +90,10 @@ export function LocationEditor({
   const addrDirty = (Object.keys(initial) as (keyof typeof initial)[]).some(
     (k) => form[k] !== initial[k],
   );
+
+  // ★ The details form, not the capability switches, is where a merchant types
+  // the shop's address — the half of this screen with something to lose.
+  useUnsavedChangesWarning(addrDirty);
 
   const saveDetails = async () => {
     if (!form.name.trim()) {
