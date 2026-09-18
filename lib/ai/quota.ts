@@ -12,7 +12,7 @@ import {
 import {
   aiAllowanceFor,
   effectivePlan,
-  type PlanAllowances,
+  type PlanAllowanceOverrides,
   planAllows,
   PLAN_META,
   NO_COMP,
@@ -46,7 +46,7 @@ import { recordEvent } from "@/lib/notifications/record";
  */
 function allowanceFor(
   plan: Parameters<typeof aiAllowanceFor>[0],
-  allowances: PlanAllowances,
+  allowances: PlanAllowanceOverrides,
 ) {
   return aiAllowanceFor(plan, getMinkConfig().chargeCredits, allowances);
 }
@@ -154,7 +154,7 @@ export async function consumeAiQuota(storeId: string): Promise<QuotaResult> {
   // Read alongside the plan row and the cycle rather than after them: an
   // operator override decides whether this store is BLOCKED, so it has to be
   // live, and in the same Promise.all it costs no extra wall-clock.
-  let allowances: PlanAllowances;
+  let allowances: PlanAllowanceOverrides;
   try {
     [[storeRow], cycle, allowances] = await Promise.all([
       withService((db) =>

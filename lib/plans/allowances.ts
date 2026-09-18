@@ -21,9 +21,9 @@ import { unstable_cache, revalidateTag } from "next/cache";
 import { withService } from "@/lib/db/client";
 import { minkPlanAllowances } from "@/drizzle/schema";
 import {
-  resolvePlanAllowances,
+  resolvePlanAllowanceOverrides,
+  type PlanAllowanceOverrides,
   type PlanAllowanceRow,
-  type PlanAllowances,
 } from "@/lib/plans";
 import { logError } from "@/lib/observability/logger";
 
@@ -35,8 +35,11 @@ async function queryAllowanceRows(): Promise<PlanAllowanceRow[]> {
     db
       .select({
         plan: minkPlanAllowances.plan,
+        included_credits: minkPlanAllowances.includedCredits,
+        // ⚠ Still selected: a row written by the revision that predates
+        // migration 0116 has a NULL included_credits, and this is the value
+        // that was in force for it. Drops out with the contract migration.
         generations_per_month: minkPlanAllowances.generationsPerMonth,
-        credits_per_month: minkPlanAllowances.creditsPerMonth,
       })
       .from(minkPlanAllowances),
   );
@@ -49,12 +52,12 @@ async function queryAllowanceRows(): Promise<PlanAllowanceRow[]> {
  * This is also what makes the deploy order-independent: before the migration
  * runs, the relation does not exist and every plan simply keeps its default.
  */
-async function readAllowances(): Promise<PlanAllowances> {
+async function readAllowances(): Promise<PlanAllowanceOverrides> {
   try {
-    return resolvePlanAllowances(await queryAllowanceRows());
+    return resolvePlanAllowanceOverrides(await queryAllowanceRows());
   } catch (error) {
     logError("plan allowances: read failed, using code defaults", error);
-    return resolvePlanAllowances([]);
+    return resolvePlanAllowanceOverrides([]);
   }
 }
 

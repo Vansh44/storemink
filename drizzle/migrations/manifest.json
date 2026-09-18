@@ -4965,6 +4965,52 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260919_0116_mink_credit_catalog",
+      "description": "One allowance number per plan, and an operator-owned Mink credit-pack catalogue",
+      "file": "sql/20260919_0116_mink_credit_catalog.sql",
+      "transaction": true,
+      "requires": ["20260916_0115_mink_plan_allowances"],
+      "verify": {
+        "tables": ["mink_credit_packs", "mink_plan_allowances"],
+        "columns": [
+          "mink_plan_allowances.included_credits",
+          "mink_credit_packs.id",
+          "mink_credit_packs.name",
+          "mink_credit_packs.credits",
+          "mink_credit_packs.price_inr",
+          "mink_credit_packs.popular",
+          "mink_credit_packs.sort_order"
+        ],
+        "constraints": [
+          "mink_plan_allowances_included_check",
+          "mink_credit_packs_name_check",
+          "mink_credit_packs_credits_check",
+          "mink_credit_packs_price_check"
+        ],
+        "indexes": ["mink_credit_packs_one_popular_idx"],
+        "rlsTables": ["mink_credit_packs"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the catalogue is seeded so top-ups keep working",
+            "sql": "select count(*)::text from mink_credit_packs",
+            "equals": "3"
+          },
+          {
+            "name": "exactly one pack is highlighted",
+            "sql": "select count(*)::text from mink_credit_packs where popular",
+            "equals": "1"
+          },
+          {
+            "name": "every allowance an operator had already set carried over",
+            "sql": "select count(*)::text from mink_plan_allowances where included_credits is null",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

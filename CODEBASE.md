@@ -976,6 +976,58 @@ rather than Secret Manager; principals who can inspect a trigger or revision can
 therefore read it. Provider credentials and raw provider errors never reach the
 browser, and audio or transcript content is not written to logs.
 
+### Mink credit catalogue and allowance, operator-owned (2026-09-19)
+
+Migration **0116** is expand-only, because 0114 and 0115 are APPLIED — their
+checksums are recorded, so editing either would make the runner refuse every
+later migration, and Cloud Run serves the old and new revision against one
+database for the length of a rollout. The matching CONTRACT migration (dropping
+`mink_plan_allowances`' two legacy columns and the whole
+`mink_credit_pack_prices` table) is a follow-up, once no revision reading them
+is left running.
+
+**★★ ONE ALLOWANCE NUMBER PER PLAN, NOT TWO.** 0115 stored the halves
+`MINK_CHARGE_CREDITS` switches between; a number set by an operator now IS the
+plan's allowance, in both modes. A plan with NO override keeps the compiled-in
+ladder, so "one switch raises the allowance and starts the charge together"
+still holds everywhere nobody has intervened. ⚠ The consequence, stated rather
+than hidden: an OVERRIDDEN plan does not jump to the larger charging-era
+default when that flag flips — which is what an override is for, and why the
+panel prints the compiled-in default beside each field rather than letting the
+number be set blind. `included_credits` is NULLABLE because the deployed
+revision does not know the column exists and would fail every insert it makes
+during the rollout; `resolvePlanAllowanceOverrides` therefore falls back to
+`generations_per_month`, which IS the value in force for a row that revision
+wrote. `savePlanCreditAllowances` writes all three columns to the same number
+for the same reason — the legacy pair is still NOT NULL.
+
+**★★ THE CREDIT-PACK CATALOGUE IS A TABLE THE OPERATOR OWNS
+(`mink_credit_packs`).** Name, size, price, which pack is highlighted, the
+order and how many packs exist are all editable. ★ Safe because
+`ai_credit_purchases` snapshots `credits` and `amount_inr` at checkout and
+`confirmCreditPurchase` grants from THAT row rather than re-reading the pack —
+so editing or deleting a pack can never change what a completed or in-flight
+purchase granted or charged, and `pack_id` carries no foreign key, so history
+stays readable. Deleting one is a real delete; a merchant mid-purchase on a
+removed pack gets "Unknown credit pack" and picks again.
+★★ AND THERE IS NO CODE FALLBACK ANY MORE. `lib/ai/credit-pricing.ts` used to
+merge stored prices onto a hardcoded list, which was safe only while sizes and
+identities were also hardcoded. Now that an operator can rename, resize and
+remove packs, falling back on a read failure would quote a catalogue that no
+longer exists and — on the purchase path — charge a price nobody set. An
+unreadable catalogue is reported as NO catalogue: top-ups are unavailable,
+which is recoverable, where a wrong charge is not.
+★ AT MOST ONE HIGHLIGHTED PACK, enforced by a partial unique index rather than
+by the save action alone. ⚠ `saveMinkCreditPacks` therefore CLEARS `popular` on
+every row before writing any of them: moving the badge from A to B in one pass
+collides the moment B is written while A still holds it. Pinned by a test.
+★ The whole list saves at once, so a reorder, a rename, a new pack and a removal
+commit together and a merchant never sees a half-applied catalogue; the row
+order IS `sort_order`. `validateCreditPacks` is PURE and shared by the form and
+the action, so the form cannot accept what the server then refuses.
+⚠ Bounded at 12 packs — the merchant picks from these cards, and a list nobody
+can compare at a glance is not a price list.
+
 ### Operator-editable included Mink credits (2026-09-16)
 
 `mink_plan_allowances` (migration 0115) is the first and only plan LIMIT an
@@ -2354,8 +2406,11 @@ wholesip/
 │   │                          # normalize/sanitize. Read cached via getStoreMenus.
 │   ├── ai/gemini.ts           # Gemini/Vertex AI client for AI copy (dual backend, §7);
 │   │                          # emits ai.generate telemetry (latency + tokens) via observability
-│   ├── ai/credits.ts          # ★ fixed Mink pack identities/sizes + default prices (pure)
-│   ├── ai/credit-pricing.ts   # ★ live operator price overrides used by display + checkout
+│   ├── ai/credits.ts          # (see below) pure CreditPack shape + the bounds a pack
+│   │                          # must satisfy; the catalogue itself is in the database
+│   ├── ai/credit-pricing.ts   # ★ reads the operator-owned mink_credit_packs catalogue.
+│   │                          # No code fallback: an unreadable catalogue means no
+│   │                          # top-ups, never a guessed price.
 │   ├── plans/allowances.ts    # ★ live operator overrides for the INCLUDED Mink credits
 │   │                          # a plan grants (mink_plan_allowances). Same shape as
 │   │                          # plans/pricing.ts: cached for display, live for the
@@ -3355,6 +3410,23 @@ wholesip/
      rubber-band bounce cannot reveal that near-white body behind a dark
      full-screen till. Scoped to that element, NOT html/body: globally it would
      also disable pull-to-refresh on the storefront.
+   - **★★ AN ABSOLUTE BOX THAT TRANSLATES MUST DECLARE ITS OWN `left`.** The UA
+     stylesheet sets `text-align: center` on `<button>` and Tailwind's preflight
+     does NOT reset it — so a `position: absolute` child with `left: auto` falls
+     back to its STATIC position, which for an empty out-of-flow inline inside a
+     centred button is the MIDDLE of the box, not its left edge. Measured in a
+     browser on the 44px analytics toggle: the knob's static position was 22px,
+     so `translate-x-6` put it at 46px and it hung **18px outside the pill**
+     whenever the switch was on, while the off state sat right of centre. Two
+     switches shipped that way (`settings/analytics`, the operator analytics
+     panel); the ones built as `inline-flex items-center` were always fine,
+     because a flex container places its items itself and ignores `text-align`.
+     ⚠ jsdom computes no layout, so a render test cannot catch this and neither
+     can TypeScript — `app/toggle-knob-coverage.test.ts` scans every className
+     expression in `app/` and `components/` (across newlines, since the knob's
+     classes are split by the conditional) and fails on any `absolute` +
+     `translate-x-` with no `left-`/`right-`/`inset-`. Mutation-checked by
+     reintroducing the original bug.
    - **⚠ `dashboard.css` IS UNLAYERED, so it beats every Tailwind utility**
      regardless of specificity (utilities live in `@layer utilities`). That is
      fine for rules that predate the utilities at a call site, but a NEW base

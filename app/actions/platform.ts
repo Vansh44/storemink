@@ -1,6 +1,16 @@
 "use server";
 
-import { and, asc, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  notInArray,
+  or,
+  sql,
+} from "drizzle-orm";
 import { revalidatePath, revalidateTag } from "next/cache";
 import { deleteAuthUser } from "@/lib/auth/firebase-users";
 import { isFirebaseAdminConfigured } from "@/lib/auth/firebase-admin";
@@ -21,7 +31,7 @@ import {
   emailCampaigns,
   homepageSections,
   mediaAssets,
-  minkCreditPackPrices,
+  minkCreditPacks,
   minkPlanAllowances,
   orderReturns,
   planEvents,
@@ -68,7 +78,7 @@ import {
   type PlanPricing,
 } from "@/lib/plans/pricing";
 import { minkCreditCycleAt } from "@/lib/ai/quota";
-import { DEFAULT_MINK_CREDIT_PACKS } from "@/lib/ai/credits";
+import { validateCreditPacks, type CreditPack } from "@/lib/ai/credits";
 import { bustPlanAllowances } from "@/lib/plans/allowances";
 
 // A Storemink platform operator (from platform_admins, by JWT email).
@@ -1073,53 +1083,87 @@ export interface PlanPriceInput {
   baseYearlyInr: number | null;
 }
 
-export interface MinkCreditPackPriceInput {
-  packId: string;
+export interface MinkCreditPackInput {
+  id: string;
+  name: string;
+  credits: number;
   priceInr: number;
+  popular: boolean;
 }
 
-export async function saveMinkCreditPackPricing(
-  input: MinkCreditPackPriceInput[],
+/**
+ * Replace the whole Mink credit-pack catalogue (migration 0116).
+ *
+ * ★ THE WHOLE LIST, NOT ONE PACK AT A TIME. The operator edits a table and
+ * presses Save once; reconciling here means the highlighted pack, the order and
+ * a removal all commit together, so the catalogue a merchant sees is never a
+ * half-applied edit. `sort_order` is the array index, so the rows ARE the order.
+ *
+ * ★ Deleting a pack is safe and does not touch history: ai_credit_purchases
+ * snapshots `credits` and `amount_inr`, `pack_id` carries no foreign key, and
+ * confirmCreditPurchase grants from that row rather than re-reading the pack.
+ * A merchant who had the old card on screen gets "Unknown credit pack" and
+ * picks again — recoverable, unlike being charged a price nobody set.
+ */
+export async function saveMinkCreditPacks(
+  input: MinkCreditPackInput[],
 ): Promise<ActionResult> {
   const viewer = await getPlatformViewer();
   if (viewer?.role !== "superadmin") {
     return { error: "Only a platform superadmin can change pricing." };
   }
-  const ids = DEFAULT_MINK_CREDIT_PACKS.map((pack) => pack.id);
-  if (
-    !Array.isArray(input) ||
-    input.length !== ids.length ||
-    new Set(input.map((row) => row.packId)).size !== ids.length ||
-    input.some((row) => !ids.includes(row.packId))
-  ) {
-    return { error: "Submit one price for each Mink credit pack." };
+  if (!Array.isArray(input)) {
+    return { error: "Submit the full list of credit packs." };
   }
-  for (const row of input) {
-    if (
-      !Number.isInteger(row.priceInr) ||
-      row.priceInr < 1 ||
-      row.priceInr > MAX_PLAN_PRICE_INR
-    ) {
-      return {
-        error: `${row.packId} price must be a whole number between 1 and ${MAX_PLAN_PRICE_INR}.`,
-      };
-    }
+  const packs: CreditPack[] = input.map((row) => ({
+    id: typeof row?.id === "string" ? row.id.trim() : "",
+    name: typeof row?.name === "string" ? row.name.trim() : "",
+    credits: Number(row?.credits),
+    priceInr: Number(row?.priceInr),
+    popular: row?.popular === true,
+  }));
+  // One rule set, shared with the form — see validateCreditPacks.
+  const problems = validateCreditPacks(packs);
+  if (problems.length) {
+    const first = problems[0];
+    return {
+      error:
+        first.index >= 0
+          ? `Pack ${first.index + 1}: ${first.message}`
+          : first.message,
+    };
   }
 
   try {
     await withService(async (db) => {
-      for (const row of input) {
+      const keep = packs.map((pack) => pack.id);
+      // ⚠ Clear `popular` FIRST. The partial unique index allows one true row,
+      // so moving the highlight from pack A to pack B in a single pass would
+      // collide the moment B is written while A still holds it.
+      await db.update(minkCreditPacks).set({ popular: false });
+      await db
+        .delete(minkCreditPacks)
+        .where(notInArray(minkCreditPacks.id, keep));
+      for (const [index, pack] of packs.entries()) {
         await db
-          .insert(minkCreditPackPrices)
+          .insert(minkCreditPacks)
           .values({
-            packId: row.packId,
-            priceInr: row.priceInr,
+            id: pack.id,
+            name: pack.name,
+            credits: pack.credits,
+            priceInr: pack.priceInr,
+            popular: pack.popular === true,
+            sortOrder: index,
             updatedBy: viewer.email ?? null,
           })
           .onConflictDoUpdate({
-            target: minkCreditPackPrices.packId,
+            target: minkCreditPacks.id,
             set: {
-              priceInr: row.priceInr,
+              name: pack.name,
+              credits: pack.credits,
+              priceInr: pack.priceInr,
+              popular: pack.popular === true,
+              sortOrder: index,
               updatedBy: viewer.email ?? null,
               updatedAt: new Date().toISOString(),
             },
@@ -1127,10 +1171,9 @@ export async function saveMinkCreditPackPricing(
       }
     });
   } catch (error) {
-    logError("saveMinkCreditPackPricing failed", error);
-    return { error: "Couldn't save Mink credit prices. Please try again." };
+    logError("saveMinkCreditPacks failed", error);
+    return { error: "Couldn't save the credit packs. Please try again." };
   }
-  revalidatePath("/platform/pricing");
   revalidatePath("/dashboard/plans");
   return { success: true };
 }
@@ -1151,8 +1194,7 @@ const MAX_PLAN_ALLOWANCE = 100_000;
 
 export interface PlanAllowanceInput {
   plan: string;
-  generationsPerMonth: number;
-  creditsPerMonth: number;
+  includedCredits: number;
 }
 
 export async function savePlanCreditAllowances(
@@ -1172,19 +1214,14 @@ export async function savePlanCreditAllowances(
     return { error: "Submit one allowance for each plan." };
   }
   for (const row of input) {
-    // ★ BOTH HALVES ARE VALIDATED, including the one not currently in force.
-    // MINK_CHARGE_CREDITS switches between them, and a bad value stored in the
-    // dormant half would only surface at the moment charging is switched on —
-    // the worst possible time to discover a tier has a cap of 0.
-    for (const [label, value] of [
-      ["included credits", row.generationsPerMonth],
-      ["included credits once charging is on", row.creditsPerMonth],
-    ] as const) {
-      if (!Number.isInteger(value) || value < 1 || value > MAX_PLAN_ALLOWANCE) {
-        return {
-          error: `${row.plan}: ${label} must be a whole number between 1 and ${MAX_PLAN_ALLOWANCE}.`,
-        };
-      }
+    if (
+      !Number.isInteger(row.includedCredits) ||
+      row.includedCredits < 1 ||
+      row.includedCredits > MAX_PLAN_ALLOWANCE
+    ) {
+      return {
+        error: `${row.plan}: included credits must be a whole number between 1 and ${MAX_PLAN_ALLOWANCE}.`,
+      };
     }
   }
 
@@ -1195,15 +1232,21 @@ export async function savePlanCreditAllowances(
           .insert(minkPlanAllowances)
           .values({
             plan: row.plan,
-            generationsPerMonth: row.generationsPerMonth,
-            creditsPerMonth: row.creditsPerMonth,
+            includedCredits: row.includedCredits,
+            // ⚠ The legacy pair is still NOT NULL and the revision this rolls
+            // out over still reads it, so both are written to the same number
+            // until the contract migration drops them. Writing only the new
+            // column would fail the insert outright.
+            generationsPerMonth: row.includedCredits,
+            creditsPerMonth: row.includedCredits,
             updatedBy: viewer.email ?? null,
           })
           .onConflictDoUpdate({
             target: minkPlanAllowances.plan,
             set: {
-              generationsPerMonth: row.generationsPerMonth,
-              creditsPerMonth: row.creditsPerMonth,
+              includedCredits: row.includedCredits,
+              generationsPerMonth: row.includedCredits,
+              creditsPerMonth: row.includedCredits,
               updatedBy: viewer.email ?? null,
               updatedAt: new Date().toISOString(),
             },

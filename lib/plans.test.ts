@@ -1,9 +1,9 @@
 import { describe, it, expect } from "vitest";
 import {
   aiAllowanceFor,
-  DEFAULT_PLAN_ALLOWANCES,
+  NO_PLAN_ALLOWANCE_OVERRIDES,
   includedMinkCredits,
-  resolvePlanAllowances,
+  resolvePlanAllowanceOverrides,
   PLAN_IDS,
   PLAN_META,
   PLAN_LIMITS,
@@ -342,7 +342,7 @@ describe("catalog consistency", () => {
   describe("aiAllowanceFor", () => {
     it("keeps the legacy caps while Mink conversations are free", () => {
       for (const plan of PLAN_IDS) {
-        expect(aiAllowanceFor(plan, false, DEFAULT_PLAN_ALLOWANCES)).toBe(
+        expect(aiAllowanceFor(plan, false, NO_PLAN_ALLOWANCE_OVERRIDES)).toBe(
           PLAN_LIMITS[plan].aiGenerationsPerMonth,
         );
       }
@@ -353,93 +353,120 @@ describe("catalog consistency", () => {
       // product descriptions would give a Free store a single Mink question a
       // month; raising them without charging is a pure cost increase. Neither
       // half can ship alone, which is what this pins.
-      expect(aiAllowanceFor("free", true, DEFAULT_PLAN_ALLOWANCES)).toBe(20);
-      expect(aiAllowanceFor("basic", true, DEFAULT_PLAN_ALLOWANCES)).toBe(100);
-      expect(aiAllowanceFor("pro", true, DEFAULT_PLAN_ALLOWANCES)).toBe(300);
+      expect(aiAllowanceFor("free", true, NO_PLAN_ALLOWANCE_OVERRIDES)).toBe(
+        20,
+      );
+      expect(aiAllowanceFor("basic", true, NO_PLAN_ALLOWANCE_OVERRIDES)).toBe(
+        100,
+      );
+      expect(aiAllowanceFor("pro", true, NO_PLAN_ALLOWANCE_OVERRIDES)).toBe(
+        300,
+      );
     });
 
     it("never lowers an allowance by switching charging on", () => {
       // A merchant must not lose capacity on the day billing starts.
       for (const plan of PLAN_IDS) {
-        const before = aiAllowanceFor(plan, false, DEFAULT_PLAN_ALLOWANCES);
-        const after = aiAllowanceFor(plan, true, DEFAULT_PLAN_ALLOWANCES);
+        const before = aiAllowanceFor(plan, false, NO_PLAN_ALLOWANCE_OVERRIDES);
+        const after = aiAllowanceFor(plan, true, NO_PLAN_ALLOWANCE_OVERRIDES);
         if (before === null || after === null) continue;
         expect(after).toBeGreaterThanOrEqual(before);
       }
     });
 
     it("enforces the operator override rather than the compiled-in cap", () => {
-      const allowances = resolvePlanAllowances([
-        { plan: "free", generations_per_month: 25, credits_per_month: 60 },
+      const overrides = resolvePlanAllowanceOverrides([
+        { plan: "free", included_credits: 25, generations_per_month: 3 },
       ]);
-      expect(aiAllowanceFor("free", false, allowances)).toBe(25);
-      expect(aiAllowanceFor("free", true, allowances)).toBe(60);
-      // An untouched plan still resolves to the constant.
-      expect(aiAllowanceFor("basic", false, allowances)).toBe(
+      // ★ ONE NUMBER: the override IS the allowance, in BOTH modes. That is
+      // the whole point of a single column — an operator who types 25 gets 25,
+      // not 25 today and something else the day charging is switched on.
+      expect(aiAllowanceFor("free", false, overrides)).toBe(25);
+      expect(aiAllowanceFor("free", true, overrides)).toBe(25);
+      // An untouched plan still resolves to the constant, and the compiled-in
+      // ladder still rises with the charging switch there.
+      expect(aiAllowanceFor("basic", false, overrides)).toBe(
         PLAN_LIMITS.basic.aiGenerationsPerMonth,
+      );
+      expect(aiAllowanceFor("basic", true, overrides)).toBe(
+        PLAN_LIMITS.basic.aiCreditsPerMonth,
       );
     });
   });
 
-  describe("resolvePlanAllowances", () => {
-    it("behaves exactly like the constants when nothing is stored", () => {
-      expect(resolvePlanAllowances([])).toEqual(DEFAULT_PLAN_ALLOWANCES);
+  describe("resolvePlanAllowanceOverrides", () => {
+    it("reports no override when nothing is stored", () => {
+      expect(resolvePlanAllowanceOverrides([])).toEqual(
+        NO_PLAN_ALLOWANCE_OVERRIDES,
+      );
+    });
+
+    it("falls back to the legacy column for a row written before 0116", () => {
+      // ⚠ The revision that predates migration 0116 wrote only
+      // generations_per_month, and that is the value in force for such a row.
+      // Ignoring it would silently restore the compiled-in cap mid-rollout.
+      const resolved = resolvePlanAllowanceOverrides([
+        { plan: "pro", included_credits: null, generations_per_month: 60 },
+      ]);
+      expect(resolved.pro).toBe(60);
+    });
+
+    it("prefers the new column when both are present", () => {
+      expect(
+        resolvePlanAllowanceOverrides([
+          { plan: "pro", included_credits: 75, generations_per_month: 60 },
+        ]).pro,
+      ).toBe(75);
     });
 
     it("ignores a row for a plan that no longer exists", () => {
-      // The tier list lives in code (resolvePricing's rule): a row left behind
-      // by a renamed plan must not conjure an allowance for a dead tier.
-      const resolved = resolvePlanAllowances([
-        { plan: "growth", generations_per_month: 999, credits_per_month: 999 },
+      const resolved = resolvePlanAllowanceOverrides([
+        { plan: "growth", included_credits: 999, generations_per_month: 999 },
       ]);
-      expect(resolved).toEqual(DEFAULT_PLAN_ALLOWANCES);
+      expect(resolved).toEqual(NO_PLAN_ALLOWANCE_OVERRIDES);
       expect(resolved).not.toHaveProperty("growth");
     });
 
     it("falls back to the constant rather than enforcing a cap of zero", () => {
       // ★ The database CHECKs already refuse these, so reaching one means the
       // row was written around the app. Honouring a 0 would block every AI
-      // action on that tier; the compiled-in number is the safe reading.
+      // action on that tier.
       for (const bad of [0, -5, 1.5, Number.NaN]) {
-        const resolved = resolvePlanAllowances([
-          { plan: "pro", generations_per_month: bad, credits_per_month: bad },
-        ]);
-        expect(resolved.pro).toEqual(DEFAULT_PLAN_ALLOWANCES.pro);
+        expect(
+          resolvePlanAllowanceOverrides([
+            { plan: "pro", included_credits: bad, generations_per_month: null },
+          ]).pro,
+        ).toBeNull();
       }
-    });
-
-    it("does not mutate the shared defaults", () => {
-      // The resolver hands out fresh objects; a caller editing one must not
-      // reach back into the constant every other caller reads.
-      resolvePlanAllowances([
-        { plan: "pro", generations_per_month: 7, credits_per_month: 9 },
-      ]).pro.generationsPerMonth = 1;
-      expect(DEFAULT_PLAN_ALLOWANCES.pro.generationsPerMonth).toBe(
-        PLAN_LIMITS.pro.aiGenerationsPerMonth,
-      );
     });
   });
 
   describe("includedMinkCredits", () => {
-    it("applies the charging switch once, server-side, for every plan", () => {
-      const allowances = resolvePlanAllowances([
-        { plan: "free", generations_per_month: 4, credits_per_month: 40 },
+    it("uses the override for an overridden plan and the ladder otherwise", () => {
+      const overrides = resolvePlanAllowanceOverrides([
+        { plan: "free", included_credits: 4, generations_per_month: null },
       ]);
-      expect(includedMinkCredits(allowances, false).free).toBe(4);
-      expect(includedMinkCredits(allowances, true).free).toBe(40);
+      expect(includedMinkCredits(overrides, false).free).toBe(4);
+      expect(includedMinkCredits(overrides, true).free).toBe(4);
+      expect(includedMinkCredits(overrides, false).basic).toBe(
+        PLAN_LIMITS.basic.aiGenerationsPerMonth,
+      );
+      expect(includedMinkCredits(overrides, true).basic).toBe(
+        PLAN_LIMITS.basic.aiCreditsPerMonth,
+      );
     });
 
     it("quotes exactly what aiAllowanceFor enforces", () => {
       // The whole point of the pre-switched map: a display surface and the
       // quota gate must never be able to disagree.
-      const allowances = resolvePlanAllowances([
-        { plan: "basic", generations_per_month: 12, credits_per_month: 120 },
+      const overrides = resolvePlanAllowanceOverrides([
+        { plan: "basic", included_credits: 12, generations_per_month: null },
       ]);
       for (const charging of [false, true]) {
-        const included = includedMinkCredits(allowances, charging);
+        const included = includedMinkCredits(overrides, charging);
         for (const plan of PLAN_IDS) {
           expect(included[plan]).toBe(
-            aiAllowanceFor(plan, charging, allowances),
+            aiAllowanceFor(plan, charging, overrides),
           );
         }
       }

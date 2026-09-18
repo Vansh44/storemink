@@ -58,6 +58,7 @@ import {
   setStorePlan,
   grantAiCredits,
   savePlanCreditAllowances,
+  saveMinkCreditPacks,
 } from "./platform";
 import { getServerUser } from "@/lib/auth/server-user";
 import { deleteAuthUser } from "@/lib/auth/firebase-users";
@@ -434,9 +435,9 @@ describe("deleteStore", () => {
 
 describe("savePlanCreditAllowances", () => {
   const ok = [
-    { plan: "free", generationsPerMonth: 5, creditsPerMonth: 30 },
-    { plan: "basic", generationsPerMonth: 15, creditsPerMonth: 150 },
-    { plan: "pro", generationsPerMonth: 60, creditsPerMonth: 400 },
+    { plan: "free", includedCredits: 5 },
+    { plan: "basic", includedCredits: 15 },
+    { plan: "pro", includedCredits: 60 },
   ];
 
   beforeEach(() => {
@@ -486,7 +487,7 @@ describe("savePlanCreditAllowances", () => {
     for (const bad of [0, -1, 2.5, 100_001]) {
       setup([viewer()]);
       const res = await savePlanCreditAllowances([
-        { ...ok[0], generationsPerMonth: bad },
+        { ...ok[0], includedCredits: bad },
         ok[1],
         ok[2],
       ]);
@@ -495,35 +496,105 @@ describe("savePlanCreditAllowances", () => {
     }
   });
 
-  // ★ The dormant half is validated too. MINK_CHARGE_CREDITS switches between
-  // the columns, so a bad value stored in the one not currently in force would
-  // only surface on the day charging is switched on.
-  it("validates the allowance that is not currently being enforced", async () => {
-    setup([viewer()]);
-    const res = await savePlanCreditAllowances([
-      { ...ok[0], creditsPerMonth: 0 },
-      ok[1],
-      ok[2],
-    ]);
-    expect(res.error).toMatch(/once charging is on/i);
-    expect(dbHolder.current.calls.insert).toHaveLength(0);
-  });
-
-  it("upserts one row per plan and records the operator", async () => {
+  // ⚠ The legacy pair is still NOT NULL and the revision this rolls out over
+  // still reads it, so all three columns carry the same number until the
+  // contract migration drops them. Writing only the new one fails the insert.
+  it("writes the new column and both legacy columns to the same number", async () => {
     setup([viewer()]);
     const res = await savePlanCreditAllowances(ok);
     expect(res).toEqual({ success: true });
-    expect(dbHolder.current.calls.insert).toHaveLength(3);
-    // calls.insert holds the TABLE; calls.values holds the payload.
     expect(dbHolder.current.calls.values).toEqual([
       expect.objectContaining({
         plan: "free",
+        includedCredits: 5,
         generationsPerMonth: 5,
-        creditsPerMonth: 30,
+        creditsPerMonth: 5,
         updatedBy: OPERATOR_EMAIL,
       }),
-      expect.objectContaining({ plan: "basic", generationsPerMonth: 15 }),
-      expect.objectContaining({ plan: "pro", creditsPerMonth: 400 }),
+      expect.objectContaining({ plan: "basic", includedCredits: 15 }),
+      expect.objectContaining({ plan: "pro", includedCredits: 60 }),
     ]);
+  });
+});
+
+describe("saveMinkCreditPacks", () => {
+  const packs = [
+    { id: "small", name: "Small", credits: 25, priceInr: 59, popular: false },
+    { id: "big", name: "Big", credits: 300, priceInr: 499, popular: true },
+  ];
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getServerUser).mockResolvedValue({
+      id: "op-1",
+      email: OPERATOR_EMAIL,
+      phone: null,
+      phoneConfirmed: true,
+      metadata: {},
+    } as any);
+    setup([viewer()]);
+  });
+
+  it("rejects a non-superadmin operator", async () => {
+    setup([viewer("member")]);
+    const res = await saveMinkCreditPacks(packs);
+    expect(res.error).toMatch(/superadmin/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("refuses an empty catalogue", async () => {
+    setup([viewer()]);
+    const res = await saveMinkCreditPacks([]);
+    expect(res.error).toMatch(/at least one credit pack/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("refuses two highlighted packs and a duplicate id", async () => {
+    setup([viewer()]);
+    expect(
+      (
+        await saveMinkCreditPacks([
+          { ...packs[0], popular: true },
+          { ...packs[1], popular: true },
+        ])
+      ).error,
+    ).toMatch(/only one pack can be highlighted/i);
+    setup([viewer()]);
+    expect(
+      (await saveMinkCreditPacks([packs[0], { ...packs[0] }])).error,
+    ).toMatch(/duplicate pack id/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("refuses a blank name or a non-positive size or price", async () => {
+    for (const bad of [
+      { ...packs[0], name: "  " },
+      { ...packs[0], credits: 0 },
+      { ...packs[0], priceInr: 0 },
+    ]) {
+      setup([viewer()]);
+      expect((await saveMinkCreditPacks([bad])).error).toMatch(/^Pack 1: /);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
+    }
+  });
+
+  // ★★ The highlight is cleared before anything is written. The partial unique
+  // index allows one `popular` row, so moving the badge from A to B in a single
+  // pass collides the moment B is written while A still holds it.
+  it("clears the highlight before writing, and stores the row order", async () => {
+    setup([viewer()]);
+    const res = await saveMinkCreditPacks(packs);
+    expect(res).toEqual({ success: true });
+    expect(dbHolder.current.calls.set[0]).toEqual({ popular: false });
+    expect(dbHolder.current.calls.values).toEqual([
+      expect.objectContaining({ id: "small", sortOrder: 0, popular: false }),
+      expect.objectContaining({ id: "big", sortOrder: 1, popular: true }),
+    ]);
+  });
+
+  it("deletes packs the operator removed from the list", async () => {
+    setup([viewer()]);
+    await saveMinkCreditPacks([packs[0]]);
+    expect(dbHolder.current.calls.delete).toHaveLength(1);
   });
 });
