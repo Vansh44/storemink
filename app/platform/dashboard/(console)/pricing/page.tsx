@@ -7,6 +7,7 @@ import { PricingPanel } from "../pricing-panel";
 import { getMinkCreditPacksLive } from "@/lib/ai/credit-pricing";
 import { getPlanAllowancesLive } from "@/lib/plans/allowances";
 import { getMinkConfig } from "@/lib/mink/config";
+import { includedMinkCredits, NO_PLAN_ALLOWANCE_OVERRIDES } from "@/lib/plans";
 import { canManage, requireOperator } from "../require-operator";
 
 export const metadata = { title: "Pricing — StoreMink Admin" };
@@ -50,7 +51,12 @@ export default async function PricingPage() {
         extraLocation={extraLocation}
         minkCreditPacks={minkCreditPacks}
         minkAllowances={minkAllowances}
-        minkChargesCredits={getMinkConfig().chargeCredits}
+        minkDefaultCredits={includedMinkCredits(
+          // What a plan grants with NO override — shown beside the field so the
+          // operator can see what they are replacing.
+          NO_PLAN_ALLOWANCE_OVERRIDES,
+          getMinkConfig().chargeCredits,
+        )}
       />
     </div>
   );

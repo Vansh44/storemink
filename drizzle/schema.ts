@@ -7279,6 +7279,52 @@ export const minkCreditPackPrices = pgTable(
   ],
 );
 
+// The Mink credit-pack catalogue an operator owns outright (migration 0116):
+// name, size, price, which one is highlighted and the order are all editable,
+// and packs can be added or removed. Supersedes mink_credit_pack_prices, which
+// could only reprice three ids fixed in code and is dropped by the contract
+// migration.
+//
+// ★ Editing one cannot rewrite history: ai_credit_purchases snapshots `credits`
+// and `amount_inr` at checkout and the confirm path grants from that row, so a
+// pack change never alters what a completed purchase granted or charged.
+export const minkCreditPacks = pgTable(
+  "mink_credit_packs",
+  {
+    id: text().primaryKey().notNull(),
+    name: text().notNull(),
+    credits: integer().notNull(),
+    priceInr: integer("price_inr").notNull(),
+    /** At most one, enforced by a partial unique index in the migration. */
+    popular: boolean().default(false).notNull(),
+    sortOrder: integer("sort_order").default(0).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedBy: text("updated_by"),
+  },
+  (table) => [
+    uniqueIndex("mink_credit_packs_one_popular_idx")
+      .on(table.popular)
+      .where(sql`popular`),
+    check(
+      "mink_credit_packs_name_check",
+      sql`btrim(name) <> '' AND length(name) <= 40`,
+    ),
+    check(
+      "mink_credit_packs_credits_check",
+      sql`${table.credits} > 0 AND ${table.credits} <= 1000000`,
+    ),
+    check(
+      "mink_credit_packs_price_check",
+      sql`${table.priceInr} > 0 AND ${table.priceInr} <= 500000`,
+    ),
+  ],
+);
+
 // Platform-global operator overrides for the included Mink credits a plan
 // grants. Tier list, every other limit and the code DEFAULT stay in
 // lib/plans.ts; an absent row means "no override", so an empty table behaves
@@ -7290,6 +7336,14 @@ export const minkPlanAllowances = pgTable(
     // Two numbers because MINK_CHARGE_CREDITS switches between them
     // (lib/plans.ts aiAllowanceFor) — storing only the live one makes the
     // other unreachable at the moment it starts being enforced.
+    /**
+     * ★ THE ONE NUMBER THE OPERATOR SETS (migration 0116). Nullable only
+     * because the deployed revision that predates it does not write the column;
+     * treat a NULL as "fall back to the legacy pair below".
+     */
+    includedCredits: integer("included_credits"),
+    // Legacy, kept NOT NULL until the contract migration drops them — the
+    // revision this one is rolling out over still reads and writes both.
     generationsPerMonth: integer("generations_per_month").notNull(),
     creditsPerMonth: integer("credits_per_month").notNull(),
     updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
@@ -7301,6 +7355,10 @@ export const minkPlanAllowances = pgTable(
     check(
       "mink_plan_allowances_plan_check",
       sql`plan = ANY (ARRAY['free'::text, 'basic'::text, 'pro'::text])`,
+    ),
+    check(
+      "mink_plan_allowances_included_check",
+      sql`${table.includedCredits} IS NULL OR (${table.includedCredits} > 0 AND ${table.includedCredits} <= 100000)`,
     ),
     check(
       "mink_plan_allowances_generations_check",

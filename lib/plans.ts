@@ -418,69 +418,67 @@ export interface PlanMatrixSection {
 // same reason — a `server-only` module cannot export even a type to a client
 // component without failing the build).
 
-/** Both halves of one plan's allowance. `null` = unmetered. */
-export interface PlanAllowance {
-  /** In force while MINK_CHARGE_CREDITS is off. */
-  generationsPerMonth: number | null;
-  /** In force once it is on. */
-  creditsPerMonth: number | null;
-}
-
-export type PlanAllowances = Record<Plan, PlanAllowance>;
+/**
+ * What an operator has set, per plan. `null` = no override for that plan.
+ *
+ * ★ ONE NUMBER, NOT TWO. 0115 stored the halves `MINK_CHARGE_CREDITS` switches
+ * between; operators asked for one, which is also the clearer contract — a
+ * value set here IS the allowance, in both modes. A plan with no override keeps
+ * the compiled-in ladder, so "one switch raises the allowance and starts the
+ * charge together" still holds everywhere nobody has intervened.
+ *
+ * ⚠ The consequence, stated rather than hidden: an OVERRIDDEN plan does not
+ * jump to the larger charging-era default when that flag flips. That is what
+ * an override is for, and it is why the operator panel shows both compiled-in
+ * defaults beside the field rather than letting the number be set blind.
+ */
+export type PlanAllowanceOverrides = Record<Plan, number | null>;
 
 /**
- * What the constants say, before any operator override.
- *
- * ★ Also the explicit "I checked, there is no override" value — the NO_COMP
- * precedent. `aiAllowanceFor` takes the allowances REQUIRED rather than
+ * The explicit "no operator override applies here" value — the NO_COMP
+ * precedent. `aiAllowanceFor` takes the overrides REQUIRED rather than
  * optional for exactly that reason: an optional argument lets a call site
  * silently keep enforcing the compiled-in number while an operator believes
  * they changed it, with nothing failing anywhere.
  */
-export const DEFAULT_PLAN_ALLOWANCES: PlanAllowances = Object.fromEntries(
-  PLAN_IDS.map((id) => [
-    id,
-    {
-      generationsPerMonth: PLAN_LIMITS[id].aiGenerationsPerMonth,
-      creditsPerMonth: PLAN_LIMITS[id].aiCreditsPerMonth,
-    },
-  ]),
-) as PlanAllowances;
+export const NO_PLAN_ALLOWANCE_OVERRIDES: PlanAllowanceOverrides =
+  Object.fromEntries(
+    PLAN_IDS.map((id) => [id, null]),
+  ) as PlanAllowanceOverrides;
 
 export interface PlanAllowanceRow {
   plan: string;
-  generations_per_month: number;
-  credits_per_month: number;
+  /** Migration 0116's single value. NULL on a row the previous revision wrote. */
+  included_credits: number | null;
+  /** Legacy fallback, so a row written mid-rollout is still honoured. */
+  generations_per_month: number | null;
 }
 
 /**
- * Fold stored rows onto the defaults. Pure, so the merge rule is testable
+ * Fold stored rows into the override map. Pure, so the rule is testable
  * without a database.
  *
  * A row for an unknown plan id is IGNORED (resolvePricing's rule): the tier
  * list lives in code, so a row left behind by a renamed plan must not conjure
- * an allowance for a plan that no longer exists. A non-positive or
- * non-integer stored value is ignored too — the database CHECKs already
- * refuse one, and falling back to the constant beats enforcing a cap of 0,
- * which would block every AI action on that tier.
+ * an allowance for a plan that no longer exists. A non-positive or non-integer
+ * value is ignored too — the database CHECKs already refuse one, so reaching
+ * here means the row was written around the app, and falling back to the
+ * constant beats enforcing a cap of 0 that would block every AI action on that
+ * tier.
  */
-export function resolvePlanAllowances(
+export function resolvePlanAllowanceOverrides(
   rows: readonly PlanAllowanceRow[],
-): PlanAllowances {
-  const out: PlanAllowances = Object.fromEntries(
-    PLAN_IDS.map((id) => [id, { ...DEFAULT_PLAN_ALLOWANCES[id] }]),
-  ) as PlanAllowances;
+): PlanAllowanceOverrides {
+  const out: PlanAllowanceOverrides = { ...NO_PLAN_ALLOWANCE_OVERRIDES };
   for (const row of rows) {
     if (!(PLAN_IDS as readonly string[]).includes(row.plan)) continue;
-    const usable = (value: unknown): number | null =>
-      typeof value === "number" && Number.isInteger(value) && value > 0
-        ? value
-        : null;
-    const generations = usable(Number(row.generations_per_month));
-    const credits = usable(Number(row.credits_per_month));
-    const plan = row.plan as Plan;
-    if (generations !== null) out[plan].generationsPerMonth = generations;
-    if (credits !== null) out[plan].creditsPerMonth = credits;
+    // included_credits is 0116's column; generations_per_month is what the
+    // revision before it wrote, and is still the value in force for such a row.
+    const raw = row.included_credits ?? row.generations_per_month;
+    if (raw === null || raw === undefined) continue;
+    const value = Number(raw);
+    if (!Number.isInteger(value) || value <= 0) continue;
+    out[row.plan as Plan] = value;
   }
   return out;
 }
@@ -501,12 +499,14 @@ export function resolvePlanAllowances(
 export function aiAllowanceFor(
   plan: Plan,
   minkChargesCredits: boolean,
-  allowances: PlanAllowances,
+  overrides: PlanAllowanceOverrides,
 ): number | null {
-  const allowance = allowances[plan] ?? DEFAULT_PLAN_ALLOWANCES[plan];
+  const override = overrides[plan];
+  if (override !== null && override !== undefined) return override;
+  const limits = PLAN_LIMITS[plan];
   return minkChargesCredits
-    ? allowance.creditsPerMonth
-    : allowance.generationsPerMonth;
+    ? limits.aiCreditsPerMonth
+    : limits.aiGenerationsPerMonth;
 }
 
 /** The allowance in force for every plan, with the MINK_CHARGE_CREDITS switch
@@ -522,13 +522,13 @@ export type IncludedMinkCredits = Record<Plan, number | null>;
  * advertise the half that is not being enforced.
  */
 export function includedMinkCredits(
-  allowances: PlanAllowances,
+  overrides: PlanAllowanceOverrides,
   minkChargesCredits: boolean,
 ): IncludedMinkCredits {
   return Object.fromEntries(
     PLAN_IDS.map((id) => [
       id,
-      aiAllowanceFor(id, minkChargesCredits, allowances),
+      aiAllowanceFor(id, minkChargesCredits, overrides),
     ]),
   ) as IncludedMinkCredits;
 }

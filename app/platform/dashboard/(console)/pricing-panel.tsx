@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import {
-  saveMinkCreditPackPricing,
+  saveMinkCreditPacks,
   savePlanCreditAllowances,
   savePlanPricing,
   type PlanPriceInput,
@@ -14,11 +14,15 @@ import {
   EXTRA_LOCATION_KEY,
   PLAN_IDS,
   PLAN_META,
-  type Plan,
-  type PlanAllowances,
+  type IncludedMinkCredits,
+  type PlanAllowanceOverrides,
 } from "@/lib/plans";
 import type { ExtraLocationPricing, PlanPricing } from "@/lib/plans/pricing";
-import type { CreditPack } from "@/lib/ai/credits";
+import {
+  CREDIT_PACK_LIMITS,
+  validateCreditPacks,
+  type CreditPack,
+} from "@/lib/ai/credits";
 
 // ---------------------------------------------------------------------------
 // Plan pricing, editable by a platform superadmin.
@@ -76,14 +80,14 @@ export function PricingPanel({
   extraLocation,
   minkCreditPacks,
   minkAllowances,
-  minkChargesCredits,
+  minkDefaultCredits,
 }: {
   pricing: PlanPricing;
   extraLocation: ExtraLocationPricing;
   minkCreditPacks: CreditPack[];
-  minkAllowances: PlanAllowances;
-  /** Which of the two allowance columns the quota gate is reading TODAY. */
-  minkChargesCredits: boolean;
+  minkAllowances: PlanAllowanceOverrides;
+  /** What each plan grants with no override, so the field is never set blind. */
+  minkDefaultCredits: IncludedMinkCredits;
 }) {
   const [rows, setRows] = useState<Row[]>(() => toRows(pricing, extraLocation));
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
@@ -230,64 +234,40 @@ export function PricingPanel({
       </section>
       <MinkCreditAllowances
         allowances={minkAllowances}
-        chargesCredits={minkChargesCredits}
+        defaults={minkDefaultCredits}
       />
-      <MinkCreditPricing packs={minkCreditPacks} />
+      <MinkCreditPacks packs={minkCreditPacks} />
     </div>
   );
 }
 
 // ---------------------------------------------------------------------------
 // Included Mink credits per plan — the one plan LIMIT an operator can move
-// without a deploy.
-//
-// ★ BOTH HALVES ARE ON SCREEN, not just the one in force. MINK_CHARGE_CREDITS
-// switches between them (lib/plans.ts aiAllowanceFor) and they are sized for
-// different things: the left column for ~Rs 0.90 product descriptions, the
-// right for 1-8 credit Mink conversations. Showing only the live one would
-// leave the other editable by nobody until the day charging is switched on,
-// which is the worst moment to discover a tier is mis-sized. The badge says
-// which is being enforced right now so the two are never confused.
+// without a deploy. ONE number per plan: what is typed here IS the allowance.
 // ---------------------------------------------------------------------------
 function MinkCreditAllowances({
   allowances,
-  chargesCredits,
+  defaults,
 }: {
-  allowances: PlanAllowances;
-  chargesCredits: boolean;
+  allowances: PlanAllowanceOverrides;
+  /** What the plan grants with no override, so the number is never set blind. */
+  defaults: IncludedMinkCredits;
 }) {
   const [rows, setRows] = useState(() =>
     PLAN_IDS.map((plan) => ({
       plan,
-      generationsPerMonth: String(allowances[plan].generationsPerMonth ?? ""),
-      creditsPerMonth: String(allowances[plan].creditsPerMonth ?? ""),
+      includedCredits: String(allowances[plan] ?? defaults[plan] ?? ""),
     })),
   );
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [pending, start] = useTransition();
-
-  const set = (
-    plan: Plan,
-    key: "generationsPerMonth" | "creditsPerMonth",
-    value: string,
-  ) => {
-    setRows((current) =>
-      current.map((row) =>
-        row.plan === plan
-          ? { ...row, [key]: value.replace(/[^\d]/g, "") }
-          : row,
-      ),
-    );
-    setMsg({});
-  };
 
   const save = () => {
     start(async () => {
       const result = await savePlanCreditAllowances(
         rows.map((row) => ({
           plan: row.plan,
-          generationsPerMonth: Number(row.generationsPerMonth || 0),
-          creditsPerMonth: Number(row.creditsPerMonth || 0),
+          includedCredits: Number(row.includedCredits || 0),
         })),
       );
       setMsg(
@@ -297,12 +277,6 @@ function MinkCreditAllowances({
       );
     });
   };
-
-  const inForce = (
-    <span className="ml-2 rounded-full bg-[var(--stq-ok)]/15 px-2 py-0.5 text-[11px] font-semibold text-[var(--stq-ok)]">
-      in force
-    </span>
-  );
 
   return (
     <section className="stq-card">
@@ -319,12 +293,8 @@ function MinkCreditAllowances({
           <thead>
             <tr className="text-left text-[var(--stq-muted)]">
               <th className="py-2 pr-4 font-medium">Plan</th>
-              <th className="py-2 pr-4 font-medium">
-                Per 30 days{!chargesCredits && inForce}
-              </th>
-              <th className="py-2 font-medium">
-                Per 30 days once Mink charges{chargesCredits && inForce}
-              </th>
+              <th className="py-2 pr-4 font-medium">Credits per 30 days</th>
+              <th className="py-2 font-medium">Default</th>
             </tr>
           </thead>
           <tbody>
@@ -337,23 +307,23 @@ function MinkCreditAllowances({
                   <input
                     className="stq-input w-28"
                     inputMode="numeric"
-                    value={row.generationsPerMonth}
-                    onChange={(event) =>
-                      set(row.plan, "generationsPerMonth", event.target.value)
-                    }
-                    aria-label={`${row.plan} included Mink credits per 30 days`}
+                    value={row.includedCredits}
+                    onChange={(event) => {
+                      const value = event.target.value.replace(/[^\d]/g, "");
+                      setRows((current) =>
+                        current.map((r) =>
+                          r.plan === row.plan
+                            ? { ...r, includedCredits: value }
+                            : r,
+                        ),
+                      );
+                      setMsg({});
+                    }}
+                    aria-label={`${row.plan} included Mink credits`}
                   />
                 </td>
-                <td className="py-3">
-                  <input
-                    className="stq-input w-28"
-                    inputMode="numeric"
-                    value={row.creditsPerMonth}
-                    onChange={(event) =>
-                      set(row.plan, "creditsPerMonth", event.target.value)
-                    }
-                    aria-label={`${row.plan} included Mink credits per 30 days once Mink charges`}
-                  />
+                <td className="py-3 text-[var(--stq-muted)]">
+                  {defaults[row.plan] ?? "unlimited"}
                 </td>
               </tr>
             ))}
@@ -377,34 +347,124 @@ function MinkCreditAllowances({
         )}
       </div>
       <p className="mt-3 text-xs text-[var(--stq-muted)]">
-        A merchant&rsquo;s balance is not topped up retroactively: raising an
-        allowance gives every store on that plan the higher cap from its current
-        30-day window, and lowering one can leave a store already over the new
-        cap until the window turns.
+        A balance is not topped up retroactively: raising an allowance gives
+        every store on that plan the higher cap from its current 30-day window,
+        and lowering one can leave a store already over the new cap until the
+        window turns.
       </p>
     </section>
   );
 }
 
-function MinkCreditPricing({ packs }: { packs: CreditPack[] }) {
-  const [prices, setPrices] = useState(() =>
-    Object.fromEntries(packs.map((pack) => [pack.id, String(pack.priceInr)])),
+// ---------------------------------------------------------------------------
+// The credit-pack catalogue. Everything is the operator's: name, size, price,
+// which pack is highlighted, the order, and how many packs exist.
+//
+// ★ ONE SAVE FOR THE WHOLE LIST. Reconciling server-side means a reorder, a
+// rename, a new pack and a removal all commit together, so a merchant never
+// sees a half-applied catalogue. The row order IS the display order.
+// ---------------------------------------------------------------------------
+type PackRow = {
+  id: string;
+  name: string;
+  credits: string;
+  priceInr: string;
+  popular: boolean;
+};
+
+function MinkCreditPacks({ packs }: { packs: CreditPack[] }) {
+  const [rows, setRows] = useState<PackRow[]>(() =>
+    packs.map((pack) => ({
+      id: pack.id,
+      name: pack.name,
+      credits: String(pack.credits),
+      priceInr: String(pack.priceInr),
+      popular: pack.popular === true,
+    })),
   );
   const [msg, setMsg] = useState<{ ok?: string; error?: string }>({});
   const [pending, start] = useTransition();
 
+  const patch = (index: number, next: Partial<PackRow>) => {
+    setRows((current) =>
+      current.map((row, i) => (i === index ? { ...row, ...next } : row)),
+    );
+    setMsg({});
+  };
+
+  const move = (index: number, delta: number) => {
+    setRows((current) => {
+      const target = index + delta;
+      if (target < 0 || target >= current.length) return current;
+      const next = [...current];
+      [next[index], next[target]] = [next[target], next[index]];
+      return next;
+    });
+    setMsg({});
+  };
+
+  const addPack = () => {
+    setRows((current) => [
+      ...current,
+      {
+        // A fresh id, never a name-derived one: the id lands on
+        // ai_credit_purchases.pack_id and must stay stable across renames.
+        id: crypto.randomUUID(),
+        name: "",
+        credits: "",
+        priceInr: "",
+        popular: false,
+      },
+    ]);
+    setMsg({});
+  };
+
+  const removePack = (index: number) => {
+    setRows((current) => current.filter((_, i) => i !== index));
+    setMsg({});
+  };
+
+  // Only one pack may be highlighted; selecting one clears the rest so the
+  // form cannot submit a state the database would refuse.
+  const setPopular = (index: number) => {
+    setRows((current) =>
+      current.map((row, i) => ({ ...row, popular: i === index })),
+    );
+    setMsg({});
+  };
+
+  const asPacks = (): CreditPack[] =>
+    rows.map((row) => ({
+      id: row.id,
+      name: row.name.trim(),
+      credits: Number(row.credits || 0),
+      priceInr: Number(row.priceInr || 0),
+      popular: row.popular,
+    }));
+
+  const problems = validateCreditPacks(asPacks());
+
   const save = () => {
+    // The same validator the action runs, so the form can never submit
+    // something the server then refuses in front of the operator.
+    if (problems.length) {
+      const first = problems[0];
+      setMsg({
+        error:
+          first.index >= 0
+            ? `Pack ${first.index + 1}: ${first.message}`
+            : first.message,
+      });
+      return;
+    }
     start(async () => {
-      const result = await saveMinkCreditPackPricing(
-        packs.map((pack) => ({
-          packId: pack.id,
-          priceInr: Number(prices[pack.id] || 0),
-        })),
+      const result = await saveMinkCreditPacks(
+        asPacks().map((pack) => ({ ...pack, popular: pack.popular === true })),
       );
       setMsg(
         result.error
           ? { error: result.error }
-          : { ok: "Mink credit prices updated." },
+          : { ok: "Credit packs updated." },
       );
     });
   };
@@ -414,43 +474,134 @@ function MinkCreditPricing({ packs }: { packs: CreditPack[] }) {
       <header className="mb-4">
         <h2 className="text-lg font-bold">Mink credit top-ups</h2>
         <p className="text-sm text-[var(--stq-muted)]">
-          These prices apply globally to every store. Pack sizes stay fixed.
+          The packs every store can buy once its included credits run out. Size,
+          price, order and the highlighted pack are all yours; add or remove as
+          many as you need.
         </p>
       </header>
-      <div className="grid gap-4 sm:grid-cols-3">
-        {packs.map((pack) => (
-          <label key={pack.id} className="space-y-2">
-            <span className="block text-sm font-semibold">
-              {pack.name} · {pack.credits} credits
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="text-sm text-[var(--stq-muted)]">₹</span>
-              <input
-                className="stq-input w-full"
-                inputMode="numeric"
-                value={prices[pack.id] ?? ""}
-                onChange={(event) => {
-                  const value = event.target.value.replace(/[^\d]/g, "");
-                  setPrices((current) => ({
-                    ...current,
-                    [pack.id]: value,
-                  }));
-                  setMsg({});
-                }}
-                aria-label={`${pack.name} Mink credit pack price`}
-              />
-            </span>
-          </label>
-        ))}
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-[var(--stq-muted)]">
+              <th className="py-2 pr-4 font-medium">Order</th>
+              <th className="py-2 pr-4 font-medium">Name</th>
+              <th className="py-2 pr-4 font-medium">Credits</th>
+              <th className="py-2 pr-4 font-medium">Price (₹)</th>
+              <th className="py-2 pr-4 font-medium">Highlighted</th>
+              <th className="py-2 font-medium" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => (
+              <tr key={row.id} className="border-t border-[var(--stq-line)]">
+                <td className="py-3 pr-4">
+                  <span className="flex items-center gap-1">
+                    <button
+                      type="button"
+                      onClick={() => move(index, -1)}
+                      disabled={index === 0}
+                      className="stq-btn px-2 py-1 disabled:opacity-30"
+                      aria-label={`Move ${row.name || "pack"} up`}
+                    >
+                      ↑
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => move(index, 1)}
+                      disabled={index === rows.length - 1}
+                      className="stq-btn px-2 py-1 disabled:opacity-30"
+                      aria-label={`Move ${row.name || "pack"} down`}
+                    >
+                      ↓
+                    </button>
+                  </span>
+                </td>
+                <td className="py-3 pr-4">
+                  <input
+                    className="stq-input w-36"
+                    value={row.name}
+                    maxLength={CREDIT_PACK_LIMITS.nameMaxLength}
+                    onChange={(event) =>
+                      patch(index, { name: event.target.value })
+                    }
+                    aria-label={`Pack ${index + 1} name`}
+                  />
+                </td>
+                <td className="py-3 pr-4">
+                  <input
+                    className="stq-input w-24"
+                    inputMode="numeric"
+                    value={row.credits}
+                    onChange={(event) =>
+                      patch(index, {
+                        credits: event.target.value.replace(/[^\d]/g, ""),
+                      })
+                    }
+                    aria-label={`Pack ${index + 1} credits`}
+                  />
+                </td>
+                <td className="py-3 pr-4">
+                  <input
+                    className="stq-input w-24"
+                    inputMode="numeric"
+                    value={row.priceInr}
+                    onChange={(event) =>
+                      patch(index, {
+                        priceInr: event.target.value.replace(/[^\d]/g, ""),
+                      })
+                    }
+                    aria-label={`Pack ${index + 1} price`}
+                  />
+                </td>
+                <td className="py-3 pr-4">
+                  {/* A radio, not a checkbox: one slot, and the group makes
+                      that visible rather than relying on a save-time refusal. */}
+                  <input
+                    type="radio"
+                    name="mink-pack-popular"
+                    checked={row.popular}
+                    onChange={() => setPopular(index)}
+                    aria-label={`Highlight pack ${index + 1}`}
+                  />
+                </td>
+                <td className="py-3">
+                  <button
+                    type="button"
+                    onClick={() => removePack(index)}
+                    disabled={rows.length === 1}
+                    title={
+                      rows.length === 1
+                        ? "Keep at least one pack — a store with none cannot top up."
+                        : undefined
+                    }
+                    className="stq-btn px-2 py-1 text-[var(--stq-bad)] disabled:opacity-30"
+                  >
+                    Remove
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-      <div className="mt-4 flex items-center gap-3">
+
+      <div className="mt-4 flex flex-wrap items-center gap-3">
+        <button
+          type="button"
+          onClick={addPack}
+          disabled={rows.length >= CREDIT_PACK_LIMITS.maxPacks}
+          className="stq-btn"
+        >
+          Add pack
+        </button>
         <button
           type="button"
           onClick={save}
           disabled={pending}
           className="stq-btn stq-btn-primary"
         >
-          {pending ? "Saving…" : "Save Mink credit prices"}
+          {pending ? "Saving…" : "Save credit packs"}
         </button>
         {msg.ok && (
           <span className="text-sm text-[var(--stq-ok)]">{msg.ok}</span>
@@ -459,6 +610,12 @@ function MinkCreditPricing({ packs }: { packs: CreditPack[] }) {
           <span className="text-sm text-[var(--stq-bad)]">{msg.error}</span>
         )}
       </div>
+      <p className="mt-3 text-xs text-[var(--stq-muted)]">
+        Removing a pack does not affect past purchases — an order records the
+        credits and the amount it was sold for, so history and balances are
+        untouched. A merchant mid-purchase on a removed pack is asked to pick
+        again.
+      </p>
     </section>
   );
 }
