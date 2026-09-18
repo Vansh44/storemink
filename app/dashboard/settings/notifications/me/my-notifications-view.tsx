@@ -17,6 +17,7 @@ import {
   saveMyNotificationPreferences,
   type MyPreferenceRow,
 } from "@/app/actions/notification-actions";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 interface Draft {
   inApp: boolean;
@@ -79,6 +80,8 @@ export function MyNotificationsView({
       draft[key].inApp !== initial[key]?.inApp ||
       draft[key].email !== initial[key]?.email,
   );
+
+  useUnsavedChangesWarning(dirtyKeys.length > 0);
 
   const set = (key: string, patch: Partial<Draft>) =>
     setDraft((d) => ({ ...d, [key]: { ...d[key], ...patch } }));

@@ -34,6 +34,7 @@ import PhoneInput from "react-phone-number-input";
 import "react-phone-number-input/style.css";
 import { customPhoneLabels } from "@/lib/phone-labels";
 import { CountrySelect } from "@/components/ui/phone-country-select";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 type Tab = "profile" | "security";
 
@@ -138,6 +139,8 @@ function ProfileTab({
   const [isPending, startTransition] = useTransition();
 
   const dirty = first.trim() !== firstName || last.trim() !== lastName;
+
+  useUnsavedChangesWarning(dirty);
 
   const submit = (e: FormEvent) => {
     e.preventDefault();

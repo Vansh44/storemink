@@ -68,6 +68,7 @@ import {
   normalizeLayout,
   type WidgetId,
 } from "./widgets";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 interface DashboardCanvasProps {
   storeId: string;
@@ -213,6 +214,8 @@ export function DashboardCanvas({
   const hasChanges =
     editing &&
     (resetRequested || JSON.stringify(draft) !== JSON.stringify(layout));
+
+  useUnsavedChangesWarning(hasChanges);
 
   const startEditing = () => {
     setSaveError(null);

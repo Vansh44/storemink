@@ -75,6 +75,7 @@ import {
   type MinkOrderStatusActionResult,
 } from "@/lib/mink/order-status-action-types";
 import type { MinkArtifact } from "@/lib/mink/types";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 type Proposal = Extract<MinkArtifact, { type: "proposal" }>;
 type MinkActionApproval =
@@ -158,6 +159,9 @@ export function MinkProposalCard({ proposal }: { proposal: Proposal }) {
       fields.some((field) => content[field.key] !== draft.content[field.key]),
     [content, draft.content, fields],
   );
+  // Editing a proposal is local until Save stores a version.
+  useUnsavedChangesWarning(dirty);
+
   const supportsProductAction =
     draft.kind === "product_description" || draft.kind === "product_seo";
   const supportsDomainAction =

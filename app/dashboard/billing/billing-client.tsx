@@ -21,6 +21,7 @@ import {
   type InvoiceOrderData,
 } from "@/components/invoice/invoice-document";
 import "./billing.css";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 // Mutable form shape (nulls flattened to empty strings for controlled inputs).
 interface SettingsState {
@@ -187,6 +188,14 @@ export function BillingClient({
     null,
   );
   const [showPreview, setShowPreview] = useState(false);
+
+  // ★ Derived here rather than tracked: this form had no dirty flag at all,
+  // because the Save button is always enabled. The business name, address,
+  // GSTIN and invoice prefix are all typed by hand and print on a customer's
+  // invoice, so a discarded reload costs real work.
+  const settingsDirty =
+    JSON.stringify(settings) !== JSON.stringify(toState(initialSettings));
+  useUnsavedChangesWarning(settingsDirty);
 
   function set<K extends keyof SettingsState>(key: K, val: SettingsState[K]) {
     setSettings((s) => ({ ...s, [key]: val }));
@@ -574,6 +583,8 @@ function TaxClassRow({
 
   const dirty = name !== cls.name || rate !== String(cls.rate);
 
+  useUnsavedChangesWarning(dirty);
+
   async function save() {
     setBusy(true);
     setErr(null);
@@ -651,6 +662,8 @@ function AddTaxClass({ onAdded }: { onAdded: (c: TaxClass) => void }) {
   const [rate, setRate] = useState("");
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  useUnsavedChangesWarning(name.trim() !== "" || rate.trim() !== "");
 
   async function add() {
     if (!name.trim()) {

@@ -11,6 +11,7 @@ import {
 } from "@/app/actions/merchant-analytics-settings";
 import type { MerchantPixelSettings } from "@/lib/analytics/merchant-pixels";
 import { Button } from "@/components/ui/button";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 function Switch({
   checked,
@@ -62,6 +63,8 @@ function IntegrationCard({
   placeholder,
   value,
   enabled,
+  savedValue,
+  savedEnabled,
   available,
   platformEnabled,
   plan,
@@ -78,6 +81,11 @@ function IntegrationCard({
   placeholder: string;
   value: string;
   enabled: boolean;
+  /** What is actually PERSISTED. The status line and the Active badge are
+   *  statements about the server, so they must never be computed from the
+   *  edited value — see the note on `status` below. */
+  savedValue: string;
+  savedEnabled: boolean;
   available: boolean;
   platformEnabled: boolean;
   plan: string;
@@ -89,11 +97,18 @@ function IntegrationCard({
 }) {
   const lockedByPlan = plan !== "pro";
   const disabled = !available || !canManage || pending;
-  const status = enabled
+  // ★★ DERIVED FROM THE SAVED SETTINGS, NEVER THE EDITED ONES. This read
+  // `values`, so pasting an ID flipped the line to "Saved, but disabled" and
+  // flicking the switch flipped it to "Enabled" — both claims about the
+  // server, made about something that had never left the browser. A merchant
+  // who believed them and refreshed lost the ID, which is exactly what was
+  // reported. The word "Saved" has to mean saved.
+  const status = savedEnabled
     ? "Enabled"
-    : value
+    : savedValue
       ? "Saved, but disabled"
       : "Not connected";
+  const unsaved = value !== savedValue || enabled !== savedEnabled;
 
   return (
     <section className="dash-card">
@@ -104,9 +119,15 @@ function IntegrationCard({
             <span className="dash-badge-amber rounded-full px-2 py-0.5 text-[11px] font-semibold">
               Pro
             </span>
-            {enabled ? (
+            {savedEnabled ? (
               <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
                 <Check className="h-3 w-3" /> Active
+              </span>
+            ) : null}
+            {unsaved ? (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800">
+                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+                Unsaved
               </span>
             ) : null}
           </div>
@@ -151,7 +172,14 @@ function IntegrationCard({
         </label>
 
         <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-3 text-sm">
-          <span className="text-slate-500">Status: {status}</span>
+          <span className="text-slate-500">
+            Status: {status}
+            {unsaved ? (
+              <span className="ml-1 font-semibold text-amber-700">
+                — unsaved changes below
+              </span>
+            ) : null}
+          </span>
           <Link
             href={helpUrl}
             target="_blank"
@@ -179,6 +207,10 @@ export function MerchantAnalyticsSettingsView({
   const [values, setValues] = useState(initial.settings);
   const [pending, startTransition] = useTransition();
   const dirty = JSON.stringify(values) !== JSON.stringify(saved);
+
+  // Nothing on this page autosaves, so a reload discards everything typed —
+  // the loss that was reported here.
+  useUnsavedChangesWarning(dirty);
 
   function update(patch: Partial<MerchantPixelSettings>) {
     setValues((current) => ({ ...current, ...patch }));
@@ -229,6 +261,8 @@ export function MerchantAnalyticsSettingsView({
         placeholder="G-XXXXXXXXXX"
         value={values.ga4MeasurementId}
         enabled={values.ga4Enabled}
+        savedValue={saved.ga4MeasurementId}
+        savedEnabled={saved.ga4Enabled}
         available={initial.ga4Available}
         platformEnabled={initial.ga4PlatformEnabled}
         plan={initial.plan}
@@ -252,6 +286,8 @@ export function MerchantAnalyticsSettingsView({
         placeholder="123456789012345"
         value={values.metaPixelId}
         enabled={values.metaPixelEnabled}
+        savedValue={saved.metaPixelId}
+        savedEnabled={saved.metaPixelEnabled}
         available={initial.metaAvailable}
         platformEnabled={initial.metaPlatformEnabled}
         plan={initial.plan}
@@ -267,7 +303,17 @@ export function MerchantAnalyticsSettingsView({
         onEnabledChange={(metaPixelEnabled) => update({ metaPixelEnabled })}
       />
 
-      <div className="flex items-center justify-end gap-3">
+      {/* ★ STICKY. The Save button sat below the fold under two tall cards, so
+          a merchant who had typed an ID could not see that anything was left
+          to do — the status line told them it was already saved and the only
+          contradicting control was off screen. */}
+      <div className="sticky bottom-0 -mx-6 flex items-center justify-end gap-3 border-t border-slate-200 bg-white/95 px-6 py-3 backdrop-blur">
+        {dirty && initial.canManage ? (
+          <span className="mr-auto inline-flex items-center gap-2 text-sm font-semibold text-amber-700">
+            <span className="h-2 w-2 rounded-full bg-amber-500" />
+            Unsaved changes
+          </span>
+        ) : null}
         {!initial.canManage ? (
           <p className="text-sm text-slate-500">
             You can view these settings but cannot change them.

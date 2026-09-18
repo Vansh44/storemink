@@ -7,6 +7,7 @@ import {
   type StorePolicyState,
 } from "@/app/actions/store-policy-actions";
 import { htmlToPlain, plainToHtml } from "@/lib/legal/policy-text";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 export function PoliciesView({
   policies,
@@ -55,6 +56,9 @@ function PolicyCard({
 
   const editable = initialPlain !== null;
   const dirty = editable && text !== (initialPlain ?? "");
+
+  // A whole policy document lives in this textarea until Save publishes it.
+  useUnsavedChangesWarning(dirty);
 
   const save = () => {
     setError("");

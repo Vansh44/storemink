@@ -37,6 +37,7 @@ import {
   type CategoryOption,
   type ProductOption,
 } from "./section-form";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 
 type Options = {
   products: ProductOption[];
@@ -506,6 +507,10 @@ export function PageSettingsForm({
     seoTitle !== draft.seo_title ||
     seoDescription !== draft.seo_description ||
     seoNoindex !== draft.seo_noindex;
+
+  // ★ use-autosave covers the SECTION draft, not this form — title, slug and
+  // the SEO copy are held locally until "Save settings" is pressed.
+  useUnsavedChangesWarning(dirty);
 
   const save = () => {
     startTransition(async () => {
