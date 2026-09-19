@@ -6,6 +6,7 @@ import {
   MINK_MEDIA_PROMPT_MIN_CHARS,
   MINK_MEDIA_PURPOSES,
   MINK_MEDIA_PURPOSE_SPECS,
+  MINK_MEDIA_REFERENCE_MAX,
 } from "../media-generation-contract";
 import { createMinkMediaImageProposal } from "../media-image-proposals";
 import type { MinkActorContext, MinkArtifact } from "../types";
@@ -20,14 +21,15 @@ const available = (actor: MinkActorContext) => actor.draftingEnabled === true;
  * statement about WHERE the image goes, which is something the model genuinely
  * knows; the shape follows from it, which is something the renderer knows.
  *
- * ★ SO IS THE NEGATIVE PROMPT. Its whole value is being byte-identical on
- * every call, so it is applied by the provider module and never exposed here.
+ * ★ SO IS THE GENERATION CONTRACT. The detailed instruction stays in the
+ * validated Markdown prompt; this declaration makes the model resolve exact
+ * store-owned source images before it spends the merchant's credits.
  */
 const generateStorefrontImage: MinkTool = {
   declaration: {
     name: "generate_storefront_image",
     description:
-      "Create one charged decorative AI image, save it immediately in this store's Media Library, and return its exact URL. Infer purpose from the requested destination: hero for the top/lead area, gallery for a square tile, feature for an image beside text, banner for a full-width promo strip. Describe the SCENE — style, subject, mood, lighting and palette. This is never a photograph of the merchant's actual goods and cannot become a product photo. For a promotion about a NAMED real product, call search_products and use its authentic catalogue image with editable offer copy instead of generating a fake product photograph. A promotion that names no specific product -- an offer across a category, a sale, a seasonal or delivery message -- is decorative: generate the image here rather than searching the catalogue for a stand-in. If the user also asked to use a decorative image on a page, do not stop here: use the returned URL in propose_storefront_layout in the same run when that tool is available; that later proposal still needs human approval. Do not ask for text, logos, packaging labels, branded products or people — those are removed automatically and asking for them wastes the charge. Do not use this to edit, crop or restyle an existing image. When an explicit image-creation request is not about depicting a real catalogue product, do not substitute an existing library image; when a broader layout request merely needs imagery, call list_storefront_media first and prefer a suitable image they already own.",
+      "Create one charged AI storefront image, save it immediately in this store's Media Library, and return its exact URL. BEFORE every generation, read the source that matches the request: search_products/get_current_product for a named or selected product, search_storefront_categories for a named category, and list_storefront_media for a particular saved image or for general store visual context. Pass up to four exact relevant URLs from those results in reference_image_urls; pass [] only after the relevant read found no suitable image. The image model receives those files, not merely their URLs. A named product or category must be grounded in its authentic images rather than replaced with an invented stand-in; a specific saved image must guide the new composition exactly as the user requested. Infer purpose from the requested destination: hero for the top/lead area, gallery for a square tile, feature for an image beside text, banner for a full-width promo strip. Describe the requested outcome in prompt — subject, composition, setting, mood, lighting and palette — and say how the references should be used. The result is AI-generated campaign/storefront artwork and cannot be written to a product's catalogue images. If the request also names a page destination, use the returned URL in propose_storefront_layout in the same run when available. Do not add new text, watermarks, signatures or people. Do not pass arbitrary web URLs, guessed URLs, unrelated products, or references the read tools did not return.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -46,6 +48,19 @@ const generateStorefrontImage: MinkTool = {
           description:
             "The scene to create, in plain English. Name the subject, the setting, the lighting and the palette. Concrete descriptions produce usable images; one or two words produce stock-photo noise.",
         },
+        reference_image_urls: {
+          type: "array",
+          minItems: 0,
+          maxItems: MINK_MEDIA_REFERENCE_MAX,
+          uniqueItems: true,
+          description:
+            "Exact relevant PNG, JPEG or WebP URLs returned by search_products, get_current_product, search_storefront_categories or list_storefront_media immediately before this call. Preserve relevance order. Use [] only when the relevant reads returned no suitable image.",
+          items: {
+            type: "string",
+            minLength: 1,
+            maxLength: 2048,
+          },
+        },
         alt: {
           type: "string",
           minLength: 1,
@@ -54,7 +69,7 @@ const generateStorefrontImage: MinkTool = {
             "Alt text describing what a shopper would see, for screen readers and for search. Required: nothing else in the dashboard will ask for it later.",
         },
       },
-      required: ["purpose", "prompt", "alt"],
+      required: ["purpose", "prompt", "reference_image_urls", "alt"],
       additionalProperties: false,
     },
   },
@@ -75,6 +90,7 @@ const generateStorefrontImage: MinkTool = {
       actor,
       purpose: args.purpose,
       prompt: args.prompt,
+      referenceImageUrls: args.reference_image_urls,
       alt: args.alt,
     });
     return {
@@ -84,7 +100,8 @@ const generateStorefrontImage: MinkTool = {
         canUseInLayoutProposal: true,
         canPlaceDirectlyOnStorefront: false,
         canUseAsProductPhoto: false,
-        canEditExistingImages: false,
+        canCreateFromOwnedReferences: true,
+        canOverwriteReferenceImages: false,
       },
     };
   },

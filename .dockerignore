@@ -23,7 +23,7 @@ docs
 **/*.test.ts
 **/*.test.tsx
 
-# ...but brand/tasks/*.md and the Mink system prompt ARE read at runtime (and
+# ...but brand/tasks/*.md and the Mink prompts ARE read at runtime (and
 # traced into .next/standalone via outputFileTracingIncludes). Keep only those
 # prompt sources in the context.
 !brand
@@ -32,3 +32,4 @@ docs
 !docs
 docs/*
 !docs/mink-ai-system-prompt.md
+!docs/mink-ai-image-prompt.md

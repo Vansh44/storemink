@@ -52,9 +52,21 @@ export function gcsPublicUrl(path: string): string {
 /** Parse a GCS public URL back to its in-bucket path, or null if it isn't one. */
 export function gcsPathFromUrl(url: string): string | null {
   if (!GCS_BUCKET_NAME || !url) return null;
-  const marker = `${GCS_PUBLIC_HOST}/${GCS_BUCKET_NAME}/`;
-  const i = url.indexOf(marker);
-  return i === -1 ? null : url.substring(i + marker.length);
+  try {
+    const parsed = new URL(url);
+    const prefix = `/${GCS_BUCKET_NAME}/`;
+    if (
+      parsed.protocol !== "https:" ||
+      parsed.hostname !== GCS_PUBLIC_HOST ||
+      !parsed.pathname.startsWith(prefix)
+    ) {
+      return null;
+    }
+    const path = parsed.pathname.slice(prefix.length);
+    return path && !path.split("/").includes("..") ? path : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Upload bytes and return the public URL. Object is public via bucket policy. */

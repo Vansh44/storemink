@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
 import {
-  MINK_MEDIA_NEGATIVE_PROMPT,
   MINK_MEDIA_PROMPT_MAX_CHARS,
   MINK_MEDIA_PURPOSES,
   MINK_MEDIA_PURPOSE_SPECS,
@@ -9,9 +8,10 @@ import {
 } from "./media-generation-contract";
 
 const valid = {
-  schemaVersion: 1,
+  schemaVersion: 2,
   purpose: "hero",
   prompt: "A warm overhead still life of loose grains and pulses on linen.",
+  referenceImageUrls: [],
   alt: "Grains and pulses arranged on a linen cloth",
 };
 
@@ -25,6 +25,7 @@ describe("Phase 9E generation request", () => {
     if (!result.ok) return;
     expect(result.value.prompt).toBe(valid.prompt);
     expect(result.value.purpose).toBe("hero");
+    expect(result.value.referenceImageUrls).toEqual([]);
   });
 
   it("refuses an unknown key rather than ignoring it", () => {
@@ -72,11 +73,44 @@ describe("Phase 9E generation request", () => {
     expect(result.issues.join(" ")).toContain("screen reader");
   });
 
+  it("bounds and normalises exact reference image URLs", () => {
+    const url = "https://storage.googleapis.com/bucket/product.webp";
+    const result = validateMinkMediaGenerationRequest({
+      ...valid,
+      referenceImageUrls: [url, url],
+    });
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.value.referenceImageUrls).toEqual([url]);
+
+    expect(
+      validateMinkMediaGenerationRequest({
+        ...valid,
+        referenceImageUrls: Array.from(
+          { length: 5 },
+          (_, index) => `https://example.com/${index}.png`,
+        ),
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("requires the caller to report the outcome of its reference reads", () => {
+    const result = validateMinkMediaGenerationRequest({
+      purpose: valid.purpose,
+      prompt: valid.prompt,
+      alt: valid.alt,
+    });
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.join(" ")).toContain("referenceImageUrls");
+  });
+
   it("reports every problem at once so one retry can fix them all", () => {
     const result = validateMinkMediaGenerationRequest({
-      schemaVersion: 1,
+      schemaVersion: 2,
       purpose: "nope",
       prompt: "x",
+      referenceImageUrls: "none",
       alt: "",
     });
     expect(result.ok).toBe(false);
@@ -104,15 +138,5 @@ describe("the shape a purpose pins", () => {
       aspectRatio: "9:16",
     });
     expect(result.ok).toBe(false);
-  });
-});
-
-describe("the always-applied image exclusion clause", () => {
-  it("covers the failure modes that make an image unusable", () => {
-    // Not a style preference: invented lettering reads as a real sign, and an
-    // invented logo is somebody's trademark or a fake of the merchant's own.
-    for (const needle of ["text", "logo", "watermark", "people"]) {
-      expect(MINK_MEDIA_NEGATIVE_PROMPT).toContain(needle);
-    }
   });
 });

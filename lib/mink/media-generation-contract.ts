@@ -11,20 +11,23 @@
 // ownership without a manual hand-off.
 //
 // ★★ WHAT MAKES THIS SAFE IS STRUCTURAL, NOT A WORD FILTER. A generated
-// picture must never be presented to a shopper as a photograph of goods the
-// shop actually sells. That is guaranteed by the shape of the system rather
-// than by inspecting prompts: **Mink has no tool that writes
+// picture must never be presented as the ORIGINAL catalogue photograph of
+// goods the shop actually sells. That is guaranteed by the shape of the system
+// rather than by inspecting prompts: **Mink has no tool that writes
 // `products.images`**, and 9D means the only place a generated URL can land is
-// a layout section the merchant separately approves. So a generated image can
-// be decoration and cannot become a product photo. Keep it that way — adding a
-// product-image write is what would turn this feature into a liability.
+// a layout section the merchant separately approves. Generated campaign art
+// may now be grounded in the authentic product image, but cannot overwrite or
+// become that source. Keep it that way — adding a product-image write is what
+// would turn this feature into a liability.
 //
 // ⚠ THE COROLLARY, AND IT IS NOT DECORATIVE: a keyword blocklist for brands or
 // products would be security theatre. It would fail on every misspelling and
 // every brand nobody listed, while reading like a guarantee. What IS enforced
-// here is what can actually be enforced — bounded prompts, a fixed aspect per
-// purpose, an always-applied exclusion clause, and no people at all — plus the
-// structural rule above. This file deliberately does not pretend to more.
+// by the generation path is what can actually be enforced — bounded prompts, a
+// fixed aspect per purpose, a validated always-applied Markdown grounding and
+// output contract, exact current-store references, and no people at all — plus
+// the structural rule above. This client-safe contract deliberately does not
+// pretend to more.
 //
 // ★ PURE AND CLIENT-SAFE. The review card renders the purpose label and the
 // exact prompt beside the image, so this module must not import `server-only`
@@ -32,7 +35,7 @@
 // `storefront-design-contract.ts` already makes for the same reason).
 // ---------------------------------------------------------------------------
 
-export const MINK_MEDIA_GENERATION_SCHEMA_VERSION = 1 as const;
+export const MINK_MEDIA_GENERATION_SCHEMA_VERSION = 2 as const;
 
 /**
  * What the image is FOR, which is the only thing that may pick its shape.
@@ -86,30 +89,12 @@ export const MINK_MEDIA_PURPOSE_SPECS: Record<
   },
 };
 
-/**
- * Applied to EVERY generation, on top of whatever the model asked for.
- *
- * ★★ IT IS NOT A SUGGESTION THE MODEL CAN EDIT. `propose_generated_image`
- *    takes no exclusion clause, deliberately: the whole value of this string is
- *    that it is the same on every call, so a merchant reviewing one image is
- *    reviewing the same guarantees as on every other. Letting the caller
- *    contribute to it turns a fixed property into a per-prompt one.
- *
- * ★ TEXT AND LOGOS ARE FIRST because they are the two failure modes that make
- *   a generated image unusable rather than merely imperfect: invented lettering
- *   reads as a real sign, and an invented logo on a storefront is somebody
- *   else's trademark or a fake of the merchant's own.
- */
-export const MINK_MEDIA_NEGATIVE_PROMPT =
-  "text, lettering, words, captions, watermarks, signatures, logos, brand marks, " +
-  "packaging labels, recognisable branded products, real people, faces, " +
-  "borders, frames, collage, split panels";
-
 /** One image per proposal. See `validateMinkMediaGenerationRequest`. */
 export const MINK_MEDIA_IMAGES_PER_PROPOSAL = 1 as const;
 export const MINK_MEDIA_PROMPT_MIN_CHARS = 12;
 export const MINK_MEDIA_PROMPT_MAX_CHARS = 600;
 export const MINK_MEDIA_ALT_MAX_CHARS = 180;
+export const MINK_MEDIA_REFERENCE_MAX = 4;
 
 export interface MinkMediaGenerationRequest {
   /**
@@ -129,6 +114,8 @@ export interface MinkMediaGenerationRequest {
   purpose: MinkMediaPurpose;
   /** Exactly what is sent to the provider, after normalisation. */
   prompt: string;
+  /** Exact current-store image URLs selected after the relevant read tools. */
+  referenceImageUrls: string[];
   /**
    * Alt text, written now rather than later.
    *
@@ -150,7 +137,15 @@ export function validateMinkMediaGenerationRequest(
   if (!isRecord(input))
     return { ok: false, issues: ["Request must be an object."] };
   for (const key of Object.keys(input)) {
-    if (!["schemaVersion", "purpose", "prompt", "alt"].includes(key)) {
+    if (
+      ![
+        "schemaVersion",
+        "purpose",
+        "prompt",
+        "referenceImageUrls",
+        "alt",
+      ].includes(key)
+    ) {
       issues.push(`${key} is not allowed.`);
     }
   }
@@ -158,7 +153,9 @@ export function validateMinkMediaGenerationRequest(
     input.schemaVersion !== undefined &&
     input.schemaVersion !== MINK_MEDIA_GENERATION_SCHEMA_VERSION
   ) {
-    issues.push("schemaVersion must be 1.");
+    issues.push(
+      `schemaVersion must be ${MINK_MEDIA_GENERATION_SCHEMA_VERSION}.`,
+    );
   }
 
   const purpose = MINK_MEDIA_PURPOSES.includes(
@@ -186,6 +183,11 @@ export function validateMinkMediaGenerationRequest(
     );
   }
 
+  const referenceImageUrls = normalizeReferenceImageUrls(
+    input.referenceImageUrls,
+    issues,
+  );
+
   const alt = normalizeText(input.alt);
   if (!alt) {
     issues.push(
@@ -203,6 +205,7 @@ export function validateMinkMediaGenerationRequest(
       schemaVersion: MINK_MEDIA_GENERATION_SCHEMA_VERSION,
       purpose: purpose as MinkMediaPurpose,
       prompt,
+      referenceImageUrls,
       alt,
     },
   };
@@ -215,6 +218,36 @@ export function aspectRatioFor(purpose: MinkMediaPurpose): string {
 
 function normalizeText(value: unknown): string {
   return typeof value === "string" ? value.normalize("NFKC").trim() : "";
+}
+
+function normalizeReferenceImageUrls(
+  value: unknown,
+  issues: string[],
+): string[] {
+  if (!Array.isArray(value)) {
+    issues.push(
+      "referenceImageUrls must be an array populated from the relevant current-store image reads, or an empty array when those reads found no suitable image.",
+    );
+    return [];
+  }
+  if (value.length > MINK_MEDIA_REFERENCE_MAX) {
+    issues.push(
+      `referenceImageUrls must contain at most ${MINK_MEDIA_REFERENCE_MAX} images.`,
+    );
+  }
+  const urls: string[] = [];
+  for (const entry of value.slice(0, MINK_MEDIA_REFERENCE_MAX)) {
+    if (
+      typeof entry !== "string" ||
+      entry.length > 2_048 ||
+      !entry.startsWith("https://")
+    ) {
+      issues.push("Every reference image URL must be an HTTPS URL.");
+      continue;
+    }
+    if (!urls.includes(entry)) urls.push(entry);
+  }
+  return urls;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

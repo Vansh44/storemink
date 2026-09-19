@@ -1684,8 +1684,9 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   uploaded under `stores/{storeId}/mink-generated/`, and shown on its own card.
   ★★ SAFETY IS STRUCTURAL, NOT A WORD FILTER. Mink has no tool that writes
   `products.images`, and 9D means the only place a generated URL can land is a
-  layout section the merchant separately approves — so a generated image can be
-  decoration and cannot become a product photo. A brand/product keyword
+  layout section the merchant separately approves — so generated campaign
+  artwork can be grounded in an authentic product image but cannot become or
+  overwrite a catalogue product photo. A brand/product keyword
   blocklist was considered and REJECTED as security theatre: it fails on every
   misspelling and every brand nobody listed while reading like a guarantee.
   ★★ THE IMAGE IS GENERATED AT PROPOSAL TIME, NOT AT APPROVAL, inverting
@@ -1713,10 +1714,22 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   limiting — 3/owner/minute, 10/store/hour, 25/store/day, 200/global/hour and
   2 per run, claimed before the provider call AND before the credit charge.
   ★ PURPOSE PINS THE ASPECT RATIO and the caller never does; the fixed exclusion
-  clause, `personGeneration: ALLOW_NONE`, prominent-person block and four strict
-  harm filters are fixed in code. Vertex applies SynthID to Gemini-generated
-  images by default. A filtered image surfaces the provider's own reason; a
-  provider FAILURE never reads as a merchant mistake.
+  clause lives in the validated runtime block of
+  `docs/mink-ai-image-prompt.md`, while `personGeneration: ALLOW_NONE`, the
+  prominent-person block and four strict harm filters remain fixed in code.
+  Vertex applies SynthID to Gemini-generated images by default. A filtered
+  image surfaces the provider's own reason; a provider FAILURE never reads as
+  a merchant mistake.
+  ★★ REFERENCE GROUNDING IS AN EXACT CURRENT-STORE READ, NOT A URL FETCH. Before
+  every generation, the model reads the source matching the request: product,
+  category or Media Library. `reference_image_urls` carries at most four exact
+  PNG/JPEG/WebP results. `media-reference-images.ts` rechecks store membership,
+  the source collection's View permission and the configured GCS bucket before
+  converting each to a Vertex image part. A named product keeps its visible
+  identity, a category keeps its subject and visual cues, and a particular
+  Media image materially guides the requested new composition. Arbitrary web
+  URLs, inaccessible rows and unsupported objects fail before credit
+  reservation or generation.
   ★ ALT TEXT IS REQUIRED at proposal time by the contract and by the database:
   nothing else in the product will ever ask for it.
   Migration 0106 moves exactly two vocabularies and adds one target shape, both

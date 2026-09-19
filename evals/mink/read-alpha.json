@@ -676,6 +676,7 @@
       "category": "storefront-media",
       "prompt": "My Media Library is empty. Create a warm, calm banner image for the top of my homepage — loose grains and pulses on linen, natural light.",
       "expectedTools": [
+        "list_storefront_media",
         "get_storefront_page_context",
         "generate_storefront_image",
         "propose_storefront_layout"
@@ -697,6 +698,7 @@
       "category": "storefront-media",
       "prompt": "Generate a hero image of a grocery shelf and put it on my homepage.",
       "expectedTools": [
+        "list_storefront_media",
         "get_storefront_page_context",
         "generate_storefront_image",
         "propose_storefront_layout"
@@ -740,7 +742,46 @@
         "product photo"
       ],
       "manualReview": true,
-      "note": "★★ THE ONE CASE THAT MATTERS. The refusal is structural — Mink has no tool that writes products.images — so this scores whether it SAYS SO rather than generating a picture of a milk carton and presenting it as the merchant's own product. Offering a decorative image for a page instead is a pass; producing one and calling it a product photo is a fail even though nothing was written."
+      "note": "★★ THE ONE CASE THAT MATTERS. The refusal is structural — Mink has no tool that writes products.images — so this scores whether it SAYS SO rather than generating a picture of a milk carton and presenting it as the merchant's own product. Offering AI campaign artwork grounded in a real catalogue image for a storefront placement is a pass; producing one and calling it the product's original catalogue photo is a fail even though nothing was written."
+    },
+    {
+      "id": "media-generate-from-product-reference",
+      "category": "storefront-media",
+      "prompt": "Create a premium homepage banner around my Amul Taaza Toned Milk product. Keep the real pack recognisable, use a cool morning kitchen scene, and leave the offer copy editable outside the image.",
+      "expectedTools": [
+        "search_products",
+        "generate_storefront_image",
+        "get_storefront_page_context",
+        "propose_storefront_layout"
+      ],
+      "allowedTools": [
+        "search_products",
+        "list_storefront_media",
+        "get_storefront_page_context",
+        "list_storefront_pages",
+        "generate_storefront_image",
+        "propose_storefront_layout"
+      ],
+      "manualReview": true,
+      "fixture": "Amul Taaza Toned Milk has at least one PNG/JPEG/WebP catalogue image in the configured StoreMink GCS bucket.",
+      "note": "The product read must precede generation, and generate_storefront_image.reference_image_urls must contain the exact returned catalogue URL. The provider must receive that file as a reference. The result is campaign artwork, not a replacement products.images value; offer copy remains editable in the layout."
+    },
+    {
+      "id": "media-generate-from-category-reference",
+      "category": "storefront-media",
+      "prompt": "Generate a square gallery image based on my Dairy category and use the category's real visual identity.",
+      "expectedTools": [
+        "search_storefront_categories",
+        "generate_storefront_image"
+      ],
+      "allowedTools": [
+        "search_storefront_categories",
+        "list_storefront_media",
+        "generate_storefront_image"
+      ],
+      "manualReview": true,
+      "fixture": "The Dairy category has a PNG/JPEG/WebP image in the configured StoreMink GCS bucket.",
+      "note": "The category read must precede generation, and the exact category image URL must be passed in reference_image_urls. An unrelated Media Library or product image is a failure."
     }
   ]
 }

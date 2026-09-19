@@ -358,6 +358,10 @@ function isMediaImageProposal(value: Record<string, unknown>): boolean {
     isGeneratedImageUrl(value.url) &&
     isBoundedText(value.alt, 180) &&
     isBoundedText(value.prompt, 600) &&
+    (value.referenceImageCount === undefined ||
+      (Number.isInteger(value.referenceImageCount) &&
+        Number(value.referenceImageCount) >= 0 &&
+        Number(value.referenceImageCount) <= 4)) &&
     ["hero", "gallery", "feature", "banner"].includes(String(value.purpose)) &&
     ["1:1", "4:3", "16:9", "3:4", "9:16"].includes(String(value.aspectRatio)) &&
     isBoundedText(value.placement, 200) &&

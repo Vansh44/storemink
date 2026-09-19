@@ -17,6 +17,17 @@ export interface MinkTool {
   permission: MinkToolPermission;
   timeoutMs: number;
   /**
+   * A successful human-review artifact that is sufficient to finish the run
+   * without asking the model for one more prose-only turn.
+   *
+   * This is an opt-in escape hatch for a final tool call the model has already
+   * selected on the configured last reasoning turn. Keep it off reads, image
+   * generation, workflows and live actions: those may still need another tool
+   * or a model explanation, and running them at the cap could spend money or
+   * mutate state before reporting a failed run.
+   */
+  stepLimitCompletionText?: string;
+  /**
    * A PURE read: calling it twice with the same arguments inside one run
    * returns the same thing and changes nothing. The orchestrator serves the
    * second call from its per-run memo instead of spending tool budget on it.
@@ -50,6 +61,11 @@ export class MinkToolRegistry {
   /** Whether a repeated identical call may be served from a per-run memo. */
   isRepeatSafe(name: string): boolean {
     return this.tools.get(name)?.repeatSafe === true;
+  }
+
+  /** Deterministic success copy for an explicitly safe last-turn finalizer. */
+  stepLimitCompletionText(name: string): string | undefined {
+    return this.tools.get(name)?.stepLimitCompletionText;
   }
 
   declarationsFor(actor: MinkActorContext): MinkToolDeclaration[] {

@@ -120,6 +120,12 @@ const proposeStorefrontLayout: MinkTool = {
   permission: { section: "builder", action: "manage" },
   available,
   timeoutMs: 10_000,
+  // A layout proposal is already the complete merchant-visible result. If the
+  // model selects it on the last permitted reasoning turn, the orchestrator can
+  // show its review card with this deterministic sentence instead of rejecting
+  // the proposal merely because a prose-only model turn would come next.
+  stepLimitCompletionText:
+    "Your storefront layout proposal is ready. Review the card below and apply it to your Website Builder draft when you are satisfied.",
   artifact(output) {
     const proposal = output.proposal as MinkArtifact | undefined;
     return proposal?.type === "storefront_layout_proposal"

@@ -55,7 +55,7 @@ export const searchHelpCentreTool: MinkTool = {
   declaration: {
     name: "search_help_centre",
     description:
-      "Search StoreMink's published Help Centre with lexical and semantic retrieval. Use for how-to, navigation, setup, permissions, troubleshooting, and 'where do I configure' questions. Cite only returned URLs.",
+      "Search StoreMink's published Help Centre with lexical and semantic retrieval. Use only when the merchant is asking a how-to, navigation, setup, permissions, troubleshooting, or 'where do I configure' question. Never use Help Centre search to plan another declared tool call, discover a tool's input shape, or look up how to complete an action the merchant already requested; the tool declarations and returned store context are authoritative for that work. Cite only returned URLs.",
     parametersJsonSchema: {
       type: "object",
       properties: {

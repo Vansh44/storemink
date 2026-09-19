@@ -26,6 +26,7 @@ import {
 import { getMinkConfig } from "./config";
 import type { MinkDraftContent } from "./draft-types";
 import type { MinkActorContext, MinkArtifact } from "./types";
+import { resolveMinkMediaReferenceImages } from "./media-reference-images";
 
 // ---------------------------------------------------------------------------
 // Phase 9E - one charged, immutable proposal that IS an image.
@@ -69,6 +70,7 @@ export interface MinkMediaProposalInput {
   actor: MinkActorContext;
   purpose: unknown;
   prompt: unknown;
+  referenceImageUrls: unknown;
   alt: unknown;
 }
 
@@ -87,6 +89,7 @@ export async function createMinkMediaImageProposal(
   const validation = validateMinkMediaGenerationRequest({
     purpose: input.purpose,
     prompt: input.prompt,
+    referenceImageUrls: input.referenceImageUrls,
     alt: input.alt,
   });
   if (!validation.ok) {
@@ -95,6 +98,10 @@ export async function createMinkMediaImageProposal(
     );
   }
   const request = validation.value;
+  const references = await resolveMinkMediaReferenceImages(
+    input.actor,
+    request.referenceImageUrls,
+  );
 
   // ★ THE SPEND CEILING IS CLAIMED BEFORE THE PROVIDER CALL AND BEFORE THE
   //   CREDIT CHARGE. Charging first and then refusing would bill a merchant
@@ -104,7 +111,11 @@ export async function createMinkMediaImageProposal(
   }
   await reserveMinkImageGeneration(input.actor, input.actor.runId);
 
-  const image = await generateMinkMediaImage(getMinkConfig(), request);
+  const image = await generateMinkMediaImage(
+    getMinkConfig(),
+    request,
+    references,
+  );
 
   const extension = image.mimeType === "image/png" ? "png" : "jpg";
   const path = `stores/${input.actor.storeId}/${MINK_GENERATED_MEDIA_FOLDER}/${crypto.randomUUID()}.${extension}`;
@@ -166,6 +177,7 @@ export async function createMinkMediaImageProposal(
         sizeBytes: image.bytes.length,
         purpose: request.purpose,
         prompt: request.prompt,
+        referenceImageUrls: request.referenceImageUrls,
         alt: request.alt,
       }),
     });
@@ -199,6 +211,7 @@ export async function createMinkMediaImageProposal(
     url,
     alt: request.alt,
     prompt: request.prompt,
+    referenceImageCount: references.length,
     purpose: request.purpose,
     aspectRatio: aspectRatioFor(request.purpose),
     placement: spec.placement,
@@ -218,6 +231,7 @@ function draftContent(input: {
   sizeBytes: number;
   purpose: MinkMediaPurpose;
   prompt: string;
+  referenceImageUrls: string[];
   alt: string;
 }): MinkDraftContent {
   return {
@@ -228,6 +242,7 @@ function draftContent(input: {
     size_bytes: String(input.sizeBytes),
     purpose: input.purpose,
     prompt: input.prompt,
+    reference_image_urls: JSON.stringify(input.referenceImageUrls),
     alt: input.alt,
   };
 }

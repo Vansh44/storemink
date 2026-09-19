@@ -98,6 +98,18 @@ describe("Phase 9D media library read", () => {
     expect(second.params).toContain(41);
   });
 
+  it("can find an older named image with a bounded filename search", async () => {
+    const result = await readMinkStorefrontMedia(ACTOR, {
+      query: "Summer_50% hero",
+      limit: 10,
+    });
+    const compiled = new PgDialect().sqlToQuery(mocks.execute.mock.calls[0][0]);
+    expect(compiled.params).toContain("%Summer\\_50\\% hero%");
+    expect(compiled.params).toContain(11);
+    expect(compiled.sql).toContain("filename ilike");
+    expect(result.query).toBe("Summer_50% hero");
+  });
+
   it("bounds a filename, which is untrusted merchant text", async () => {
     mocks.execute.mockResolvedValue({
       rows: [{ ...row(1), filename: "f".repeat(500) }],

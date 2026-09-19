@@ -59,7 +59,19 @@ export async function runMinkAgent(input: {
   onProgress?.({ steps, toolCalls, retryCount, usage: { ...usage } });
 
   while (turn.functionCalls.length > 0) {
-    if (steps >= config.maxSteps) {
+    // ★★ THE MODEL HAS ALREADY SPENT THIS TURN. The production offer-banner
+    // trace reached turn 12 after successfully creating its image, then
+    // returned another function call. Rejecting at the top of this loop threw
+    // away even the call's NAME before it was recorded; a final layout proposal
+    // selected in that position could therefore never finish.
+    // One explicitly marked human-review proposal may finish deterministically
+    // here; reads, image generation, workflows, live actions and multiple calls
+    // remain refused. This spends no thirteenth prose-only model turn.
+    const stepLimitCompletionText =
+      steps >= config.maxSteps && turn.functionCalls.length === 1
+        ? registry.stepLimitCompletionText(turn.functionCalls[0].name)
+        : undefined;
+    if (steps >= config.maxSteps && !stepLimitCompletionText) {
       throw new MinkAgentError(
         "step_limit_reached",
         "Mink AI reached its reasoning-step limit before finishing.",
@@ -158,6 +170,35 @@ export async function runMinkAgent(input: {
     // numbers every call the model made, including the ones the memo served.
     toolCalls += fresh.length;
     recorded += turn.functionCalls.length;
+    if (stepLimitCompletionText) {
+      // The opt-in is authority to finish only after the tool genuinely
+      // succeeded and produced the review artifact its card needs. A tool
+      // error or contract drift remains a failed run; never turn either into a
+      // false success sentence.
+      const completed = responses.every(
+        (response) => !toolErrorCode(response.response),
+      );
+      const produced = responses.some(
+        (response) =>
+          response.artifact && PRODUCED_ARTIFACTS.has(response.artifact.type),
+      );
+      if (!completed || !produced) {
+        throw new MinkAgentError(
+          "step_limit_reached",
+          "Mink AI reached its reasoning-step limit before finishing.",
+        );
+      }
+      onProgress?.({ steps, toolCalls, retryCount, usage: { ...usage } });
+      return {
+        text: stepLimitCompletionText,
+        model: config.model,
+        steps,
+        toolCalls,
+        retryCount,
+        usage,
+        artifacts: presentableArtifacts(artifacts),
+      };
+    }
     steps += 1;
     onProgress?.({ steps, toolCalls, retryCount, usage: { ...usage } });
     turn = await session.sendToolResponses(responses);

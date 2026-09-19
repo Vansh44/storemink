@@ -37,6 +37,16 @@ describe("gcs helpers", () => {
       expect(
         gcs.gcsPathFromUrl("https://storage.googleapis.com/other-bucket/a.png"),
       ).toBeNull();
+      expect(
+        gcs.gcsPathFromUrl(
+          "https://evil.example/storage.googleapis.com/storemink-media/a.png",
+        ),
+      ).toBeNull();
+      expect(
+        gcs.gcsPathFromUrl(
+          "https://storage.googleapis.com/storemink-media/../other/a.png",
+        ),
+      ).toBeNull();
       expect(gcs.gcsPathFromUrl("")).toBeNull();
     });
   });
