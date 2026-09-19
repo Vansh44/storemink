@@ -6,12 +6,14 @@ import {
   ExternalLink,
   LayoutTemplate,
   LoaderCircle,
+  Globe,
   Minus,
   Plus,
   ShieldCheck,
   TriangleAlert,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
+import { publishPage } from "@/app/actions/page-actions";
 import { SECTION_TYPE_META } from "@/lib/sections/registry";
 import type {
   MinkStorefrontLayoutActionApproval,
@@ -52,6 +54,43 @@ export function MinkStorefrontLayoutProposalCard({
   );
   const [busy, setBusy] = useState<"preview" | "execute" | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [publishing, setPublishing] = useState(false);
+  const [published, setPublished] = useState(false);
+  const [publishError, setPublishError] = useState<string | null>(null);
+
+  /**
+   * Publish the page the save just landed in, without leaving chat.
+   *
+   * ★★ IT CALLS THE MERCHANT'S OWN `publishPage`, NOT A MINK ACTION, and that
+   * is the whole safety argument. 7C/7D's approval machinery exists to bind a
+   * MODEL-originated change to exact reviewed content — which the Apply step
+   * above already did. What is left is a human publishing their own draft, the
+   * identical server action the Builder's own Publish button calls, behind the
+   * same `builder` manage gate and the same strict re-validation. Moving a
+   * button is not the same as granting a capability, so this needs no new tool
+   * gate, no second approval and no migration.
+   *
+   * ⚠ IT PUBLISHES THE WHOLE PAGE DRAFT, including any unpublished edits the
+   * merchant already had. That is exactly what the Builder's button does too —
+   * but there they can see the whole page and here they have seen one proposal,
+   * so the card says so in as many words rather than leaving it to be inferred.
+   */
+  async function publishNow() {
+    if (!result) return;
+    setPublishing(true);
+    setPublishError(null);
+    try {
+      // No `expectedUpdatedAt`: the save that just succeeded IS the latest
+      // version, and passing the value from before it would refuse every time.
+      const response = await publishPage(result.approval.resource.id);
+      if (response.error) throw new Error(response.error);
+      setPublished(true);
+    } catch (thrown) {
+      setPublishError(messageOf(thrown, "The page was not published."));
+    } finally {
+      setPublishing(false);
+    }
+  }
 
   const { summary } = proposal;
 
@@ -214,8 +253,9 @@ export function MinkStorefrontLayoutProposalCard({
                   Saved to the private Website Builder draft
                 </p>
                 <p className="mt-1">
-                  The live storefront was not published or changed. Audit
-                  reference: {result.auditId}.
+                  {published
+                    ? `This page is now live. Audit reference: ${result.auditId}.`
+                    : `The live storefront was not published or changed. Audit reference: ${result.auditId}.`}
                 </p>
                 <a
                   href={result.approval.resource.dashboardPath}
@@ -225,6 +265,42 @@ export function MinkStorefrontLayoutProposalCard({
                 </a>
               </div>
             </div>
+
+            {/* The second step, in the same card. Publishing stays a separate
+                deliberate act — it is just no longer somewhere else. */}
+            {published ? null : (
+              <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-emerald-200 pt-3">
+                <p className="max-w-lg text-emerald-900">
+                  <span className="font-semibold">Ready to go live?</span>{" "}
+                  Publishing puts this page&rsquo;s whole draft on your
+                  storefront, including any other changes you have not published
+                  yet.
+                </p>
+                <button
+                  type="button"
+                  disabled={publishing}
+                  onClick={() => void publishNow()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-700 px-3 py-1.5 text-[9px] font-semibold text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {publishing ? (
+                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <Globe className="h-3.5 w-3.5" />
+                  )}
+                  {publishing ? "Publishing…" : "Publish this page"}
+                </button>
+              </div>
+            )}
+
+            {publishError ? (
+              <p className="mt-2 flex gap-2 rounded-lg border border-rose-200 bg-rose-50 p-2 text-rose-800">
+                <TriangleAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                <span>
+                  {publishError} Your draft is safe — open Website Builder to
+                  publish it there.
+                </span>
+              </p>
+            ) : null}
           </div>
         ) : (
           <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-[#ded8f4] bg-[#faf8ff] p-3">

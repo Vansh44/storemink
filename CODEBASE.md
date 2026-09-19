@@ -470,11 +470,37 @@ so a read-heavy run could fill the buffer and silently drop the proposal itself,
 leaving the research and no Apply button. The observed run made five read cards,
 one short.
 
-⚠ Still outstanding from the same report: the merchant's path is still
-image → proposal → Apply → open Builder → Publish. Collapsing the last step into
-the card needs the Phase 7D publication path widened to layout drafts — it hard-
-requires `draft.kind === "storefront_custom_code"` and a prior
-`apply_storefront_code` save — which is a migration across the tool vocabularies.
+**★★ AND PUBLISHING NO LONGER MEANS LEAVING CHAT — WITHOUT A NEW CAPABILITY.**
+The path was image → proposal → Apply → open Builder → Publish. The layout card
+now shows a **Publish this page** button once the draft save has landed, and it
+calls the MERCHANT'S OWN `publishPage` — the identical server action the
+Builder's own Publish button calls, behind the same `builder` manage gate and
+the same strict re-validation. ★ That is the whole safety argument: 7C/7D's
+approval machinery exists to bind a MODEL-originated change to exact reviewed
+content, which the Apply step already did; what remains is a human publishing
+their own draft. Moving a button is not granting a capability, so this needs no
+new tool gate, no second approval, no resource type and **no migration** —
+which is why widening 7D's publication path (it hard-requires
+`draft.kind === "storefront_custom_code"` and a prior `apply_storefront_code`
+save, and its static/browser checks exist for arbitrary generated code that a
+structured section list is not) was the wrong shape for this.
+⚠ It publishes the page's WHOLE DRAFT, including unpublished edits the merchant
+already had — exactly what the Builder's button does, but there they can see the
+whole page and here they have seen one proposal, so the card says so rather than
+leaving it to be inferred. ⚠ No `expectedUpdatedAt` is passed: the save that
+just succeeded IS the latest version, so the stale-tab guard would refuse every
+time; the trade is that an edit made in another tab between Apply and Publish
+goes live with it.
+
+⚠ **AND STRICT RE-VALIDATION ON PUBLISH HAS THE SAME DEFECT THIS SECTION OPENS
+WITH, IN THE MERCHANT'S OWN BUILDER.** `processSections` (page-actions.ts) runs
+`validateSections(raw, {mode})` FIRST and returns on error — _before_ the
+retained-custom-code block beneath it, which exists precisely so a downgraded
+store can keep locked sections while the rest of the page stays saveable. So an
+empty `custom_code` section refuses `publishPage` outright, from the Builder as
+much as from this card, and the retention logic is never reached. Not fixed
+here: it changes when a live storefront publishes, which is wider than this
+report. The card surfaces the refusal verbatim and says the draft is safe.
 
 ### Mink Phase 9B — Proposed page layouts (2026-09-12)
 
