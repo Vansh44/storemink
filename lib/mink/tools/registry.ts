@@ -16,6 +16,17 @@ export interface MinkTool {
   declaration: MinkToolDeclaration;
   permission: MinkToolPermission;
   timeoutMs: number;
+  /**
+   * A PURE read: calling it twice with the same arguments inside one run
+   * returns the same thing and changes nothing. The orchestrator serves the
+   * second call from its per-run memo instead of spending tool budget on it.
+   *
+   * ⚠ OPT-IN, and it must stay opt-in. The default has to be "not safe", or a
+   * tool added later silently becomes de-duplicable — and the ones that are
+   * NOT safe here are the ones that queue a durable workflow, create a
+   * proposal, or spend money on an image.
+   */
+  repeatSafe?: boolean;
   available?: (actor: MinkActorContext) => boolean;
   artifact?: (output: Record<string, unknown>) => MinkArtifact | undefined;
   execute: (
@@ -34,6 +45,11 @@ export class MinkToolRegistry {
       if (this.tools.has(name)) throw new Error(`Duplicate Mink tool: ${name}`);
       this.tools.set(name, tool);
     }
+  }
+
+  /** Whether a repeated identical call may be served from a per-run memo. */
+  isRepeatSafe(name: string): boolean {
+    return this.tools.get(name)?.repeatSafe === true;
   }
 
   declarationsFor(actor: MinkActorContext): MinkToolDeclaration[] {

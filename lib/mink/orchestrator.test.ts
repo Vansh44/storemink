@@ -255,3 +255,152 @@ describe("runMinkAgent", () => {
     ).rejects.toMatchObject({ code: "empty_model_response" });
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★★ A REPEATED PURE READ COSTS NO TOOL BUDGET.
+//
+// Observed on a live run that failed at the step limit: 15 tool calls, every
+// one SUCCEEDED, and 8 of them repeated 4 reads the model had already made — so
+// it never reached the tools that would have finished the job. The runtime
+// prompt already asks it not to repeat a successful read; the memo makes that
+// true whether or not the model complies.
+// ---------------------------------------------------------------------------
+describe("repeated tool calls", () => {
+  function memoRegistry(repeatSafe: boolean, execute = vi.fn()) {
+    return new MinkToolRegistry([
+      {
+        declaration: {
+          name: "search_products",
+          description: "Find products.",
+          parametersJsonSchema: { type: "object", properties: {} },
+        },
+        permission: { section: "products", action: "view" },
+        timeoutMs: 5_000,
+        repeatSafe,
+        artifact: () => ({ type: "records", title: "Products" }) as never,
+        execute,
+      },
+    ]);
+  }
+
+  /** Two turns each asking for the same read, then a final answer. */
+  function twiceThenAnswer(
+    args: [Record<string, unknown>, Record<string, unknown>],
+  ) {
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () =>
+        turn({
+          functionCalls: [{ id: "c1", name: "search_products", args: args[0] }],
+        }),
+      ),
+      sendToolResponses: vi
+        .fn()
+        .mockResolvedValueOnce(
+          turn({
+            functionCalls: [
+              { id: "c2", name: "search_products", args: args[1] },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(turn({ text: "Done." })),
+    };
+    return session;
+  }
+
+  it("serves an identical repeat from the memo and does not re-execute it", async () => {
+    const execute = vi.fn(async () => ({ items: [] }));
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(true, execute),
+      session: twiceThenAnswer([{ q: "chair" }, { q: "chair" }]),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+    // The budget only counts what actually ran — the point of the whole fix.
+    expect(result.toolCalls).toBe(1);
+  });
+
+  it("★ key order does not make two identical calls look different", async () => {
+    const execute = vi.fn(async () => ({ items: [] }));
+    await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(true, execute),
+      session: twiceThenAnswer([
+        { q: "chair", limit: 5 },
+        { limit: 5, q: "chair" },
+      ]),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(1);
+  });
+
+  it("★ a DIFFERENT argument is a different call and still runs", async () => {
+    const execute = vi.fn(async () => ({ items: [] }));
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(true, execute),
+      session: twiceThenAnswer([{ q: "chair" }, { q: "lamp" }]),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.toolCalls).toBe(2);
+  });
+
+  // ⚠ Opt-in, and it must stay opt-in: the tools that are NOT marked are the
+  // ones that queue a workflow, create a proposal, or spend money on an image.
+  it("★★ never de-duplicates a tool that is not marked repeat-safe", async () => {
+    const execute = vi.fn(async () => ({ items: [] }));
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(false, execute),
+      session: twiceThenAnswer([{ q: "chair" }, { q: "chair" }]),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.toolCalls).toBe(2);
+  });
+
+  // ⚠ A failure is often transient; replaying it would deny the model its one
+  // legitimate retry.
+  it("★ does not remember a failed read", async () => {
+    const execute = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("boom"))
+      .mockResolvedValueOnce({ items: [] });
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(true, execute),
+      session: twiceThenAnswer([{ q: "chair" }, { q: "chair" }]),
+    });
+
+    expect(execute).toHaveBeenCalledTimes(2);
+    expect(result.toolCalls).toBe(2);
+  });
+
+  // ⚠ The card is already on screen from the first call; pushing it again
+  // renders a duplicate.
+  it("★ a repeat adds no second artifact", async () => {
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(
+        true,
+        vi.fn(async () => ({ items: [] })),
+      ),
+      session: twiceThenAnswer([{ q: "chair" }, { q: "chair" }]),
+    });
+
+    expect(result.artifacts).toHaveLength(1);
+  });
+});

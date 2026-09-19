@@ -1664,30 +1664,52 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+/**
+ * Mark a PURE read, so a repeated identical call inside one run is served from
+ * the orchestrator's memo rather than spending tool budget.
+ *
+ * ★★ MARKED HERE, AT THE ONE PLACE THE REGISTRY IS ASSEMBLED, rather than on
+ * each definition across a dozen files: the property that matters is which
+ * tools are safe RELATIVE TO EACH OTHER, and that is only auditable as a list.
+ * A reviewer can see in one screen that nothing which queues work, creates a
+ * proposal or spends money is in it.
+ */
+function repeatSafe(tool: MinkTool): MinkTool {
+  return { ...tool, repeatSafe: true };
+}
+
 export const minkReadToolRegistry = new MinkToolRegistry([
-  getStoreProfile,
-  listStorefrontPages,
-  getStorefrontPageContext,
-  getStorefrontSectionContext,
-  getStorefrontDesignContext,
-  listStorefrontMedia,
-  getCatalogSummary,
-  searchProducts,
-  getCurrentProduct,
-  getSalesSummary,
-  listCurrentOffers,
-  listLowStock,
+  // ★ `repeatSafe(...)` marks a PURE read: same arguments, same answer, no side
+  // effect, so the orchestrator may serve a repeat from its per-run memo.
+  // ⚠ ORDER IS PRESERVED EXACTLY — it is the order the model sees its tools in,
+  // and read-tools.test.ts asserts it. Wrap in place; do not regroup.
+  repeatSafe(getStoreProfile),
+  repeatSafe(listStorefrontPages),
+  repeatSafe(getStorefrontPageContext),
+  repeatSafe(getStorefrontSectionContext),
+  repeatSafe(getStorefrontDesignContext),
+  repeatSafe(listStorefrontMedia),
+  repeatSafe(getCatalogSummary),
+  repeatSafe(searchProducts),
+  repeatSafe(getCurrentProduct),
+  repeatSafe(getSalesSummary),
+  repeatSafe(listCurrentOffers),
+  repeatSafe(listLowStock),
+  // ⚠ Unmarked: queues a durable workflow run.
   startBusinessBrief,
-  getMinkWatches,
-  getMinkWatchResponses,
+  repeatSafe(getMinkWatches),
+  repeatSafe(getMinkWatchResponses),
+  // ⚠ Unmarked: each queues a durable workflow run.
   startWeeklyTradingReport,
   startRevenueDeclineInvestigation,
   startProductLaunchPreparation,
   startSlowInventoryPromotion,
   startDelayedPickupReview,
-  listOrdersTool,
-  currentOrderTool,
-  searchHelpCentreTool,
+  repeatSafe(listOrdersTool),
+  repeatSafe(currentOrderTool),
+  repeatSafe(searchHelpCentreTool),
+  // ⚠ Unmarked: these create proposals, charge credits, or generate an image
+  // that costs real money per call.
   ...minkDraftTools,
   ...minkStorefrontCodeTools,
   ...minkStorefrontLayoutTools,

@@ -531,7 +531,20 @@ export async function getCartTaxRates(
 
   const storeId = await getCurrentStoreId();
   const { billing, taxClasses: taxClassList } = await readTaxConfig(storeId);
-  if (!billing.taxEnabled) return empty;
+  // ★★ NO EARLY RETURN WHEN TAX IS OFF. This used to be
+  // `if (!billing.taxEnabled) return empty;` — and `empty` carries NO LINES, so
+  // on a store with tax disabled the cart lost the two per-line facts that ride
+  // along here for the OFFER engine, not for tax: `categoryId` and
+  // `regularUnitPrice`. A category-scoped offer then saw `categoryId: null` on
+  // every line and was skipped as `no_eligible_lines`, so the checkout summary
+  // showed no discount at all — while `placeOrder` reads the same column in its
+  // own product query, unconditionally, and DID apply the offer. Preview and
+  // charge disagreed, and the merchant's offer looked broken.
+  //
+  // ⚠ Two features were sharing one gated transport. The gate belongs on the
+  // TAX NUMBERS, which is where it is now: `enabled` still reports the store's
+  // real setting and `cartTaxFrom` still returns zero tax for it, so nothing
+  // about the tax display changes — the lines are simply present either way.
 
   const productIds = Array.from(new Set(safeLines.map((l) => l.productId)));
   const variantIds = Array.from(
@@ -602,7 +615,11 @@ export async function getCartTaxRates(
     const v = l.variantId ? vMap.get(l.variantId) : null;
     // One shared rule with the PDP and with placeOrder (lib/pricing.ts).
     const price = v ? variantEffectiveSelling(v) : p.selling_price;
-    const classId = p.tax_class_id ?? billing.defaultTaxClassId;
+    // Only the RATE is conditional: with tax off every line is taxed at zero,
+    // and resolving a class would be work whose result is discarded.
+    const classId = billing.taxEnabled
+      ? (p.tax_class_id ?? billing.defaultTaxClassId)
+      : null;
     const cls = classId ? classById.get(classId) : null;
     return {
       productId: l.productId,
@@ -619,8 +636,8 @@ export async function getCartTaxRates(
   });
 
   return {
-    enabled: true,
-    inclusive: billing.pricesIncludeTax,
+    enabled: billing.taxEnabled,
+    inclusive: billing.taxEnabled && billing.pricesIncludeTax,
     lines: resolved,
   };
 }

@@ -111,3 +111,66 @@ describe("bounded multimodal decoding", () => {
     await expect(validate("compressed.pdf", bytes)).rejects.toThrow();
   }, 10000);
 });
+
+// ---------------------------------------------------------------------------
+// ★ `mode` chooses WHAT is read from an attachment, not whether it is sent.
+// The default has to stay "extract", or an older client that knows nothing
+// about the field silently starts getting a different kind of answer.
+// ---------------------------------------------------------------------------
+describe("input mode", () => {
+  const png = () =>
+    sharp({
+      create: {
+        width: 8,
+        height: 8,
+        channels: 3,
+        background: { r: 200, g: 190, b: 170 },
+      },
+    })
+      .png()
+      .toBuffer();
+
+  it("defaults to extraction when no mode is sent", async () => {
+    const parsed = parseMinkInput(body("shot.png", await png()));
+    expect(parsed.mode).toBe("extract");
+  });
+
+  it("accepts a design read of an image", async () => {
+    const parsed = parseMinkInput({
+      ...body("shot.png", await png()),
+      mode: "design",
+    });
+    expect(parsed.mode).toBe("design");
+  });
+
+  // ★ Refused, never coerced: the two modes return different shapes, and a
+  // caller that asked for one must not quietly receive the other.
+  it("refuses an unrecognised mode rather than falling back", async () => {
+    for (const mode of ["", "DESIGN", "extract ", 1, null, true, ["design"]]) {
+      expect(() =>
+        parseMinkInput({ ...body("shot.png", "" as never), mode }),
+      ).toThrow();
+    }
+    const bytes = await png();
+    for (const mode of ["", "DESIGN", 1, null, true]) {
+      expect(() =>
+        parseMinkInput({ ...body("shot.png", bytes), mode }),
+      ).toThrow();
+    }
+  });
+
+  // Only an image has a design to read; a PDF or a recording does not.
+  // ⚠ Uses a real PDF, not a .txt — `inputKind` refuses .txt outright, so that
+  // version of this test passed without the guard even existing.
+  it("★ refuses a design read of anything that is not an image", async () => {
+    const doc = await PDFDocument.create();
+    doc.addPage();
+    const pdf = Buffer.from(await doc.save());
+    // The same file is fine for ordinary extraction...
+    expect(parseMinkInput(body("notes.pdf", pdf)).kind).toBe("pdf");
+    // ...and refused for a design read.
+    expect(() =>
+      parseMinkInput({ ...body("notes.pdf", pdf), mode: "design" }),
+    ).toThrow();
+  });
+});

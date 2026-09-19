@@ -22,7 +22,7 @@ const invalid = () =>
 export function parseMinkInput(body: Record<string, unknown>) {
   if (
     Object.keys(body).some(
-      (k) => !["name", "data", "confirmed", "requestKey"].includes(k),
+      (k) => !["name", "data", "confirmed", "requestKey", "mode"].includes(k),
     ) ||
     body.confirmed !== true ||
     typeof body.name !== "string" ||
@@ -55,7 +55,22 @@ export function parseMinkInput(body: Record<string, unknown>) {
     bytes.toString("base64") !== body.data
   )
     throw invalid();
-  return { kind, bytes, name: body.name, requestKey: body.requestKey };
+  // ★ "design" reads a storefront design out of a screenshot instead of
+  // describing it in prose. An absent mode is the original extraction, so an
+  // older client keeps working unchanged; an unrecognised one is REFUSED
+  // rather than silently treated as extraction, since the two return
+  // different things and a caller that asked for one must not get the other.
+  const mode = body.mode === undefined ? "extract" : body.mode;
+  if (mode !== "extract" && mode !== "design") throw invalid();
+  // Only an image has a design to read.
+  if (mode === "design" && kind !== "image") throw invalid();
+  return {
+    kind,
+    mode,
+    bytes,
+    name: body.name,
+    requestKey: body.requestKey,
+  };
 }
 export async function validateMinkInput(
   input: {

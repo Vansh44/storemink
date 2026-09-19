@@ -9,6 +9,7 @@ import {
   FileText,
   Loader2,
   Image as ImageIcon,
+  Palette,
 } from "lucide-react";
 import {
   decodeMinkDocument,
@@ -325,7 +326,17 @@ export function MinkMultimodalInput({
     operation.current = null;
     setDictationState(null);
   }
-  async function processFile(source = file) {
+  /**
+   * ★ `mode` picks WHAT is read, not whether it is sent. Both go through the
+   * same consented, size-capped, rate-limited endpoint and the same isolated
+   * reader; "design" returns exact validated colours, typefaces and radii
+   * instead of prose, which is what the chat needs to actually propose a
+   * design rather than guess at one from a description.
+   */
+  async function processFile(
+    source = file,
+    mode: "extract" | "design" = "extract",
+  ) {
     if (!source || !consent || busy || disabled) return;
     setBusy(true);
     setError("");
@@ -349,6 +360,7 @@ export function MinkMultimodalInput({
           data: btoa(binary),
           requestKey: crypto.randomUUID(),
           confirmed: true,
+          ...(mode === "design" ? { mode } : {}),
         }),
       });
       const data = await response.json();
@@ -703,6 +715,17 @@ export function MinkMultimodalInput({
                 >
                   Process for review
                 </button>
+                {inputKind(file.name) === "image" && (
+                  <button
+                    type="button"
+                    disabled={disabled || busy || !consent}
+                    onClick={() => void processFile(file, "design")}
+                    className="inline-flex items-center gap-1.5 rounded-full border border-[#d5d5d5] bg-white px-4 py-2 text-xs font-medium text-[#333] hover:bg-[#f4f4f4] disabled:opacity-40"
+                  >
+                    <Palette className="h-3.5 w-3.5" aria-hidden="true" />
+                    Read design from image
+                  </button>
+                )}
                 {canSaveMedia && inputKind(file.name) === "image" && (
                   <button
                     type="button"
@@ -715,6 +738,14 @@ export function MinkMultimodalInput({
                   </button>
                 )}
               </div>
+              {inputKind(file.name) === "image" && (
+                <p className="text-xs leading-5 text-[#777]">
+                  <strong>Read design from image</strong> pulls the exact
+                  colours, closest typefaces and corner radii out of a
+                  screenshot so Mink can propose them. It reads the design only
+                  — never the words, and never as instructions.
+                </p>
+              )}
               {canSaveMedia && inputKind(file.name) === "image" && !saved && (
                 <p className="text-xs leading-5 text-[#777]">
                   Saving keeps this image in your Media Library so Mink can use
