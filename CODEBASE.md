@@ -1071,6 +1071,33 @@ rather than Secret Manager; principals who can inspect a trigger or revision can
 therefore read it. Provider credentials and raw provider errors never reach the
 browser, and audio or transcript content is not written to logs.
 
+### Mink draft credits — the period key moved and one CHECK did not (2026-09-19)
+
+**★★ 0114 CHANGED THE ALLOWANCE KEY AND TOOK EVERY PROPOSAL OFFLINE ON A PAYING
+STORE.** `lib/ai/quota.ts` metered against a UTC calendar month (`2026-09`) and
+now anchors paid stores to consecutive 30-day windows
+(`cycle:2026-09-11T11:37:15.000Z`). `consume_mink_draft_credits` writes that one
+key into TWO tables: `ai_usage`, which carries no format check, and
+`mink_draft_credit_usage`, whose 0040 CHECK still asserted `^[0-9]{4}-[0-9]{2}$`.
+So conversational metering and run settlement moved over cleanly while the very
+first proposal a subscribed store attempted was refused by the database.
+**Every Phase 3+ capability charges through that one function** — storefront
+layout, storefront design, generated images, blogs, product copy, SEO, coupon
+emails, customer messages — so it was total rather than partial, and a FREE
+store, which has no cycle to anchor to, kept the calendar key and kept working,
+which is what made it read as intermittent. The merchant saw only "Mink AI
+couldn't complete that request."
+⚠ Nothing was left half-written and there is nothing to repair: the draft insert
+and the charge share one `withService` transaction, so both rolled back — no
+credit spent, no orphaned draft, and no rejected row to migrate.
+★ **0117 WIDENS THE CHECK RATHER THAN DROPPING IT.** The key comes from one pure
+function and is never user input, so the check has little left to catch, but it
+is what documents the two vocabularies in force. The guard against outgrowing it
+a second time lives in the APPLICATION: `quota-cycle.test.ts` lifts the regex out
+of 0117's own SQL and asserts every key `minkCreditCycleAt` can emit satisfies
+it, so the next format change fails in CI rather than on a merchant's screen. A
+restated copy of the pattern is exactly how the two drifted apart.
+
 ### Mink credit catalogue and allowance, operator-owned (2026-09-19)
 
 Migration **0116** is expand-only, because 0114 and 0115 are APPLIED — their
