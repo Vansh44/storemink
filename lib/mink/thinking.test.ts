@@ -29,6 +29,22 @@ describe("selectMinkThinkingLevel", () => {
     expect(selectMinkThinkingLevel(message, proposalTool)).toBe("low");
   });
 
+  // ⚠ THE COMMONEST STOREFRONT REQUEST THERE IS, AND IT USED TO SELECT HIGH.
+  // A banner, a carousel, a hero or a homepage block is a STRUCTURED section
+  // (Phase 9B) plus, at most, a generated image (9E) — two ordinary tool calls
+  // and no generated code. Measured on the run ledger, every high-thinking run
+  // failed and every low one finished, so a layout noun beside a creation verb
+  // must stay on low or these requests time out before proposing anything.
+  it.each([
+    "create a banner on the home page carousel for this buy 1 get 1 offer",
+    "Add a hero to my homepage",
+    "Build a storefront banner announcing free delivery",
+    "Redesign my homepage hero",
+    "Generate an image for the landing page carousel",
+  ])("keeps layout and image work on low thinking: %s", (message) => {
+    expect(selectMinkThinkingLevel(message, proposalTool)).toBe("low");
+  });
+
   // ⚠ HIGH reasoning is paid for on every turn it fires, so an everyday verb
   // beside an everyday noun must not select it. `page`, `section` and a bare
   // `code` all occur in requests that have nothing to do with builder code.

@@ -8,6 +8,7 @@ const h = vi.hoisted(() => ({
   provider: vi.fn(),
   transcribe: vi.fn(),
   log: vi.fn(),
+  logError: vi.fn(),
 }));
 
 vi.mock("@/lib/mink/actor-context", () => ({ getMinkActorContext: h.actor }));
@@ -22,7 +23,10 @@ vi.mock("@/lib/mink/voice-settings", () => ({
 vi.mock("@/lib/mink/voice-transcription", () => ({
   transcribeMinkVoice: h.transcribe,
 }));
-vi.mock("@/lib/observability/logger", () => ({ logInfo: h.log }));
+vi.mock("@/lib/observability/logger", () => ({
+  logInfo: h.log,
+  logError: h.logError,
+}));
 
 import { POST } from "./route";
 
@@ -96,13 +100,45 @@ describe("global Mink voice endpoint", () => {
     expect(h.provider).not.toHaveBeenCalled();
   });
 
-  it("does not expose provider errors, audio or transcript content in logs", async () => {
-    h.transcribe.mockRejectedValue(new Error("secret provider response"));
+  // ★★ TWO BOUNDARIES, NOT ONE, AND THIS USED TO COLLAPSE THEM. The earlier
+  // version asserted the provider's error appeared in NEITHER the response nor
+  // the log — so it pinned a route whose only record of a failure was
+  // "something went wrong", and a Speech-to-Text API nobody had enabled on the
+  // project took a hand-run probe against the live endpoint to identify. The
+  // contract is per destination: the BROWSER gets no provider detail (it may
+  // carry a credential, a project name or an endpoint), the LOG must get it,
+  // and audio and transcripts belong in neither.
+  it("★★ keeps the provider's reason out of the response and IN the log", async () => {
+    h.transcribe.mockRejectedValue(
+      new Error("Chirp 3 returned 403 (PERMISSION_DENIED, SERVICE_DISABLED)."),
+    );
     const response = await POST(req(new Uint8Array([7, 8, 9])));
     expect(response.status).toBe(503);
-    expect(await response.text()).not.toContain("secret provider response");
-    expect(JSON.stringify(h.log.mock.calls)).not.toMatch(
-      /secret provider response|नमस्ते|7,8,9/,
-    );
+
+    const body = await response.text();
+    expect(body).not.toContain("SERVICE_DISABLED");
+    expect(body).toContain("Nothing was added to your message");
+
+    // logError, not logInfo: INFO is not ingested by Error Reporting, so a
+    // provider outage logged at INFO alerts nobody.
+    expect(h.logError).toHaveBeenCalledTimes(1);
+    const [event, thrown, context] = h.logError.mock.calls[0];
+    expect(event).toBe("mink.voice.failed");
+    expect((thrown as Error).message).toContain("SERVICE_DISABLED");
+    expect(context).toMatchObject({ provider: expect.any(String) });
+  });
+
+  it("★ and never writes audio or a transcript to either", async () => {
+    h.transcribe.mockRejectedValue(new Error("नमस्ते leaked"));
+    const response = await POST(req(new Uint8Array([7, 8, 9])));
+    expect(await response.text()).not.toMatch(/नमस्ते|7,8,9/);
+    const logged = JSON.stringify([
+      ...h.log.mock.calls,
+      ...h.logError.mock.calls.map(([message, , context]) => [
+        message,
+        context,
+      ]),
+    ]);
+    expect(logged).not.toMatch(/नमस्ते|7,8,9/);
   });
 });

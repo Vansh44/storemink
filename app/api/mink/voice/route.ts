@@ -10,7 +10,7 @@ import { getMinkVoiceProvider } from "@/lib/mink/voice-settings";
 import { transcribeMinkVoice } from "@/lib/mink/voice-transcription";
 import { MINK_AUDIO_RATE, MINK_AUDIO_SECONDS } from "@/lib/mink/input-policy";
 import type { MinkVoiceProvider } from "@/lib/mink/voice-provider";
-import { logInfo } from "@/lib/observability/logger";
+import { logError, logInfo } from "@/lib/observability/logger";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,7 +90,19 @@ export async function POST(request: Request) {
     });
     return json(result);
   } catch (error) {
-    logInfo("mink.voice.failed", { requestId, provider });
+    // ★★ THE MERCHANT MESSAGE IS DELIBERATELY VAGUE; THE LOG MUST NOT BE.
+    // This recorded only `{requestId, provider}`, so a disabled API, a missing
+    // `roles/speech.client`, an expired credential, a 45-second timeout and an
+    // empty transcript were one indistinguishable line — and the browser's
+    // "unavailable or timed out" says even less, by design. Identifying a
+    // disabled Speech-to-Text API therefore took a hand-run probe against the
+    // live endpoint, which is not a diagnosis anyone can repeat from Cloud
+    // Logging. ⚠ It is logError, not logInfo: this is the one signal that a
+    // provider is down, and INFO is not ingested by Error Reporting, so nothing
+    // would ever alert. ⚠ What is logged stays the transport failure — audio,
+    // transcripts and credentials never appear in it (the provider reason is
+    // narrowed to its enum codes in `voice-transcription.ts`).
+    logError("mink.voice.failed", error, { requestId, provider });
     if (error instanceof MinkRequestError)
       return json({ error: error.message, code: error.code }, error.status);
     return json(

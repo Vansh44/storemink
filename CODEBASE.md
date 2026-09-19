@@ -495,10 +495,27 @@ storefront's seventeen renderers inside a chat bubble.
   `published_at` are absent from the transaction and from the API, pinned by a
   test asserting the update statement's exact key set. Publishing stays the
   merchant's separate step in Website Builder.
-- `thinking.ts` is unchanged and already covers this: a "redesign my homepage
-  hero" message trips HIGH reasoning whenever the 7B tool is exposed, and both
-  tools share one gate (drafting + Builder Manage), so a merchant who can
-  propose a layout can propose code.
+- **★★ AND `thinking.ts` USED TO SEND EVERY ONE OF THESE DOWN THE EXPENSIVE
+  PATH (fixed 2026-09-19).** It shipped with 9B unchanged, on the reasoning
+  that a "redesign my homepage hero" message tripping HIGH reasoning was
+  harmless because both tools share one gate (drafting + Builder Manage). It
+  was not harmless: `hero`, `banner`, `carousel`, `home page`, `landing page`,
+  `page section`, `storefront` and `website` were all in its noun list, so the
+  ORDINARY 9B/9E request — "create a banner on the home page carousel for this
+  buy 1 get 1 offer", an image call plus a layout proposal — selected HIGH and
+  paid reasoning tokens on every turn of the run. Measured on `mink_runs`:
+  **every high-thinking run failed** (`run_timeout`, `step_limit_reached`,
+  `tool_limit_reached`) at a mean 91.5 s, while **every low-thinking run
+  succeeded** at a mean 21.2 s. Nothing reported it as a thinking problem — the
+  merchant saw only "Mink AI took too long to finish", which reads as the
+  request being too big. A keyword regex cannot separate a layout request from
+  a code request by its NOUNS, so the trigger now matches only words that can
+  mean nothing else (`custom code`, `code section`, `custom html`, `html`,
+  `css`, `javascript`); a genuine code request still says so, and the three
+  original HIGH cases are unchanged because each already named code. ⚠ The
+  consequence accepted deliberately: a code request that never uses a code word
+  ("add an animated countdown to my homepage") now runs on LOW. Low-and-finishes
+  beats high-and-times-out.
 - Prompt versions advance to `draft-action-beta-v26` / `draft-beta-v17` (a new
   drafting tool and the guidance it needs); `read-beta-v14` / `read-beta-v10`
   are unchanged, because a read-only actor is never offered this tool.
@@ -761,6 +778,29 @@ by executing all three shapes against a real PostgreSQL, and
 `lib/db/sql-array-binding.test.ts` is the guard — it proves the compiled shape
 and fails on any `any(${…})` in the tree that is not wrapped in `sql.param`.
 
+**★★ AND `notExists()` HAS THE SAME SHAPE, WHICH BROKE EVERY MINK RUN FOR THE
+HEAVIEST USERS (fixed 2026-09-19).** Drizzle's whole implementation is
+`sql`not exists ${subquery}``. That is right for a subquery BUILDER, which
+renders its own parentheses, and emits `not exists select 1 …` for a raw `sql`
+fragment — `syntax error at or near "select"`.
+`minkConversationPrunePredicate` (`lib/mink/persistence.ts`) passes two raw
+fragments, so the overflow prune in `startMinkRun` threw.
+⚠ **IT ONLY FIRED ABOVE TEN CONVERSATIONS**, because the prune is skipped when
+there is no overflow — so it shipped green, worked for every new store, and
+then broke *every* Mink run for the actors who used it most. And it threw
+inside `startMinkRun` BEFORE the run row is inserted, so it wrote no
+`mink_runs` telemetry at all: the operator console showed nothing, and the
+merchant saw only the route's catch-all, "Mink AI couldn't start this
+request." The absence of a run row is itself the diagnostic — it places the
+failure above `startMinkRun`'s insert.
+★ The fix parenthesises both fragments explicitly. `persistence-prune-sql.test.ts`
+is the guard and asserts the COMPILED text (a mocked driver cannot tell valid
+SQL from invalid), mutation-checked by restoring `notExists`; the repaired
+statement was then EXECUTED against a real PostgreSQL inside a rolled-back
+transaction. **The rule generalises: a Drizzle helper that interpolates
+`${subquery}`assumes a builder, so passing it a raw`sql` fragment produces
+SQL no test that mocks the driver will ever reject.\*\*
+
 ### Mink Phase 9E — Purpose-aware generated images (2026-09-12)
 
 9D closed the safety question — a layout proposal may cite only a URL that is
@@ -956,6 +996,22 @@ the layout proposal as soon as both exact results exist. Prompt/registry
 versions are `read-beta-v18`/`read-beta-v14` and
 `draft-action-beta-v34`/`draft-beta-v24`.
 
+**★★ AND THE ORCHESTRATOR'S REPEAT MEMO SHARED A COUNTER WITH THE TOOL LEDGER,
+WHICH KILLED RUNS (fixed 2026-09-19).** `toolCalls` is the run's BUDGET, and the
+memo deliberately stopped counting a served repeat against it — but that same
+variable was the base for the `sequence` on every emitted `tool_call`, and every
+one of those inserts a `mink_tool_calls` row under a UNIQUE (run, sequence). So
+the first turn containing a memo hit advanced the numbering by one LESS than it
+emitted, the next turn re-used a number, and the insert was rejected: a run that
+died on `mink_tool_calls_run_sequence_key` at sequence 5. ⚠ The damage is worse
+than a lost run — that error is thrown from the telemetry write, so it REPLACES
+whatever the run actually failed on. It is what hid the credit-period defect
+above, reporting a database CHECK violation on the credit ledger as a duplicate
+key on an unrelated table. Two jobs now have two counters: `toolCalls` for spend,
+`recorded` for the ledger. Pinned by an orchestrator test asserting the emitted
+sequences are `[1,2,3,4]` across a turn holding a repeat; the mutation reproduces
+production exactly as `[1,2,3,3]`.
+
 `lib/db/client.ts` also retries a transient connection failure that happens on
 `BEGIN` or identity/role setup after an idle socket has already been returned
 by the pool. The broken socket is destroyed and work starts once on a fresh
@@ -1014,6 +1070,56 @@ trigger substitution and copied into the authoritative Cloud Run environment
 rather than Secret Manager; principals who can inspect a trigger or revision can
 therefore read it. Provider credentials and raw provider errors never reach the
 browser, and audio or transcript content is not written to logs.
+
+**★★ BUT "NEVER REACH THE BROWSER" HAD BECOME "REACH NOWHERE AT ALL" (fixed
+2026-09-19).** `/api/mink/voice`'s catch recorded `logInfo("mink.voice.failed",
+{requestId, provider})` — no cause — and the provider layer threw a bare
+`Chirp 3 returned 403.`, so a disabled API, a service account without
+`roles/speech.client`, an expired credential, the 45-second timeout and an empty
+transcript were one indistinguishable line, under the browser's deliberately
+vague "unavailable or timed out". Identifying the real cause took a hand-run
+probe against the live endpoint, which is not a diagnosis anybody can repeat
+from Cloud Logging. `refusalReason` now appends the provider's own
+machine-readable codes (`PERMISSION_DENIED, SERVICE_DISABLED`) and the route
+uses `logError`, so it reaches Error Reporting at all. ★ ENUM CODES ONLY, never
+the free-text `message`: that is prose a provider may change and may quote the
+request back, while the codes are a closed vocabulary carrying no audio,
+transcript or credential. The merchant's wording is unchanged.
+
+⚠ **AND THE CAUSE WAS INFRASTRUCTURE, PER PROJECT.** `speech.googleapis.com` is
+enabled on `storemink-prod` and NOT on `storemink-staging` — which local
+development also authenticates against — so dictation works in production and
+returns 403 on dev and on every developer's machine. Enabling it is
+`gcloud services enable speech.googleapis.com --project=storemink-staging`;
+`docs/gcp-migration-prod-provision.md` now lists the API and carries the
+both-projects check.
+
+### Mink draft credits — the period key moved and one CHECK did not (2026-09-19)
+
+**★★ 0114 CHANGED THE ALLOWANCE KEY AND TOOK EVERY PROPOSAL OFFLINE ON A PAYING
+STORE.** `lib/ai/quota.ts` metered against a UTC calendar month (`2026-09`) and
+now anchors paid stores to consecutive 30-day windows
+(`cycle:2026-09-11T11:37:15.000Z`). `consume_mink_draft_credits` writes that one
+key into TWO tables: `ai_usage`, which carries no format check, and
+`mink_draft_credit_usage`, whose 0040 CHECK still asserted `^[0-9]{4}-[0-9]{2}$`.
+So conversational metering and run settlement moved over cleanly while the very
+first proposal a subscribed store attempted was refused by the database.
+**Every Phase 3+ capability charges through that one function** — storefront
+layout, storefront design, generated images, blogs, product copy, SEO, coupon
+emails, customer messages — so it was total rather than partial, and a FREE
+store, which has no cycle to anchor to, kept the calendar key and kept working,
+which is what made it read as intermittent. The merchant saw only "Mink AI
+couldn't complete that request."
+⚠ Nothing was left half-written and there is nothing to repair: the draft insert
+and the charge share one `withService` transaction, so both rolled back — no
+credit spent, no orphaned draft, and no rejected row to migrate.
+★ **0117 WIDENS THE CHECK RATHER THAN DROPPING IT.** The key comes from one pure
+function and is never user input, so the check has little left to catch, but it
+is what documents the two vocabularies in force. The guard against outgrowing it
+a second time lives in the APPLICATION: `quota-cycle.test.ts` lifts the regex out
+of 0117's own SQL and asserts every key `minkCreditCycleAt` can emit satisfies
+it, so the next format change fails in CI rather than on a merchant's screen. A
+restated copy of the pattern is exactly how the two drifted apart.
 
 ### Mink credit catalogue and allowance, operator-owned (2026-09-19)
 
@@ -2564,8 +2670,11 @@ wholesip/
 │   │                          # and destination-aware Send paths, both merchant uploads
 │   │                          # through app/actions/media-actions.ts -- no credit, approval
 │   │                          # or model tool; it also recovers attachment-card metadata.
-│   │                          # thinking.ts selects HIGH
-│   │                          # only for authorised explicit storefront code generation.
+│   │                          # thinking.ts selects HIGH only for an authorised request
+│   │                          # that NAMES code (html/css/javascript/custom code); layout
+│   │                          # and image nouns (hero, banner, carousel, home page) are
+│   │                          # deliberately absent -- every HIGH run measured so far
+│   │                          # exhausted its budget, every LOW one finished.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
 │   │                          # weakening full-precision resource-version checkpoints.
 │   │                          # No model tool can publish, schedule, send or execute a live mutation;
@@ -3040,7 +3149,11 @@ wholesip/
 │                              # 0111 documents one-click Builder draft application;
 │                              # 0112 adds the global Mink voice provider and final-transcript flow;
 │                              # 0113 fixes protected-history pruning, automatic dictation finish
-│                              # and catalogue-product imagery for storefront proposals.
+│                              # and catalogue-product imagery for storefront proposals;
+│                              # 0117 widens the draft credit ledger's period CHECK to
+│                              # the 30-day cycle key 0114 introduced — without it every
+│                              # Mink proposal on a paying store was refused by the
+│                              # database (see "Mink draft credits" below).
 │                              # `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
