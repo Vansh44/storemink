@@ -495,10 +495,27 @@ storefront's seventeen renderers inside a chat bubble.
   `published_at` are absent from the transaction and from the API, pinned by a
   test asserting the update statement's exact key set. Publishing stays the
   merchant's separate step in Website Builder.
-- `thinking.ts` is unchanged and already covers this: a "redesign my homepage
-  hero" message trips HIGH reasoning whenever the 7B tool is exposed, and both
-  tools share one gate (drafting + Builder Manage), so a merchant who can
-  propose a layout can propose code.
+- **★★ AND `thinking.ts` USED TO SEND EVERY ONE OF THESE DOWN THE EXPENSIVE
+  PATH (fixed 2026-09-19).** It shipped with 9B unchanged, on the reasoning
+  that a "redesign my homepage hero" message tripping HIGH reasoning was
+  harmless because both tools share one gate (drafting + Builder Manage). It
+  was not harmless: `hero`, `banner`, `carousel`, `home page`, `landing page`,
+  `page section`, `storefront` and `website` were all in its noun list, so the
+  ORDINARY 9B/9E request — "create a banner on the home page carousel for this
+  buy 1 get 1 offer", an image call plus a layout proposal — selected HIGH and
+  paid reasoning tokens on every turn of the run. Measured on `mink_runs`:
+  **every high-thinking run failed** (`run_timeout`, `step_limit_reached`,
+  `tool_limit_reached`) at a mean 91.5 s, while **every low-thinking run
+  succeeded** at a mean 21.2 s. Nothing reported it as a thinking problem — the
+  merchant saw only "Mink AI took too long to finish", which reads as the
+  request being too big. A keyword regex cannot separate a layout request from
+  a code request by its NOUNS, so the trigger now matches only words that can
+  mean nothing else (`custom code`, `code section`, `custom html`, `html`,
+  `css`, `javascript`); a genuine code request still says so, and the three
+  original HIGH cases are unchanged because each already named code. ⚠ The
+  consequence accepted deliberately: a code request that never uses a code word
+  ("add an animated countdown to my homepage") now runs on LOW. Low-and-finishes
+  beats high-and-times-out.
 - Prompt versions advance to `draft-action-beta-v26` / `draft-beta-v17` (a new
   drafting tool and the guidance it needs); `read-beta-v14` / `read-beta-v10`
   are unchanged, because a read-only actor is never offered this tool.
@@ -761,6 +778,29 @@ by executing all three shapes against a real PostgreSQL, and
 `lib/db/sql-array-binding.test.ts` is the guard — it proves the compiled shape
 and fails on any `any(${…})` in the tree that is not wrapped in `sql.param`.
 
+**★★ AND `notExists()` HAS THE SAME SHAPE, WHICH BROKE EVERY MINK RUN FOR THE
+HEAVIEST USERS (fixed 2026-09-19).** Drizzle's whole implementation is
+`sql`not exists ${subquery}``. That is right for a subquery BUILDER, which
+renders its own parentheses, and emits `not exists select 1 …` for a raw `sql`
+fragment — `syntax error at or near "select"`.
+`minkConversationPrunePredicate` (`lib/mink/persistence.ts`) passes two raw
+fragments, so the overflow prune in `startMinkRun` threw.
+⚠ **IT ONLY FIRED ABOVE TEN CONVERSATIONS**, because the prune is skipped when
+there is no overflow — so it shipped green, worked for every new store, and
+then broke *every* Mink run for the actors who used it most. And it threw
+inside `startMinkRun` BEFORE the run row is inserted, so it wrote no
+`mink_runs` telemetry at all: the operator console showed nothing, and the
+merchant saw only the route's catch-all, "Mink AI couldn't start this
+request." The absence of a run row is itself the diagnostic — it places the
+failure above `startMinkRun`'s insert.
+★ The fix parenthesises both fragments explicitly. `persistence-prune-sql.test.ts`
+is the guard and asserts the COMPILED text (a mocked driver cannot tell valid
+SQL from invalid), mutation-checked by restoring `notExists`; the repaired
+statement was then EXECUTED against a real PostgreSQL inside a rolled-back
+transaction. **The rule generalises: a Drizzle helper that interpolates
+`${subquery}`assumes a builder, so passing it a raw`sql` fragment produces
+SQL no test that mocks the driver will ever reject.\*\*
+
 ### Mink Phase 9E — Purpose-aware generated images (2026-09-12)
 
 9D closed the safety question — a layout proposal may cite only a URL that is
@@ -955,6 +995,7 @@ generation together, never repeat an identical successful read, and proceed to
 the layout proposal as soon as both exact results exist. Prompt/registry
 versions are `read-beta-v18`/`read-beta-v14` and
 `draft-action-beta-v34`/`draft-beta-v24`.
+
 
 `lib/db/client.ts` also retries a transient connection failure that happens on
 `BEGIN` or identity/role setup after an idle socket has already been returned
@@ -2564,8 +2605,11 @@ wholesip/
 │   │                          # and destination-aware Send paths, both merchant uploads
 │   │                          # through app/actions/media-actions.ts -- no credit, approval
 │   │                          # or model tool; it also recovers attachment-card metadata.
-│   │                          # thinking.ts selects HIGH
-│   │                          # only for authorised explicit storefront code generation.
+│   │                          # thinking.ts selects HIGH only for an authorised request
+│   │                          # that NAMES code (html/css/javascript/custom code); layout
+│   │                          # and image nouns (hero, banner, carousel, home page) are
+│   │                          # deliberately absent -- every HIGH run measured so far
+│   │                          # exhausted its budget, every LOW one finished.
 │   │                          # timestamps.ts canonicalizes coupon business dates without
 │   │                          # weakening full-precision resource-version checkpoints.
 │   │                          # No model tool can publish, schedule, send or execute a live mutation;

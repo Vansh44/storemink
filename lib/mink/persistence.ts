@@ -1,15 +1,6 @@
 import "server-only";
 
-import {
-  and,
-  desc,
-  eq,
-  gt,
-  inArray,
-  notExists,
-  sql,
-  type SQL,
-} from "drizzle-orm";
+import { and, desc, eq, gt, inArray, sql, type SQL } from "drizzle-orm";
 import {
   minkBlogPublications,
   minkActionApprovals,
@@ -50,6 +41,20 @@ export const MINK_CONVERSATION_LIMIT = 10;
  * deliberately restricts deletion of its source draft. Keeping this guard in
  * the DELETE itself also closes the race where a publication is created after
  * the overflow list is read but before pruning runs.
+ *
+ * ★★ THE PARENTHESES AROUND EACH SUBQUERY ARE OURS, AND DRIZZLE'S `notExists`
+ * DOES NOT ADD THEM. It is literally `sql`not exists ${subquery}``, which is
+ * correct for a subquery BUILDER (that renders its own parentheses) and
+ * produces `not exists select 1 ...` for a raw `sql` fragment like these two —
+ * a plain syntax error, `syntax error at or near "select"`.
+ * ⚠ IT FAILED ONLY ONCE AN ACTOR HELD MORE THAN TEN CONVERSATIONS, because the
+ * prune is skipped when there is no overflow. So it shipped green, worked for
+ * every new store, and then broke EVERY Mink run for the heaviest users — and
+ * it broke them in `startMinkRun`, before any run row exists, so the failure
+ * left no telemetry at all and surfaced only as "Mink AI couldn't start this
+ * request." ⚠ A unit test cannot catch this: the db mock never parses SQL, so
+ * the invalid string is indistinguishable from a valid one. `persistence-prune-sql.test.ts`
+ * therefore asserts the COMPILED query text, the way sql-array-binding.test.ts does.
  */
 export function minkConversationPrunePredicate(
   actor: Pick<MinkActorContext, "storeId" | "adminId">,
@@ -87,8 +92,8 @@ export function minkConversationPrunePredicate(
     eq(minkConversations.storeId, actor.storeId),
     eq(minkConversations.adminId, actor.adminId),
     inArray(minkConversations.id, conversationIds),
-    notExists(hasBlogPublication),
-    notExists(hasActionAudit),
+    sql`not exists (${hasBlogPublication})`,
+    sql`not exists (${hasActionAudit})`,
   )!;
 }
 
