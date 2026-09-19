@@ -13,11 +13,13 @@
 
 - `next.config.ts` → `output: "standalone"` (self-contained server bundle; ignored by Vercel).
 - `Dockerfile` — multi-stage, Debian-slim, non-root, listens on `$PORT` (8080). Bakes `NEXT_PUBLIC_*` at build; server secrets stay runtime-only.
-- `.dockerignore` — small context; **keeps `brand/tasks/*.md`** (read at runtime by the AI actions).
+- `.dockerignore` — small context; **keeps `brand/tasks/*.md` and both Mink
+  prompt documents** (read at runtime by the AI actions).
 - `cloudbuild.yaml` — builds `linux/amd64` in-cloud and pushes to Artifact Registry.
 
 Verified: `npm run build` produces `.next/standalone/server.js` with
-`brand/tasks`, `docs/mink-ai-system-prompt.md` and `sharp` traced in.
+`brand/tasks`, `docs/mink-ai-system-prompt.md`,
+`docs/mink-ai-image-prompt.md` and `sharp` traced in.
 
 > **⚠ Architecture:** Cloud Run runs `linux/amd64`. Build with Cloud Build (below)
 > or, if using local Docker on an Apple-Silicon Mac, you MUST pass

@@ -5040,6 +5040,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260920_0118_mink_reference_image_help",
+      "description": "Explain product, category and Media image grounding for Mink image creation",
+      "file": "sql/20260920_0118_mink_reference_image_help.sql",
+      "transaction": true,
+      "requires": ["20260919_0117_mink_draft_credit_cycle_period"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains grounded image creation",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%uses an exact matching product, category or Media image as visual reference%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete decoration-only wording was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%A created picture is decoration, not a photograph of your goods%'",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

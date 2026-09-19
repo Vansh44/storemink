@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MINK_MEDIA_NEGATIVE_PROMPT } from "./media-generation-contract";
 
 const generateContent = vi.fn();
 const constructed: Record<string, unknown>[] = [];
@@ -36,10 +35,18 @@ const config = {
 };
 
 const request = {
-  schemaVersion: 1 as const,
+  schemaVersion: 2 as const,
   purpose: "hero" as const,
   prompt: "A warm overhead still life of loose grains on linen.",
+  referenceImageUrls: [],
   alt: "Grains and pulses on linen",
+};
+
+const PRODUCT_REFERENCE = {
+  url: "https://storage.googleapis.com/bucket/products/milk.webp",
+  fileUri: "gs://bucket/products/milk.webp",
+  mimeType: "image/webp" as const,
+  source: "product" as const,
 };
 
 const PIXEL = Buffer.from("hello").toString("base64");
@@ -84,10 +91,32 @@ describe("asking Gemini for one storefront image", () => {
             setting.threshold === "BLOCK_LOW_AND_ABOVE",
         ),
       ).toBe(true);
-      expect(call.contents).toContain(MINK_MEDIA_NEGATIVE_PROMPT);
+      const instruction = call.contents[0].parts[0].text;
+      expect(instruction).toContain(request.prompt);
+      for (const exclusion of ["headlines", "watermarks", "people"]) {
+        expect(instruction).toContain(exclusion);
+      }
       // ★ The aspect comes from the purpose. A model choosing 9:16 for a hero
       //   produces an image the renderer crops through its subject.
       expect(sent.imageConfig.aspectRatio).toBe("16:9");
+    });
+  });
+
+  it("sends verified product images as model-visible references", async () => {
+    generateContent.mockResolvedValue(imageResponse());
+    await generateMinkMediaImage(
+      config as never,
+      { ...request, referenceImageUrls: [PRODUCT_REFERENCE.url] },
+      [PRODUCT_REFERENCE],
+    );
+
+    const parts = generateContent.mock.calls[0][0].contents[0].parts;
+    expect(parts[0].text).toContain("authentic current-store product image");
+    expect(parts).toContainEqual({
+      fileData: {
+        fileUri: PRODUCT_REFERENCE.fileUri,
+        mimeType: PRODUCT_REFERENCE.mimeType,
+      },
     });
   });
 

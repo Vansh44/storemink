@@ -96,6 +96,12 @@ export function MinkMediaProposalCard({ proposal }: { proposal: Proposal }) {
 
         <div className="flex flex-wrap gap-1.5 text-[9px]">
           <Badge>For {proposal.placement}</Badge>
+          {proposal.referenceImageCount ? (
+            <Badge>
+              Based on {proposal.referenceImageCount} store image
+              {proposal.referenceImageCount === 1 ? "" : "s"}
+            </Badge>
+          ) : null}
           <Badge>Not on your storefront</Badge>
         </div>
 
@@ -157,8 +163,9 @@ export function MinkMediaProposalCard({ proposal }: { proposal: Proposal }) {
         ) : null}
 
         <div className="rounded-xl border border-[#e5e1eb] bg-[#f8f7fa] px-3 py-2 text-[9px] leading-4 text-[#65616b]">
-          AI-generated decoration with an invisible SynthID watermark. It is not
-          a photograph of your goods.
+          AI-generated storefront artwork with an invisible SynthID watermark.
+          Store images may guide it, but it does not replace an original
+          catalogue product photograph.
         </div>
       </div>
     </section>

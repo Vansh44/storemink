@@ -61,6 +61,9 @@ vi.mock("./media-generation", () => ({
   })),
   reserveMinkImageGeneration: vi.fn(async () => undefined),
 }));
+vi.mock("./media-reference-images", () => ({
+  resolveMinkMediaReferenceImages: vi.fn(async () => []),
+}));
 
 import { createMinkMediaImageProposal } from "./media-image-proposals";
 import {
@@ -70,6 +73,7 @@ import {
 import { createMinkDraftProposal } from "./drafts";
 import { gcsDeletePaths, gcsUploadObject } from "@/lib/storage/gcs";
 import { withService } from "@/lib/db/client";
+import { resolveMinkMediaReferenceImages } from "./media-reference-images";
 import type { MinkActorContext } from "./types";
 
 const STORE = "a0000000-0000-4000-8000-000000000001";
@@ -86,12 +90,13 @@ const actor = {
 const ask = {
   purpose: "hero",
   prompt: "A warm overhead still life of loose grains on linen.",
+  referenceImageUrls: [],
   alt: "Grains and pulses on linen",
 };
 
 // ★★ THE ONE FUNCTION THAT JOINS THE TOOL TO THE CONTRACT, and it had no test
 // at all — which is why Phase 9E shipped unable to generate a single image.
-// The tool declares three parameters and the contract demanded a fourth
+// The tool used to declare three parameters and the contract demanded a fourth
 // (`schemaVersion`) that no caller could send, so every call was refused with
 // "The image request is invalid: schemaVersion must be 1." before any provider
 // call was made. The contract's own suite passed throughout: its fixture is a
@@ -113,6 +118,7 @@ describe("createMinkMediaImageProposal", () => {
     expect(vi.mocked(generateMinkMediaImage).mock.calls[0][1]).toMatchObject({
       purpose: "hero",
       prompt: ask.prompt,
+      referenceImageUrls: [],
       alt: ask.alt,
     });
     expect(proposal.type).toBe("media_image_proposal");
@@ -135,6 +141,32 @@ describe("createMinkMediaImageProposal", () => {
     expect(proposal.url).toMatch(
       new RegExp(`/stores/${STORE}/mink-generated/[0-9a-f-]+\\.jpg$`),
     );
+  });
+
+  it("resolves references before spending and passes only verified images to the provider", async () => {
+    const reference = {
+      url: "https://storage.googleapis.com/bucket/product.webp",
+      fileUri: "gs://bucket/product.webp",
+      mimeType: "image/webp" as const,
+      source: "product" as const,
+    };
+    vi.mocked(resolveMinkMediaReferenceImages).mockResolvedValueOnce([
+      reference,
+    ]);
+
+    const proposal = await createMinkMediaImageProposal({
+      actor,
+      ...ask,
+      referenceImageUrls: [reference.url],
+    });
+
+    expect(resolveMinkMediaReferenceImages).toHaveBeenCalledWith(actor, [
+      reference.url,
+    ]);
+    expect(vi.mocked(generateMinkMediaImage).mock.calls[0][2]).toEqual([
+      reference,
+    ]);
+    expect(proposal.referenceImageCount).toBe(1);
   });
 
   it("★ CLAIMS THE SPEND CEILING BEFORE THE PROVIDER CALL", async () => {

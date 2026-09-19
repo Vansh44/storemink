@@ -29,6 +29,7 @@ import type { MinkActorContext } from "./types";
 /** Bounded, like every other Mink read: a library can hold thousands. */
 const MAX_MEDIA = 40;
 const MAX_FILENAME_CHARS = 160;
+const MAX_QUERY_CHARS = 100;
 
 type MediaRow = {
   id: string;
@@ -41,17 +42,22 @@ type MediaRow = {
 
 export async function readMinkStorefrontMedia(
   actor: MinkActorContext,
-  input: { limit?: unknown } = {},
+  input: { query?: unknown; limit?: unknown } = {},
 ) {
   if (!can(actor.permissions, "media", "view", actor.isSuperadmin)) {
     throw new Error("Media view permission is required.");
   }
+  const query = readQuery(input.query);
   const limit = readLimit(input.limit);
+  const filenameFilter = query
+    ? sql`and filename ilike ${`%${escapeLike(query)}%`}`
+    : sql``;
   const result = await withService((db) =>
     db.execute(sql`
       select id, url, filename, content_type, size_bytes, created_at
       from media_assets
       where store_id = ${actor.storeId}
+        ${filenameFilter}
       order by created_at desc, id desc
       limit ${limit + 1}
     `),
@@ -81,9 +87,20 @@ export async function readMinkStorefrontMedia(
       "A storefront layout proposal may cite a url returned here, an exact catalogue image returned by search_products or get_current_product, or an image already on the page it targets.",
     contentTrust: "untrusted_storefront_data" as const,
     scope: "current_store" as const,
+    query: query || null,
     dataAsOf: new Date().toISOString(),
     dashboardPath: "/dashboard/media",
   };
+}
+
+function readQuery(value: unknown): string {
+  if (value === undefined || value === null) return "";
+  if (typeof value !== "string") return "";
+  return value.normalize("NFKC").trim().slice(0, MAX_QUERY_CHARS);
+}
+
+function escapeLike(value: string): string {
+  return value.replace(/[\\%_]/g, "\\$&");
 }
 
 function readLimit(value: unknown): number {

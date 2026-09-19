@@ -310,6 +310,28 @@ describe("Phase 9D media library tool", () => {
         .map((tool) => tool.name),
     ).toContain("list_storefront_media");
   });
+
+  it("requires an explicit reference-read result for image generation", () => {
+    const imageTool = minkReadToolRegistry
+      .declarationsFor({
+        ...ACTOR,
+        isSuperadmin: false,
+        draftingEnabled: true,
+        permissions: { media: ["manage"] },
+      } as MinkActorContext)
+      .find((tool) => tool.name === "generate_storefront_image");
+    expect(imageTool?.parametersJsonSchema).toMatchObject({
+      additionalProperties: false,
+      required: ["purpose", "prompt", "reference_image_urls", "alt"],
+      properties: {
+        reference_image_urls: {
+          type: "array",
+          maxItems: 4,
+          uniqueItems: true,
+        },
+      },
+    });
+  });
 });
 
 describe("Mink read-tool declarations", () => {
@@ -324,6 +346,7 @@ describe("Mink read-tool declarations", () => {
       "get_storefront_design_context",
       "list_storefront_media",
       "get_catalog_summary",
+      "search_storefront_categories",
       "search_products",
       "get_sales_summary",
       "list_current_offers",
@@ -394,6 +417,9 @@ describe("Mink read-tool declarations", () => {
       "get_mink_watches",
       "get_mink_watch_responses",
       "search_help_centre",
+    ]);
+    expect(declared({ categories: ["view"] })).toEqual([
+      "search_storefront_categories",
     ]);
     expect(declared({ dashboard: ["view"], analytics: ["view"] })).toEqual([
       "get_store_profile",
@@ -1062,6 +1088,7 @@ describe("Mink read-tool declarations", () => {
     };
     for (const name of [
       "get_catalog_summary",
+      "search_storefront_categories",
       "search_products",
       "get_sales_summary",
       "list_low_stock",

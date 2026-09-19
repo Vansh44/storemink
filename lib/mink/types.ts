@@ -301,6 +301,8 @@ export type MinkArtifact =
       url: string;
       alt: string;
       prompt: string;
+      /** Number of verified current-store source images sent to the model. */
+      referenceImageCount?: number;
       purpose: MinkMediaPurpose;
       aspectRatio: string;
       placement: string;

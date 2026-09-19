@@ -103,7 +103,7 @@ describe("Mink system prompt document", () => {
       '"for my homepage", "as the hero" or "put it on the About page"',
     );
     expect(template).toContain(
-      "saved to the store's Media Library and shown to the merchant",
+      "saved immediately to the store's Media Library and shown to the merchant",
     );
     expect(template).toContain(
       "continue in the same run with the exact returned URL",
@@ -112,13 +112,25 @@ describe("Mink system prompt document", () => {
       "use its authentic image in a hero_carousel slide",
     );
     expect(template).toContain(
-      "interpret “create a photo showing this offer” as creating the promotional carousel visual",
+      "search_storefront_categories for a named category",
     );
     expect(template).toContain(
       "ends automatically after the user speaks and then pauses",
     );
     expect(template).toContain(
-      "get_storefront_page_context with page_slug=home and generate_storefront_image together",
+      "call generate_storefront_image only after selecting exact returned reference URLs",
+    );
+    expect(template).toContain(
+      "Before EVERY generation, read the relevant current-store visuals",
+    );
+    expect(template).toContain(
+      "The provider receives the reference files themselves",
+    );
+    expect(template).toContain(
+      "Never use search_help_centre to plan another declared tool call",
+    );
+    expect(template).toContain(
+      "do not call list_storefront_pages merely to rediscover it",
     );
     expect(template).toContain("Use list_current_offers");
     expect(template).toContain(

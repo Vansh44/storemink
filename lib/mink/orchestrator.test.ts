@@ -210,6 +210,147 @@ describe("runMinkAgent", () => {
     expect(session.sendToolResponses).not.toHaveBeenCalled();
   });
 
+  it("finishes the observed offer-banner trace when its proposal is selected on the last turn", async () => {
+    // Production, 2026-09-20: eleven completed tool rounds made these fifteen
+    // successful calls. The image was ready, and a twelfth model turn returned
+    // another function call, but the old top-of-loop guard rejected it before
+    // even recording its name. Supply the expected final layout proposal here
+    // to pin the completion path that was previously impossible at the cap.
+    const toolTurns = [
+      ["list_current_offers", "get_storefront_page_context"],
+      ["get_storefront_section_context", "list_storefront_media"],
+      ["search_help_centre"],
+      ["search_help_centre"],
+      ["list_storefront_pages"],
+      ["search_help_centre"],
+      ["search_help_centre"],
+      ["search_products", "search_products"],
+      ["get_catalog_summary"],
+      ["search_products", "search_products"],
+      ["generate_storefront_image"],
+      ["propose_storefront_layout"],
+    ];
+    const names = [...new Set(toolTurns.flat())];
+    const traceRegistry = new MinkToolRegistry(
+      names.map((name) => ({
+        declaration: {
+          name,
+          description: name,
+          parametersJsonSchema: { type: "object", properties: {} },
+        },
+        permission: { section: "dashboard", action: "view" },
+        timeoutMs: 5_000,
+        ...(name === "propose_storefront_layout"
+          ? {
+              stepLimitCompletionText: "The layout proposal is ready.",
+              artifact: () =>
+                ({
+                  type: "storefront_layout_proposal",
+                  title: "Home",
+                }) as never,
+            }
+          : {}),
+        execute: vi.fn(async () => ({ ok: true })),
+      })),
+    );
+    let nextTurn = 0;
+    const modelTurn = () =>
+      turn({
+        functionCalls: toolTurns[nextTurn++].map((name, index) => ({
+          id: `turn-${nextTurn}-call-${index + 1}`,
+          name,
+          args: { sequence: nextTurn, index },
+        })),
+      });
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () => modelTurn()),
+      // There must be no thirteenth, prose-only model call after the final
+      // proposal: deterministic completion is the bounded cost of this fix.
+      sendToolResponses: vi.fn(async () => modelTurn()),
+    };
+    const onEvent = vi.fn();
+
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message:
+        "Create the banner on the homepage carousel for this buy 1 get 1 offer.",
+      config: config({ maxSteps: 12, maxToolCalls: 16 }),
+      registry: traceRegistry,
+      session,
+      onEvent,
+    });
+
+    expect(result).toMatchObject({
+      text: "The layout proposal is ready.",
+      steps: 12,
+      toolCalls: 16,
+      artifacts: [{ type: "storefront_layout_proposal" }],
+    });
+    expect(session.sendToolResponses).toHaveBeenCalledTimes(11);
+    expect(onEvent).toHaveBeenCalledWith({
+      type: "tool_call",
+      sequence: 16,
+      call: expect.objectContaining({ name: "propose_storefront_layout" }),
+    });
+  });
+
+  it("does not spend the last-turn escape hatch on a read", async () => {
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () =>
+        turn({
+          functionCalls: [{ name: "get_store_profile", args: {} }],
+        }),
+      ),
+      sendToolResponses: vi.fn(),
+    };
+
+    await expect(
+      runMinkAgent({
+        actor: ACTOR,
+        message: "Keep reading forever.",
+        config: config({ maxSteps: 1 }),
+        registry: registry(),
+        session,
+      }),
+    ).rejects.toMatchObject({ code: "step_limit_reached" });
+    expect(session.sendToolResponses).not.toHaveBeenCalled();
+  });
+
+  it("does not claim last-turn success when a marked finalizer produces no review artifact", async () => {
+    const finalizerRegistry = new MinkToolRegistry([
+      {
+        declaration: {
+          name: "propose_storefront_layout",
+          description: "Propose a layout.",
+          parametersJsonSchema: { type: "object", properties: {} },
+        },
+        permission: { section: "dashboard", action: "view" },
+        timeoutMs: 5_000,
+        stepLimitCompletionText: "The layout proposal is ready.",
+        execute: vi.fn(async () => ({ ok: true })),
+      },
+    ]);
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () =>
+        turn({
+          functionCalls: [{ name: "propose_storefront_layout", args: {} }],
+        }),
+      ),
+      sendToolResponses: vi.fn(),
+    };
+
+    await expect(
+      runMinkAgent({
+        actor: ACTOR,
+        message: "Create the banner.",
+        config: config({ maxSteps: 1 }),
+        registry: finalizerRegistry,
+        session,
+      }),
+    ).rejects.toMatchObject({ code: "step_limit_reached" });
+    expect(session.sendToolResponses).not.toHaveBeenCalled();
+  });
+
   it("finishes a bounded compound workflow that needs more than eight model turns", async () => {
     let completedToolTurns = 0;
     const anotherRead = () =>
