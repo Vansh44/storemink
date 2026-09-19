@@ -405,6 +405,117 @@ body/display pair from the allowlist, four radii. A screenshot's own typeface
 can only be approximated, and WCAG AA contrast remains a proposal REFUSAL — a
 model copying a screenshot optimises for resemblance over readability.
 
+### Mink answer legibility — what a run produced, not what it read (2026-09-20)
+
+Three faults reported together from one trace, "create the banner on the
+homepage carousel for this buy 1 get 1 offer".
+
+**★★ AN UNTOUCHED SECTION WAS HELD TO THE PUBLISH BAR AND DEAD-ENDED THE WHOLE
+FEATURE.** `resolveKeptLayoutSections` swaps `{id, keep: true}` for the EXACT
+STORED object (9B's own design, so custom code survives without the model ever
+seeing it) — and the resolved list then went through `validateSections(…,
+{mode: "publish"})` entire. So the merchant's own content was re-judged at a bar
+it never had to meet when the builder saved it: ONE empty `custom_code` block,
+which draft-mode autosave stores happily and publish mode refuses with "Add some
+HTML, CSS or JavaScript first.", made EVERY layout proposal on that page
+impossible. Worse, the refusal told the merchant to delete it in Website
+Builder on a plan whose `pages.customCode` entitlement is off, where the section
+is neither editable nor removable — a refusal with no reachable remedy, over a
+section nobody asked to change. Validation is now two passes: draft mode for
+shape, ids, types and the 40-section cap across the whole list, then the publish
+bar only for sections the proposal INTRODUCES or EDITS.
+★ The lenient set is **unchanged**, not _kept by reference_: by execution time
+the keep/author distinction is gone (the stored proposal holds fully resolved
+sections), so both points compare against the merchant's own list instead — the
+live page at proposal time, the `before` snapshot at approval. Derivable at both
+from rows already read, so it needs no stored field and cannot drift between
+them, and one edited character forfeits the exemption. ⚠ An absent `current`
+holds everything to the publish bar, so a caller with no page context fails
+closed rather than silently lenient. Both directions mutation-checked.
+
+**★★ THE REVIEW CARD SHOWED NO PICTURE, WHICH READ AS THE WRONG IMAGE BEING
+USED.** `mink-storefront-layout-proposal-card.tsx` rendered section LABELS only
+— "Carousel · 1 slide", "0 added, 0 removed". Measured on a second trace: a
+proposal that CORRECTLY resolved the named product and used the store's own
+catalogue photograph (9E's rule) was indistinguishable from one that had
+ignored it, so the merchant asked for a generated image instead and that
+replaced their real photograph. The card was right and unreadable.
+`MinkStorefrontLayoutSummary.previewImageUrls` carries up to four stills,
+changed sections first, found by 9D's `_url` SUFFIX collector rather than by
+enumerating seventeen section types. ★ Omitted rather than empty when a page has
+no pictures, so a proposal without imagery is byte-identical to one made before
+previews existed. ⚠ The parser re-checks every URL against our own media bucket
+or a same-origin path — 9E's `isGeneratedImageUrl` rule, for its reason: these
+become `<img src>` restored from stored conversation JSON, and a forged history
+row must not turn opening the dashboard into a third-party request. It is
+deliberately NARROWER than what a proposal may legitimately cite; 9D's
+server-side ownership check remains the authority on what reaches the page, and
+an image the card cannot vouch for is simply not displayed.
+
+**★★ AND EVERY READ CARD RENDERED BESIDE THE ANSWER.** Every read tool emits an
+artifact, so an action run necessarily produced several — the page's whole
+section list, the media library, each section inspected — stacked in front of
+the one thing the merchant asked for; the reported run showed five. A read card
+IS the answer to "what offers are running" and is the WORKING-OUT of "create the
+banner", and only the finished run knows which. `presentableArtifacts` therefore
+filters at the END, not at emission: if a run produced anything actionable, the
+reads that fed it do not render. ★ An ALLOWLIST of produced types, so a read
+card added later is quiet by default while a new proposal type must be named or
+it vanishes from its own run — an unlisted read is noise, an unlisted proposal
+is the merchant losing the button they were waiting for. Live progress events
+are untouched; the client renders from the final message alone.
+★★ AND THE COLLECTION CAP NOW COUNTS READS ONLY. It was a flat six over
+everything, and a proposal is produced LAST — after the reads that informed it —
+so a read-heavy run could fill the buffer and silently drop the proposal itself,
+leaving the research and no Apply button. The observed run made five read cards,
+one short.
+
+**★★ AND PUBLISHING NO LONGER MEANS LEAVING CHAT — WITHOUT A NEW CAPABILITY.**
+The path was image → proposal → Apply → open Builder → Publish. The layout card
+now shows a **Publish this page** button once the draft save has landed, and it
+calls the MERCHANT'S OWN `publishPage` — the identical server action the
+Builder's own Publish button calls, behind the same `builder` manage gate and
+the same strict re-validation. ★ That is the whole safety argument: 7C/7D's
+approval machinery exists to bind a MODEL-originated change to exact reviewed
+content, which the Apply step already did; what remains is a human publishing
+their own draft. Moving a button is not granting a capability, so this needs no
+new tool gate, no second approval, no resource type and **no migration** —
+which is why widening 7D's publication path (it hard-requires
+`draft.kind === "storefront_custom_code"` and a prior `apply_storefront_code`
+save, and its static/browser checks exist for arbitrary generated code that a
+structured section list is not) was the wrong shape for this.
+⚠ It publishes the page's WHOLE DRAFT, including unpublished edits the merchant
+already had — exactly what the Builder's button does, but there they can see the
+whole page and here they have seen one proposal, so the card says so rather than
+leaving it to be inferred. ⚠ No `expectedUpdatedAt` is passed: the save that
+just succeeded IS the latest version, so the stale-tab guard would refuse every
+time; the trade is that an edit made in another tab between Apply and Publish
+goes live with it.
+
+**★★ AND THE SAME DEFECT SAT ONE LAYER DOWN, IN THE MERCHANT'S OWN BUILDER
+(fixed 2026-09-20).** `processSections` (page-actions.ts) ran
+`validateSections(raw, {mode})` FIRST and returned on the first error — before
+the retained-custom-code block beneath it, which exists precisely so a
+downgraded store can keep locked sections while the rest of the page stays
+saveable ("Existing custom-code sections can stay or be removed"). So an empty
+`custom_code` section refused `publishPage` outright and that retention logic
+was never reached: a store whose `pages.customCode` entitlement had lapsed could
+not publish such a page **at all**, from the Builder as much as from Mink, and
+the only remedy was deleting a block they may never have added. The promise the
+comment made was false in exactly the case it was written for.
+
+**★★ THE LENIENCY IS PER SECTION, AND IT HAD TO BE.** `validateSections` gained
+`lenientIds`, because the two modes do not merely differ in what they REFUSE — a
+**gallery drops its imageless items under publish** (`if (!image_url && strict)
+continue`), so validating a whole list in draft mode to rescue one section would
+quietly change what gets STORED for the others. Only the exempt section's config
+is read at the draft bar; every other section is normalised exactly as before.
+⚠ Scoped to LOCKED custom-code sections byte-identical to the stored copy: a
+store that still holds the entitlement gets the strict error and can act on it,
+and an added or edited locked section is refused by the existing check either
+way. All three properties mutation-checked. The publish card still surfaces any
+remaining refusal verbatim and says the draft is safe.
+
 ### Mink Phase 9B — Proposed page layouts (2026-09-12)
 
 Phase 7B/7C can replace only the HTML/CSS/JS **inside one existing

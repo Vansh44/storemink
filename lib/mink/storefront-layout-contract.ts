@@ -1,10 +1,12 @@
 import "server-only";
 
 import {
+  validateConfig,
   validateSections,
   type PageSectionItem,
 } from "@/lib/sections/registry";
 import { digestMinkStorefrontValue } from "./storefront-code-contract";
+import { collectSectionMediaUrls } from "./storefront-media-policy";
 import type {
   MinkStorefrontLayoutSectionRef,
   MinkStorefrontLayoutSummary,
@@ -143,16 +145,68 @@ function rejectUnknownKeys(
 }
 
 /**
+ * A section in the proposal that is byte-identical to one the page already
+ * stores, keyed by id. These are the merchant's own untouched content.
+ */
+function carriedOverSectionIds(
+  proposed: readonly PageSectionItem[],
+  current: readonly PageSectionItem[] | undefined,
+): ReadonlySet<string> {
+  if (!current?.length) return new Set();
+  const fingerprint = (section: PageSectionItem) =>
+    digestMinkStorefrontValue({
+      type: section.type,
+      enabled: section.enabled,
+      config: section.config,
+      style: section.style ?? null,
+    });
+  const before = new Map(
+    current.map((section) => [section.id, fingerprint(section)]),
+  );
+  return new Set(
+    proposed
+      .filter((section) => before.get(section.id) === fingerprint(section))
+      .map((section) => section.id),
+  );
+}
+
+/**
  * Validate a proposed section list: shape, caps, and every per-section config.
  *
- * PUBLISH MODE, NOT DRAFT. The builder's autosave uses "draft" so a half-typed
- * hero never fails a keystroke - but a model is not typing, it is submitting a
- * finished proposal for a human to approve, and an incomplete section ("Pick
- * at least one product") would render as an empty band on a live storefront.
- * Completeness is part of a proposal being reviewable at all.
+ * PUBLISH MODE FOR WHAT THE PROPOSAL WRITES, DRAFT MODE FOR WHAT IT CARRIES.
+ * The builder's autosave uses "draft" so a half-typed hero never fails a
+ * keystroke - but a model is not typing, it is submitting a finished proposal
+ * for a human to approve, and an incomplete section ("Pick at least one
+ * product") would render as an empty band on a live storefront. Completeness is
+ * part of a proposal being reviewable at all.
+ *
+ * ★★ BUT THAT BAR MUST NOT REACH THE SECTIONS THE MERCHANT ALREADY HAD, AND
+ * APPLYING IT TO THEM WAS A DEAD END. `resolveKeptLayoutSections` swaps every
+ * `{id, keep: true}` for the EXACT STORED OBJECT, so an untouched section
+ * arrived here and was re-judged at a bar it never had to meet when the builder
+ * saved it. One empty `custom_code` block on a page - which draft mode stores
+ * happily and publish mode refuses with "Add some HTML, CSS or JavaScript
+ * first." - therefore made EVERY layout proposal on that page impossible.
+ * Observed in production: the merchant was told to go and delete the block in
+ * Website Builder, on a plan whose `pages.customCode` entitlement is off, so
+ * the section was not editable or removable there either. A refusal with no
+ * reachable remedy, over a section nobody had asked to change.
+ *
+ * ⚠ THE LENIENT SET IS "UNCHANGED", NOT "KEPT BY REFERENCE". Both call sites
+ * must agree, and by execution time the keep/author distinction is gone - the
+ * stored proposal holds fully resolved sections. Comparing against the
+ * merchant's own list is derivable at BOTH points from rows already read (the
+ * live page at proposal time, the `before` snapshot at approval), so it needs
+ * no extra stored field and cannot drift between them. Anything the proposal
+ * INTRODUCES or EDITS still meets the publish bar - retyping a section is
+ * authoring it, and changing one character forfeits the exemption.
+ *
+ * ⚠ Omitting `current` keeps the original behaviour (everything at publish),
+ * so a caller with no page context fails closed rather than silently lenient.
  */
 export function validateMinkStorefrontLayoutPatch(
   input: unknown,
+  options: { current?: readonly PageSectionItem[] } = {},
 ):
   | { ok: true; value: MinkStorefrontLayoutPatch }
   | { ok: false; issues: string[] } {
@@ -219,9 +273,21 @@ export function validateMinkStorefrontLayoutPatch(
 
   // The registry is the authority on every config, so a proposal cannot carry
   // a field the builder itself would refuse to save. It also enforces the
-  // 40-section cap and rejects unknown types and duplicate ids.
-  const validated = validateSections(input.sections, { mode: "publish" });
+  // 40-section cap and rejects unknown types and duplicate ids. Draft mode
+  // first: shape, ids and types apply to every section whatever its origin.
+  const validated = validateSections(input.sections, { mode: "draft" });
   if ("error" in validated) issues.push(validated.error);
+  else {
+    // Then completeness, for the sections this proposal is actually writing.
+    const exempt = carriedOverSectionIds(validated.sections, options.current);
+    for (const [index, section] of validated.sections.entries()) {
+      if (exempt.has(section.id)) continue;
+      const strict = validateConfig(section.type, section.config, "publish");
+      if ("error" in strict) {
+        issues.push(`Section ${index + 1} (${section.type}): ${strict.error}`);
+      }
+    }
+  }
 
   if (issues.length > 0 || "error" in validated) {
     return {
@@ -354,7 +420,12 @@ export function summarizeLayoutChange(
   const currentSet = new Set(current.map((section) => section.id));
   const proposedSet = new Set(proposed.map((section) => section.id));
   const kept = proposed.filter((section) => currentSet.has(section.id));
+  const unchanged = carriedOverSectionIds(proposed, current);
+  // Omitted rather than empty when the page has no pictures, so a proposal
+  // that shows none is byte-identical to one made before previews existed.
+  const previewImageUrls = layoutPreviewImages(proposed, unchanged);
   return {
+    ...(previewImageUrls.length ? { previewImageUrls } : {}),
     kept: kept.map(ref),
     added: proposed.filter((section) => !currentSet.has(section.id)).map(ref),
     // Described from the CURRENT list, because a removed section no longer
@@ -374,4 +445,38 @@ export function summarizeLayoutChange(
 
 function ref(section: PageSectionItem): MinkStorefrontLayoutSectionRef {
   return { id: section.id, type: section.type };
+}
+
+/** How many pictures a review card shows before it stops being a summary. */
+const MAX_PREVIEW_IMAGES = 4;
+
+/**
+ * The pictures this proposal puts on the page.
+ *
+ * ★ SECTIONS THE PROPOSAL TOUCHED COME FIRST, because those are what the
+ * merchant is being asked to judge; a page's untouched existing photographs are
+ * shown only to fill the remaining slots, and only so a card is never empty on
+ * a pure reorder. ⚠ Found by the `_url` SUFFIX via 9D's collector, never by
+ * enumerating section types -- media already lives at three depths and an
+ * enumerated list is the thing that goes stale.
+ */
+function layoutPreviewImages(
+  proposed: readonly PageSectionItem[],
+  unchanged: ReadonlySet<string>,
+): string[] {
+  const seen = new Set<string>();
+  const ordered = [
+    ...proposed.filter((section) => !unchanged.has(section.id)),
+    ...proposed.filter((section) => unchanged.has(section.id)),
+  ];
+  for (const section of ordered) {
+    for (const url of collectSectionMediaUrls([section])) {
+      // A video is media the page loads and is not a thumbnail; the card shows
+      // stills only, so a preview never becomes an autoplaying surprise.
+      if (/\.(mp4|webm|mov)(\?|$)/i.test(url)) continue;
+      seen.add(url);
+      if (seen.size >= MAX_PREVIEW_IMAGES) return [...seen];
+    }
+  }
+  return [...seen];
 }

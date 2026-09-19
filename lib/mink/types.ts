@@ -63,6 +63,22 @@ export interface MinkStorefrontLayoutSummary {
   removed: MinkStorefrontLayoutSectionRef[];
   /** Order of the SURVIVING sections changed (a pure add is not a reorder). */
   reordered: boolean;
+  /**
+   * Pictures the proposal PUTS ON THE PAGE, newest-change first, capped.
+   *
+   * ★★ WITHOUT THESE THE CARD CANNOT SHOW WHAT IT IS ASKING TO APPROVE. It
+   * renders section LABELS -- "Carousel · 1 slide", "0 added, 0 removed" -- so
+   * a merchant who asked for a banner got a text list and no banner. Observed:
+   * a proposal that correctly used the store's own product photograph was read
+   * as having ignored it, and the merchant asked for a generated image instead,
+   * which replaced their real one. The card was right and unreadable.
+   *
+   * ⚠ A URL here becomes an `<img src>` in the dashboard, restored from stored
+   * conversation JSON -- so the parser re-checks every one against our own
+   * media hosts (9E's rule for generated images, for the same reason: a forged
+   * history row must not turn into a request to a third-party address).
+   */
+  previewImageUrls?: string[];
 }
 
 /**

@@ -179,6 +179,7 @@ function isStorefrontLayoutProposal(value: Record<string, unknown>): boolean {
     isSectionRefs(summary.kept) &&
     isSectionRefs(summary.added) &&
     isSectionRefs(summary.removed) &&
+    isPreviewImageUrls(summary.previewImageUrls) &&
     value.status === "private_preview" &&
     isCreditCount(value.expectedCredits) &&
     isCreditCount(value.chargedCredits) &&
@@ -307,6 +308,37 @@ function isSectionRefs(value: unknown): boolean {
  * `isSectionRefs`'s reason -- a pure check over untrusted stored JSON must not
  * stop rendering because a constant moved.
  */
+/**
+ * Thumbnails a restored layout card may fetch.
+ *
+ * ★★ THESE BECOME `<img src>` FROM STORED CONVERSATION JSON, so the allowlist
+ * is the whole safety story -- 9E's rule for generated images, for the same
+ * reason: a forged history row must not turn opening the dashboard into a
+ * request to an address of somebody else's choosing. Three sources are real
+ * and each is ours: an object in our media bucket (generated images, uploads
+ * and catalogue photographs all land there), and a same-origin path, which is
+ * where a theme's own seeded artwork lives (`/themes/{id}/*.webp`).
+ *
+ * ⚠ Deliberately NARROWER than what a proposal may legitimately CITE: 9D's
+ * ownership check is the authority on what may reach the page, and it runs
+ * server-side against the store's own rows. This only decides what the card
+ * may DISPLAY, so an image it cannot vouch for is simply not shown -- the
+ * proposal itself is unaffected.
+ */
+function isPreviewImageUrls(value: unknown): boolean {
+  if (value === undefined) return true;
+  if (!Array.isArray(value) || value.length > 4) return false;
+  return value.every(
+    (url) =>
+      typeof url === "string" &&
+      url.length <= 500 &&
+      (/^https:\/\/storage\.googleapis\.com\/[A-Za-z0-9._-]+\/[A-Za-z0-9._\-/]+$/.test(
+        url,
+      ) ||
+        /^\/[A-Za-z0-9._\-/]+$/.test(url)),
+  );
+}
+
 function isGeneratedImageUrl(value: unknown): value is string {
   return (
     typeof value === "string" &&
