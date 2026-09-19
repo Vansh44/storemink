@@ -9,6 +9,8 @@ import type {
   MinkRunEvent,
   MinkRunProgress,
   MinkRunResult,
+  MinkToolCall,
+  MinkToolResponse,
   MinkUsage,
 } from "./types";
 import type { MinkToolRegistry } from "./tools/registry";
@@ -37,6 +39,10 @@ export async function runMinkAgent(input: {
   let toolCalls = 0;
   let retryCount = 0;
   const artifacts: MinkArtifact[] = [];
+  // ★★ PER-RUN, NEVER ON THE REGISTRY. The registry is a module-level
+  // singleton shared by every request in the container, so a memo living
+  // there would serve one store's reads to another. This map dies with the run.
+  const memo = new Map<string, MinkToolResponse>();
   let turn = await session.sendUserMessage(message);
   usage = addUsage(usage, turn.usage);
   retryCount += turn.retryCount;
@@ -49,7 +55,15 @@ export async function runMinkAgent(input: {
         "Mink AI reached its reasoning-step limit before finishing.",
       );
     }
-    if (toolCalls + turn.functionCalls.length > config.maxToolCalls) {
+    // ★★ A REPEAT OF A PURE READ COSTS NO BUDGET. Observed on a live run that
+    // failed at the step limit: 15 calls, every one SUCCEEDED, and 8 of them
+    // were repeats of 4 reads it had already made — so it never reached the
+    // tools that would have finished the job. The runtime prompt already asks
+    // the model not to repeat a successful read; this makes it true whether it
+    // complies or not. Only `repeatSafe` tools qualify, so nothing that queues
+    // work, creates a proposal or spends money is ever served from here.
+    const fresh = turn.functionCalls.filter((call) => !memo.has(memoKey(call)));
+    if (toolCalls + fresh.length > config.maxToolCalls) {
       throw new MinkAgentError(
         "tool_limit_reached",
         "Mink AI requested too many store reads in one run.",
@@ -75,9 +89,28 @@ export async function runMinkAgent(input: {
           }),
         ),
       );
-      const batchResponses = await Promise.all(
-        batch.map((call) => registry.execute(actor, call)),
+      const batchResults = await Promise.all(
+        batch.map(async (call) => {
+          const key = memoKey(call);
+          const hit = memo.get(key);
+          if (hit) {
+            // ★ The id must belong to THIS call, not the one that originally
+            // filled the memo, or the provider cannot pair the response up.
+            return { response: repeatedResponse(hit, call.id), repeat: true };
+          }
+          const response = await registry.execute(actor, call);
+          // ★ Only a SUCCESS is remembered. A failure is often transient, and
+          // replaying it would deny the model its one legitimate retry.
+          if (
+            registry.isRepeatSafe(call.name) &&
+            !toolErrorCode(response.response)
+          ) {
+            memo.set(key, response);
+          }
+          return { response, repeat: false };
+        }),
       );
+      const batchResponses = batchResults.map((r) => r.response);
       await Promise.all(
         batchResponses.map((response, batchIndex) => {
           const errorCode = toolErrorCode(response.response);
@@ -92,14 +125,18 @@ export async function runMinkAgent(input: {
         }),
       );
       responses.push(...batchResponses);
-      for (const response of batchResponses) {
+      for (const { response, repeat } of batchResults) {
+        // ⚠ A memo hit adds NO artifact: the card is already on screen from the
+        // first call, and pushing it again renders a duplicate.
+        if (repeat) continue;
         if (response.artifact && artifacts.length < 6) {
           artifacts.push(response.artifact);
         }
       }
     }
 
-    toolCalls += turn.functionCalls.length;
+    // Only the calls actually executed count against the budget.
+    toolCalls += fresh.length;
     steps += 1;
     onProgress?.({ steps, toolCalls, retryCount, usage: { ...usage } });
     turn = await session.sendToolResponses(responses);
@@ -123,6 +160,55 @@ export async function runMinkAgent(input: {
     retryCount,
     usage,
     artifacts,
+  };
+}
+
+/**
+ * Identity of a tool call for the per-run memo: the name plus its arguments,
+ * with object keys sorted so `{a,b}` and `{b,a}` are one call.
+ */
+function memoKey(call: MinkToolCall): string {
+  return `${call.name}\u0000${canonicalJson(call.args)}`;
+}
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .filter(([, v]) => v !== undefined)
+      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
+}
+
+/**
+ * The remembered answer, handed back for a repeated call.
+ *
+ * ★ IT SAYS SO IN THE PAYLOAD. Returning the identical result silently invites
+ * the model to ask a third time — it costs no budget now, but it still burns a
+ * STEP, which is the limit the observed run actually hit. Naming the repeat is
+ * the only signal available inside a tool response.
+ */
+function repeatedResponse(
+  cached: MinkToolResponse,
+  id: string | undefined,
+): MinkToolResponse {
+  const output = cached.response.output;
+  const annotated =
+    output && typeof output === "object" && !Array.isArray(output)
+      ? {
+          ...(output as Record<string, unknown>),
+          alreadyRequestedInThisRun: true,
+          note: "You already requested this exact read in this run; this is the same result. Do not request it again — continue with the task.",
+        }
+      : output;
+  return {
+    ...cached,
+    ...(id === undefined ? {} : { id }),
+    response: { ...cached.response, output: annotated },
+    // The artifact is deliberately dropped: it was already emitted.
+    artifact: undefined,
   };
 }
 

@@ -415,7 +415,7 @@ export async function startMinkRun(input: {
           ? "draft-action-beta-v35"
           : "read-beta-v19",
         toolRegistryVersion: actor.draftingEnabled
-          ? "draft-beta-v25"
+          ? "draft-beta-v26"
           : "read-beta-v15",
         riskTier: actor.draftingEnabled ? "R1" : "R0",
         currentPath: actor.currentPath ?? null,
