@@ -46,10 +46,20 @@ export const MAX_PAGE_SECTIONS = 40;
  * unique non-empty strings, unknown types are rejected. Returns the FIRST
  * error with its section index so the builder can point at the culprit.
  * mode "draft" (autosave) skips completeness rules; "publish" is strict.
+ *
+ * `lenientIds` holds sections to validate in "draft" mode whatever `mode` says
+ * — content the caller has established the merchant did not just write and
+ * cannot necessarily fix. Everything else is unaffected, which matters because
+ * the two modes do not merely differ in what they REFUSE: a gallery drops its
+ * imageless items under "publish", so switching a whole list to draft mode to
+ * rescue one section would quietly change what gets stored for the others.
  */
 export function validateSections(
   raw: unknown,
-  { mode = "publish" }: { mode?: ValidateMode } = {},
+  {
+    mode = "publish",
+    lenientIds,
+  }: { mode?: ValidateMode; lenientIds?: ReadonlySet<string> } = {},
 ): { sections: PageSectionItem[] } | { error: string } {
   if (!Array.isArray(raw)) {
     return { error: "Sections must be a list." };
@@ -75,7 +85,11 @@ export function validateSections(
       return { error: `${label}: unknown section type.` };
     }
 
-    const validated = validateConfig(type, item.config, mode);
+    const validated = validateConfig(
+      type,
+      item.config,
+      lenientIds?.has(id) ? "draft" : mode,
+    );
     if ("error" in validated) {
       return { error: `${label} (${type}): ${validated.error}` };
     }

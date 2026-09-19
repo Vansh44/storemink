@@ -254,6 +254,82 @@ describe("page-actions", () => {
       expect(dbHolder.current.calls.update).toHaveLength(0);
     });
 
+    // ★★ AN EMPTY CUSTOM-CODE BLOCK USED TO MAKE THE PAGE UNPUBLISHABLE.
+    // Draft-mode autosave stores one happily, and once `pages.customCode`
+    // lapses the builder locks it — so strict re-validation refused the whole
+    // page and the retention logic below it, which exists to let such sections
+    // stay, was never reached. Reported from production, where Mink's layout
+    // proposal and the builder's own Publish button both dead-ended on it.
+    const emptyCode = (id = "legacy-code") => ({
+      id,
+      type: "custom_code",
+      enabled: true,
+      config: {
+        html: "",
+        css: "",
+        js: "",
+        height_mode: "auto",
+        fixed_height: 320,
+      },
+    });
+
+    it("★★ publishes past a locked, unchanged, empty custom_code section", async () => {
+      const stored = [emptyCode(), richSection()];
+      dbHolder.current = makeDbMock({
+        returning: [{ updated_at: "t1", published_at: "tp" }],
+        selectQueue: [[{ slug: "about", sections: stored, updated_at: "t0" }]],
+      });
+      vi.mocked(getStoreSetting).mockResolvedValue(false);
+
+      const r = await publishPage("p1");
+
+      expect(r.success).toBe(true);
+      // It is published as it stands, not silently dropped from the page.
+      expect(dbHolder.current.calls.set[0].publishedSections).toHaveLength(2);
+    });
+
+    it("★ but still refuses it while the merchant CAN fix it", async () => {
+      dbHolder.current = makeDbMock({
+        selectQueue: [
+          [{ slug: "about", sections: [emptyCode()], updated_at: "t0" }],
+        ],
+      });
+      vi.mocked(getStoreSetting).mockResolvedValue(true);
+
+      const r = await publishPage("p1");
+
+      expect(r.error).toMatch(/HTML, CSS or JavaScript/i);
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    it("★ and the exemption reaches custom code only", async () => {
+      dbHolder.current = makeDbMock({
+        selectQueue: [
+          [
+            {
+              slug: "about",
+              updated_at: "t0",
+              sections: [
+                emptyCode(),
+                {
+                  id: "half",
+                  type: "featured_products",
+                  enabled: true,
+                  config: { source: "manual", product_ids: [] },
+                },
+              ],
+            },
+          ],
+        ],
+      });
+      vi.mocked(getStoreSetting).mockResolvedValue(false);
+
+      const r = await publishPage("p1");
+
+      expect(r.error).toMatch(/at least one product/i);
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
     it("STRICTLY re-validates on publish (incomplete draft is rejected)", async () => {
       dbHolder.current = makeDbMock({
         selectQueue: [

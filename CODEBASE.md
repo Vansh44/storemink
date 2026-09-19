@@ -492,15 +492,29 @@ just succeeded IS the latest version, so the stale-tab guard would refuse every
 time; the trade is that an edit made in another tab between Apply and Publish
 goes live with it.
 
-⚠ **AND STRICT RE-VALIDATION ON PUBLISH HAS THE SAME DEFECT THIS SECTION OPENS
-WITH, IN THE MERCHANT'S OWN BUILDER.** `processSections` (page-actions.ts) runs
-`validateSections(raw, {mode})` FIRST and returns on error — _before_ the
-retained-custom-code block beneath it, which exists precisely so a downgraded
-store can keep locked sections while the rest of the page stays saveable. So an
-empty `custom_code` section refuses `publishPage` outright, from the Builder as
-much as from this card, and the retention logic is never reached. Not fixed
-here: it changes when a live storefront publishes, which is wider than this
-report. The card surfaces the refusal verbatim and says the draft is safe.
+**★★ AND THE SAME DEFECT SAT ONE LAYER DOWN, IN THE MERCHANT'S OWN BUILDER
+(fixed 2026-09-20).** `processSections` (page-actions.ts) ran
+`validateSections(raw, {mode})` FIRST and returned on the first error — before
+the retained-custom-code block beneath it, which exists precisely so a
+downgraded store can keep locked sections while the rest of the page stays
+saveable ("Existing custom-code sections can stay or be removed"). So an empty
+`custom_code` section refused `publishPage` outright and that retention logic
+was never reached: a store whose `pages.customCode` entitlement had lapsed could
+not publish such a page **at all**, from the Builder as much as from Mink, and
+the only remedy was deleting a block they may never have added. The promise the
+comment made was false in exactly the case it was written for.
+
+**★★ THE LENIENCY IS PER SECTION, AND IT HAD TO BE.** `validateSections` gained
+`lenientIds`, because the two modes do not merely differ in what they REFUSE — a
+**gallery drops its imageless items under publish** (`if (!image_url && strict)
+continue`), so validating a whole list in draft mode to rescue one section would
+quietly change what gets STORED for the others. Only the exempt section's config
+is read at the draft bar; every other section is normalised exactly as before.
+⚠ Scoped to LOCKED custom-code sections byte-identical to the stored copy: a
+store that still holds the entitlement gets the strict error and can act on it,
+and an added or edited locked section is refused by the existing check either
+way. All three properties mutation-checked. The publish card still surfaces any
+remaining refusal verbatim and says the draft is safe.
 
 ### Mink Phase 9B — Proposed page layouts (2026-09-12)
 

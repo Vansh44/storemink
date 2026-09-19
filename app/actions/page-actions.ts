@@ -83,23 +83,57 @@ async function processSections(
   mode: ValidateMode = "publish",
   retainedRaw: unknown = [],
 ): Promise<{ sections: PageSectionItem[] } | { error: string }> {
-  const result = validateSections(raw, { mode });
+  // Normalised the same way on both sides, purely to compare identity. Draft
+  // mode for both, because that is the bar the stored copy was saved under.
+  const shaped = validateSections(raw, { mode: "draft" });
+  const retained = validateSections(retainedRaw, { mode: "draft" });
+  const retainedById = new Map(
+    "sections" in retained
+      ? retained.sections
+          .filter((section) => section.type === "custom_code")
+          .map((section) => [section.id, JSON.stringify(section)] as const)
+      : [],
+  );
+
+  const hasCustomCode =
+    "sections" in shaped &&
+    shaped.sections.some((s) => s.type === "custom_code");
+  const locked = hasCustomCode && !(await getStoreSetting("pages.customCode"));
+
+  // ★★ A SECTION THE MERCHANT CANNOT EDIT MUST NOT BLOCK PUBLISHING THE PAGE.
+  // The block below has always intended that ("Existing custom-code sections
+  // can stay or be removed") and could not deliver it, because the strict
+  // validation ran FIRST and returned on the first error: an EMPTY custom_code
+  // section — which draft-mode autosave stores happily, and which the builder
+  // locks once the entitlement lapses — refused `publishPage` outright, and the
+  // retention logic beneath was never reached. So a downgraded store with one
+  // empty block could not publish that page at all, from the builder as much as
+  // from anywhere else, and the only remedy was deleting a section they may not
+  // have put there. Those sections are now held to the bar they were SAVED
+  // under; everything else on the page still meets the publish bar.
+  // ⚠ Scoped to LOCKED sections that are byte-identical to the stored copy. A
+  // store that still has the entitlement gets the strict error and can act on
+  // it, and an added or edited section is refused below either way.
+  const lenientIds = locked
+    ? new Set(
+        ("sections" in shaped ? shaped.sections : [])
+          .filter(
+            (section) =>
+              section.type === "custom_code" &&
+              retainedById.get(section.id) === JSON.stringify(section),
+          )
+          .map((section) => section.id),
+      )
+    : undefined;
+
+  const result = validateSections(raw, { mode, lenientIds });
   if ("error" in result) return result;
 
-  const hasCustomCode = result.sections.some((s) => s.type === "custom_code");
-  if (hasCustomCode && !(await getStoreSetting("pages.customCode"))) {
+  if (locked) {
     // A downgrade must not make the rest of a page impossible to save. Keep
     // previously stored custom-code sections byte-for-byte equivalent after
     // normalisation, while still rejecting newly-added or edited paid
     // sections. Merchants may deliberately remove a locked section.
-    const retained = validateSections(retainedRaw, { mode: "draft" });
-    const retainedById = new Map(
-      "sections" in retained
-        ? retained.sections
-            .filter((section) => section.type === "custom_code")
-            .map((section) => [section.id, JSON.stringify(section)] as const)
-        : [],
-    );
     const changedLockedSection = result.sections.some(
       (section) =>
         section.type === "custom_code" &&
