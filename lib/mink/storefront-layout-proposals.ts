@@ -127,10 +127,15 @@ export async function createMinkStorefrontLayoutProposal(input: {
       `The proposed layout is invalid: ${resolved.issues.join(" ")}`,
     );
   }
-  const validation = validateMinkStorefrontLayoutPatch({
-    ...(isRecord(input.patch) ? input.patch : {}),
-    sections: resolved.sections,
-  });
+  const validation = validateMinkStorefrontLayoutPatch(
+    {
+      ...(isRecord(input.patch) ? input.patch : {}),
+      sections: resolved.sections,
+    },
+    // The merchant's own current list: sections carried across untouched are
+    // held to the bar the builder saved them under, not the publish bar.
+    { current: target.sections },
+  );
   if (!validation.ok) {
     throw new MinkToolInputError(
       `The proposed layout is invalid: ${validation.issues.join(" ")}`,
@@ -237,7 +242,17 @@ export async function createMinkStorefrontLayoutProposal(input: {
  * reach `store_pages.sections` is one today's `validateSections(publish)`
  * accepts, which is the same bar the Builder's own Publish button clears.
  */
-export function validateStoredLayoutProposal(content: MinkDraftContent): {
+export function validateStoredLayoutProposal(
+  content: MinkDraftContent,
+  /**
+   * The merchant's prior layout, from the proposal's own `before` snapshot.
+   * Same role as `current` at proposal time: it is what makes an untouched
+   * section exempt from the publish bar at approval too. Both points must
+   * agree, or a proposal that validated when it was made would be refused
+   * when it is approved.
+   */
+  current?: readonly PageSectionItem[],
+): {
   target: MinkStorefrontLayoutPatch["target"];
   sections: PageSectionItem[];
   patchDigest: string;
@@ -248,16 +263,19 @@ export function validateStoredLayoutProposal(content: MinkDraftContent): {
   } catch {
     throw new MinkToolInputError("The stored layout proposal is unreadable.");
   }
-  const validation = validateMinkStorefrontLayoutPatch({
-    schemaVersion: MINK_STOREFRONT_LAYOUT_SCHEMA_VERSION,
-    operation: "replace_page_sections",
-    target: {
-      pageSlug: content.page_slug,
-      expectedPageVersion: content.expected_page_version,
-      expectedSectionsDigest: content.expected_sections_digest,
+  const validation = validateMinkStorefrontLayoutPatch(
+    {
+      schemaVersion: MINK_STOREFRONT_LAYOUT_SCHEMA_VERSION,
+      operation: "replace_page_sections",
+      target: {
+        pageSlug: content.page_slug,
+        expectedPageVersion: content.expected_page_version,
+        expectedSectionsDigest: content.expected_sections_digest,
+      },
+      sections,
     },
-    sections,
-  });
+    { current },
+  );
   if (!validation.ok) {
     throw new MinkToolInputError(
       `The stored layout proposal is no longer valid: ${validation.issues.join(" ")}`,

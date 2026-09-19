@@ -152,6 +152,26 @@ export function MinkStorefrontLayoutProposalCard({
           {proposal.explanation}
         </p>
 
+        {/* ★★ THE PICTURES THIS PUTS ON THE PAGE. Everything else on this card
+            is a LABEL -- "Carousel · 1 slide", "0 added, 0 removed" -- so a
+            merchant who asked for a banner was shown a text list and no
+            banner, and could not tell a proposal using their own product
+            photograph from one that had ignored it. Changed sections lead. */}
+        {summary.previewImageUrls?.length ? (
+          <div className="flex gap-1.5 overflow-x-auto">
+            {summary.previewImageUrls.map((url) => (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={url}
+                src={url}
+                alt=""
+                loading="lazy"
+                className="h-20 w-32 shrink-0 rounded-lg border border-[#e7e3ef] bg-[#f4f2fa] object-cover"
+              />
+            ))}
+          </div>
+        ) : null}
+
         {/* Removals first: they are the only irreversible-looking part of a
             whole-list replace, and the thing a merchant must not approve
             without noticing. */}

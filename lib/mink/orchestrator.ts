@@ -139,9 +139,18 @@ export async function runMinkAgent(input: {
         // ⚠ A memo hit adds NO artifact: the card is already on screen from the
         // first call, and pushing it again renders a duplicate.
         if (repeat) continue;
-        if (response.artifact && artifacts.length < 6) {
-          artifacts.push(response.artifact);
-        }
+        // ★★ THE CAP COUNTS READS, NOT PRODUCED ARTIFACTS. It was a flat six
+        // over everything, and a proposal is produced LAST -- after the reads
+        // that informed it -- so a read-heavy run could fill the buffer and
+        // silently drop the proposal itself, costing the merchant the Apply
+        // button they were waiting for and leaving only the research behind.
+        // The observed banner run made five read cards.
+        if (!response.artifact) continue;
+        const produced = PRODUCED_ARTIFACTS.has(response.artifact.type);
+        const counted = artifacts.filter(
+          (artifact) => !PRODUCED_ARTIFACTS.has(artifact.type),
+        ).length;
+        if (produced || counted < 6) artifacts.push(response.artifact);
       }
     }
 
@@ -171,9 +180,50 @@ export async function runMinkAgent(input: {
     toolCalls,
     retryCount,
     usage,
-    artifacts,
+    artifacts: presentableArtifacts(artifacts),
   };
 }
+
+/**
+ * Artifacts a run PRODUCED, as opposed to the reads that fed them.
+ *
+ * ★★ A READ CARD IS THE ANSWER TO A QUESTION AND THE WORKING-OUT OF A TASK,
+ * and rendering both alike is what made "create a banner for this offer"
+ * unreadable. Every read tool emits a card, and an action run necessarily makes
+ * several -- the page's whole section list, the media library, each section it
+ * inspected -- so the merchant was handed four or five cards of research
+ * stacked in front of the one thing they asked for. Asked "what offers are
+ * running", the same card IS the answer and still renders.
+ *
+ * ★ FILTERED AT THE END, NOT AT EMISSION. The tool is not what knows whether
+ * its read was an answer or a step; only the finished run does. Live progress
+ * events are untouched -- the client renders cards from the final message
+ * alone, so this is what a merchant is left looking at and what history keeps.
+ */
+function presentableArtifacts(artifacts: MinkArtifact[]): MinkArtifact[] {
+  const produced = artifacts.filter((artifact) =>
+    PRODUCED_ARTIFACTS.has(artifact.type),
+  );
+  return produced.length > 0 ? produced : artifacts;
+}
+
+/**
+ * ⚠ AN ALLOWLIST, so a read card added later is quiet by default and a new
+ * PROPOSAL type has to be named here or it vanishes from its own run. The
+ * failure directions are deliberately asymmetric: an unlisted read is noise, an
+ * unlisted proposal is the merchant losing the button they were waiting for.
+ * `clarification` counts as produced -- a question the run is asking IS its
+ * result, and burying it under the reads that prompted it is the same defect.
+ */
+const PRODUCED_ARTIFACTS: ReadonlySet<MinkArtifact["type"]> = new Set([
+  "proposal",
+  "storefront_code_proposal",
+  "storefront_layout_proposal",
+  "storefront_design_proposal",
+  "media_image_proposal",
+  "workflow",
+  "clarification",
+]);
 
 /**
  * Identity of a tool call for the per-run memo: the name plus its arguments,

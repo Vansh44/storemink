@@ -556,18 +556,24 @@ async function readDraft(
     );
   }
   try {
+    // The merchant's own prior layout: a snapshot, held only to its shape.
+    const original = readStoredLayoutSections(
+      normalizeMinkDraftContent("storefront_layout", draft.before, {
+        historicalSnapshot: true,
+      }),
+      "draft",
+    );
     return {
       id: draft.id,
       currentVersion: draft.currentVersion,
-      // The merchant's own prior layout: a snapshot, held only to its shape.
-      original: readStoredLayoutSections(
-        normalizeMinkDraftContent("storefront_layout", draft.before, {
-          historicalSnapshot: true,
-        }),
-        "draft",
-      ),
+      original,
+      // ⚠ `original` is also what exempts an untouched section from the
+      // publish bar here, exactly as the live page does at proposal time.
+      // Without it a proposal that validated when it was made would be
+      // refused at approval, which is the worse half of the same defect.
       proposal: validateStoredLayoutProposal(
         normalizeMinkDraftContent("storefront_layout", draft.content),
+        original,
       ),
     };
   } catch (error) {

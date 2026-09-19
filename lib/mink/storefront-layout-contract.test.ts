@@ -338,3 +338,98 @@ describe("resolveKeptLayoutSections", () => {
     expect(resolveKeptLayoutSections("nope", current).ok).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★★ AN UNTOUCHED SECTION IS HELD TO THE BAR IT WAS SAVED UNDER.
+//
+// `resolveKeptLayoutSections` swaps `{id, keep: true}` for the EXACT STORED
+// object, so before this the merchant's own content was re-judged at the
+// publish bar simply for being carried across. One empty custom_code block —
+// which the builder's draft-mode autosave stores happily — therefore made every
+// layout proposal on that page impossible, and on a plan without the
+// `pages.customCode` entitlement the merchant could not remove it in Website
+// Builder either. Observed in production as a refusal with no reachable remedy.
+// ---------------------------------------------------------------------------
+describe("carried-over sections", () => {
+  const empty = customCode("legacy-1", "");
+
+  it("★★ accepts a proposal carrying the merchant's own empty custom code", () => {
+    const result = validateMinkStorefrontLayoutPatch(
+      patch({ sections: [richText("hero-1"), empty] }),
+      { current: [empty] },
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("★ still refuses that same section when the proposal INTRODUCES it", () => {
+    // Nothing on the page to carry over from: this is the model authoring an
+    // empty band, which is what the publish bar exists to stop.
+    const result = validateMinkStorefrontLayoutPatch(
+      patch({ sections: [richText("hero-1"), empty] }),
+      { current: [] },
+    );
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.issues.join(" ")).toContain("HTML");
+  });
+
+  it("★★ and refuses it when the proposal EDITS it — one character forfeits the exemption", () => {
+    const result = validateMinkStorefrontLayoutPatch(
+      patch({ sections: [{ ...empty, enabled: false }] }),
+      { current: [empty] },
+    );
+    expect(result.ok).toBe(false);
+  });
+
+  it("★ an absent `current` fails closed, holding everything to the publish bar", () => {
+    expect(
+      validateMinkStorefrontLayoutPatch(patch({ sections: [empty] })).ok,
+    ).toBe(false);
+  });
+
+  it("★ a complete section is unaffected either way", () => {
+    for (const current of [undefined, [], [richText("hero-1")]]) {
+      expect(
+        validateMinkStorefrontLayoutPatch(patch(), current ? { current } : {})
+          .ok,
+      ).toBe(true);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ★★ THE CARD HAS TO SHOW THE PICTURE IT IS ASKING TO APPROVE.
+// A proposal that correctly used the store's own product photograph rendered
+// as "Carousel · 1 slide · 0 added, 0 removed", which a merchant reasonably
+// read as nothing having happened.
+// ---------------------------------------------------------------------------
+describe("layout preview images", () => {
+  const withImage = (id: string, url: string): PageSectionItem => ({
+    id,
+    type: "hero",
+    enabled: true,
+    config: {
+      ...EMPTY_CONFIG.hero,
+      image_url: url,
+      heading: "Buy 1 Get 1",
+    } as PageSectionItem["config"],
+  });
+  const shot = "https://storage.googleapis.com/b/stores/s/uploads/shake.jpg";
+
+  it("★★ surfaces the image a new section puts on the page", () => {
+    const summary = summarizeLayoutChange([withImage("h1", shot)], []);
+    expect(summary.previewImageUrls).toEqual([shot]);
+  });
+
+  it("★ leads with what changed, not with the page's existing pictures", () => {
+    const old = withImage("h0", "/themes/vitrine/hero.webp");
+    const summary = summarizeLayoutChange([old, withImage("h1", shot)], [old]);
+    expect(summary.previewImageUrls?.[0]).toBe(shot);
+  });
+
+  it("★ omits the field entirely when the page has no pictures", () => {
+    expect(
+      summarizeLayoutChange([richText("a")], []).previewImageUrls,
+    ).toBeUndefined();
+  });
+});

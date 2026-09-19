@@ -405,6 +405,77 @@ body/display pair from the allowlist, four radii. A screenshot's own typeface
 can only be approximated, and WCAG AA contrast remains a proposal REFUSAL — a
 model copying a screenshot optimises for resemblance over readability.
 
+### Mink answer legibility — what a run produced, not what it read (2026-09-20)
+
+Three faults reported together from one trace, "create the banner on the
+homepage carousel for this buy 1 get 1 offer".
+
+**★★ AN UNTOUCHED SECTION WAS HELD TO THE PUBLISH BAR AND DEAD-ENDED THE WHOLE
+FEATURE.** `resolveKeptLayoutSections` swaps `{id, keep: true}` for the EXACT
+STORED object (9B's own design, so custom code survives without the model ever
+seeing it) — and the resolved list then went through `validateSections(…,
+{mode: "publish"})` entire. So the merchant's own content was re-judged at a bar
+it never had to meet when the builder saved it: ONE empty `custom_code` block,
+which draft-mode autosave stores happily and publish mode refuses with "Add some
+HTML, CSS or JavaScript first.", made EVERY layout proposal on that page
+impossible. Worse, the refusal told the merchant to delete it in Website
+Builder on a plan whose `pages.customCode` entitlement is off, where the section
+is neither editable nor removable — a refusal with no reachable remedy, over a
+section nobody asked to change. Validation is now two passes: draft mode for
+shape, ids, types and the 40-section cap across the whole list, then the publish
+bar only for sections the proposal INTRODUCES or EDITS.
+★ The lenient set is **unchanged**, not _kept by reference_: by execution time
+the keep/author distinction is gone (the stored proposal holds fully resolved
+sections), so both points compare against the merchant's own list instead — the
+live page at proposal time, the `before` snapshot at approval. Derivable at both
+from rows already read, so it needs no stored field and cannot drift between
+them, and one edited character forfeits the exemption. ⚠ An absent `current`
+holds everything to the publish bar, so a caller with no page context fails
+closed rather than silently lenient. Both directions mutation-checked.
+
+**★★ THE REVIEW CARD SHOWED NO PICTURE, WHICH READ AS THE WRONG IMAGE BEING
+USED.** `mink-storefront-layout-proposal-card.tsx` rendered section LABELS only
+— "Carousel · 1 slide", "0 added, 0 removed". Measured on a second trace: a
+proposal that CORRECTLY resolved the named product and used the store's own
+catalogue photograph (9E's rule) was indistinguishable from one that had
+ignored it, so the merchant asked for a generated image instead and that
+replaced their real photograph. The card was right and unreadable.
+`MinkStorefrontLayoutSummary.previewImageUrls` carries up to four stills,
+changed sections first, found by 9D's `_url` SUFFIX collector rather than by
+enumerating seventeen section types. ★ Omitted rather than empty when a page has
+no pictures, so a proposal without imagery is byte-identical to one made before
+previews existed. ⚠ The parser re-checks every URL against our own media bucket
+or a same-origin path — 9E's `isGeneratedImageUrl` rule, for its reason: these
+become `<img src>` restored from stored conversation JSON, and a forged history
+row must not turn opening the dashboard into a third-party request. It is
+deliberately NARROWER than what a proposal may legitimately cite; 9D's
+server-side ownership check remains the authority on what reaches the page, and
+an image the card cannot vouch for is simply not displayed.
+
+**★★ AND EVERY READ CARD RENDERED BESIDE THE ANSWER.** Every read tool emits an
+artifact, so an action run necessarily produced several — the page's whole
+section list, the media library, each section inspected — stacked in front of
+the one thing the merchant asked for; the reported run showed five. A read card
+IS the answer to "what offers are running" and is the WORKING-OUT of "create the
+banner", and only the finished run knows which. `presentableArtifacts` therefore
+filters at the END, not at emission: if a run produced anything actionable, the
+reads that fed it do not render. ★ An ALLOWLIST of produced types, so a read
+card added later is quiet by default while a new proposal type must be named or
+it vanishes from its own run — an unlisted read is noise, an unlisted proposal
+is the merchant losing the button they were waiting for. Live progress events
+are untouched; the client renders from the final message alone.
+★★ AND THE COLLECTION CAP NOW COUNTS READS ONLY. It was a flat six over
+everything, and a proposal is produced LAST — after the reads that informed it —
+so a read-heavy run could fill the buffer and silently drop the proposal itself,
+leaving the research and no Apply button. The observed run made five read cards,
+one short.
+
+⚠ Still outstanding from the same report: the merchant's path is still
+image → proposal → Apply → open Builder → Publish. Collapsing the last step into
+the card needs the Phase 7D publication path widened to layout drafts — it hard-
+requires `draft.kind === "storefront_custom_code"` and a prior
+`apply_storefront_code` save — which is a migration across the tool vocabularies.
+
 ### Mink Phase 9B — Proposed page layouts (2026-09-12)
 
 Phase 7B/7C can replace only the HTML/CSS/JS **inside one existing

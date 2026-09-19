@@ -465,3 +465,110 @@ describe("repeated tool calls", () => {
     expect(result.toolCalls).toBe(3);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ★★ WHAT A RUN PRODUCED, NOT WHAT IT READ.
+//
+// Reported on a live "create the banner on the homepage carousel for this buy
+// 1 get 1 offer": the answer carried the page's whole section list, the media
+// library, two individual section cards AND the proposal. Every read tool emits
+// a card, so an action run stacks its own research in front of the one thing
+// the merchant asked for.
+// ---------------------------------------------------------------------------
+describe("artifacts a run returns", () => {
+  function artifactRegistry(artifact: (result: unknown) => unknown) {
+    return new MinkToolRegistry([
+      {
+        declaration: {
+          name: "get_storefront_page_context",
+          description: "Read a page.",
+          parametersJsonSchema: { type: "object", properties: {} },
+        },
+        permission: { section: "builder", action: "view" },
+        timeoutMs: 5_000,
+        artifact: artifact as never,
+        execute: vi.fn(async () => ({ ok: true })),
+      },
+      {
+        declaration: {
+          name: "propose_storefront_layout",
+          description: "Propose a layout.",
+          parametersJsonSchema: { type: "object", properties: {} },
+        },
+        permission: { section: "builder", action: "manage" },
+        timeoutMs: 5_000,
+        artifact: () =>
+          ({ type: "storefront_layout_proposal", title: "Home" }) as never,
+        execute: vi.fn(async () => ({ ok: true })),
+      },
+    ]);
+  }
+
+  const session = (names: string[]): MinkModelSession => ({
+    sendUserMessage: vi.fn(async () =>
+      turn({
+        functionCalls: names.map((name, i) => ({
+          id: `c${i}`,
+          name,
+          args: {},
+        })),
+      }),
+    ),
+    sendToolResponses: vi.fn(async () => turn({ text: "Done." })),
+  });
+
+  it("★★ drops the reads that fed a proposal", async () => {
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "create the banner",
+      config: config(),
+      registry: artifactRegistry(
+        () => ({ type: "records", title: "Page" }) as never,
+      ),
+      session: session([
+        "get_storefront_page_context",
+        "propose_storefront_layout",
+      ]),
+    });
+
+    expect(result.artifacts.map((a) => a.type)).toEqual([
+      "storefront_layout_proposal",
+    ]);
+  });
+
+  it("★★ a read-heavy run cannot crowd the proposal out of its own answer", async () => {
+    const reads = Array.from(
+      { length: 8 },
+      () => "get_storefront_page_context",
+    );
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "create the banner",
+      config: config({ maxParallelReadTools: 12 }),
+      registry: artifactRegistry(
+        () => ({ type: "records", title: "Page" }) as never,
+      ),
+      // Eight reads would have filled the old flat cap of six before the
+      // proposal was ever made.
+      session: session([...reads, "propose_storefront_layout"]),
+    });
+
+    expect(result.artifacts.map((a) => a.type)).toEqual([
+      "storefront_layout_proposal",
+    ]);
+  });
+
+  it("★ but a read IS the answer when nothing was produced", async () => {
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "what is on my home page",
+      config: config(),
+      registry: artifactRegistry(
+        () => ({ type: "records", title: "Page" }) as never,
+      ),
+      session: session(["get_storefront_page_context"]),
+    });
+
+    expect(result.artifacts.map((a) => a.type)).toEqual(["records"]);
+  });
+});
