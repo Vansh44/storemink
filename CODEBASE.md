@@ -1071,6 +1071,29 @@ rather than Secret Manager; principals who can inspect a trigger or revision can
 therefore read it. Provider credentials and raw provider errors never reach the
 browser, and audio or transcript content is not written to logs.
 
+**★★ BUT "NEVER REACH THE BROWSER" HAD BECOME "REACH NOWHERE AT ALL" (fixed
+2026-09-19).** `/api/mink/voice`'s catch recorded `logInfo("mink.voice.failed",
+{requestId, provider})` — no cause — and the provider layer threw a bare
+`Chirp 3 returned 403.`, so a disabled API, a service account without
+`roles/speech.client`, an expired credential, the 45-second timeout and an empty
+transcript were one indistinguishable line, under the browser's deliberately
+vague "unavailable or timed out". Identifying the real cause took a hand-run
+probe against the live endpoint, which is not a diagnosis anybody can repeat
+from Cloud Logging. `refusalReason` now appends the provider's own
+machine-readable codes (`PERMISSION_DENIED, SERVICE_DISABLED`) and the route
+uses `logError`, so it reaches Error Reporting at all. ★ ENUM CODES ONLY, never
+the free-text `message`: that is prose a provider may change and may quote the
+request back, while the codes are a closed vocabulary carrying no audio,
+transcript or credential. The merchant's wording is unchanged.
+
+⚠ **AND THE CAUSE WAS INFRASTRUCTURE, PER PROJECT.** `speech.googleapis.com` is
+enabled on `storemink-prod` and NOT on `storemink-staging` — which local
+development also authenticates against — so dictation works in production and
+returns 403 on dev and on every developer's machine. Enabling it is
+`gcloud services enable speech.googleapis.com --project=storemink-staging`;
+`docs/gcp-migration-prod-provision.md` now lists the API and carries the
+both-projects check.
+
 ### Mink draft credits — the period key moved and one CHECK did not (2026-09-19)
 
 **★★ 0114 CHANGED THE ALLOWANCE KEY AND TOOK EVERY PROPOSAL OFFLINE ON A PAYING

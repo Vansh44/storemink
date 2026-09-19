@@ -41,9 +41,26 @@ gcloud config set project $PROJECT
 gcloud services enable \
   sqladmin.googleapis.com \
   identitytoolkit.googleapis.com \
-  recaptchaenterprise.googleapis.com
+  recaptchaenterprise.googleapis.com \
+  speech.googleapis.com
 # run / artifactregistry / cloudbuild / secretmanager / cloudscheduler /
 # certificatemanager / compute / aiplatform were enabled in Phase 4.
+```
+
+⚠ **`speech.googleapis.com` IS PER PROJECT, AND IT WAS ENABLED ON PROD ONLY.**
+Mink dictation on the Chirp 3 provider calls Cloud Speech-to-Text V2 with the
+runtime credentials of whichever project it is running in, so the staging
+project — which local development also authenticates against — answered every
+dictation with `403 PERMISSION_DENIED / SERVICE_DISABLED` while production
+worked. Verify both rather than assuming, since the symptom in the browser is
+the generic "Voice transcription is unavailable or timed out":
+
+```bash
+for p in storemink-staging storemink-prod; do
+  printf '%s ' "$p"
+  gcloud services list --enabled --project="$p" --format='value(config.name)' \
+    | grep -qx speech.googleapis.com && echo enabled || echo MISSING
+done
 ```
 
 ## 2. Prod Cloud SQL instance
