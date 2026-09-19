@@ -403,4 +403,65 @@ describe("repeated tool calls", () => {
 
     expect(result.artifacts).toHaveLength(1);
   });
+
+  // ★★ EVERY EMITTED SEQUENCE INSERTS A `mink_tool_calls` ROW UNDER A UNIQUE
+  // (run, sequence), so a re-used number is not a cosmetic numbering slip — it
+  // is a rejected insert that kills the run. When the memo stopped counting
+  // repeats against `toolCalls`, that same variable was still the base for the
+  // sequence, so a turn holding a hit advanced numbering by less than it
+  // emitted and the NEXT turn collided. Observed in production at sequence 5,
+  // reported to the merchant as "Mink AI couldn't complete that request."
+  it("★★ numbers every call it emits, so a memo hit cannot re-use a sequence", async () => {
+    const onEvent = vi.fn();
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () =>
+        turn({
+          functionCalls: [
+            { id: "c1", name: "search_products", args: { q: "a" } },
+          ],
+        }),
+      ),
+      sendToolResponses: vi
+        .fn()
+        // Two calls, one of them a repeat of the first turn's read.
+        .mockResolvedValueOnce(
+          turn({
+            functionCalls: [
+              { id: "c2", name: "search_products", args: { q: "a" } },
+              { id: "c3", name: "search_products", args: { q: "b" } },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(
+          turn({
+            functionCalls: [
+              { id: "c4", name: "search_products", args: { q: "c" } },
+            ],
+          }),
+        )
+        .mockResolvedValueOnce(turn({ text: "Done." })),
+    };
+
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "go",
+      config: config(),
+      registry: memoRegistry(
+        true,
+        vi.fn(async () => ({ items: [] })),
+      ),
+      session,
+      onEvent,
+    });
+
+    const sequences = onEvent.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.type === "tool_call")
+      .map((event) => event.sequence);
+    expect(sequences).toEqual([1, 2, 3, 4]);
+    expect(new Set(sequences).size).toBe(sequences.length);
+    // And the budget still ignores the repeat — the two counters are separate,
+    // not merely renamed.
+    expect(result.toolCalls).toBe(3);
+  });
 });

@@ -37,6 +37,16 @@ export async function runMinkAgent(input: {
   let usage = { ...EMPTY_USAGE };
   let steps = 1;
   let toolCalls = 0;
+  // ★★ THE LEDGER SEQUENCE IS NOT THE BUDGET, AND SHARING ONE COUNTER KILLED
+  // RUNS. `toolCalls` is what a run may SPEND, and the memo below deliberately
+  // stopped counting repeats against it — but every emitted `tool_call` event
+  // inserts a `mink_tool_calls` row, repeat or not, under a UNIQUE (run,
+  // sequence). So the first turn containing a memo hit advanced the numbering
+  // by one more than the budget, the next turn re-used a sequence, and the
+  // insert was rejected: observed in production as a run dying on
+  // `mink_tool_calls_run_sequence_key` at sequence 5, an error naming nothing
+  // to do with the tool that had actually failed. Two jobs, two counters.
+  let recorded = 0;
   let retryCount = 0;
   const artifacts: MinkArtifact[] = [];
   // ★★ PER-RUN, NEVER ON THE REGISTRY. The registry is a module-level
@@ -84,7 +94,7 @@ export async function runMinkAgent(input: {
         batch.map((call, batchIndex) =>
           onEvent?.({
             type: "tool_call",
-            sequence: toolCalls + offset + batchIndex + 1,
+            sequence: recorded + offset + batchIndex + 1,
             call,
           }),
         ),
@@ -116,7 +126,7 @@ export async function runMinkAgent(input: {
           const errorCode = toolErrorCode(response.response);
           return onEvent?.({
             type: "tool_result",
-            sequence: toolCalls + offset + batchIndex + 1,
+            sequence: recorded + offset + batchIndex + 1,
             name: response.name,
             ok: !errorCode,
             ...(errorCode ? { errorCode } : {}),
@@ -135,8 +145,10 @@ export async function runMinkAgent(input: {
       }
     }
 
-    // Only the calls actually executed count against the budget.
+    // Only the calls actually executed count against the budget; the ledger
+    // numbers every call the model made, including the ones the memo served.
     toolCalls += fresh.length;
+    recorded += turn.functionCalls.length;
     steps += 1;
     onProgress?.({ steps, toolCalls, retryCount, usage: { ...usage } });
     turn = await session.sendToolResponses(responses);

@@ -996,6 +996,21 @@ the layout proposal as soon as both exact results exist. Prompt/registry
 versions are `read-beta-v18`/`read-beta-v14` and
 `draft-action-beta-v34`/`draft-beta-v24`.
 
+**★★ AND THE ORCHESTRATOR'S REPEAT MEMO SHARED A COUNTER WITH THE TOOL LEDGER,
+WHICH KILLED RUNS (fixed 2026-09-19).** `toolCalls` is the run's BUDGET, and the
+memo deliberately stopped counting a served repeat against it — but that same
+variable was the base for the `sequence` on every emitted `tool_call`, and every
+one of those inserts a `mink_tool_calls` row under a UNIQUE (run, sequence). So
+the first turn containing a memo hit advanced the numbering by one LESS than it
+emitted, the next turn re-used a number, and the insert was rejected: a run that
+died on `mink_tool_calls_run_sequence_key` at sequence 5. ⚠ The damage is worse
+than a lost run — that error is thrown from the telemetry write, so it REPLACES
+whatever the run actually failed on. It is what hid the credit-period defect
+above, reporting a database CHECK violation on the credit ledger as a duplicate
+key on an unrelated table. Two jobs now have two counters: `toolCalls` for spend,
+`recorded` for the ledger. Pinned by an orchestrator test asserting the emitted
+sequences are `[1,2,3,4]` across a turn holding a repeat; the mutation reproduces
+production exactly as `[1,2,3,3]`.
 
 `lib/db/client.ts` also retries a transient connection failure that happens on
 `BEGIN` or identity/role setup after an idle socket has already been returned
@@ -3084,7 +3099,11 @@ wholesip/
 │                              # 0111 documents one-click Builder draft application;
 │                              # 0112 adds the global Mink voice provider and final-transcript flow;
 │                              # 0113 fixes protected-history pruning, automatic dictation finish
-│                              # and catalogue-product imagery for storefront proposals.
+│                              # and catalogue-product imagery for storefront proposals;
+│                              # 0117 widens the draft credit ledger's period CHECK to
+│                              # the 30-day cycle key 0114 introduced — without it every
+│                              # Mink proposal on a paying store was refused by the
+│                              # database (see "Mink draft credits" below).
 │                              # `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
