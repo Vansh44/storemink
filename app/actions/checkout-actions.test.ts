@@ -1775,6 +1775,57 @@ describe("getCartTaxRates", () => {
     vi.mocked(rateLimit).mockResolvedValue({ allowed: true } as any);
   });
 
+  // ★★ A STORE WITH TAX OFF STILL GETS ITS OFFER FACTS.
+  //
+  // This returned `empty` — no lines at all — the moment tax was disabled. But
+  // `categoryId` and `regularUnitPrice` ride along here for the OFFER engine,
+  // not for tax, so a category-scoped offer saw `categoryId: null` on every
+  // line and was skipped as `no_eligible_lines`: the checkout summary showed no
+  // discount while `placeOrder`, which reads the same column unconditionally in
+  // its own query, DID apply it. Reported live on a store running a
+  // buy-1-get-1 on a category, quoted at full price at checkout.
+  const noTaxQueue = () => [
+    [
+      {
+        tax_enabled: false,
+        prices_include_tax: false,
+        default_tax_class_id: null,
+      },
+    ],
+    [{ id: "tc1", name: "GST 18%", rate: 18, sort_order: 0 }],
+    [
+      {
+        id: "p1",
+        selling_price: 100,
+        cost_price: null,
+        tax_class_id: "tc1",
+        category_id: "cat-seating",
+      },
+    ],
+    [{ id: "v1", selling_price: 48900, special_price: 44900 }],
+  ];
+
+  it("★★ still reports category and sale price when tax is disabled", async () => {
+    dbHolder.current = makeDbMock({ selectQueue: noTaxQueue() });
+
+    const res = await getCartTaxRates([{ productId: "p1", variantId: "v1" }]);
+
+    // Tax display is untouched — the store really does charge none.
+    expect(res.enabled).toBe(false);
+    expect(res.inclusive).toBe(false);
+    // ...but the offer engine's inputs are present, which is the whole point.
+    expect(res.lines).toHaveLength(1);
+    expect(res.lines[0]).toMatchObject({
+      productId: "p1",
+      variantId: "v1",
+      categoryId: "cat-seating",
+      price: 44900,
+      regularUnitPrice: 48900,
+      // Every line is taxed at zero; resolving a class would be discarded work.
+      rate: 0,
+    });
+  });
+
   it("★ taxes a variant on its special_price", async () => {
     dbHolder.current = makeDbMock({ selectQueue: queue(450) });
 
