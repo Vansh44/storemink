@@ -5167,7 +5167,7 @@
           },
           {
             "name": "a proposal and its answer are stated not to add up",
-            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%at whichever of the two amounts is higher, never both added together%'",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%at whichever of the two amounts is higher, never both added together%' and body not like '%The composer estimate is a preview%'",
             "equals": "1"
           },
           {

@@ -29,11 +29,20 @@ WHERE slug = 'use-mink-ai-in-your-dashboard' AND status = 'published';
 -- Preparing something to approve keeps its own published price. Say plainly
 -- that the two do not add up, or a merchant reading both paragraphs will
 -- expect to pay twice for one request.
+--
+-- ⚠ The "composer estimate" clause goes with it. That hint above the message
+-- box is removed: it guessed the kind of proposal from keywords in whatever
+-- had been typed so far and got it wrong in ordinary use -- "can you create
+-- the cover image for the blog" was announced as a 5-credit blog proposal when
+-- a generated image costs 3. A preview that can name the wrong price is worse
+-- than none, and describing it here would promise a control that no longer
+-- exists. No replacement claim is made about where the figure appears, because
+-- the proposal card reports what was ACTUALLY charged rather than a forecast.
 UPDATE public.help_articles
 SET body = replace(
       body,
       $old$The composer estimate is a preview; the server calculates and charges the authoritative amount exactly once when it creates the proposal.</p>$old$,
-      $new$The composer estimate is a preview; the server calculates and charges the authoritative amount exactly once when it creates the proposal. When one request both answers you and prepares a proposal, you are charged once, at whichever of the two amounts is higher, never both added together.</p>$new$
+      $new$The server calculates and charges the authoritative amount exactly once when it creates the proposal, and the proposal card reports the amount it charged. When one request both answers you and prepares a proposal, you are charged once, at whichever of the two amounts is higher, never both added together.</p>$new$
     ),
     updated_at = now()
 WHERE slug = 'use-mink-ai-in-your-dashboard' AND status = 'published';

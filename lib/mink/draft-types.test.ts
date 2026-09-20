@@ -1,9 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  MINK_DRAFT_CONFIG,
-  estimateMinkDraftIntent,
-  normalizeMinkDraftContent,
-} from "./draft-types";
+import { MINK_DRAFT_CONFIG, normalizeMinkDraftContent } from "./draft-types";
 
 describe("Mink draft contracts", () => {
   it("keeps the documented weighted-credit schedule stable", () => {
@@ -180,74 +176,9 @@ describe("Mink draft contracts", () => {
     ).toThrow("SEO title must be at most 70");
   });
 
-  it("shows a deterministic client estimate without treating it as billing", () => {
-    expect(
-      estimateMinkDraftIntent("Write a blog post about summer care"),
-    ).toEqual({
-      kind: "blog",
-      label: "Blog post",
-      expectedCredits: 5,
-    });
-    expect(estimateMinkDraftIntent("How many blogs do I have?")).toBeNull();
-    expect(
-      estimateMinkDraftIntent("Create a new product for masala tea"),
-    ).toMatchObject({
-      kind: "product_create",
-      expectedCredits: 3,
-    });
-    expect(estimateMinkDraftIntent("Update coupon SAVE10")).toMatchObject({
-      kind: "coupon_update",
-      expectedCredits: 1,
-    });
-    expect(
-      estimateMinkDraftIntent("Create a customer group for VIPs"),
-    ).toMatchObject({
-      kind: "customer_group_create",
-      expectedCredits: 1,
-    });
-    expect(
-      estimateMinkDraftIntent("Adjust stock for SKU TEA-500 by -2 in Delhi"),
-    ).toMatchObject({ kind: "inventory_adjustment", expectedCredits: 1 });
-    expect(
-      estimateMinkDraftIntent("Bulk update inventory for multiple SKUs"),
-    ).toMatchObject({
-      kind: "bulk_inventory_adjustment",
-      expectedCredits: 5,
-    });
-    expect(
-      estimateMinkDraftIntent("Mark order ORD-1001 as shipped"),
-    ).toMatchObject({
-      kind: "order_status_transition",
-      expectedCredits: 1,
-    });
-    expect(
-      estimateMinkDraftIntent(
-        "Redesign the Echos homepage hero and generate custom code",
-      ),
-    ).toMatchObject({
-      kind: "storefront_custom_code",
-      expectedCredits: 5,
-    });
-  });
-
   // ★ The storefront branch runs FIRST in the cascade, so an over-broad match
   // there shadows every more specific branch and quotes the wrong credit count
   // for it. A generic verb beside "website"/"homepage" is not a code request.
-  it("does not let the storefront branch shadow more specific draft intents", () => {
-    expect(
-      estimateMinkDraftIntent("Create a new product for my website"),
-    ).toMatchObject({ kind: "product_create", expectedCredits: 3 });
-    expect(
-      estimateMinkDraftIntent("Write a blog post for the homepage"),
-    ).toMatchObject({ kind: "blog", expectedCredits: 5 });
-    expect(
-      estimateMinkDraftIntent("Create a coupon code for the website"),
-    ).toMatchObject({ kind: "coupon_create", expectedCredits: 1 });
-    // An explicit code or design signal still reaches the storefront branch.
-    expect(
-      estimateMinkDraftIntent("Update the CSS on my storefront hero"),
-    ).toMatchObject({ kind: "storefront_custom_code", expectedCredits: 5 });
-  });
 
   it("preserves generated code byte-for-byte while normalizing proposal metadata", () => {
     const content = normalizeMinkDraftContent("storefront_custom_code", {

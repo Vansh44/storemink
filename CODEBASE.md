@@ -94,6 +94,20 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 
 ### Mink credit charging — ON by default (2026-09-21)
 
+**★★ AND THE COMPOSER'S COST HINT IS GONE (2026-09-21).** A line above the
+message box named the proposal kind and its price while you typed
+(`estimateMinkDraftIntent`). It guessed from keywords in the partial message
+and got it wrong in ordinary use: "can you create the cover image for the blog"
+was announced as **Blog post proposal — Expected cost: 5 Mink credits** when a
+generated image costs 3. Its own source comment already recorded an earlier
+misfire of the same shape (`website` + `create` quoting 5 for a 3-credit
+product draft), which is the tell that a keyword chain cannot answer this: the
+kind is decided by the model mid-run, from tools the composer cannot see. A
+forecast that can name the wrong number is worse than none, so the ~90-line
+estimator and its tests went with the markup — it had no other caller.
+⚠ `MinkProposalCardProps.expectedCredits` is now passed and never read; the
+card has always reported the ACTUAL charge instead. Left alone as pre-existing.
+
 **★★ IT WAS OPT-IN AND THEREFORE NEVER ON.** `MINK_CHARGE_CREDITS` shipped as
 the inverse of `MINK_AI_ENABLED` so that billing something which had always
 been free could not be reached by forgetting a variable — and it was then set
@@ -5541,8 +5555,8 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      Phase 3 is independently controlled by `mink_store_access.drafting_enabled`.
      A qualifying admin with the related Manage permission can request five
      brand-voice proposal kinds: product description, product SEO, blog,
-     coupon email and reusable customer message. The composer previews the
-     documented 2/1/5/2/2 credit weights; the database atomically consumes the
+     coupon email and reusable customer message. The proposal card reports what
+     was charged; the database atomically consumes the
      monthly plan allowance before purchased/granted credits and records the
      authoritative charge once per proposal. Proposal cards show current and
      suggested text, stay editable, and save immutable admin-private versions;

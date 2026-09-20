@@ -33,7 +33,6 @@ import { MinkMark } from "./mink-mark";
 import { MinkMultimodalInput } from "./mink-multimodal-input";
 import { MinkArtifacts } from "./mink-artifacts";
 import { MinkFeedbackControls } from "./mink-feedback";
-import { estimateMinkDraftIntent } from "@/lib/mink/draft-types";
 import { readReviewedMinkDocument } from "@/lib/mink/document-input";
 import { readSavedMinkMediaReference } from "@/lib/mink/media-attachment";
 import { MINK_MESSAGE_MAX_CHARS } from "@/lib/mink/input-policy";
@@ -381,7 +380,6 @@ export function DashboardChat({
   if (isOverlay !== isExpanded) return null;
 
   const hasThread = messages.length > 0 || isReplying || Boolean(error);
-  const draftEstimate = estimateMinkDraftIntent(input);
   const wrapperClass = isOverlay
     ? "mink-chat-surface fixed inset-0 z-[90] flex h-[100dvh] w-screen max-w-full min-h-0 flex-col overflow-hidden overscroll-none bg-white"
     : "mink-chat-surface dash-chat relative flex h-full flex-shrink-0 flex-col overflow-hidden overscroll-none border-l border-t border-[#e5e5e5] bg-white shadow-sm";
@@ -669,15 +667,6 @@ export function DashboardChat({
 
           <div className="shrink-0 border-t border-[#f1f1f1] p-3 sm:p-4">
             <div className={columnClass}>
-              {draftEstimate ? (
-                <div className="mb-1.5 flex items-center justify-between gap-2 px-1 text-[10px] text-[#6c6573]">
-                  <span>{draftEstimate.label} proposal</span>
-                  <span className="font-semibold text-[#5b3fd0]">
-                    Expected cost: {draftEstimate.expectedCredits} Mink credit
-                    {draftEstimate.expectedCredits === 1 ? "" : "s"}
-                  </span>
-                </div>
-              ) : null}
               <MinkMultimodalInput
                 key={`multimodal:${activeConversationId ?? "new"}`}
                 message={input}
