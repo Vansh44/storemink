@@ -6,7 +6,11 @@ import { readMinkBoundedJson } from "@/lib/mink/bounded-json";
 import { MINK_INPUT_BODY_BYTES } from "@/lib/mink/input-policy";
 import { describeDesignReading } from "@/lib/mink/design-from-image";
 import { parseMinkInput, validateMinkInput } from "@/lib/mink/input-validation";
-import { extractMinkDesign, extractMinkInput } from "@/lib/mink/input-provider";
+import {
+  boundMinkReading,
+  extractMinkDesign,
+  extractMinkInput,
+} from "@/lib/mink/input-provider";
 import { reserveMinkInput } from "@/lib/mink/input-limits";
 import { MinkRequestError } from "@/lib/mink/errors";
 import { logInfo } from "@/lib/observability/logger";
@@ -97,8 +101,10 @@ export async function POST(request: Request) {
         ? {
             // The exact values, plus the block the composer shows the merchant.
             design: result.reading,
-            text: describeDesignReading(result.reading).slice(
-              0,
+            // Same bounding as an extraction, from the same helper: a bare
+            // slice cuts mid-word and says nothing about having cut.
+            text: boundMinkReading(
+              describeDesignReading(result.reading),
               input.maxCharacters,
             ),
             kind: checked.kind,

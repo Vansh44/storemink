@@ -348,14 +348,52 @@ child is resource isolation, not an OS security sandbox. Next standalone tracing
 includes checker dependencies. WAV validation accepts only canonical mono
 16 kHz/16-bit PCM up to 30 seconds, not claimed MIME or duration metadata.
 
-`input-limits.ts` uses database rate limits directly, failing closed: 5/owner/
-minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay keys.
+`input-limits.ts` uses database rate limits directly, failing closed:
+15/owner/minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay
+keys. ★★ EVERY BUCKET COUNTS FILES AND A MESSAGE CARRIES UP TO
+`MINK_INPUT_FILES`, so the owner budget is DERIVED as
+`3 × MINK_INPUT_FILES` rather than restated: at a literal 5 it was exactly
+equal to the per-message file cap, so one five-file send spent the whole
+minute — and `submit()` rebuilds the message from scratch on a retry, so the
+first retry after any mid-batch failure was refused with "the input limit was
+reached" and no attachment could be sent for up to a minute. Three sends, not
+two, so a full send plus a full retry still leaves a spare attempt. ⚠ The
+store and global ceilings are deliberately NOT scaled: no single legal action
+can exhaust them, and multiplying them would multiply the worst-case provider
+bill per store — they are a real tightening in MESSAGE terms (30 files an hour
+is now six five-file sends), which is a spend decision to revisit on evidence
+rather than a defect.
 There are at most two concurrent local processing requests. Bounded body reads
 honour abort/deadline. `input-provider.ts` counts tokens then extracts once with
 the configured Vertex model/location, no tools/memory/history/URL fetching.
-8192 counted input tokens, 2048 output tokens, a caller-bounded result of up to
-3000 output characters per file (reduced when several files share a message), and a
-45-second deadline; incomplete/safety-blocked output is rejected, not truncated.
+8192 counted input tokens, at most 2048 output tokens, a caller-bounded result
+of up to 3000 output characters per file (reduced when several files share a
+message), and a 45-second deadline. Incomplete and safety-blocked output is
+rejected, never truncated.
+★★ BUT A COMPLETE READING THAT MERELY OVERSHOOTS THE CHARACTER BUDGET IS CUT
+DOWN, NOT REFUSED (`boundMinkReading`). The only thing holding the model to that
+budget is a sentence of prose in the system instruction, so overshoot is
+ordinary — and refusing it threw away a whole `STOP`-finished reading and failed
+the entire send. With five attachments sharing one message the budget is 1,500
+characters, so one chatty description of one photo killed a request that had
+already spent four provider calls and four slots of the per-minute input budget,
+which then made the retry hit the rate limit too. The cut is MARKED with an
+ellipsis: a silently shortened reading reads to the agent, and to the merchant,
+as the whole document. Every other refusal stands — those say the content cannot
+be trusted or does not exist; this one only ever said there was more of it than
+we asked for.
+★★ AND THE TOKEN CEILING IS NOT THE CHARACTER BUDGET
+(`minkReadingTokenCeiling`). `maxCharacters` bounds what goes in the merchant's
+message; the ceiling bounds what we pay the provider for, and the exchange rate
+is the tokenizer's, which varies by script. The reader transcribes "in its
+original language", so a Devanagari or Tamil reading can cost well over one
+token per character while an English one costs about a quarter — setting the
+ceiling TO `maxCharacters` under-provisions exactly the languages most of this
+platform's merchants write in, cuts the generation off, and gets a good reading
+rejected as MAX_TOKENS. It provisions at 1.5x the budget (a floor on headroom,
+not an estimate of any tokenizer) under the unchanged 2048 ceiling, so it can
+only ever raise the allowance a budget used to get. ⚠ The same helper bounds the
+design branch in the route, which was doing a bare `.slice`.
 No automatic retry or model fallback. Beta extraction deducts no credits;
 content-free logs report modality and provider tokens/unknown failure usage,
 not filenames/bytes/transcripts. Audio is not priced using the text estimator.
@@ -1754,6 +1792,19 @@ wholesip/
 │                              # Markdown prompt tracing, optimizePackageImports
 │                              # Phase-aware function export; next-redirects.test.ts
 │                              # resolves it for dev, production build and server tests.
+│                              # ★★ `serverActions.bodySizeLimit` (6mb) MUST STAY ABOVE
+│                              # `MAX_IMAGE_BYTES` (5 MiB, lib/storage/process-image.ts)
+│                              # plus multipart overhead. `uploadMediaAsset` is a Server
+│                              # Action taking a whole image, so at 4mb Next refused the
+│                              # request BEFORE the action ran and a 4-5 MiB photo could
+│                              # not be added to the Media Library at all — from
+│                              # /dashboard/media or from the Mink composer, which uploads
+│                              # an image the moment it is selected. ⚠ The failure is an
+│                              # opaque body-limit error, never the action's own "up to
+│                              # 5 MB" message, so it reads as a broken upload rather than
+│                              # an oversized file. Deliberately NOT derived from the image
+│                              # cap: this bounds EVERY server action, and pinning it would
+│                              # let an image decision widen the CSV importer's budget too.
 ├── docs/migrations.md         # ★★ READ BEFORE WRITING A MIGRATION. The one rule
 │                              # (backward-compatible with the revision being replaced),
 │                              # expand/contract, the authoring recipe, the three
@@ -9554,8 +9605,8 @@ way — an entry there is a deliberate act, not a way to silence the guard.
       and `importChunk` took no lease, so a caller could still apply rows to a
       job the worker was mid-way through.
     - **★ THE UPLOAD IS A ROUTE HANDLER BECAUSE IT HAS TO BE.** A server action
-      caps the body at 4mb and `MAX_IMPORT_FILE_BYTES` is 25MB, so the file
-      cannot travel through one. That single POST is also atomic — either the
+      caps the body at `serverActions.bodySizeLimit` (6mb) and
+      `MAX_IMPORT_FILE_BYTES` is 25MB, so the file cannot travel through one. That single POST is also atomic — either the
       job is queued or nothing happened — where the chunked upload it replaced
       could always leave a half-uploaded job behind.
     - **★★ THE FILE LIVES IN POSTGRES, NOT THE MEDIA BUCKET, AND THAT IS A

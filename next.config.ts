@@ -80,7 +80,20 @@ const nextConfig: NextConfig = {
     // ones can approach it — and the failure mode is an opaque request error
     // mid-import. Raised to leave real headroom; the chunk size, not this, is
     // what actually bounds a request.
-    serverActions: { bodySizeLimit: "4mb" },
+    //
+    // ★★ BUT THE BINDING CONSTRAINT IS `uploadMediaAsset`, NOT THE IMPORTER.
+    // That is a Server Action taking a whole image, and `MAX_IMAGE_BYTES`
+    // (lib/storage/process-image.ts) admits 5 MiB — so at 4mb Next rejected the
+    // request BEFORE the action ran and a 4–5 MiB photo could not be added to
+    // the Media Library at all, from /dashboard/media or from the Mink
+    // composer, which uploads an image the moment it is selected. The failure
+    // is an opaque body-limit error, never the action's own "up to 5 MB"
+    // message, so it reads as a broken upload rather than an oversized file.
+    // ⚠ Keep this ABOVE `MAX_IMAGE_BYTES` plus multipart overhead. The two are
+    // deliberately not derived from one another — this bounds every server
+    // action, and pinning it to the image cap would let an unrelated image
+    // decision widen the request budget for the CSV importer as well.
+    serverActions: { bodySizeLimit: "6mb" },
   },
   // Non-production environments serve `X-Robots-Tag: noindex` on EVERY response.
   //
