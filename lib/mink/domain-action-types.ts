@@ -124,6 +124,7 @@ export function domainActionFields(
       "seo_description",
       "base_price",
       "selling_price",
+      "image_url",
       "status",
       "track_inventory",
     ];
@@ -174,6 +175,7 @@ export const MINK_DOMAIN_FIELD_LABELS: Record<string, string> = {
   seo_description: "SEO description",
   base_price: "Base price (INR)",
   selling_price: "Selling price (INR)",
+  image_url: "Product image",
   status: "Status",
   track_inventory: "Inventory tracking",
   code: "Coupon code",

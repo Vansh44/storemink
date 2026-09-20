@@ -32,6 +32,7 @@ describe("Mink Phase 4B-4D action contract", () => {
       status: "draft",
       track_inventory: "disabled",
     });
+    expect(domainActionFields("create_product")).toContain("image_url");
     expect(domainActionFields("create_product")).not.toContain("stock");
     expect(domainActionFields("create_product")).not.toContain("published_at");
 

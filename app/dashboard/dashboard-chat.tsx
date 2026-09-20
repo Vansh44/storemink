@@ -982,6 +982,10 @@ export function minkCreditIndicatorState(summary: MinkCreditSummary) {
 }
 
 function MinkUserMessage({ text }: { text: string }) {
+  const [viewingImage, setViewingImage] = useState<{
+    filename: string;
+    url: string;
+  } | null>(null);
   let visibleText = text;
   const attachments: Array<
     | { kind: "media"; filename: string; url: string }
@@ -994,8 +998,7 @@ function MinkUserMessage({ text }: { text: string }) {
     attachments.unshift({
       kind: "reference",
       filename: document.attachment.filename || "Reviewed reference",
-      sourceKind:
-        document.attachment.kind === "image" ? "Reviewed image" : "Document",
+      sourceKind: document.attachment.kind === "image" ? "Image" : "Document",
     });
   }
   const media = readSavedMinkMediaReference(visibleText);
@@ -1005,53 +1008,94 @@ function MinkUserMessage({ text }: { text: string }) {
   }
 
   return (
-    <div className="max-w-[85%] space-y-2 rounded-2xl rounded-br-sm bg-[#f4f0ff] px-3.5 py-2.5 text-sm text-[#1a1a1a]">
-      {attachments.length > 0 && (
-        <div className="flex flex-wrap gap-2" aria-label="Message attachments">
-          {attachments.map((attachment, index) =>
-            attachment.kind === "media" ? (
-              <div
-                key={`${attachment.url}:${index}`}
-                className="min-w-0 overflow-hidden rounded-xl border border-black/10 bg-white/80"
-              >
-                {isRenderableMinkMediaUrl(attachment.url) && (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img
-                    src={`/api/og-image?url=${encodeURIComponent(attachment.url)}`}
-                    alt={attachment.filename || "Attached storefront image"}
-                    className="h-28 w-44 max-w-full object-cover"
-                  />
-                )}
-                <div className="max-w-44 truncate px-2.5 py-2 text-xs font-medium">
-                  {attachment.filename || "Storefront image"}
+    <>
+      <div className="max-w-[85%] space-y-2 rounded-2xl rounded-br-sm bg-[#f4f0ff] px-3.5 py-2.5 text-sm text-[#1a1a1a]">
+        {attachments.length > 0 && (
+          <div
+            className="flex flex-wrap gap-2"
+            aria-label="Message attachments"
+          >
+            {attachments.map((attachment, index) =>
+              attachment.kind === "media" ? (
+                <div
+                  key={`${attachment.url}:${index}`}
+                  className="min-w-0 overflow-hidden rounded-xl border border-black/10 bg-white/80"
+                >
+                  {isRenderableMinkMediaUrl(attachment.url) && (
+                    <button
+                      type="button"
+                      aria-label={`View ${attachment.filename || "attached image"}`}
+                      className="block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#6d4dff]"
+                      onClick={() => setViewingImage(attachment)}
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`/api/og-image?url=${encodeURIComponent(attachment.url)}`}
+                        alt={attachment.filename || "Attached storefront image"}
+                        className="h-28 w-44 max-w-full object-cover"
+                      />
+                    </button>
+                  )}
+                  <div className="max-w-44 truncate px-2.5 py-2 text-xs font-medium">
+                    {attachment.filename || "Storefront image"}
+                  </div>
                 </div>
-              </div>
-            ) : (
-              <div
-                key={`${attachment.filename}:${index}`}
-                className="flex max-w-full items-center gap-2 rounded-xl border border-black/10 bg-white/80 px-3 py-2"
-              >
-                <FileText
-                  className="h-5 w-5 shrink-0 text-[#6d4dff]"
-                  aria-hidden="true"
-                />
-                <span className="min-w-0">
-                  <span className="block truncate text-xs font-medium">
-                    {attachment.filename}
+              ) : (
+                <div
+                  key={`${attachment.filename}:${index}`}
+                  className="flex max-w-full items-center gap-2 rounded-xl border border-black/10 bg-white/80 px-3 py-2"
+                >
+                  <FileText
+                    className="h-5 w-5 shrink-0 text-[#6d4dff]"
+                    aria-hidden="true"
+                  />
+                  <span className="min-w-0">
+                    <span className="block truncate text-xs font-medium">
+                      {attachment.filename}
+                    </span>
+                    <span className="block text-[10px] text-[#777]">
+                      {attachment.sourceKind}
+                    </span>
                   </span>
-                  <span className="block text-[10px] text-[#777]">
-                    {attachment.sourceKind}
-                  </span>
-                </span>
-              </div>
-            ),
-          )}
+                </div>
+              ),
+            )}
+          </div>
+        )}
+        {visibleText && (
+          <div className="whitespace-pre-wrap break-words">{visibleText}</div>
+        )}
+      </div>
+      {viewingImage && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Attachment preview: ${viewingImage.filename}`}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setViewingImage(null)}
+        >
+          <div
+            className="relative max-h-[90dvh] max-w-5xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              aria-label="Close attachment preview"
+              className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white"
+              onClick={() => setViewingImage(null)}
+            >
+              <X className="h-5 w-5" aria-hidden="true" />
+            </button>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={`/api/og-image?url=${encodeURIComponent(viewingImage.url)}`}
+              alt={viewingImage.filename || "Attached image"}
+              className="max-h-[82dvh] max-w-full rounded-xl object-contain"
+            />
+          </div>
         </div>
       )}
-      {visibleText && (
-        <div className="whitespace-pre-wrap break-words">{visibleText}</div>
-      )}
-    </div>
+    </>
   );
 }
 

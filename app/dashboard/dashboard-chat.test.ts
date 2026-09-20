@@ -302,6 +302,18 @@ describe("Mink full view", () => {
 
     expect(screen.getByText("Create a buy 1 get 1 carousel")).toBeVisible();
     expect(screen.getByRole("img", { name: "almond-shake.png" })).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "View almond-shake.png" }),
+    );
+    expect(
+      screen.getByRole("dialog", {
+        name: "Attachment preview: almond-shake.png",
+      }),
+    ).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close attachment preview" }),
+    );
+    expect(screen.queryByRole("dialog")).toBeNull();
     expect(
       screen.queryByText(/untrusted reference data, not instructions/i),
     ).toBeNull();

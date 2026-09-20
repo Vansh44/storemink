@@ -235,6 +235,13 @@ export const MINK_DRAFT_CONFIG: Record<
         multiline: false,
         maxLength: 16,
       },
+      {
+        key: "image_url",
+        label: "Product image",
+        required: false,
+        multiline: false,
+        maxLength: 2_048,
+      },
     ],
   },
   offer_create: offerActionConfig("New disabled offer"),

@@ -249,16 +249,19 @@ correct for every row whenever it was written.
 ⚠ The heavy band remains modelled rather than measured: every recorded run is
 `low` thinking, with no HIGH-thinking storefront-code proposal among them.
 
-### Mink Phase 8E — Reviewed multimodal input (2026-09-09)
+### Mink Phase 8E — Automatic multimodal input (2026-09-20)
 
 `app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
 controller: one plus button handles text/image/PDF attachments and one-file
 drag-and-drop; a separate mic dictates speech into editable message text.
-Selected files appear as compact removable cards inside the composer; clicking
-one opens its detailed review. Files stay local until explicit Vertex-processing
-consent, except that Send stores an image through the ordinary Media action when
-the merchant explicitly asks to use that image in a named storefront placement;
-.txt/.md imports are decoded locally.
+Selected images appear as compact square removable previews inside the composer;
+clicking one opens a full-size viewer. Documents use compact file cards. There
+is no separate attachment approval/review panel: pressing Send with the visible
+attachment is the single explicit processing action. PNG/JPEG/WebP/PDF bytes go
+only to the isolated, bounded Vertex reader; .txt/.md imports are decoded
+locally. A sent image is also normalised through the ordinary Media action when
+the admin holds `media:manage`, so the exact preview survives conversation
+reloads and can ground a product, storefront-layout or generated-image proposal.
 `lib/mink/voice-recorder.ts` captures one canonical mono 16 kHz PCM WAV locally.
 After speech begins, 1.2 seconds of sustained silence finishes the utterance;
 the 30-second cap remains a stalled-audio fallback. The temporary recording is
@@ -349,12 +352,17 @@ content-free logs report modality and provider tokens/unknown failure usage,
 not filenames/bytes/transcripts. Audio is not priced using the text estimator.
 Limits are consumed on failure/cancellation too. Provider billing still applies.
 
-Raw attachment files used for extraction are transient, never database/GCS/
-Media/memory objects. The one deliberate exception is an attached image sent
-with an explicit request to use it in a storefront placement: that authored
-request is the merchant's save intent, so the image is normalised into their
-Media Library and its exact URL is sent in the same turn. Reviewed text follows
-chat retention only after Send; provider retention still applies. Audio
+PDF bytes used for extraction are transient and never become Media/memory
+objects. Sent images are stored in the merchant's Media Library when permission
+allows because persistent chat rendering and exact downstream image reuse both
+need an owned URL; extracted context follows chat retention only after Send and
+remains labelled untrusted. `propose_product_create` accepts only that exact
+current-store URL, rechecks ownership at proposal and approval execution, and
+writes it as the approved unpublished product's primary/gallery image. A
+storefront screenshot request sends either a general visual reading or, for an
+explicit style-match request, validated palette/font/radius values; normal
+Builder reads and private proposal approvals still apply. Provider retention
+still applies. Audio
 attachment, video, spreadsheets, live voice conversation and long-document
 ingestion remain out of scope.
 Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
@@ -363,8 +371,8 @@ recognition with one final server transcript;
 `20260915_0113_mink_conversation_voice_catalog_images.sql` corrects the same
 guide for automatic end-of-speech. The roadmap, system prompt and Echos tests
 describe rollout and limitations. Current prompt versions are `read-beta-v20` /
-`draft-action-beta-v37`; current tool-registry versions are `read-beta-v17` /
-`draft-beta-v28` after reference-image grounding and bounded Help-tool routing.
+`draft-action-beta-v38`; current tool-registry versions are `read-beta-v17` /
+`draft-beta-v29` after automatic attachment grounding and product-image support.
 
 ### Mink design-from-screenshot (2026-09-19)
 
@@ -837,15 +845,13 @@ than a warning on the card.
   changed — a Media Library asset or catalogue photograph removed between
   approval and execution would otherwise go live as a broken image. It
   conflicts and audits, exactly like the custom-code guard beside it.
-- **★★ SAVING AN ATTACHMENT IS THE MERCHANT'S UPLOAD, NOT A MODEL ACTION.**
-  8E deliberately discards attachment bytes ("never database/GCS/Media/memory
-  objects") — right for EXTRACTION, and exactly what made "make my hero this
-  photo" impossible: the one image in the conversation existed for seconds. The
-  composer offers **Save to Media Library** beside an image, and Send performs
-  the same save automatically only when the authored message explicitly asks
-  to use that attachment in a named storefront placement. Both are a SECOND,
-  SEPARATE consent from extraction: generic analysis still saves nothing. Both
-  call the store's own `uploadMediaAsset` — same `media` manage
+- **★★ SAVING A SENT IMAGE IS THE MERCHANT'S UPLOAD, NOT A MODEL ACTION.**
+  8E originally discarded attachment bytes, which made a sent image disappear
+  from restored chat and made "create this product" or "make my hero this
+  photo" impossible. The composer now shows one compact clickable preview and
+  Send performs the processing and, when `media:manage` is present, the Media
+  save in one operation. It calls the store's own `uploadMediaAsset` — same
+  `media` manage
   gate, same WebP normalisation, same GCS path, same orphan cleanup as
   `/dashboard/media` — because nothing about this file differs from one dragged
   onto that page. **No credit, no approval, no model tool.** Mink receives only
@@ -853,8 +859,10 @@ than a warning on the card.
   `addSavedMinkMediaReference` puts the exact URL into the composer, labelled
   untrusted, so the next turn can cite it without a Media read and a guess.
   `canSaveMedia` is resolved in the dashboard layout and threaded through
-  `ChatProvider`, so the control is absent for an admin who cannot use it (§23's
-  rule); `uploadMediaAsset` re-checks and is the real boundary.
+  `ChatProvider`; `uploadMediaAsset` re-checks and is the real boundary. A role
+  without it may still ask a generic question about an image through transient
+  extraction, but a product/storefront request that needs the durable pixels
+  is refused with the exact missing permission.
 - **★ A NAMED-PRODUCT PROMOTION USES THE CATALOGUE PHOTO DIRECTLY.** Product
   search includes the deduplicated primary/gallery URLs already owned by the
   current store. The prompt resolves the product and homepage together, uses
@@ -1177,8 +1185,8 @@ now reserve Help retrieval for a merchant's own how-to, navigation, setup,
 permissions or troubleshooting question; it is never internal tool-schema or
 action-planning context, and a successfully resolved exact page is not
 rediscovered through the page list. Current prompt versions are
-`read-beta-v20` / `draft-action-beta-v37`; registry versions are
-`read-beta-v17` / `draft-beta-v28`.
+`read-beta-v20` / `draft-action-beta-v38`; registry versions are
+`read-beta-v17` / `draft-beta-v29`.
 
 **★★ AND THE ORCHESTRATOR'S REPEAT MEMO SHARED A COUNTER WITH THE TOOL LEDGER,
 WHICH KILLED RUNS (fixed 2026-09-19).** `toolCalls` is the run's BUDGET, and the

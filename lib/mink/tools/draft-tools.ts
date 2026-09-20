@@ -44,6 +44,7 @@ import {
   normalizeMinkOrderReference,
   readMinkOrderStatusTarget,
 } from "../order-status-target";
+import { readOwnedStorefrontImageUrls } from "../storefront-media-read";
 
 const draftingAvailable = (actor: MinkActorContext) =>
   actor.draftingEnabled === true;
@@ -361,7 +362,7 @@ export const proposeProductCreateTool: MinkTool = {
   declaration: {
     name: "propose_product_create",
     description:
-      "Create a charged, private proposal for a new draft product. The proposal can later create only an unpublished product with inventory tracking disabled; it cannot publish, add stock, variants, images, categories or tax/shipping settings.",
+      "Create a charged, private proposal for a new draft product. The proposal can later create only an unpublished product with inventory tracking disabled; it cannot publish, add stock, variants, categories or tax/shipping settings. When the composer supplies an exact saved image URL with the request, pass it unchanged as image_url so the approved product uses that uploaded image; never invent or substitute an image URL.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -378,6 +379,12 @@ export const proposeProductCreateTool: MinkTool = {
           type: "number",
           exclusiveMinimum: 0,
           maximum: 99_999_999.99,
+        },
+        image_url: {
+          type: "string",
+          maxLength: 2048,
+          description:
+            "Optional exact store-owned Media Library URL supplied with the current user message.",
         },
       },
       required: [
@@ -404,6 +411,17 @@ export const proposeProductCreateTool: MinkTool = {
         "The product name must contain letters or numbers so StoreMink can create a URL slug.",
       );
     }
+    const imageUrl = readOptionalString(args.image_url, "image_url", 2_048);
+    if (imageUrl) {
+      const owned = await readOwnedStorefrontImageUrls(actor.storeId, [
+        imageUrl,
+      ]);
+      if (!owned.has(imageUrl)) {
+        throw new MinkToolInputError(
+          "Product image must be the exact current-store Media Library URL supplied with this request.",
+        );
+      }
+    }
     return proposalOutput(
       await createMinkDraftProposal({
         actor,
@@ -424,6 +442,7 @@ export const proposeProductCreateTool: MinkTool = {
           ),
           base_price: readNumberString(args.base_price, "base_price"),
           selling_price: readNumberString(args.selling_price, "selling_price"),
+          image_url: imageUrl,
         },
       }),
     );
