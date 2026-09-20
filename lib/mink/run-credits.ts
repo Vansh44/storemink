@@ -87,7 +87,14 @@ export async function minkRunAffordability(
  * outcome rather than charging twice.
  */
 export async function settleMinkRunCredits(input: {
-  actor: MinkActorContext;
+  /**
+   * ★ NARROWED TO THE THREE FIELDS SETTLEMENT READS, so a row from the ledger
+   * is a valid input. A full `MinkActorContext` still satisfies it, so no
+   * caller changed; requiring one would have forced the reconciler to rebuild
+   * a request-scoped context (permissions, locations, brand voice) it has no
+   * request for and does not use.
+   */
+  actor: Pick<MinkActorContext, "storeId" | "adminId" | "effectivePlan">;
   runId: string;
   usage: MinkUsage;
   status: "succeeded" | "failed" | "cancelled";

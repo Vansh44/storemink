@@ -216,6 +216,29 @@ below it was unreachable; unauthenticated requests get 401; the queue was empty
 is live and did need a worker. Verified after creation by three consecutive
 firings a minute apart (13:49:09, 13:50:05, 13:51:05), all HTTP 200, the job's
 own status code empty, no app-side errors, tables still clean.
+
+★★ **IT ALSO CARRIES THE MINK CREDIT RECONCILER (2026-09-21), and that is
+deliberately not a job of its own.** `settleMinkRunCredits` runs after the run
+row commits and never throws, because a billing failure must not roll back a
+reply the merchant is already reading — so a crash-shaped miss leaves a
+`mink_usage_ledger` row with a NULL `credit_source`: answer delivered, credits
+never taken, nothing retrying. `reconcileMinkRunCredits` is that retry, added
+as one more independent pass here rather than as a new Cloud Scheduler entry,
+because this file records **three** jobs that were documented and never
+created, and this route is already per-minute, already Mink-scoped and already
+authorised. The response gained `creditsSettled`.
+⚠ **It is fenced off from the backlog.** Every run older than
+`CHARGING_STARTED_AT` was free when it was made, so sweeping "everything
+unsettled" would retroactively bill merchants for questions that cost nothing
+at the time. Measured against a staging copy: **43 rows** would have been
+billed without that fence, and **0** with it. It also has a 24-hour lookback
+(settling a run from a previous cycle spends THIS cycle's allowance on last
+cycle's work) and a 10-minute minimum age so it cannot race the live path.
+⚠ It picks up a second, structural fault too: nothing calls
+`settleMinkRunCredits` for a run that FAILED, so every failed run's row is NULL
+for ever. Settling those charges nothing — a failed run's band is 0 and
+`minkRunCreditCharge` returns only the untaken part — but records the fact,
+which is what stops the sweep re-reading them every minute.
 ⚠ Each execution logs TWO Cloud Scheduler entries — one carrying
 `httpRequest.status: 200` and one with the field absent — so a filter of
 `httpRequest.status!=200` looks like failures and is not. Judge by the job's

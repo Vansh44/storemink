@@ -94,6 +94,32 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 
 ### Mink credit charging — ON by default (2026-09-21)
 
+**★★ AND AN UNSETTLED RUN IS COLLECTED LATE (2026-09-21).**
+`settleMinkRunCredits` is allowed to fail by design — it runs after the run row
+commits so a billing failure cannot roll back a reply already on screen — and
+the cost of that rule is a ledger row with a NULL `credit_source`: the answer
+went out and the credits never came off. Nothing retried it.
+`lib/mink/run-credit-reconcile.ts` is the retry, riding the existing per-minute
+`/api/cron/mink-workflows` heartbeat rather than taking a Scheduler entry of
+its own (docs/cron-jobs.md records three jobs documented and never created).
+★ NULL is an unambiguous signal, which is what makes the sweep safe: every
+other outcome is recorded, INCLUDING a run that owed nothing (`'none'`).
+★ It calls the SAME `settleMinkRunCredits` the live path calls, so there is no
+second copy of the band arithmetic to drift; the actor parameter was narrowed
+to the three fields settlement reads so a ledger row is a valid input.
+⚠ **`CHARGING_STARTED_AT` FENCES OFF THE BACKLOG.** Every run before charging
+was switched on was genuinely free, so "everything unsettled" would bill
+merchants retroactively for it — measured on a staging copy, **43 rows** would
+have been charged without the fence and **0** with it. A 24-hour lookback keeps
+a charge in the cycle that earned it, and a 10-minute minimum age keeps the
+sweep off the live path's heels.
+⚠ It also fixes a structural NULL nobody had noticed: the stream route is the
+only caller and passes `status: "succeeded"`, so a FAILED run is never settled
+and its row stays NULL for ever. Settling one charges nothing (band 0, and
+`minkRunCreditCharge` returns only the untaken part) but records the fact.
+All five safety properties are mutation-checked, and the query was executed
+against a real PostgreSQL — a mocked driver cannot tell valid SQL from invalid.
+
 **★★ A LOW-BALANCE WARNING SITS ABOVE THE COMPOSER (2026-09-21).**
 `minkCreditWarning` is the pure rule, and it is measured in CREDITS rather than
 in a fraction — which is why it is not simply the ring's colour. "Can I afford

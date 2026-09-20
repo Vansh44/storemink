@@ -3,6 +3,8 @@ import { runMinkWorkflowWorker } from "@/lib/mink/workflows";
 import { scheduleMinkWatches, reconcileMinkWatches } from "@/lib/mink/watches";
 import { logError } from "@/lib/observability/logger";
 import { purgeExpiredMinkMemories } from "@/lib/mink/memories";
+import { reconcileMinkRunCredits } from "@/lib/mink/run-credit-reconcile";
+import { getMinkConfig } from "@/lib/mink/config";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -47,6 +49,19 @@ async function handle(request: Request) {
     } catch (error) {
       passError ??= error;
     }
+    // ★ It rides this heartbeat rather than taking a Cloud Scheduler entry of
+    //   its own: docs/cron-jobs.md records three jobs that were documented and
+    //   never created, and this one is already per-minute, already Mink-scoped
+    //   and already authorised. ⚠ Its own errors are swallowed inside the
+    //   reconciler, so a billing sweep can never fail the workflow worker.
+    let creditsSettled = 0;
+    try {
+      ({ settled: creditsSettled } = await reconcileMinkRunCredits(
+        getMinkConfig().chargeCredits,
+      ));
+    } catch (error) {
+      passError ??= error;
+    }
     if (passError) throw passError;
     if (!result) throw new Error("Workflow heartbeat returned no result.");
     return NextResponse.json({
@@ -54,6 +69,7 @@ async function handle(request: Request) {
       ...result,
       watchesQueued,
       watchAlerts,
+      creditsSettled,
     });
   } catch (error) {
     // 503, not an unhandled 500, so Cloud Scheduler's retries engage — the
