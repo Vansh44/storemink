@@ -92,16 +92,32 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
-### Mink credit charging — installed, switched off (2026-09-11)
+### Mink credit charging — ON by default (2026-09-21)
 
-The mechanism to bill a conversation exists; nothing bills yet.
-`MINK_CHARGE_CREDITS` is **opt-IN** (the inverse of `MINK_AI_ENABLED`, which
-defaults on) and unset everywhere, so `minkRunAffordability` makes no extra
-read and `settleMinkRunCredits` spends nothing. Turning it on is a pricing
-decision, taken once the shadow bands have been calibrated against live traffic
-and once the cache-hit figure is known — at a band ceiling the margin is 1.09×
-uncached and roughly 3× cached, so that number decides whether these bands are
-safe to charge at all.
+**★★ IT WAS OPT-IN AND THEREFORE NEVER ON.** `MINK_CHARGE_CREDITS` shipped as
+the inverse of `MINK_AI_ENABLED` so that billing something which had always
+been free could not be reached by forgetting a variable — and it was then set
+in no environment at all: absent from every `cloudbuild.yaml` substitution and
+from the live Cloud Run revision. Measured on production before the flip:
+**28 runs, 6 credits charged — both of them PROPOSAL weights, never the
+conversation — against 80 the shadow meter had recorded**, with all 28
+`credit_source` values NULL because `settleMinkRunCredits` had never run once.
+So the merchant-visible rule was "preparing something to approve costs credits,
+asking anything at all is free, however heavy", which is not a rule anybody
+chose. `chargeCredits` is now `enabled()`, and `_MINK_CHARGE_CREDITS` is wired
+through the deploy so `false` is a real emergency stop rather than the silent
+default.
+
+⚠ Band mix those 28 runs would have produced: 16 light, 6 standard, 2 heavy,
+4 failed-and-free. ⚠ At a band ceiling the margin is 1.09× uncached and roughly
+3× cached, so the cache-hit figure is what decides whether these bands are
+safe long-term; tightening them is the wrong lever, because it triples the
+charge on ordinary runs.
+⚠ Still not built, and now shipping without them: a pre-flight disclosure of
+what a request will cost (the composer's balance ring is the only signal), and
+a reconciler for runs left with a NULL `credit_source`. The second is a revenue
+leak rather than a merchant harm — settlement runs after the answer commits and
+never throws, so a failure under-charges.
 
 **★★ ONE SWITCH RAISES THE ALLOWANCE AND STARTS THE CHARGE TOGETHER.**
 `PLAN_LIMITS` gained `aiCreditsPerMonth` (20/100/300) beside the legacy

@@ -8,6 +8,33 @@ afterEach(() => {
 });
 
 describe("getMinkConfig", () => {
+  // ★★ CHARGING IS A PRICING FACT, SO IT IS PINNED IN BOTH DIRECTIONS. It
+  // shipped opt-in and was then never set anywhere — no cloudbuild substitution,
+  // no Cloud Run revision — so every conversation was free while the shadow
+  // meter recorded what it would have cost. Nothing failed, because nothing
+  // asserted the default. These two do.
+  it("charges credits when nothing is set", () => {
+    delete process.env.MINK_CHARGE_CREDITS;
+    expect(getMinkConfig().chargeCredits).toBe(true);
+  });
+  it.each(["false", "0", "FALSE", " false "])(
+    "stops charging on an explicit %s",
+    (value) => {
+      process.env.MINK_CHARGE_CREDITS = value;
+      expect(getMinkConfig().chargeCredits).toBe(false);
+    },
+  );
+  // ⚠ The failure direction is the whole reason this is not `enabled()`: that
+  // helper reads anything it does not recognise as OFF, which here means
+  // silently free. A value meant to turn charging ON must never turn it off.
+  it.each(["TRUE", "true ", "1", "yes", ""])(
+    "keeps charging on %s rather than reading it as off",
+    (value) => {
+      process.env.MINK_CHARGE_CREDITS = value;
+      expect(getMinkConfig().chargeCredits).toBe(true);
+    },
+  );
+
   it("enables by default and uses the production model defaults", () => {
     delete process.env.MINK_AI_ENABLED;
     delete process.env.MINK_VERTEX_MODEL;
