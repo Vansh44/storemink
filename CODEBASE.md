@@ -3265,6 +3265,13 @@ wholesip/
 │                              # indexes, privileges. `0018_help_embedding_hardening`
 │                              # is the model; the Help-baseline note below states the
 │                              # same rule for content migrations.
+│                              # A later checksummed migration may retire ONE exact
+│                              # obsolete named query with `supersedesVerifyQueries`;
+│                              # the runner validates that the target is earlier and
+│                              # exact, and never permits structural checks to be
+│                              # suppressed. Status recognizes a healthy pending
+│                              # retirement so the old query cannot prevent its own
+│                              # forward-only replacement from being applied.
 │                              # ⚠ Editing a PENDING entry is safe (nothing recorded
 │                              # it, so no checksum drift); editing an APPLIED one
 │                              # rewrites its computed checksum and the runner refuses.
@@ -3344,6 +3351,10 @@ wholesip/
 │                              # database (see "Mink draft credits" below).
 │                              # 0118 updates the existing Mink image guide paragraph for
 │                              # product/category/Media reference-grounded generation.
+│                              # 0119 records the forward-only retirement of 0036's
+│                              # physical-row cap query: the visible history remains ten,
+│                              # while protected publication/action evidence may keep
+│                              # older conversation rows outside that list.
 │                              # `db-migrations-core.test.mjs`
 │                              # freezes the nine pairs, so a new entry reusing any
 │                              # existing number fails CI (it either adds a tenth
@@ -5352,7 +5363,10 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      conversation whose source draft is retained by the blog-publication ledger
      or append-only action audit, so scheduled/published or completed-action
      evidence cannot make a new Mink run fail;
-     protected older rows remain outside the bounded visible list. The UI
+     protected older rows remain outside the bounded visible list. Migration
+     `20260920_0119_retire_mink_conversation_cap_verify` immutably retires
+     0036's obsolete physical-row-count query without deleting that evidence;
+     the newer visible-list contract remains the product guarantee. The UI
      restores the newest thread after refresh, exposes all ten in a dedicated
      responsive sidebar, allows confirmed same-origin deletion, renders
      supported Markdown without raw HTML, remembers a bounded drag/keyboard

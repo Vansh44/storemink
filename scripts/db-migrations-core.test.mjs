@@ -3,7 +3,9 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import {
   acquireMigrationLock,
+  activeVerifyQuerySupersessions,
   canonicalJson,
+  effectiveVerifyContract,
   loadManifest,
   migrationPlan,
   parseCli,
@@ -915,6 +917,72 @@ describe("database migration controls", () => {
     expect(sha256("same")).not.toBe(sha256("changed"));
   });
 
+  it("retires one obsolete durable query only when its later migration is active", () => {
+    const historical = {
+      id: "001_history",
+      verify: {
+        tables: ["records"],
+        queries: [
+          { name: "obsolete cap", sql: "select 1", equals: "0" },
+          { name: "still durable", sql: "select 2", equals: "2" },
+        ],
+      },
+    };
+    const retirement = {
+      id: "002_retirement",
+      verify: { tables: ["records"] },
+      supersedesVerifyQueries: [
+        { migrationId: historical.id, queryName: "obsolete cap" },
+      ],
+    };
+    const testManifest = { migrations: [historical, retirement] };
+
+    const before = activeVerifyQuerySupersessions(testManifest, [
+      historical.id,
+    ]);
+    expect(effectiveVerifyContract(historical, before)).toBe(historical.verify);
+
+    const after = activeVerifyQuerySupersessions(testManifest, [
+      historical.id,
+      retirement.id,
+    ]);
+    expect(effectiveVerifyContract(historical, after)).toEqual({
+      tables: ["records"],
+      queries: [{ name: "still durable", sql: "select 2", equals: "2" }],
+    });
+  });
+
+  it("enrolls the conversation-cap retirement behind the current migration tail", async () => {
+    const loaded = await loadManifest();
+    const byId = new Map(
+      loaded.migrations.map((migration) => [migration.id, migration]),
+    );
+    const retirement = byId.get(
+      "20260920_0119_retire_mink_conversation_cap_verify",
+    );
+    expect(retirement).toMatchObject({
+      requires: ["20260920_0118_mink_reference_image_help"],
+      supersedesVerifyQueries: [
+        {
+          migrationId: "20260829_0036_mink_conversation_ux",
+          queryName:
+            "no actor and store retain more than ten Mink conversations",
+        },
+      ],
+    });
+
+    const supersessions = activeVerifyQuerySupersessions(
+      loaded,
+      new Set(loaded.migrations.map((migration) => migration.id)),
+    );
+    const historical = byId.get("20260829_0036_mink_conversation_ux");
+    expect(
+      effectiveVerifyContract(historical, supersessions).queries.map(
+        (query) => query.name,
+      ),
+    ).toEqual(["app_service can enforce the Mink conversation cap"]);
+  });
+
   it("reports pending migrations only after a baseline", () => {
     expect(migrationPlan(manifest, [])).toMatchObject({
       baselineApplied: false,
@@ -1106,6 +1174,20 @@ describe("database migration controls", () => {
     );
     expect(runner).toContain(
       "ADOPTION AUDIT — migration SQL and ledger writes are disabled.",
+    );
+  });
+
+  it("lets status preflight a pending checksummed verification retirement", async () => {
+    const runner = await readFile(
+      path.resolve(process.cwd(), "scripts/db-migrate.mjs"),
+      "utf8",
+    );
+
+    expect(runner).toMatch(
+      /if \(options\.command === "status"\)[\s\S]*for \(const migration of plan\.pending\)[\s\S]*verificationIds\.add\(migration\.id\)/,
+    );
+    expect(runner).toContain(
+      "effectiveVerifyContract(migration, verifySupersessions)",
     );
   });
 
