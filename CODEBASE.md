@@ -333,6 +333,35 @@ shared; the composer now words its own refusal. ⚠ `MINK_INPUT_ACCEPT` still
 lists `.wav` because the API validates one; `COMPOSER_FILE_ACCEPT` is the
 merchant-facing list and must not.
 
+★★ THE PER-READING BUDGET IS DERIVED FROM THE MESSAGE, AND A SEND IS RESUMABLE
+(`minkReadingBudget`, `minkAttachmentsFit`, `ComposerAttachment.reading`).
+The composer split a flat 7,500 characters between the provider files — a
+number unrelated to `MINK_MESSAGE_MAX_CHARS` — so five readings plus five media
+references plus a long message passed every per-file check and then made
+`addReviewedMinkDocument` throw at the very END, after five provider calls and
+five Media uploads had been paid for, with "shorten the text" as the advice.
+The budget is now recomputed from the live assembled message before each call,
+so a verbose early reading simply narrows what is left; it returns NULL rather
+than clamping when nothing fits, because calling the provider for a reading
+that cannot go in the message is the waste being prevented. ★ Local .txt/.md is
+refused at SELECTION time instead, where its length is known exactly — five
+3,000-character notes is a combination the guide offers and the cap cannot
+hold. ⚠ Provider readings are reserved there at their FLOOR, never their cap,
+or an ordinary five-image message that fits comfortably would be refused up
+front. ★★ AND EACH READING IS KEPT ON ITS ATTACHMENT, so a retry redoes only
+what failed: `submit()` rebuilds the message from raw text every time, so a
+five-file send that died on the last file used to re-extract the first four —
+five more provider calls and five more slots of the per-minute input budget,
+which made the retry hit the rate limit rather than the real fault. ⚠ Cached
+per MODE, not merely present: whether an image is read as a design or an
+extraction depends on the message text, so serving a design reading for an
+extraction request is a wrong answer, not a stale one.
+⚠ The `processing >= 2` per-instance guard is deliberately NOT raised. Each
+request now decodes up to 5 MiB rather than 2 MiB, so per-request memory went
+UP 2.5× and loosening it is the wrong direction without measurement; what made
+its 429 harmful was that it discarded the whole batch, which resumability
+fixes.
+
 `/api/mink/input` requires global runtime and store/dashboard permission;
 there is no separate multimodal feature flag.
 `input-policy.ts`/`input-validation.ts` enforce 5 MiB per provider-processed
@@ -1146,6 +1175,24 @@ one charged, immutable private proposal that IS an image.
   16:9 JPEG (611,734 bytes) from the former `gemini-2.5-flash-image` default with the same project
   credentials. Provider access, model id, global location and response parsing
   are therefore verified rather than inferred.
+- **★★ AND THE 2026-09-21 DEFAULT IS VERIFIED TOO, AGAINST THE EXACT SHIPPED
+  `imageConfig`.** Moving to `gemini-3.1-flash-image` with `imageSize: "2K"` and
+  a 21:9 hero/banner ratio changed three provider-contract values at once, none
+  of which the SDK types (`aspectRatio` and `imageSize` are bare `string`) and
+  none of which any environment overrides — `MINK_IMAGE_MODEL` appears in no
+  `cloudbuild.yaml` substitution and no `.env`, so the compiled default IS what
+  production calls, once, with no retry and no fallback. A free publisher-model
+  metadata read answered the model half (`gemini-3.1-flash-image` → 200,
+  `launchStage: GA`; an invented id → 404, so the endpoint discriminates), and a
+  one-attempt `generateContent` carrying the real safety settings,
+  `ALLOW_NONE`, `BLOCK_PROMINENT_PEOPLE`, JPEG q95 and both new values returned
+  `finishReason: STOP` and a **535,846-byte JPEG at 3168×1344 in 20.4 s**.
+  ⚠ The model rounds 21:9 to its own tile grid (2.357, not 2.333) — the request
+  is honoured, not the arithmetic. ⚠ 20.4 s against `GENERATION_TIMEOUT_MS`
+  (45 s) is comfortable but not generous; a 2K hero is roughly half the budget.
+  ★ The three values move TOGETHER: `gemini-2.5-flash-image` predates the wide
+  aspect and 2K options, so reverting the model while keeping 21:9/2K is the
+  broken combination, not the safe one.
 
 ### Mink reference-grounded image generation (2026-09-20)
 
@@ -2337,6 +2384,21 @@ wholesip/
 │       │                      # tool/message/usage/done events to the dashboard client.
 │       ├── mink/conversations/ # ★ No-store, rate-limited recent-history API: list the
 │       │   └── [conversationId]/ # actor/store's last ten; load or same-origin delete one.
+│       ├── mink/media/discard/ # ★ Same-origin, actor-resolved `keepalive` transport
+│       │                  # for an image the composer uploaded and never sent. It
+│       │                  # exists ONLY because a Server Action cannot be keepalive:
+│       │                  # the unmount cleanup calls `deleteMediaAsset` and the
+│       │                  # browser cancels that on unload, so picking a photo and
+│       │                  # closing the tab left the row and its GCS object in the
+│       │                  # merchant's Media Library for good. It GRANTS NOTHING —
+│       │                  # `deleteMediaAsset` is a "use server" export and therefore
+│       │                  # already a public endpoint, already `media`-manage gated and
+│       │                  # already store-scoped — so it delegates rather than
+│       │                  # reimplementing the delete. ⚠ The composer fires it from
+│       │                  # `pagehide` only when `persisted === false`: bfcache fires
+│       │                  # the same event on an ordinary mobile tab switch and that
+│       │                  # page comes BACK with the previews on screen, where deleting
+│       │                  # would leave Send citing a URL we had destroyed.
 │       ├── mink/feedback/    # ★ Authenticated same-origin rating/issue endpoint; accepts
 │       │                      # only the actor's own tenant run and stores redacted detail.
 │       ├── mink/workflows/[workflowId]/ # ★ Phase 6A no-store owner/tenant-scoped status,

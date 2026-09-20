@@ -14,6 +14,8 @@ import {
 } from "@/lib/mink/document-input";
 import {
   inputKind,
+  minkAttachmentsFit,
+  minkReadingBudget,
   MINK_INPUT_BYTES,
   MINK_INPUT_FILES,
   MINK_MESSAGE_MAX_CHARS,
@@ -31,6 +33,21 @@ type ComposerAttachment = {
   localText: string | null;
   asset: MediaAsset | null;
   uploadState: "local" | "uploading" | "ready" | "error";
+  /**
+   * ★★ A READING SURVIVES A FAILED SEND, so a retry only redoes what failed.
+   * `submit()` rebuilds the message from the raw text every time, so without
+   * this a five-file send that died on the last file re-extracted the first
+   * four — five more provider calls, five more slots of the per-minute input
+   * budget, and a retry that hit the rate limit instead of the thing that
+   * actually went wrong. A `processing >= 2` 429 or one provider timeout
+   * therefore used to cost the whole batch.
+   *
+   * ★ KEYED ON MODE, NOT JUST PRESENT. Whether an image is read as a design or
+   * as an extraction depends on the MESSAGE (`shouldReadMinkImageAsStorefrontDesign`),
+   * which the merchant may edit between attempts — serving a cached design
+   * reading for an extraction request is a wrong answer, not a stale one.
+   */
+  reading: { mode: "extract" | "design"; text: string } | null;
 };
 
 export function MinkMultimodalInput({
@@ -105,6 +122,44 @@ export function MinkMultimodalInput({
     },
     [],
   );
+
+  /**
+   * ★★ THE UNMOUNT CLEANUP ABOVE CANNOT SURVIVE A REAL UNLOAD. It calls a
+   * Server Action, and the browser cancels that request when the page is going
+   * away — so picking an image and then closing the tab left the upload in the
+   * merchant's Media Library permanently, with nothing marking it as a chat
+   * leftover. The two effects cover different exits: that one handles in-app
+   * navigation, where the request completes normally; this one handles the
+   * page actually being discarded.
+   *
+   * ★ `sendBeacon`, NOT `fetch(..., {keepalive: true})`. It is the API built
+   * for exactly this and cannot be cancelled by the unload — and because
+   * `application/json` is not a CORS-simple content type, a cross-origin
+   * beacon would need a preflight it cannot make, so the browser refuses one
+   * outright. That is a layer above the route's own same-origin check.
+   *
+   * ★ GUARDED ON `persisted === false`, WHICH IS LOAD-BEARING. `pagehide` also
+   * fires when the page goes into the back/forward cache — an ordinary mobile
+   * tab switch — and that page comes BACK with the previews still on screen.
+   * Deleting there would leave Send citing a URL we had already destroyed,
+   * which is worse than the orphan this exists to prevent.
+   */
+  useEffect(() => {
+    const discard = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      for (const attachment of attachmentsRef.current) {
+        if (!attachment.asset) continue;
+        navigator.sendBeacon?.(
+          "/api/mink/media/discard",
+          new Blob([JSON.stringify({ id: attachment.asset.id })], {
+            type: "application/json",
+          }),
+        );
+      }
+    };
+    window.addEventListener("pagehide", discard);
+    return () => window.removeEventListener("pagehide", discard);
+  }, []);
 
   useEffect(() => {
     if (!error) return;
@@ -192,8 +247,27 @@ export function MinkMultimodalInput({
           localText,
           asset: null,
           uploadState: image && canSaveMedia ? "uploading" : "local",
+          reading: null,
         });
       }
+      // ★ Local text is known exactly here, so the deterministic overflow — five
+      //   3,000-character notes — is refused before anything is staged rather
+      //   than at Send, where the only advice left is one the merchant cannot
+      //   act on. Provider readings are reserved at their floor; the budget
+      //   above shrinks them to fit.
+      const all = [...attachmentsRef.current, ...staged];
+      if (
+        !minkAttachmentsFit(
+          latestMessage.current.message.trim().length,
+          all.flatMap((item) =>
+            item.localText === null ? [] : [item.localText.length],
+          ),
+          all.filter((item) => item.localText === null).length,
+        )
+      )
+        throw new Error(
+          `Your message and these files do not fit in ${MINK_MESSAGE_MAX_CHARS.toLocaleString()} characters. Remove a file or shorten your message before attaching another.`,
+        );
       updateAttachments((current) => [...current, ...staged]);
       for (const attachment of staged) {
         if (attachment.preview && canSaveMedia)
@@ -420,13 +494,9 @@ export function MinkMultimodalInput({
         );
 
       let prepared = current;
-      const providerCount = staged.filter(
+      let pendingReadings = staged.filter(
         (attachment) => attachment.localText === null,
       ).length;
-      const maxCharacters = Math.min(
-        2200,
-        Math.max(200, Math.floor(7500 / Math.max(1, providerCount))),
-      );
       for (const attachment of staged) {
         const image = Boolean(attachment.preview);
         const asset =
@@ -439,17 +509,41 @@ export function MinkMultimodalInput({
             filename: asset.filename || attachment.file.name,
           });
 
-        const extracted =
-          attachment.localText ??
-          (await extractAttachment(
-            attachment.file,
+        let extracted: string;
+        if (attachment.localText !== null) {
+          extracted = attachment.localText;
+        } else {
+          const mode =
             image && shouldReadMinkImageAsStorefrontDesign(current)
               ? "design"
-              : "extract",
-            id,
-            controller,
-            maxCharacters,
-          ));
+              : "extract";
+          // ★ The budget is recomputed from the message as it really stands,
+          //   so a long reading early on narrows what is left for the rest
+          //   instead of overflowing addReviewedMinkDocument at the end.
+          const budget = minkReadingBudget(prepared.length, pendingReadings);
+          if (budget === null)
+            throw new Error(
+              `Your message and these files do not fit in ${MINK_MESSAGE_MAX_CHARS.toLocaleString()} characters. Remove a file or shorten your message, then send again.`,
+            );
+          extracted =
+            attachment.reading?.mode === mode
+              ? attachment.reading.text
+              : await extractAttachment(
+                  attachment.file,
+                  mode,
+                  id,
+                  controller,
+                  budget,
+                );
+          if (id !== generation.current) return;
+          const reading = { mode, text: extracted } as const;
+          updateAttachments((currentAttachments) =>
+            currentAttachments.map((item) =>
+              item.id === attachment.id ? { ...item, reading } : item,
+            ),
+          );
+          pendingReadings--;
+        }
         prepared = addReviewedMinkDocument(prepared, extracted, {
           filename: attachment.file.name,
           kind: image ? "image" : "document",

@@ -5,6 +5,81 @@ export const MINK_INPUT_BODY_BYTES = 7_100_000;
 export const MINK_INPUT_FILES = 5;
 /** Five bounded readings plus their durable attachment references fit here. */
 export const MINK_MESSAGE_MAX_CHARS = 12_000;
+/** Matches the input API's own floor, so a derived budget is never refused. */
+export const MINK_READING_MIN_CHARS = 200;
+export const MINK_READING_MAX_CHARS = 2_200;
+/**
+ * One reading's non-text cost: the 76-character reference marker, the 43-char
+ * JSON wrapper, a filename capped at 160, and the media reference an image also
+ * carries (83 + 24 + a GCS URL). Rounded up, because under-counting here is
+ * what pushes the LAST attachment over the cap.
+ */
+const READING_ENVELOPE_CHARS = 480;
+/**
+ * JSON-escaping slack. `addReviewedMinkDocument` stringifies the reading, so
+ * every newline and quote in it costs two characters; prose runs a few percent.
+ */
+const ESCAPE_SLACK = 1.15;
+
+/**
+ * How many characters the next attachment's reading may occupy, or null when
+ * there is no room for another one.
+ *
+ * ★★ DERIVED FROM THE MESSAGE AS IT REALLY STANDS, NOT A FIXED SHARE. It was
+ * `floor(7500 / providerCount)` — a number unrelated to `MINK_MESSAGE_MAX_CHARS`
+ * — so five readings plus five media references plus a long message could pass
+ * every per-file check and still make `addReviewedMinkDocument` throw at the
+ * very end, AFTER five provider calls and five Media uploads had been paid for.
+ * Recomputing against the live message makes that overflow impossible: a
+ * verbose early reading simply narrows what is left for the rest.
+ *
+ * ★ NULL IS A REFUSAL BEFORE SPENDING, not a clamp. Clamping to the floor and
+ * calling the provider anyway buys a reading that cannot fit in the message
+ * that is about to be assembled — the exact waste this exists to prevent.
+ */
+export function minkReadingBudget(
+  usedCharacters: number,
+  pendingReadings: number,
+): number | null {
+  const pending = Math.max(1, pendingReadings);
+  const free =
+    MINK_MESSAGE_MAX_CHARS - usedCharacters - pending * READING_ENVELOPE_CHARS;
+  const share = Math.floor(free / pending / ESCAPE_SLACK);
+  if (share < MINK_READING_MIN_CHARS) return null;
+  return Math.min(MINK_READING_MAX_CHARS, share);
+}
+
+/**
+ * Can this set of attachments still fit the message cap?
+ *
+ * ★ LOCAL TEXT IS EXACT AT SELECTION TIME, and that is the whole point of
+ * asking here. A .txt/.md file is decoded on the device, so five 3,000-character
+ * notes — a combination the Help guide explicitly offers — are KNOWN to overflow
+ * before anything is staged. Left to Send, the merchant got "shorten the text"
+ * about a file they cannot edit from the composer.
+ * ⚠ Provider readings are reserved at their FLOOR, never their cap: their real
+ * length is unknowable until the provider answers, and `minkReadingBudget`
+ * shrinks them to fit at Send. Reserving the cap here would refuse ordinary
+ * five-image messages that fit comfortably.
+ */
+export function minkAttachmentsFit(
+  messageLength: number,
+  localTextLengths: readonly number[],
+  providerFileCount: number,
+): boolean {
+  const local = localTextLengths.reduce(
+    (total, length) => total + Math.ceil(length * ESCAPE_SLACK),
+    0,
+  );
+  const files = localTextLengths.length + providerFileCount;
+  return (
+    messageLength +
+      local +
+      providerFileCount * MINK_READING_MIN_CHARS +
+      files * READING_ENVELOPE_CHARS <=
+    MINK_MESSAGE_MAX_CHARS
+  );
+}
 export const MINK_INPUT_ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf,.wav";
 export const MINK_AUDIO_RATE = 16000;
 export const MINK_AUDIO_SECONDS = 30;
