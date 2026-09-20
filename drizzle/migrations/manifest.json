@@ -5136,7 +5136,13 @@
             "equals": "0"
           }
         ]
-      }
+      },
+      "supersedesVerifyQueries": [
+        {
+          "migrationId": "20260907_0084_mink_phase_8d_memories",
+          "queryName": "Memory and text input guide published"
+        }
+      ]
     }
   ]
 }

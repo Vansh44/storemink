@@ -32,8 +32,18 @@ WHERE slug = 'use-mink-ai-in-your-dashboard' AND status = 'published';
 UPDATE public.help_articles
 SET body = replace(
       body,
-      $old$<p>Each file must be no larger than <strong>2 MiB</strong>. Images support single-frame PNG, JPEG or WebP up to 12 megapixels; StoreMink strips image metadata and resizes them to at most 1600 pixels per side. PDFs support up to <strong>10 pages</strong>; encrypted, damaged, active-content or form PDFs are rejected. The same <strong>+ (Add image or document)</strong> control takes short UTF-8 text or Markdown files up to 8 KiB, which are read on your own device rather than sent for extraction. Audio files, video, spreadsheets and long documents are not supported: the microphone is live dictation, not an attachment.</p>$old$,
-      $new$<p>Each image or PDF must be no larger than <strong>5 MiB</strong>, and one message can carry up to five files. Images support single-frame PNG, JPEG or WebP up to 12 megapixels; StoreMink strips image metadata and resizes them to at most 1600 pixels per side for reading. PDFs support up to <strong>10 pages</strong>; encrypted, damaged, active-content or form PDFs are rejected. The same <strong>+ (Add image or document)</strong> control takes short UTF-8 text or Markdown files up to 8 KiB, which are read on your own device rather than sent for extraction. Audio files, video, spreadsheets and long documents are not supported: the microphone is live dictation, not an attachment.</p>$new$
+      -- ⚠ ONLY THE TWO SENTENCES THIS MIGRATION ACTUALLY CHANGES. Matching the
+      -- whole paragraph failed against every real database: the tail about
+      -- audio and video has been edited in the Help CONSOLE since 0098 wrote
+      -- it, differently per environment ("are not supported attachments: use
+      -- the microphone for dictation" on dev, "are not attachments: use the
+      -- microphone for dictation" on production), so no single literal spanning
+      -- it can match both. help:lint reads migration SQL and cannot see an
+      -- operator edit; only running the migration, or help:audit, can.
+      -- Quoting the narrowest span that needs changing leaves the drifted tail
+      -- exactly as each environment has it.
+      $old$<p>Each file must be no larger than <strong>2 MiB</strong>. Images support single-frame PNG, JPEG or WebP up to 12 megapixels; StoreMink strips image metadata and resizes them to at most 1600 pixels per side.$old$,
+      $new$<p>Each image or PDF must be no larger than <strong>5 MiB</strong>, and one message can carry up to five files. Images support single-frame PNG, JPEG or WebP up to 12 megapixels; StoreMink strips image metadata and resizes them to at most 1600 pixels per side for reading.$new$
     ),
     updated_at = now()
 WHERE slug = 'use-mink-ai-in-your-dashboard' AND status = 'published';
