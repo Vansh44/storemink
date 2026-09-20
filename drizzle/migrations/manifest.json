@@ -5084,6 +5084,30 @@
           "mink_action_audit"
         ]
       }
+    },
+    {
+      "id": "20260920_0120_mink_automatic_attachments",
+      "description": "Replace attachment approval steps with automatic processing on Send and explain grounded product/storefront use",
+      "file": "sql/20260920_0120_mink_automatic_attachments.sql",
+      "transaction": true,
+      "requires": ["20260920_0119_retire_mink_conversation_cap_verify"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains one-step attachment processing",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%There is no separate attachment approval box%' and body like '%Mink carries that exact saved image into the private product proposal%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete attachment approval controls were removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and (body like '%choose <strong>Process for review</strong>%' or body like '%choose <strong>Add reviewed reference to message</strong>%')",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

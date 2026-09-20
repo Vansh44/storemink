@@ -53,6 +53,7 @@ import {
 } from "./product-action-types";
 import type { MinkActorContext } from "./types";
 import { resolveRawNumberSetting } from "@/lib/settings/registry";
+import { selectOwnedStorefrontImageUrls } from "./storefront-media-read";
 
 const APPROVAL_TTL_MS = 10 * 60 * 1_000;
 const TOOL_VERSION = 1;
@@ -121,6 +122,12 @@ export async function previewMinkDomainAction(input: {
         assertResourceEligible(tool, resource);
       }
       const after = normalizeProposedValues(tool, content, before);
+      await assertOwnedProductImage(
+        db,
+        input.actor.storeId,
+        tool,
+        after.image_url,
+      );
       if (resource && sameValues(tool, before, after)) {
         throw new MinkRequestError(
           "mink_action_no_change",
@@ -408,6 +415,12 @@ async function writeResource(
     current?.id ?? null,
   );
   if (approval.toolName === "create_product") {
+    await assertOwnedProductImage(
+      db,
+      actor.storeId,
+      approval.toolName,
+      after.image_url,
+    );
     await assertCanCreateProduct(db, actor.storeId);
     await db.execute(sql`
       select pg_advisory_xact_lock(
@@ -433,7 +446,8 @@ async function writeResource(
         sellingPrice: Number(after.selling_price),
         status: "draft",
         trackInventory: false,
-        images: [],
+        imageUrl: nullable(after.image_url),
+        images: after.image_url ? [after.image_url] : [],
         createdBy: actor.adminId,
         updatedBy: actor.adminId,
         storeId: actor.storeId,
@@ -1097,6 +1111,7 @@ async function readResource(
         seoDescription: products.seoDescription,
         basePrice: products.basePrice,
         sellingPrice: products.sellingPrice,
+        imageUrl: products.imageUrl,
         status: products.status,
         trackInventory: products.trackInventory,
         version: products.contentUpdatedAt,
@@ -1225,6 +1240,7 @@ function resourceValues(
       seo_description: resource.seoDescription,
       base_price: money(resource.basePrice),
       selling_price: money(resource.sellingPrice),
+      image_url: resource.imageUrl,
       status: resource.status,
       track_inventory: resource.trackInventory ? "enabled" : "disabled",
     };
@@ -1285,6 +1301,7 @@ function normalizeProposedValues(
       ),
       base_price: base,
       selling_price: selling,
+      image_url: nullableText(content.image_url, 2_048),
       status: "draft",
       track_inventory: "disabled",
     };
@@ -1476,6 +1493,21 @@ async function assertNoUniqueConflict(
     .limit(1);
   if (rows[0])
     throw uniqueConflict("A customer group with this name already exists.");
+}
+
+async function assertOwnedProductImage(
+  db: Db,
+  storeId: string,
+  tool: MinkDomainActionTool,
+  imageUrl: string | null | undefined,
+) {
+  if (tool !== "create_product" || !imageUrl) return;
+  const owned = await selectOwnedStorefrontImageUrls(db, storeId, [imageUrl]);
+  if (!owned.has(imageUrl)) {
+    throw invalidDraft(
+      "The proposed product image is no longer available in this store's Media Library. Attach it again and create a new proposal.",
+    );
+  }
 }
 
 async function assertSafeCreateRollback(
@@ -2124,6 +2156,7 @@ type ProductResource = {
   seoDescription: string | null;
   basePrice: number;
   sellingPrice: number;
+  imageUrl: string | null;
   status: string;
   trackInventory: boolean;
   version: string;

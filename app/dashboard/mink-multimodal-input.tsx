@@ -1,26 +1,18 @@
 "use client";
+
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { inputKind, MINK_INPUT_BYTES } from "@/lib/mink/input-policy";
+import { FileText, Loader2, Mic, Plus, Upload, X } from "lucide-react";
+import { uploadMediaAsset } from "@/app/actions/media-actions";
 import {
-  Plus,
-  Mic,
-  X,
-  Upload,
-  FileText,
-  Loader2,
-  Image as ImageIcon,
-  Palette,
-} from "lucide-react";
-import {
+  addReviewedMinkDocument,
   decodeMinkDocument,
   DOCUMENT_BYTES,
-  addReviewedMinkDocument,
 } from "@/lib/mink/document-input";
+import { inputKind, MINK_INPUT_BYTES } from "@/lib/mink/input-policy";
 import {
   addSavedMinkMediaReference,
   readSavedMinkMediaReference,
 } from "@/lib/mink/media-attachment";
-import { uploadMediaAsset } from "@/app/actions/media-actions";
 import { startMinkRecording } from "@/lib/mink/voice-recorder";
 
 const COMPOSER_FILE_ACCEPT =
@@ -38,14 +30,7 @@ export function MinkMultimodalInput({
   onAdd: (message: string) => void;
   onSubmit?: (message: string) => void;
   disabled: boolean;
-  /**
-   * Whether this admin may add to the store's Media Library (`media` manage).
-   *
-   * ★ RESOLVED SERVER-SIDE AND PASSED DOWN, so the control is simply absent
-   *   for someone who cannot use it. `uploadMediaAsset` re-checks the same
-   *   permission and is the real boundary; this only stops a button that would
-   *   always fail from being on screen -- CODEBASE.md §23's rule.
-   */
+  /** Resolved server-side; the upload action rechecks this permission. */
   canSaveMedia?: boolean;
   children?: (controls: {
     attach: ReactNode;
@@ -54,44 +39,41 @@ export function MinkMultimodalInput({
     submit: () => Promise<void>;
   }) => ReactNode;
 }) {
-  const [open, setOpen] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
-  const [localText, setLocalText] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState("");
-  const [text, setText] = useState<string | null>(null);
-  const [consent, setConsent] = useState(false);
-  const [reviewed, setReviewed] = useState(false);
+  const [localText, setLocalText] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState<string>("");
+  const [saved, setSaved] = useState("");
   const [dictationState, setDictationState] = useState<
     "starting" | "listening" | "processing" | null
   >(null);
-  const latestMessage = useRef({ message, onAdd });
-  useEffect(() => {
-    latestMessage.current = { message, onAdd };
-  }, [message, onAdd]);
   const [error, setError] = useState("");
+  const latestMessage = useRef({ message, onAdd });
   const operation = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const generation = useRef(0);
-  function cancel() {
+
+  useEffect(() => {
+    latestMessage.current = { message, onAdd };
+  }, [message, onAdd]);
+
+  function clearAttachment() {
     generation.current++;
     operation.current?.abort();
     operation.current = null;
     setBusy(false);
-    setOpen(false);
+    setPreviewOpen(false);
     setDragging(false);
     dragDepth.current = 0;
-    setDictationState(null);
     setFile(null);
-    setText(null);
-    setConsent(false);
-    setReviewed(false);
+    setLocalText(null);
     setSaved("");
     setError("");
   }
+
   useEffect(
     () => () => {
       generation.current++;
@@ -99,6 +81,7 @@ export function MinkMultimodalInput({
     },
     [],
   );
+
   useEffect(() => {
     if (!file || !/\.(png|jpe?g|webp)$/i.test(file.name)) {
       setPreview("");
@@ -108,6 +91,7 @@ export function MinkMultimodalInput({
     setPreview(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+
   useEffect(() => {
     if (!dictationState) return;
     const hide = () => {
@@ -116,8 +100,8 @@ export function MinkMultimodalInput({
     document.addEventListener("visibilitychange", hide);
     return () => document.removeEventListener("visibilitychange", hide);
   }, [dictationState]);
-  // A missed drop must not navigate away from the dashboard with unsaved work.
-  // Other real drop targets keep ownership when they already handled the event.
+
+  // A missed file drop must not navigate away from the dashboard.
   useEffect(() => {
     const over = (event: DragEvent) => {
       if (Array.from(event.dataTransfer?.types ?? []).includes("Files"))
@@ -133,8 +117,6 @@ export function MinkMultimodalInput({
       dragDepth.current = 0;
       setDragging(false);
       if (!disabled && !busy && !dictationState) {
-        cancel();
-        setOpen(true);
         setError("Drop one file onto the message box, or use the plus button.");
       }
     };
@@ -145,9 +127,10 @@ export function MinkMultimodalInput({
       window.removeEventListener("drop", drop);
     };
   }, [disabled, busy, dictationState]);
+
   async function choose(next: File) {
     if (disabled || busy || dictationState) return;
-    cancel();
+    clearAttachment();
     const id = generation.current;
     try {
       if (/\.(txt|md)$/i.test(next.name)) {
@@ -157,16 +140,8 @@ export function MinkMultimodalInput({
         const decoded = decodeMinkDocument(next.name, await next.arrayBuffer());
         if (id !== generation.current) return;
         setFile(next);
-        setLocalText(true);
-        setText(decoded);
-        setOpen(false);
+        setLocalText(decoded);
       } else {
-        // ★ THE COMPOSER MUST NOT OFFER WAV IN ITS OWN ERROR. `inputKind` is
-        // shared with the input API, which still validates a WAV (compatibility
-        // code), so its throw names one — and this control refuses every audio
-        // file. Surfacing that message told a merchant to attach something they
-        // would then be refused: the same mismatch the published guide had.
-        // The classifier stays shared; only the wording is ours.
         let kind;
         try {
           kind = inputKind(next.name);
@@ -181,21 +156,7 @@ export function MinkMultimodalInput({
           );
         if (!next.size || next.size > MINK_INPUT_BYTES)
           throw new Error("Choose one non-empty file up to 2 MiB.");
-        setLocalText(false);
-        // An admin who may add Media does not need the extraction provider in
-        // order to attach an image to a storefront task. Stage it immediately,
-        // like a normal chat attachment; the Send path below uploads it only
-        // when the message identifies it as an image to use. Opening the card
-        // remains available for optional OCR/review.
-        if (kind === "image" && canSaveMedia) {
-          setFile(next);
-          setOpen(false);
-          return;
-        }
-        if (await show()) {
-          setFile(next);
-          setOpen(false);
-        }
+        setFile(next);
       }
     } catch (e) {
       if (id === generation.current)
@@ -204,38 +165,10 @@ export function MinkMultimodalInput({
       if (id === generation.current) setBusy(false);
     }
   }
-  async function show() {
-    setOpen(true);
-    setError("");
-    setBusy(true);
-    const id = ++generation.current;
-    const controller = new AbortController();
-    operation.current = controller;
-    try {
-      const response = await fetch("/api/mink/input", {
-        cache: "no-store",
-        signal: controller.signal,
-      });
-      const data = await response.json();
-      if (id !== generation.current) return;
 
-      if (!response.ok || data.enabled !== true)
-        setError(
-          "Image and PDF processing is not enabled for this store or deployment. Text documents still work.",
-        );
-      return response.ok && data.enabled === true;
-    } catch {
-      if (id === generation.current)
-        setError("Could not check input availability.");
-      return false;
-    } finally {
-      if (id === generation.current) setBusy(false);
-    }
-  }
   async function startDictation() {
     if (disabled || busy || dictationState) return;
-    cancel();
-    setOpen(false);
+    clearAttachment();
     setError("");
     const id = generation.current;
     const controller = new AbortController();
@@ -302,8 +235,6 @@ export function MinkMultimodalInput({
         throw new Error(
           "The transcript does not fit in the 4,000-character message limit. Shorten the message and try again.",
         );
-      // A completed recording produces one final transcript and one composer
-      // update. There are no cumulative interim events to append repeatedly.
       current.onAdd(combined);
     } catch (e) {
       if (id === generation.current && !controller.signal.aborted)
@@ -326,154 +257,55 @@ export function MinkMultimodalInput({
     operation.current = null;
     setDictationState(null);
   }
-  /**
-   * ★ `mode` picks WHAT is read, not whether it is sent. Both go through the
-   * same consented, size-capped, rate-limited endpoint and the same isolated
-   * reader; "design" returns exact validated colours, typefaces and radii
-   * instead of prose, which is what the chat needs to actually propose a
-   * design rather than guess at one from a description.
-   */
-  async function processFile(
-    source = file,
-    mode: "extract" | "design" = "extract",
+
+  async function extractAttachment(
+    source: File,
+    mode: "extract" | "design",
+    id: number,
+    controller: AbortController,
   ) {
-    if (!source || !consent || busy || disabled) return;
-    setBusy(true);
-    setError("");
-    setText(null);
-    setReviewed(false);
-    const id = ++generation.current;
-    const controller = new AbortController();
-    operation.current = controller;
-    try {
-      const bytes = new Uint8Array(await source.arrayBuffer());
-      let binary = "";
-      for (let i = 0; i < bytes.length; i += 8192)
-        binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
-      if (id !== generation.current) return;
-      const response = await fetch("/api/mink/input", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify({
-          name: source.name,
-          data: btoa(binary),
-          requestKey: crypto.randomUUID(),
-          confirmed: true,
-          ...(mode === "design" ? { mode } : {}),
-        }),
-      });
-      const data = await response.json();
-      if (id !== generation.current) return;
-      if (!response.ok)
-        throw new Error(
-          typeof data.error === "string"
-            ? data.error
-            : "Could not process this input.",
-        );
-      if (
-        typeof data.text !== "string" ||
-        !data.text.trim() ||
-        data.text.length > 3000
-      )
-        throw new Error("The input returned an invalid result.");
-      setText(data.text);
-    } catch (e) {
-      if (id === generation.current)
-        setError(
-          e instanceof Error ? e.message : "Could not process this input.",
-        );
-    } finally {
-      if (id === generation.current) {
-        setBusy(false);
-        setConsent(false);
-      }
-    }
-  }
-  /**
-   * Save the staged image into the store's Media Library.
-   *
-   * ★ SEPARATE FROM EXTRACTION IN BOTH DIRECTIONS. It does not need the Vertex
-   *   consent (nothing is sent to a provider) and it does not consume the
-   *   attachment (the merchant may still extract text from it afterwards), so
-   *   `file` is deliberately left in place. Only the SAVED banner changes.
-   *
-   * ★ THE REFERENCE GOES INTO THE COMPOSER, not just a toast: the exact URL is
-   *   what a layout proposal has to cite, and re-finding it costs the model a
-   *   Media Library read and a guess.
-   */
-  async function saveToMediaLibrary() {
-    if (!file || busy || disabled || !canSaveMedia) return;
-    setBusy(true);
-    setError("");
-    const id = ++generation.current;
-    try {
-      const form = new FormData();
-      form.set("file", file);
-      const result = await uploadMediaAsset(form);
-      if (id !== generation.current) return;
-      if (result.error || !result.asset) {
-        throw new Error(result.error || "Could not save this image.");
-      }
-      const asset = result.asset;
-      setSaved(asset.url);
-      // A message too long to hold the reference must not read as a failed
-      // upload: the image IS saved, so the banner stands and only the append
-      // is reported as the thing that did not happen.
-      try {
-        latestMessage.current.onAdd(
-          addSavedMinkMediaReference(latestMessage.current.message, {
-            url: asset.url,
-            filename: asset.filename || file.name,
-          }),
-        );
-      } catch (e) {
-        setError(
-          e instanceof Error
-            ? e.message
-            : "Saved, but the reference could not be added to your message.",
-        );
-      }
-    } catch (e) {
-      if (id === generation.current) {
-        setError(e instanceof Error ? e.message : "Could not save this image.");
-      }
-    } finally {
-      if (id === generation.current) setBusy(false);
-    }
+    const bytes = new Uint8Array(await source.arrayBuffer());
+    let binary = "";
+    for (let i = 0; i < bytes.length; i += 8192)
+      binary += String.fromCharCode(...bytes.subarray(i, i + 8192));
+    if (id !== generation.current)
+      throw new DOMException("Aborted", "AbortError");
+    const response = await fetch("/api/mink/input", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      signal: controller.signal,
+      cache: "no-store",
+      body: JSON.stringify({
+        name: source.name,
+        data: btoa(binary),
+        requestKey: crypto.randomUUID(),
+        // Send is explicit permission to process this visible attachment. It
+        // never counts as approval for a product/storefront mutation.
+        confirmed: true,
+        ...(mode === "design" ? { mode } : {}),
+      }),
+    });
+    const data = await response.json();
+    if (!response.ok)
+      throw new Error(
+        typeof data.error === "string"
+          ? data.error
+          : "Could not process this attachment.",
+      );
+    if (
+      typeof data.text !== "string" ||
+      !data.text.trim() ||
+      data.text.length > 3000
+    )
+      throw new Error("The attachment returned an invalid result.");
+    return data.text.trim();
   }
 
-  /**
-   * Send like a chat composer: a staged attachment participates in this turn.
-   * An image plus an explicit storefront placement request is merchant intent
-   * to keep and use that image, so save it through the ordinary Media Library
-   * action and give Mink its exact URL. Other attachments still require the
-   * established review/consent step before their extracted text is sent.
-   */
   async function submit() {
     const current = latestMessage.current.message.trim();
-    if (dictationState) return;
-    if (!current || disabled || busy || !onSubmit) return;
+    if (dictationState || !current || disabled || busy || !onSubmit) return;
     if (!file) {
       onSubmit(current);
-      return;
-    }
-
-    const image = /\.(png|jpe?g|webp)$/i.test(file.name);
-    if (!image || !shouldUseMinkImageOnStorefront(current)) {
-      setOpen(true);
-      setError(
-        image
-          ? "Review this image before sending, or say where on your storefront Mink should use it."
-          : "Review this attachment and add its reference before sending.",
-      );
-      return;
-    }
-    if (!canSaveMedia) {
-      setOpen(true);
-      setError(
-        "You need permission to add Media Library images before Mink can use this attachment on the storefront.",
-      );
       return;
     }
 
@@ -481,9 +313,20 @@ export function MinkMultimodalInput({
     setError("");
     const source = file;
     const id = ++generation.current;
+    const controller = new AbortController();
+    operation.current = controller;
     try {
-      let asset = { url: saved, filename: source.name };
-      if (!saved) {
+      const image = /\.(png|jpe?g|webp)$/i.test(source.name);
+      if (image && shouldUseMinkImageOnStorefront(current) && !canSaveMedia)
+        throw new Error(
+          "You need permission to add Media Library images before Mink can use this image for a product or storefront change.",
+        );
+
+      let prepared = current;
+      let asset = saved ? { url: saved, filename: source.name } : null;
+      // A sent image needs a durable store-owned URL so the conversation can
+      // restore its preview and proposals can cite the exact same pixels.
+      if (image && canSaveMedia && !asset) {
         const form = new FormData();
         form.set("file", source);
         const result = await uploadMediaAsset(form);
@@ -496,22 +339,40 @@ export function MinkMultimodalInput({
         };
         setSaved(asset.url);
       }
-      const prepared = readSavedMinkMediaReference(current)
-        ? current
-        : addSavedMinkMediaReference(current, asset);
-      cancel();
-      setOpen(false);
+      if (asset && !readSavedMinkMediaReference(prepared))
+        prepared = addSavedMinkMediaReference(prepared, asset);
+
+      const extracted =
+        localText ??
+        (await extractAttachment(
+          source,
+          image && shouldReadMinkImageAsStorefrontDesign(current)
+            ? "design"
+            : "extract",
+          id,
+          controller,
+        ));
+      prepared = addReviewedMinkDocument(prepared, extracted, {
+        filename: source.name,
+        kind: image ? "image" : "document",
+      });
+      if (id !== generation.current) return;
+      clearAttachment();
       latestMessage.current.onAdd(prepared);
       onSubmit(prepared);
     } catch (e) {
-      if (id === generation.current) {
-        setOpen(true);
-        setError(e instanceof Error ? e.message : "Could not save this image.");
-      }
+      if (id === generation.current && !controller.signal.aborted)
+        setError(
+          e instanceof Error ? e.message : "Could not process this attachment.",
+        );
     } finally {
-      if (id === generation.current) setBusy(false);
+      if (id === generation.current) {
+        operation.current = null;
+        setBusy(false);
+      }
     }
   }
+
   const iconButton =
     "inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[#666] transition hover:bg-[#f2f2f2] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff] disabled:cursor-not-allowed disabled:opacity-40";
   const attach = (
@@ -533,55 +394,79 @@ export function MinkMultimodalInput({
       title={dictationState ? "Dictation in progress" : "Dictate message"}
       disabled={disabled || busy || Boolean(dictationState)}
       className={iconButton}
-      onClick={() => {
-        void startDictation();
-      }}
+      onClick={() => void startDictation()}
     >
       <Mic className="h-5 w-5" aria-hidden="true" />
     </button>
   );
   const attachment = file ? (
-    <div className="mb-2 flex max-w-full items-center gap-2 rounded-2xl border border-[#dedede] bg-[#f7f7f8] p-2 pr-2.5 text-left shadow-sm">
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 text-left"
-        aria-label={`Review ${file.name}`}
-        onClick={() => setOpen(true)}
-      >
-        {preview ? (
-          /* eslint-disable-next-line @next/next/no-img-element */
-          <img
-            src={preview}
-            alt=""
-            className="h-12 w-12 shrink-0 rounded-xl object-cover"
-          />
-        ) : (
+    preview ? (
+      <div className="relative mb-2 h-16 w-16">
+        <button
+          type="button"
+          className="h-16 w-16 overflow-hidden rounded-xl border border-[#dedede] bg-[#f7f7f8] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff]"
+          aria-label={`View ${file.name}`}
+          onClick={() => setPreviewOpen(true)}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={preview} alt="" className="h-full w-full object-cover" />
+          {busy && (
+            <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 text-white">
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+            </span>
+          )}
+        </button>
+        <button
+          type="button"
+          aria-label={`Remove ${file.name}`}
+          title="Remove attachment"
+          disabled={busy}
+          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[#d7d7d7] bg-white text-[#555] shadow-sm hover:bg-[#f3f3f3] disabled:opacity-40"
+          onClick={clearAttachment}
+        >
+          <X className="h-3.5 w-3.5" aria-hidden="true" />
+        </button>
+      </div>
+    ) : (
+      <div className="mb-2 flex max-w-full items-center gap-2 rounded-2xl border border-[#dedede] bg-[#f7f7f8] p-2 pr-2.5 text-left shadow-sm">
+        <button
+          type="button"
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-label={`View ${file.name}`}
+          onClick={() => setPreviewOpen(true)}
+        >
           <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-[#6d4dff]">
-            <FileText className="h-5 w-5" aria-hidden="true" />
+            {busy ? (
+              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
+            ) : (
+              <FileText className="h-5 w-5" aria-hidden="true" />
+            )}
           </span>
-        )}
-        <span className="min-w-0">
-          <span className="block truncate text-sm font-medium text-[#252525]">
-            {file.name}
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-medium text-[#252525]">
+              {file.name}
+            </span>
+            <span className="block text-xs text-[#777]">
+              {busy
+                ? "Processing attachment…"
+                : `${Math.max(1, Math.round(file.size / 1024))} KiB`}
+            </span>
           </span>
-          <span className="block text-xs text-[#777]">
-            {saved
-              ? "Saved to Media Library"
-              : `${Math.max(1, Math.round(file.size / 1024))} KiB`}
-          </span>
-        </span>
-      </button>
-      <button
-        type="button"
-        aria-label={`Remove ${file.name}`}
-        title="Remove attachment"
-        className={iconButton}
-        onClick={cancel}
-      >
-        <X className="h-4 w-4" aria-hidden="true" />
-      </button>
-    </div>
+        </button>
+        <button
+          type="button"
+          aria-label={`Remove ${file.name}`}
+          title="Remove attachment"
+          disabled={busy}
+          className={iconButton}
+          onClick={clearAttachment}
+        >
+          <X className="h-4 w-4" aria-hidden="true" />
+        </button>
+      </div>
+    )
   ) : null;
+
   return (
     <div
       className="relative min-w-0"
@@ -590,10 +475,9 @@ export function MinkMultimodalInput({
         if (event.key === "Escape" && dictationState) {
           event.stopPropagation();
           cancelDictation();
-        } else if (event.key === "Escape" && open) {
+        } else if (event.key === "Escape" && previewOpen) {
           event.stopPropagation();
-          cancel();
-          setOpen(false);
+          setPreviewOpen(false);
         }
       }}
       onDragEnter={(event) => {
@@ -622,8 +506,7 @@ export function MinkMultimodalInput({
         setDragging(false);
         if (disabled || busy || dictationState) return;
         if (event.dataTransfer.files.length !== 1) {
-          cancel();
-          setOpen(true);
+          clearAttachment();
           setError("Add one file at a time.");
           return;
         }
@@ -644,205 +527,54 @@ export function MinkMultimodalInput({
           const count = files?.length ?? 0;
           event.target.value = "";
           if (count > 1) {
-            cancel();
-            setOpen(true);
+            clearAttachment();
             setError("Add one file at a time.");
           } else if (next) void choose(next);
         }}
       />
-      {open && (
-        <section
-          aria-label="Review attachment"
-          className="mb-3 max-h-[min(24rem,45dvh)] space-y-3 overflow-y-auto rounded-2xl border border-[#e5e5e5] bg-[#fafafa] p-4 text-sm text-[#444]"
+      {previewOpen && file && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label={`Attachment preview: ${file.name}`}
+          className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
+          onClick={() => setPreviewOpen(false)}
         >
-          <div className="flex items-center justify-between gap-3">
-            <span className="flex min-w-0 items-center gap-2 font-medium text-[#222]">
-              <FileText className="h-4 w-4 shrink-0" aria-hidden="true" />
-              <span className="truncate">
-                {file?.name ?? "Review attachment"}
-              </span>
-            </span>
+          <div
+            className="relative max-h-[90dvh] max-w-4xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
             <button
               type="button"
-              aria-label="Close input"
-              title="Discard and close"
-              className={iconButton}
-              onClick={() => {
-                cancel();
-                setOpen(false);
-              }}
+              aria-label="Close attachment preview"
+              className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white"
+              onClick={() => setPreviewOpen(false)}
             >
-              <X className="h-4 w-4" aria-hidden="true" />
+              <X className="h-5 w-5" aria-hidden="true" />
             </button>
-          </div>
-          {busy && (
-            <p role="status" className="flex items-center gap-2">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              Processing…
-            </p>
-          )}
-          {file && text === null && (
-            <>
-              <p className="text-xs text-[#777]">
-                {(file.size / 1024).toFixed(0)} KiB · Not uploaded yet
-              </p>
-              {preview && inputKind(file.name) === "image" && (
-                /* eslint-disable-next-line @next/next/no-img-element */
-                <img
-                  src={preview}
-                  alt="Selected reference"
-                  className="max-h-32 max-w-full rounded-lg object-contain"
+            {preview ? (
+              /* eslint-disable-next-line @next/next/no-img-element */
+              <img
+                src={preview}
+                alt={file.name}
+                className="max-h-[78dvh] max-w-full rounded-xl object-contain"
+              />
+            ) : (
+              <div className="flex min-h-52 min-w-64 flex-col items-center justify-center gap-3 rounded-xl bg-[#f6f4fb] p-8 text-center">
+                <FileText
+                  className="h-10 w-10 text-[#6d4dff]"
+                  aria-hidden="true"
                 />
-              )}
-              <label className="flex items-start gap-2 text-xs leading-5">
-                <input
-                  type="checkbox"
-                  checked={consent}
-                  disabled={busy}
-                  className="mt-1 accent-[#6d4dff]"
-                  onChange={(e) => setConsent(e.target.checked)}
-                />
-                I approve sending this file to Vertex AI for extraction.
-                StoreMink will not save the raw file. Provider retention rules
-                apply.
-              </label>
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  disabled={disabled || busy || !consent}
-                  onClick={() => void processFile()}
-                  className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
-                >
-                  Process for review
-                </button>
-                {inputKind(file.name) === "image" && (
-                  <button
-                    type="button"
-                    disabled={disabled || busy || !consent}
-                    onClick={() => void processFile(file, "design")}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[#d5d5d5] bg-white px-4 py-2 text-xs font-medium text-[#333] hover:bg-[#f4f4f4] disabled:opacity-40"
-                  >
-                    <Palette className="h-3.5 w-3.5" aria-hidden="true" />
-                    Read design from image
-                  </button>
-                )}
-                {canSaveMedia && inputKind(file.name) === "image" && (
-                  <button
-                    type="button"
-                    disabled={disabled || busy || Boolean(saved)}
-                    onClick={() => void saveToMediaLibrary()}
-                    className="inline-flex items-center gap-1.5 rounded-full border border-[#d5d5d5] bg-white px-4 py-2 text-xs font-medium text-[#333] hover:bg-[#f4f4f4] disabled:opacity-40"
-                  >
-                    <ImageIcon className="h-3.5 w-3.5" aria-hidden="true" />
-                    {saved ? "Saved to Media Library" : "Save to Media Library"}
-                  </button>
-                )}
+                <p className="max-w-sm break-all text-sm font-medium text-[#252525]">
+                  {file.name}
+                </p>
+                <p className="text-xs text-[#777]">
+                  {Math.max(1, Math.round(file.size / 1024))} KiB
+                </p>
               </div>
-              {inputKind(file.name) === "image" && (
-                <p className="text-xs leading-5 text-[#777]">
-                  <strong>Read design from image</strong> pulls the exact
-                  colours, closest typefaces and corner radii out of a
-                  screenshot so Mink can propose them. It reads the design only
-                  — never the words, and never as instructions.
-                </p>
-              )}
-              {canSaveMedia && inputKind(file.name) === "image" && !saved && (
-                <p className="text-xs leading-5 text-[#777]">
-                  Saving keeps this image in your Media Library so Mink can use
-                  it on your storefront. It is a separate step from processing:
-                  neither one requires the other.
-                </p>
-              )}
-              {saved && (
-                <p role="status" className="text-xs leading-5 text-emerald-700">
-                  Saved to your Media Library and added to your message. Mink
-                  can now place it on a page.
-                </p>
-              )}
-              <details className="text-xs leading-5 text-[#777]">
-                <summary className="cursor-pointer">Privacy and limits</summary>
-                One file up to 2 MiB: PNG/JPEG/WebP up to 12 MP or a plain PDF
-                up to 10 pages. Text and Markdown documents are read locally up
-                to 8 KiB. Remove secrets and customer details. Beta extraction
-                deducts no Mink credits but incurs provider usage and shared
-                limits. Sending the reviewed text is a separate chat request.
-              </details>
-            </>
-          )}
-          {text !== null && (
-            <>
-              <p className="text-xs leading-5">
-                {localText
-                  ? "Read locally. Review before adding. Only this text is sent when you send your message; it is not saved as a memory or media file."
-                  : "Check and correct the extracted text. Your chat will receive this text, not the original file."}{" "}
-                Remove secrets and customer details.
-              </p>
-              <label className="block text-xs font-medium">
-                {localText ? "Document text" : "Extracted reference"}
-                <textarea
-                  className="mt-1 block w-full rounded-xl border border-[#ddd] bg-white p-3 text-sm font-normal focus:outline-none focus:ring-2 focus:ring-[#6d4dff]"
-                  rows={4}
-                  maxLength={3000}
-                  value={text}
-                  onChange={(e) => {
-                    setText(e.target.value);
-                    setReviewed(false);
-                  }}
-                />
-              </label>
-              <label className="flex items-center gap-2 text-xs">
-                <input
-                  type="checkbox"
-                  checked={reviewed}
-                  className="accent-[#6d4dff]"
-                  onChange={(e) => setReviewed(e.target.checked)}
-                />
-                I reviewed and corrected this text.
-              </label>
-              <button
-                type="button"
-                disabled={disabled || !reviewed}
-                className="rounded-full bg-[#6d4dff] px-4 py-2 text-xs font-medium text-white disabled:opacity-40"
-                onClick={() => {
-                  try {
-                    onAdd(
-                      addReviewedMinkDocument(message, text, {
-                        filename: file?.name,
-                        kind:
-                          file && /\.(png|jpe?g|webp)$/i.test(file.name)
-                            ? "image"
-                            : "document",
-                      }),
-                    );
-                    cancel();
-                    setOpen(false);
-                  } catch (e) {
-                    setError(
-                      e instanceof Error ? e.message : "Shorten the reference.",
-                    );
-                  }
-                }}
-              >
-                Add reviewed reference to message
-              </button>
-            </>
-          )}
-          <button
-            type="button"
-            onClick={() => {
-              cancel();
-              setOpen(false);
-            }}
-            className="ml-2 text-xs text-[#777] hover:text-[#222]"
-          >
-            Discard input
-          </button>
-          {error && (
-            <p role="alert" className="text-xs text-red-700">
-              {error}
-            </p>
-          )}
-        </section>
+            )}
+          </div>
+        </div>
       )}
       {dictationState && (
         <div
@@ -872,7 +604,7 @@ export function MinkMultimodalInput({
           </button>
         </div>
       )}
-      {!open && error && (
+      {error && (
         <p
           role="alert"
           className="mb-3 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
@@ -904,11 +636,7 @@ export function MinkMultimodalInput({
   );
 }
 
-/**
- * Keep auto-persistence narrow: the message must both ask to place something
- * and name a storefront destination. Generic “what is in this image?” still
- * follows review-first extraction and never stores the raw attachment.
- */
+/** Product images and storefront placements need a durable exact URL. */
 export function shouldUseMinkImageOnStorefront(message: string) {
   const destination =
     /\b(?:home\s?page|storefront|website|web\s?page|hero|banner|carousel|gallery|section)\b/i;
@@ -916,8 +644,23 @@ export function shouldUseMinkImageOnStorefront(message: string) {
     /\b(?:use|add|put|place|show|feature|create|make|build|design|update|replace)\b/i;
   const directImageHandoff =
     /\b(?:(?:this|here)(?:\s+is|'s)|attached|uploaded|provided)\b.{0,40}\b(?:product\s+)?(?:image|photo|picture)\b|\b(?:use|take|keep|save|add|place|show|feature)\s+(?:this|the|my)\s+(?:product\s+)?(?:image|photo|picture)\b/i;
+  const productCreation =
+    /\b(?:create|add|make|set\s*up)\b.{0,60}\b(?:new\s+)?product\b|\bproduct\b.{0,60}\b(?:create|add|make|set\s*up)\b/i;
   return (
     (destination.test(message) && placement.test(message)) ||
-    directImageHandoff.test(message)
+    directImageHandoff.test(message) ||
+    productCreation.test(message)
+  );
+}
+
+/** Exact style requests benefit from the validated design-token reader. */
+export function shouldReadMinkImageAsStorefrontDesign(message: string) {
+  return (
+    /\b(?:storefront|website|web\s?page|home\s?page|landing\s?page)\b/i.test(
+      message,
+    ) &&
+    /\b(?:design|redesign|restyle|style|colou?r|palette|font|typeface|radius|rounded|look\s+like|match)\b/i.test(
+      message,
+    )
   );
 }

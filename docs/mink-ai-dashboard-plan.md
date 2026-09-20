@@ -1463,15 +1463,19 @@ Exit criteria:
   TypeScript, lint and the production build passed. Migration 0084 has not been
   applied to a live database by this implementation, and live Vertex/Echos
   behavior still requires the documented acceptance prompts.
-- **8E — Reviewed multimodal inputs: implemented locally; rollout acceptance pending.**
+- **8E — Automatic multimodal inputs: implemented locally; rollout acceptance pending.**
   Images (PNG/JPEG/WebP) and plain PDFs enter a separate tool-free extraction
   endpoint. One file at a time, 2 MiB, 12 MP images normalized to 1600 px and
   10 PDF pages. The composer mic instead uses supported-browser live speech
   recognition for up to 60 seconds; StoreMink does not upload microphone audio.
-  The owner explicitly approves sending bytes to Vertex, then edits/reviews the
-  extracted reference before adding it to the composer; Send remains separate.
-  Original files are not persisted by StoreMink or placed in Media/memory.
-  Provider retention policies still apply. PDFs are parsed in a bounded child
+  A selected image appears as a compact square preview that opens full-size;
+  documents use compact file cards. Pressing Send is the single explicit
+  processing action, with no separate consent/review box. Extracted context is
+  labelled untrusted and sent with the typed request. Sent images are persisted
+  through the ordinary Media action when the role holds `media:manage`, so the
+  exact image renders in history and can ground a product or storefront
+  proposal; PDFs remain transient. Provider retention policies still apply.
+  PDFs are parsed in a bounded child
   process; image metadata is stripped; no URLs or document actions are executed.
   Shared fail-closed quotas, one-attempt provider calls, 8192 counted input
   tokens, 2048 output tokens, 3000 output characters and a 45-second processing
@@ -1483,8 +1487,8 @@ Exit criteria:
   multimodal deployment switch is needed. The configured
   `MINK_VERTEX_MODEL` must support all enabled inputs; unsupported capabilities
   fail explicitly, without an unapproved model fallback.
-  New forward-only migration 0090 updates Help. ECH-P8E tests cover merchant
-  requests, consent, errors, cancellation, isolation and adversarial input.
+  Migrations 0090 and 0120 update Help. ECH-P8E tests cover merchant requests,
+  automatic Send processing, errors, cancellation, isolation and adversarial input.
   Composer refinement (0091/0092): plus for one-file pick/drop and a separate
   mic for live browser speech-to-text. One mic click starts listening after the
   browser permission prompt; interim words appear in the editable composer as
@@ -1492,7 +1496,7 @@ Exit criteria:
   the text and Cancel restores the pre-dictation message. StoreMink does not
   create, upload or retain a microphone recording; supported browser speech
   services may process audio under their own terms. Text/image/PDF reference
-  review remains separate. Turn-anchor refinement keeps the newest user
+  processing now happens on Send. Turn-anchor refinement keeps the newest user
   question near the top while the answer grows below, instead of following the
   final paragraph; direct pointer, touch or wheel scrolling remains user-owned.
   One superadmin switch atomically updates the store, drafting and all action
@@ -1700,11 +1704,12 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   the exact returned URL immediately eligible for 9D's ownership check. This is
   what lets one request such as "make a banner for my homepage" create the
   picture and prepare the separately approved layout proposal in the same run.
-  Uploaded attachments keep their explicit Save control. An explicit authored
-  request to use the attachment in a named storefront placement also makes Send
-  save it through the ordinary Media action before Mink runs; generic image
-  analysis remains transient. No approval row, no audit row and no new resource
-  type are introduced.
+  Sent images are saved through the ordinary Media action before Mink runs when
+  the role may add Media, so the same exact image renders in chat and is ready
+  for product, layout or grounded-generation use. There is no separate Save or
+  extraction approval control. A generic analysis may remain transient for a
+  role without Media permission. No approval row, no audit row and no new
+  resource type are introduced.
   ★★ THE OPERATOR GATE SITS ON THE GENERATION, the only one in
   `mink_action_tool_access` that does. Everywhere else the write is the
   expensive half; here the write is a private library row and the provider call
@@ -1763,7 +1768,7 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   Local verification (2026-09-13): all 6,814 active tests pass (57 skipped), as
   do TypeScript, ESLint, migration lint, Help content lint and the Next 16
   production build. The attachment flow has focused coverage for compact
-  previews, one-Send storefront persistence, generic review-first handling,
+  previews, one-Send storefront persistence, automatic generic processing,
   sent-message cards and jump-to-latest scrolling.
 
 Phase 8A does not start schedules or perform actions in response to a signal.

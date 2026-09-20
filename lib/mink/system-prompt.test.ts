@@ -137,11 +137,9 @@ describe("Mink system prompt document", () => {
       "Never infer “all products” from an “on any order” trigger",
     );
     expect(template).toContain(
-      "Send saves that image through their ordinary Media Library permission",
+      "Pressing Send is the single explicit request to process that visible attachment",
     );
-    expect(template).toContain(
-      'hands over "the product image" for the storefront task already being discussed',
-    );
+    expect(template).toContain("pass that URL unchanged as image_url");
     expect(template).toContain("answer in at most two short sentences");
     expect(template).toContain("single Apply to Website Builder draft button");
     expect(template).toContain(
