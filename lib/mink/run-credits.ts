@@ -18,12 +18,12 @@ import type { MinkActorContext, MinkUsage } from "./types";
 // "AI credits" and "Mink credits" are the same thing and a merchant never has
 // to reason about two balances.
 //
-// ⚠ EVERY PATH HERE IS GATED ON `config.chargeCredits`, which is opt-IN and
-// off. With it off, this module reads nothing and spends nothing; the shadow
-// meter keeps recording what it WOULD have cost. Switching it on is a pricing
-// decision that also raises every plan's allowance, and the two must move
-// together (lib/plans.ts) or merchants get billed against caps sized for
-// product descriptions.
+// ⚠ EVERY PATH HERE IS GATED ON `config.chargeCredits`, which is ON by default
+// since 2026-09-21. With it off (`MINK_CHARGE_CREDITS=false`) this module reads
+// nothing and spends nothing, and the shadow meter keeps recording what it
+// WOULD have cost. The flag also raises every plan's allowance, and the two
+// must move together (lib/plans.ts) or merchants get billed against caps sized
+// for product descriptions.
 // ---------------------------------------------------------------------------
 
 /** Settled outcome, or null when charging is switched off. */

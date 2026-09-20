@@ -94,6 +94,29 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 
 ### Mink credit charging — ON by default (2026-09-21)
 
+**★★ A LOW-BALANCE WARNING SITS ABOVE THE COMPOSER (2026-09-21).**
+`minkCreditWarning` is the pure rule, and it is measured in CREDITS rather than
+in a fraction — which is why it is not simply the ring's colour. "Can I afford
+my next request" is an absolute question: the heaviest run costs
+`MINK_MAX_RUN_CREDITS` whoever is asking, so a Pro store on 15 of 300 and a
+Free store on 15 of 20 are in the same practical position. The ring turns amber
+at 20%, which is 60 credits on Pro (not low at all) and 4 on Free, so a
+fraction is the wrong unit for a warning even though it is a fine one for a
+gradient. ★ It is WORDS: the ring is 20 pixels and shows its number only on
+hover or click, so "nearly out" was something a merchant had to go looking for,
+and the first real signal was a refusal. ★ Two levels, because the actions
+differ — at zero the next request is refused and only buying or upgrading
+helps. ⚠ It must NOT call 1–7 credits blocked: `minkRunAffordability`
+deliberately allows a run whenever anything is left and lets settlement clamp
+to `'short'`, so that would be a lie the server contradicts a second later.
+⚠ `MINK_MAX_RUN_CREDITS` is derived from `MINK_CREDIT_BANDS`, so re-banding
+moves the warning with it. All three properties are mutation-checked.
+⚠ The 402 refusal itself already reached the merchant verbatim —
+`responseError` surfaces the server's `error` string — so only the warning
+BEFORE zero was missing. Still unbuilt, and deliberately not part of this: a
+per-answer "used N credits" line, a published price list, and a first-time
+notice.
+
 **★★ AND THE COMPOSER'S COST HINT IS GONE (2026-09-21).** A line above the
 message box named the proposal kind and its price while you typed
 (`estimateMinkDraftIntent`). It guessed from keywords in the partial message

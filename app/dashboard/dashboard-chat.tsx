@@ -2,6 +2,7 @@
 import Link from "next/link";
 
 import {
+  AlertTriangle,
   ArrowDown,
   ArrowUp,
   FileText,
@@ -37,6 +38,7 @@ import { readReviewedMinkDocument } from "@/lib/mink/document-input";
 import { readSavedMinkMediaReference } from "@/lib/mink/media-attachment";
 import { MINK_MESSAGE_MAX_CHARS } from "@/lib/mink/input-policy";
 import { BrandMark } from "@/app/platform/brand-mark";
+import { MINK_MAX_RUN_CREDITS } from "@/lib/mink/metering";
 import type { MinkCreditSummary } from "./chat-context";
 
 const PANEL_WIDTH_KEY = "storemink:mink-panel-width";
@@ -380,6 +382,7 @@ export function DashboardChat({
   if (isOverlay !== isExpanded) return null;
 
   const hasThread = messages.length > 0 || isReplying || Boolean(error);
+  const creditWarning = minkCredits ? minkCreditWarning(minkCredits) : null;
   const wrapperClass = isOverlay
     ? "mink-chat-surface fixed inset-0 z-[90] flex h-[100dvh] w-screen max-w-full min-h-0 flex-col overflow-hidden overscroll-none bg-white"
     : "mink-chat-surface dash-chat relative flex h-full flex-shrink-0 flex-col overflow-hidden overscroll-none border-l border-t border-[#e5e5e5] bg-white shadow-sm";
@@ -667,6 +670,22 @@ export function DashboardChat({
 
           <div className="shrink-0 border-t border-[#f1f1f1] p-3 sm:p-4">
             <div className={columnClass}>
+              {creditWarning ? (
+                <div
+                  role="status"
+                  className={`mb-2 flex items-start gap-2 rounded-xl border px-3 py-2 text-[11px] ${
+                    creditWarning.level === "empty"
+                      ? "border-[#f3c2c2] bg-[#fdf3f3] text-[#a62828]"
+                      : "border-[#f2ddb4] bg-[#fdf9ef] text-[#8a5a12]"
+                  }`}
+                >
+                  <AlertTriangle
+                    className="mt-px h-3.5 w-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  <span>{creditWarning.message}</span>
+                </div>
+              ) : null}
               <MinkMultimodalInput
                 key={`multimodal:${activeConversationId ?? "new"}`}
                 message={input}
@@ -952,6 +971,53 @@ function MinkCreditIndicator({
       )}
     </div>
   );
+}
+
+/**
+ * The composer's low-balance warning, or null when there is nothing to say.
+ *
+ * ★★ MEASURED IN CREDITS, NOT IN A PERCENTAGE, and that is the whole reason it
+ * is not just the ring's colour. "Can I afford my next request" is an ABSOLUTE
+ * question: the heaviest run costs `MINK_MAX_RUN_CREDITS` whoever is asking,
+ * so a Pro store on 15 of 300 and a Free store on 15 of 20 are in the same
+ * practical position — two more big requests each. The ring goes amber at 20%,
+ * which is 60 credits on Pro (not low at all) and 4 on Free (nearly out), so a
+ * fraction is the wrong unit for a warning even though it is a fine one for a
+ * gradient.
+ *
+ * ★ IT IS WORDS, NOT A COLOUR. The ring is 20 pixels and shows its number only
+ * on hover or click, so "nearly out of credits" was information a merchant
+ * could only find by going to look for it — and the first real signal was the
+ * request being refused.
+ *
+ * ★ TWO LEVELS, because they need different actions. At zero the next request
+ * is refused outright and the only way forward is to buy or upgrade; above it
+ * the merchant can still work but should know a large request may take the
+ * rest. ⚠ `minkRunAffordability` deliberately allows a run whenever anything
+ * is left and lets settlement clamp, so 1-7 credits is NOT blocked — saying so
+ * would be a lie the server contradicts a second later.
+ *
+ * ⚠ An unmetered plan (`cap === null`) warns about nothing. It is also what a
+ * FAILED usage read looks like, which is exactly why `readMinkCredits` refuses
+ * to store an unavailable summary — see MinkCreditSummary.
+ */
+export function minkCreditWarning(
+  summary: MinkCreditSummary,
+): { level: "empty" | "low"; message: string } | null {
+  const { totalLeft } = minkCreditIndicatorState(summary);
+  if (totalLeft === null) return null;
+  if (totalLeft <= 0)
+    return {
+      level: "empty",
+      message:
+        "You have no Mink credits left. Buy more under Plans & Billing, or upgrade the plan, to keep using Mink.",
+    };
+  if (totalLeft < MINK_MAX_RUN_CREDITS)
+    return {
+      level: "low",
+      message: `Only ${totalLeft} Mink credit${totalLeft === 1 ? "" : "s"} left — a large request can use up to ${MINK_MAX_RUN_CREDITS}. Top up under Plans & Billing.`,
+    };
+  return null;
 }
 
 export function minkCreditIndicatorState(summary: MinkCreditSummary) {
