@@ -5064,6 +5064,26 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260920_0119_retire_mink_conversation_cap_verify",
+      "description": "Retire the obsolete physical-row cap verification while preserving the ten-item visible Mink history",
+      "file": "sql/20260920_0119_retire_mink_conversation_cap_verify.sql",
+      "transaction": true,
+      "requires": ["20260920_0118_mink_reference_image_help"],
+      "supersedesVerifyQueries": [
+        {
+          "migrationId": "20260829_0036_mink_conversation_ux",
+          "queryName": "no actor and store retain more than ten Mink conversations"
+        }
+      ],
+      "verify": {
+        "tables": [
+          "mink_conversations",
+          "mink_blog_publications",
+          "mink_action_audit"
+        ]
+      }
     }
   ]
 }

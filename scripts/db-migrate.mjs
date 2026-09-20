@@ -7,7 +7,9 @@ import nextEnv from "@next/env";
 import pg from "pg";
 import {
   MIGRATION_LOCK_NAME,
+  activeVerifyQuerySupersessions,
   acquireMigrationLock,
+  effectiveVerifyContract,
   lockTimeoutMs,
   classifyDrift,
   loadManifest,
@@ -429,12 +431,16 @@ async function adoptPendingMigrations(
     }
     const available = new Set(lockedRows.map((row) => row.id));
     assertMigrationRequirements(migration, available);
+    const adoptionSupersessions = activeVerifyQuerySupersessions(
+      manifest,
+      new Set([...available, migration.id]),
+    );
     await verifyContract(client, manifest.baseline.verify, "adoption baseline");
     for (const recorded of manifest.migrations) {
       if (!available.has(recorded.id)) break;
       await verifyContract(
         client,
-        recorded.verify,
+        effectiveVerifyContract(recorded, adoptionSupersessions),
         `adoption prerequisite ${recorded.id}`,
       );
     }
@@ -660,6 +666,24 @@ async function main() {
 
     const rows = await appliedRows(client);
     const plan = migrationPlan(manifest, rows);
+    if (options.command === "status") {
+      // Status is Cloud Build's read-only preflight immediately before apply.
+      // A pending, checksummed supersession must be able to retire an obsolete
+      // historical query here; otherwise that query prevents the migration
+      // which retires it from ever running. Apply re-verifies after the new
+      // ledger row exists, so no mutating path trusts a merely pending marker.
+      assertHealthyPlan(plan, true);
+    }
+    const verificationIds = new Set(rows.map((row) => row.id));
+    if (options.command === "status") {
+      for (const migration of plan.pending) {
+        verificationIds.add(migration.id);
+      }
+    }
+    const verifySupersessions = activeVerifyQuerySupersessions(
+      manifest,
+      verificationIds,
+    );
     if (plan.baselineApplied) {
       await verifyContract(client, manifest.baseline.verify, "baseline");
     }
@@ -667,7 +691,7 @@ async function main() {
       if (rows.some((row) => row.id === migration.id)) {
         await verifyContract(
           client,
-          migration.verify,
+          effectiveVerifyContract(migration, verifySupersessions),
           `migration ${migration.id}`,
         );
       }

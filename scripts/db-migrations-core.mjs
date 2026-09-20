@@ -68,6 +68,57 @@ function assertVerifyContract(verify, context) {
   }
 }
 
+function assertVerifyQuerySupersessions(entry, earlierMigrations) {
+  if (entry.supersedesVerifyQueries === undefined) return;
+  if (
+    !Array.isArray(entry.supersedesVerifyQueries) ||
+    entry.supersedesVerifyQueries.length === 0
+  ) {
+    throw new Error(
+      `migration ${entry.id}.supersedesVerifyQueries must be a non-empty array`,
+    );
+  }
+  const seen = new Set();
+  for (const supersession of entry.supersedesVerifyQueries) {
+    if (
+      !supersession ||
+      typeof supersession !== "object" ||
+      Object.keys(supersession).some(
+        (key) => !["migrationId", "queryName"].includes(key),
+      ) ||
+      typeof supersession.migrationId !== "string" ||
+      typeof supersession.queryName !== "string" ||
+      !supersession.queryName.trim()
+    ) {
+      throw new Error(
+        `migration ${entry.id}.supersedesVerifyQueries contains an invalid target`,
+      );
+    }
+    const target = earlierMigrations.get(supersession.migrationId);
+    if (!target) {
+      throw new Error(
+        `migration ${entry.id} may supersede only an earlier migration verify query: ${supersession.migrationId}`,
+      );
+    }
+    if (
+      !(target.verify.queries ?? []).some(
+        (query) => query.name === supersession.queryName,
+      )
+    ) {
+      throw new Error(
+        `migration ${entry.id} cannot find verify query ${JSON.stringify(supersession.queryName)} on ${supersession.migrationId}`,
+      );
+    }
+    const key = `${supersession.migrationId}\0${supersession.queryName}`;
+    if (seen.has(key)) {
+      throw new Error(
+        `migration ${entry.id} supersedes the same verify query more than once`,
+      );
+    }
+    seen.add(key);
+  }
+}
+
 export async function loadManifest(manifestPath = DEFAULT_MANIFEST) {
   const absolutePath = path.resolve(manifestPath);
   const parsed = JSON.parse(await readFile(absolutePath, "utf8"));
@@ -81,6 +132,7 @@ export async function loadManifest(manifestPath = DEFAULT_MANIFEST) {
   }
 
   const seen = new Set([parsed.baseline.id]);
+  const earlierMigrations = new Map();
   const baseDir = path.dirname(absolutePath);
   const migrations = [];
   for (const entry of parsed.migrations) {
@@ -112,17 +164,20 @@ export async function loadManifest(manifestPath = DEFAULT_MANIFEST) {
         `migration ${entry.id}.adoptVerify`,
       );
     }
+    assertVerifyQuerySupersessions(entry, earlierMigrations);
     const sqlPath = path.resolve(baseDir, entry.file);
     const sql = await readFile(sqlPath, "utf8");
     if (!sql.trim()) throw new Error(`Migration ${entry.id} is empty`);
     const metadata = { ...entry };
     delete metadata.file;
-    migrations.push({
+    const migration = {
       ...entry,
       sqlPath,
       sql,
       checksum: sha256(`${canonicalJson(metadata)}\0${sql}`),
-    });
+    };
+    migrations.push(migration);
+    earlierMigrations.set(entry.id, migration);
   }
 
   const baseline = {
@@ -130,6 +185,43 @@ export async function loadManifest(manifestPath = DEFAULT_MANIFEST) {
     checksum: sha256(canonicalJson(parsed.baseline)),
   };
   return { path: absolutePath, baseline, migrations };
+}
+
+/**
+ * Resolve durable query checks that a later, checksummed migration retires.
+ *
+ * A durable verify is immutable because it is part of its migration checksum,
+ * but an invariant can legitimately evolve. The later ledger row is the proof
+ * that the retirement is active; callers may also include pending ids for a
+ * read-only status preflight immediately before `apply`.
+ */
+export function activeVerifyQuerySupersessions(manifest, activeMigrationIds) {
+  const active =
+    activeMigrationIds instanceof Set
+      ? activeMigrationIds
+      : new Set(activeMigrationIds);
+  const superseded = new Map();
+  for (const migration of manifest.migrations) {
+    if (!active.has(migration.id)) continue;
+    for (const target of migration.supersedesVerifyQueries ?? []) {
+      const names = superseded.get(target.migrationId) ?? new Set();
+      names.add(target.queryName);
+      superseded.set(target.migrationId, names);
+    }
+  }
+  return superseded;
+}
+
+/** Return one migration's durable contract with retired queries omitted. */
+export function effectiveVerifyContract(migration, supersessions) {
+  const retired = supersessions.get(migration.id);
+  if (!retired?.size) return migration.verify;
+  return {
+    ...migration.verify,
+    queries: (migration.verify.queries ?? []).filter(
+      (query) => !retired.has(query.name),
+    ),
+  };
 }
 
 export function validateEnvironment(environment, database, mutating = false) {

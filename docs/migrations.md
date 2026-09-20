@@ -153,6 +153,29 @@ Two mistakes here have each jammed the whole queue before:
    `npm run help:lint` fails on a durable-`verify` copy assertion. Put exact
    wording in `applyVerify`. See `docs/help-centre.md`.
 
+#### Retiring an obsolete durable query
+
+Do not edit an applied migration when a durable query later becomes invalid.
+Add a new forward-only migration and declare the exact retired check in its
+checksummed manifest entry:
+
+```json
+"supersedesVerifyQueries": [
+  {
+    "migrationId": "20260829_0036_mink_conversation_ux",
+    "queryName": "no actor and store retain more than ten Mink conversations"
+  }
+]
+```
+
+The target must be an exact named query on an earlier migration. Tables,
+columns, constraints, RLS, functions and privileges cannot be retired through
+this mechanism. Once the later migration has a ledger row, status and verify
+omit only that query. Cloud Build's read-only `status` preflight also recognizes
+a healthy pending retirement so the stale query cannot block the migration
+that retires it; `apply` rechecks after recording the new migration. The later
+entry, including this field, is checksummed and becomes immutable itself.
+
 ### Test it locally
 
 ```bash
