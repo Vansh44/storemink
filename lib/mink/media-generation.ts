@@ -149,7 +149,7 @@ export async function generateMinkMediaImage(
           parts: [
             {
               text: renderMinkImagePrompt(
-                request.prompt,
+                `${request.prompt}\n\nDESTINATION COMPOSITION\n${compositionGuidance(request.purpose)}`,
                 referenceGuidance(references),
               ),
             },
@@ -178,13 +178,13 @@ export async function generateMinkMediaImage(
         })),
         imageConfig: {
           aspectRatio: aspectRatioFor(request.purpose),
-          imageSize: "1K",
+          imageSize: "2K",
           // ★★ NO PEOPLE AT ALL, not even adults. A storefront image with an
           // invented person implies a release nobody obtained.
           personGeneration: PERSON_GENERATION,
           prominentPeople: ProminentPeople.BLOCK_PROMINENT_PEOPLE,
           outputMimeType: "image/jpeg",
-          outputCompressionQuality: 90,
+          outputCompressionQuality: 95,
         },
         abortSignal: signal,
       },
@@ -234,6 +234,18 @@ export async function generateMinkMediaImage(
     mimeType: generated?.mimeType || "image/jpeg",
     ...(filteredReason ? { filteredReason } : {}),
   };
+}
+
+function compositionGuidance(
+  purpose: MinkMediaGenerationRequest["purpose"],
+): string {
+  if (purpose === "hero" || purpose === "banner") {
+    return "Compose a complete ultra-wide campaign scene, not a product cutout pasted onto a plain background. Keep every important product fully visible inside the central crop-safe area, with generous space above and below and background extending naturally to every edge. Use layered depth, purposeful props, lighting, colour and visual rhythm to communicate the campaign. Reserve calm negative space for editable storefront offer copy without placing words in the image. The composition must remain intelligible when the responsive storefront trims the outer edges.";
+  }
+  if (purpose === "gallery") {
+    return "Compose for a square crop. Keep the full primary subject inside a generous central safe area, add deliberate depth and supporting details, and avoid edge clipping or a flat pasted-cutout look.";
+  }
+  return "Compose for a landscape feature block. Keep the complete primary subject comfortably inside the frame, balance it with intentional environment and negative space, and avoid edge clipping or a flat pasted-cutout look.";
 }
 
 function referenceGuidance(

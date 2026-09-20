@@ -123,7 +123,7 @@ describe("createMinkMediaImageProposal", () => {
     });
     expect(proposal.type).toBe("media_image_proposal");
     // ★ The aspect comes from the purpose, never from the caller.
-    expect(proposal.aspectRatio).toBe("16:9");
+    expect(proposal.aspectRatio).toBe("21:9");
     expect(proposal.saved).toBe(true);
     // Authority check, then the immediate Media Library write. The generated
     // URL is usable by a layout proposal in this same model run.

@@ -137,8 +137,10 @@ describe("Mink system prompt document", () => {
       "Never infer “all products” from an “on any order” trigger",
     );
     expect(template).toContain(
-      "Pressing Send is the single explicit request to process that visible attachment",
+      "Pressing Send is the single explicit request to process the visible attachments",
     );
+    expect(template).toContain("up to five attachments");
+    expect(template).toContain("original art-directed campaign scene");
     expect(template).toContain("pass that URL unchanged as image_url");
     expect(template).toContain("answer in at most two short sentences");
     expect(template).toContain("single Apply to Website Builder draft button");

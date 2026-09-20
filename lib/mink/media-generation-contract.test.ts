@@ -121,7 +121,7 @@ describe("Phase 9E generation request", () => {
 
 describe("the shape a purpose pins", () => {
   it("gives every purpose an aspect ratio the image model accepts", () => {
-    const supported = new Set(["1:1", "3:4", "4:3", "16:9", "9:16"]);
+    const supported = new Set(["1:1", "3:4", "4:3", "16:9", "9:16", "21:9"]);
     for (const purpose of MINK_MEDIA_PURPOSES) {
       expect(supported.has(aspectRatioFor(purpose))).toBe(true);
       expect(MINK_MEDIA_PURPOSE_SPECS[purpose].label).toBeTruthy();

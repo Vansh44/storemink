@@ -66,12 +66,12 @@ export async function POST(request: Request) {
     attempted = true;
     // ★ Same isolated reader, same limits and consent — only the SHAPE of what
     // comes back differs. Routing the design read through this endpoint is what
-    // gives it the 2 MiB cap, the image validation, the replay key and the rate
+    // gives it the 5 MiB cap, the image validation, the replay key and the rate
     // limits for free; a second endpoint would have had to repeat all of them.
     const result =
       input.mode === "design"
         ? await extractMinkDesign(config, checked, signal)
-        : await extractMinkInput(config, checked, signal);
+        : await extractMinkInput(config, checked, signal, input.maxCharacters);
     // Content-free telemetry only. Never log a filename, byte buffer, transcript or provider error.
     logInfo("mink.input.completed", {
       requestId: id,
@@ -97,7 +97,10 @@ export async function POST(request: Request) {
         ? {
             // The exact values, plus the block the composer shows the merchant.
             design: result.reading,
-            text: describeDesignReading(result.reading),
+            text: describeDesignReading(result.reading).slice(
+              0,
+              input.maxCharacters,
+            ),
             kind: checked.kind,
             mode: "design",
           }

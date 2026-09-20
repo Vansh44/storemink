@@ -1,6 +1,10 @@
 /** Shared input limits. Files are references, never action authority. */
-export const MINK_INPUT_BYTES = 2 * 1024 * 1024;
-export const MINK_INPUT_BODY_BYTES = 2_800_000;
+export const MINK_INPUT_BYTES = 5 * 1024 * 1024;
+/** Base64 adds roughly one third; leave bounded room for JSON metadata. */
+export const MINK_INPUT_BODY_BYTES = 7_100_000;
+export const MINK_INPUT_FILES = 5;
+/** Five bounded readings plus their durable attachment references fit here. */
+export const MINK_MESSAGE_MAX_CHARS = 12_000;
 export const MINK_INPUT_ACCEPT = ".png,.jpg,.jpeg,.webp,.pdf,.wav";
 export const MINK_AUDIO_RATE = 16000;
 export const MINK_AUDIO_SECONDS = 30;

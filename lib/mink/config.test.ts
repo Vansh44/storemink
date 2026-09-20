@@ -22,7 +22,7 @@ describe("getMinkConfig", () => {
       projectId: "storemink-test",
       location: "global",
       model: "gemini-3.7-flash",
-      imageModel: "gemini-2.5-flash-image",
+      imageModel: "gemini-3.1-flash-image",
       imageLocation: "global",
       maxSteps: 12,
       maxToolCalls: 16,

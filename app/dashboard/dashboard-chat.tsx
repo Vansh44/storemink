@@ -36,6 +36,7 @@ import { MinkFeedbackControls } from "./mink-feedback";
 import { estimateMinkDraftIntent } from "@/lib/mink/draft-types";
 import { readReviewedMinkDocument } from "@/lib/mink/document-input";
 import { readSavedMinkMediaReference } from "@/lib/mink/media-attachment";
+import { MINK_MESSAGE_MAX_CHARS } from "@/lib/mink/input-policy";
 import { BrandMark } from "@/app/platform/brand-mark";
 import type { MinkCreditSummary } from "./chat-context";
 
@@ -700,7 +701,7 @@ export function DashboardChat({
                     <textarea
                       ref={composerRef}
                       rows={1}
-                      maxLength={4000}
+                      maxLength={MINK_MESSAGE_MAX_CHARS}
                       value={input}
                       onChange={(event) => setInput(event.target.value)}
                       onKeyDown={(event) => {
@@ -992,30 +993,46 @@ function MinkUserMessage({ text }: { text: string }) {
     | { kind: "reference"; filename: string; sourceKind: string }
   > = [];
 
-  const document = readReviewedMinkDocument(visibleText);
-  if (document) {
-    visibleText = document.message;
-    attachments.unshift({
-      kind: "reference",
-      filename: document.attachment.filename || "Reviewed reference",
-      sourceKind: document.attachment.kind === "image" ? "Image" : "Document",
-    });
+  while (true) {
+    const document = readReviewedMinkDocument(visibleText);
+    if (document) {
+      visibleText = document.message;
+      attachments.unshift({
+        kind: "reference",
+        filename: document.attachment.filename || "Reviewed reference",
+        sourceKind: document.attachment.kind === "image" ? "Image" : "Document",
+      });
+      continue;
+    }
+    const media = readSavedMinkMediaReference(visibleText);
+    if (media) {
+      visibleText = media.message;
+      attachments.unshift({ kind: "media", ...media.asset });
+      continue;
+    }
+    break;
   }
-  const media = readSavedMinkMediaReference(visibleText);
-  if (media) {
-    visibleText = media.message;
-    attachments.unshift({ kind: "media", ...media.asset });
-  }
+  const savedImageNames = new Set(
+    attachments
+      .filter((attachment) => attachment.kind === "media")
+      .map((attachment) => attachment.filename),
+  );
+  const renderedAttachments = attachments.filter(
+    (attachment) =>
+      attachment.kind === "media" ||
+      attachment.sourceKind !== "Image" ||
+      !savedImageNames.has(attachment.filename),
+  );
 
   return (
     <>
       <div className="max-w-[85%] space-y-2 rounded-2xl rounded-br-sm bg-[#f4f0ff] px-3.5 py-2.5 text-sm text-[#1a1a1a]">
-        {attachments.length > 0 && (
+        {renderedAttachments.length > 0 && (
           <div
             className="flex flex-wrap gap-2"
             aria-label="Message attachments"
           >
-            {attachments.map((attachment, index) =>
+            {renderedAttachments.map((attachment, index) =>
               attachment.kind === "media" ? (
                 <div
                   key={`${attachment.url}:${index}`}

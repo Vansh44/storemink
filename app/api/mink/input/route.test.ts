@@ -99,7 +99,7 @@ describe("multimodal endpoint authority", () => {
       (
         await POST(
           req(
-            { ...payload, data: "x".repeat(2_800_001) },
+            { ...payload, data: "x".repeat(7_100_001) },
             { "content-length": "1" },
           ),
         )

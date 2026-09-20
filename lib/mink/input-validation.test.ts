@@ -32,8 +32,13 @@ describe("bounded multimodal decoding", () => {
       ).toThrow();
     expect(() => parseMinkInput(body("x.svg", new Uint8Array([1])))).toThrow();
     expect(() =>
-      parseMinkInput(body("x.png", new Uint8Array(2 * 1024 * 1024 + 1))),
+      parseMinkInput(body("x.png", new Uint8Array(5 * 1024 * 1024 + 1))),
     ).toThrow();
+  });
+  it("accepts a three MiB attachment inside the five MiB transport bound", () => {
+    expect(
+      parseMinkInput(body("x.png", new Uint8Array(3 * 1024 * 1024))).bytes,
+    ).toHaveLength(3 * 1024 * 1024);
   });
   it("decodes and resizes images without EXIF, rejecting disguised or corrupt formats", async () => {
     const png = await sharp({
@@ -107,7 +112,7 @@ describe("bounded multimodal decoding", () => {
       }),
     );
     const bytes = await doc.save({ useObjectStreams: false });
-    expect(bytes.length).toBeLessThan(2 * 1024 * 1024);
+    expect(bytes.length).toBeLessThan(5 * 1024 * 1024);
     await expect(validate("compressed.pdf", bytes)).rejects.toThrow();
   }, 10000);
 });

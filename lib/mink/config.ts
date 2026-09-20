@@ -68,7 +68,7 @@ export function getMinkConfig(): MinkConfig {
       "global",
     model: process.env.MINK_VERTEX_MODEL?.trim() || "gemini-3.7-flash",
     imageModel:
-      process.env.MINK_IMAGE_MODEL?.trim() || "gemini-2.5-flash-image",
+      process.env.MINK_IMAGE_MODEL?.trim() || "gemini-3.1-flash-image",
     // Gemini image generation is served at the global Vertex endpoint. Keep a
     // separate override so an operator can move it without moving chat.
     imageLocation: process.env.MINK_IMAGE_LOCATION?.trim() || "global",

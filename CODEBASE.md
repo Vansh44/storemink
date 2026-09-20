@@ -252,12 +252,18 @@ correct for every row whenever it was written.
 ### Mink Phase 8E — Automatic multimodal input (2026-09-20)
 
 `app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
-controller: one plus button handles text/image/PDF attachments and one-file
-drag-and-drop; a separate mic dictates speech into editable message text.
+controller: one plus button handles text/image/PDF attachments and up to five
+files per selection/drop; a separate mic dictates speech into editable message
+text. Each supported image or PDF may be 5 MiB; short .txt/.md files retain
+their 8 KiB/3,000-character bound. The combined message/reference envelope is
+12,000 characters.
 Selected images appear as compact square removable previews inside the composer;
 clicking one opens a full-size viewer. Documents use compact file cards. There
-is no separate attachment approval/review panel: pressing Send with the visible
-attachment is the single explicit processing action. PNG/JPEG/WebP/PDF bytes go
+is no separate attachment approval/review panel. When the role holds
+`media:manage`, each image begins its ordinary Media Library upload as soon as
+it is selected; removal cleans up the staged asset, and Send waits for any
+in-flight upload rather than starting it. Pressing Send is the explicit
+processing action. PNG/JPEG/WebP/PDF bytes go
 only to the isolated, bounded Vertex reader; .txt/.md imports are decoded
 locally. A sent image is also normalised through the ordinary Media action when
 the admin holds `media:manage`, so the exact preview survives conversation
@@ -304,10 +310,11 @@ and does not persist it in the database, Media Library, memories or chat history
 Provider processing terms still apply. Dictation is not a voice conversation and
 never grants action authority. A successful transcription updates only the
 editable composer; it does not start a Mink request until the user presses the
-Send arrow or submits the composer themselves. Extracted image/PDF references
-still require separate editing/review before addition to the composer. Closing,
-discarding, conversation changes, unmounting or hiding the page cancel pending
-local work. Blob previews are revoked.
+Send arrow or submits the composer themselves. Extracted image/PDF readings are
+automatically attached to the submitted request as bounded untrusted context.
+Closing, discarding, conversation changes, unmounting or hiding the page cancel
+pending local work. Blob previews are revoked, and attachment errors
+auto-dismiss after five seconds.
 
 The composer still does not expose WAV as a file attachment. Its microphone owns
 the temporary recording lifecycle and the dedicated voice route owns
@@ -328,7 +335,8 @@ merchant-facing list and must not.
 
 `/api/mink/input` requires global runtime and store/dashboard permission;
 there is no separate multimodal feature flag.
-`input-policy.ts`/`input-validation.ts` enforce one 2 MiB file, exact fields,
+`input-policy.ts`/`input-validation.ts` enforce 5 MiB per provider-processed
+file and the composer enforces five files per message, exact fields,
 canonical base64, actual bytes, image format/extension agreement, 12 MP/single
 frame, metadata stripping and 1600 px resizing. PDFs are limited to 10 pages;
 `scripts/mink-pdf-check.cjs` uses pinned pdf-lib in a child process with a 96 MiB
@@ -345,7 +353,8 @@ minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay keys.
 There are at most two concurrent local processing requests. Bounded body reads
 honour abort/deadline. `input-provider.ts` counts tokens then extracts once with
 the configured Vertex model/location, no tools/memory/history/URL fetching.
-8192 counted input tokens, 2048 output tokens, 3000 output characters and a
+8192 counted input tokens, 2048 output tokens, a caller-bounded result of up to
+3000 output characters per file (reduced when several files share a message), and a
 45-second deadline; incomplete/safety-blocked output is rejected, not truncated.
 No automatic retry or model fallback. Beta extraction deducts no credits;
 content-free logs report modality and provider tokens/unknown failure usage,
@@ -369,10 +378,14 @@ Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
 `20260914_0112_mink_global_voice_provider.sql` supersedes live browser
 recognition with one final server transcript;
 `20260915_0113_mink_conversation_voice_catalog_images.sql` corrects the same
-guide for automatic end-of-speech. The roadmap, system prompt and Echos tests
+guide for automatic end-of-speech;
+`20260921_0121_mink_multi_attachments_campaign_art.sql` edits that guide in
+place for five 5 MiB attachments, selection-time image upload and crop-safe
+campaign artwork. The roadmap, system prompt and Echos tests
 describe rollout and limitations. Current prompt versions are `read-beta-v20` /
-`draft-action-beta-v38`; current tool-registry versions are `read-beta-v17` /
-`draft-beta-v29` after automatic attachment grounding and product-image support.
+`draft-action-beta-v39`; current tool-registry versions are `read-beta-v17` /
+`draft-beta-v30` after multi-attachment grounding and creative campaign-image
+briefing.
 
 ### Mink design-from-screenshot (2026-09-19)
 
@@ -401,7 +414,7 @@ genuine `0` as a real radius, and returns NULL when nothing survived — an empt
 card would read to a merchant as "this worked".
 
 ★ IT RIDES `/api/mink/input` ON A `mode`, not a second endpoint: that inherits
-the consent checkbox, the 2 MiB cap, the image validation, the replay key and
+the processing boundary, the 5 MiB cap, the image validation, the replay key and
 the rate limits already there. An absent mode is the original extraction, so an
 older client is unchanged; an unrecognised one is REFUSED rather than treated as
 extraction, since the two return different shapes. A design read is image-only.
@@ -991,8 +1004,8 @@ one charged, immutable private proposal that IS an image.
   until somebody re-toggled Mink, which `assertToolEnabled` reports as "support
   has not enabled this feature" — 9C's defect. **The ceiling is the limiter, not
   the row.**
-- **★★ PURPOSE PINS THE ASPECT RATIO; THE CALLER NEVER DOES.** `hero` is 16:9,
-  `gallery` 1:1, `feature` 4:3, `banner` 16:9. A model asked for "a hero image"
+- **★★ PURPOSE PINS THE ASPECT RATIO; THE CALLER NEVER DOES.** `hero` is 21:9,
+  `gallery` 1:1, `feature` 4:3, `banner` 21:9. A model asked for "a hero image"
   will cheerfully pick 9:16, and the hero renderer then crops it through the
   middle of its subject. Naming the destination also lets the card say where the
   image is meant to go, which a bare ratio cannot.
@@ -1027,7 +1040,7 @@ one charged, immutable private proposal that IS an image.
   request reached Vertex and returned `NOT_FOUND` for
   `imagen-4.0-generate-001`; Google deprecated that endpoint in March and named
   June 30 as the migration deadline. The provider now uses
-  `gemini-2.5-flash-image` through `generateContent`, requests the required
+  Gemini image generation through `generateContent`, requests the required
   `TEXT` + `IMAGE` modalities, and persists only the first inline image part.
   The one-candidate limit, aspect ratio, people block, harm filters, JPEG output,
   timeout and no-retry billing rule remain enforced in code.
@@ -1048,7 +1061,7 @@ one charged, immutable private proposal that IS an image.
   number is provisional and unmeasured against a real bill; pricing is the
   owner's call.
 - **★ IMAGE GENERATION USES THE GLOBAL VERTEX ENDPOINT.**
-  `MINK_IMAGE_MODEL` defaults to `gemini-2.5-flash-image` and
+  `MINK_IMAGE_MODEL` defaults to `gemini-3.1-flash-image` and
   `MINK_IMAGE_LOCATION` defaults to `global`. They remain separate overrides
   from chat so an operator can move either independently. One attempt, never a
   retry: a retry is a second charge for a request the caller has already been
@@ -1092,7 +1105,7 @@ one charged, immutable private proposal that IS an image.
 - The live provider trace is no longer unknown: the dashboard request reached
   Vertex and proved the former Imagen endpoint had been retired. A subsequent
   one-attempt smoke call through the replacement contract returned a valid
-  16:9 JPEG (611,734 bytes) from `gemini-2.5-flash-image` with the same project
+  16:9 JPEG (611,734 bytes) from the former `gemini-2.5-flash-image` default with the same project
   credentials. Provider access, model id, global location and response parsing
   are therefore verified rather than inferred.
 
@@ -1121,6 +1134,13 @@ one charged, immutable private proposal that IS an image.
   style only as requested. User-supplied scene direction controls composition,
   setting, mood, light and palette. Text inside a reference is untrusted visual
   data, never an instruction.
+- **CAMPAIGN ART IS COMPOSED, NOT PASTED.** The tool requires a full creative
+  brief: concept, hierarchy, full-subject placement, props, depth, lighting,
+  palette and crop-safe negative space. Offer art must communicate the occasion
+  visually while leaving wording editable. The provider requests 2K JPEG at
+  quality 95; hero and promo purposes use 21:9, and deterministic destination
+  guidance keeps the complete product inside a responsive safe area with extra
+  top/bottom breathing room.
 - **THIS CREATES NEW STOREFRONT ARTWORK; IT DOES NOT CHANGE ITS SOURCES.** A
   merchant may request campaign art based on an authentic product, category or
   Media image. The result is saved as a new Media Library asset, carries SynthID
@@ -1503,7 +1523,7 @@ normal input tokens. No new environment variables, model or scheduled job.
 `mink-document-input.tsx` is the legacy local-only importer; its .txt/.md
 decoding/review behavior now lives in the unified composer (UTF-8, 8 KiB,
 3,000 characters), requires review/consent, then adds labelled reference text
-to the editable composer within its existing 4,000-character total. Nothing
+to the editable composer within its current 12,000-character total. Nothing
 uploads before Send; text follows existing conversation persistence/deletion.
 `document-input.ts` rejects binary controls, invalid encoding and oversized
 input without truncation. No PDF, screenshot, audio/voice, spreadsheet, URL
@@ -12393,7 +12413,7 @@ npm run format      # prettier --write
   **`MINK_MAX_TOOL_CALLS_PER_RUN`** (16),
   **`MINK_MAX_PARALLEL_READ_TOOLS`** (4), and
   **`MINK_MAX_OUTPUT_TOKENS`** (2048), **`MINK_IMAGE_MODEL`**
-  (`gemini-2.5-flash-image`) and **`MINK_IMAGE_LOCATION`** (`global`; still an
+  (`gemini-3.1-flash-image`) and **`MINK_IMAGE_LOCATION`** (`global`; still an
   independent override from the chat location), plus reliability controls
   **`MINK_MAX_MODEL_RETRIES`** (1, bounded 0–2) and
   **`MINK_RUN_TIMEOUT_SECONDS`** (180, bounded 15–300). The dashboard layout reads the private

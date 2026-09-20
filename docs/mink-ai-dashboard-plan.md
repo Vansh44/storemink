@@ -1455,7 +1455,8 @@ Exit criteria:
   is disabled. Existing worker purges expired text in bounded batches.
   Optional .txt/.md input supports local UTF-8 validation, explicit text review
   and addition to the composer, never automatic sending or saving as memory.
-  File cap 8 KiB / 3,000 characters; combined message remains 4,000 characters.
+  File cap 8 KiB / 3,000 characters; the current combined message/reference
+  envelope is 12,000 characters.
   Migration 0084 and ECH-P8D test prompts accompany this implementation.
   Local verification (2026-09-07): 6,318 regression tests passed, plus all
   twelve isolated PostgreSQL checks (including migration repeat/rollback,
@@ -1465,14 +1466,16 @@ Exit criteria:
   behavior still requires the documented acceptance prompts.
 - **8E — Automatic multimodal inputs: implemented locally; rollout acceptance pending.**
   Images (PNG/JPEG/WebP) and plain PDFs enter a separate tool-free extraction
-  endpoint. One file at a time, 2 MiB, 12 MP images normalized to 1600 px and
-  10 PDF pages. The composer mic instead uses supported-browser live speech
+  endpoint. Up to five files per message, 5 MiB per image/PDF, 12 MP images
+  normalized to 1600 px and 10 PDF pages. The composer mic instead uses
+  supported-browser live speech
   recognition for up to 60 seconds; StoreMink does not upload microphone audio.
   A selected image appears as a compact square preview that opens full-size;
   documents use compact file cards. Pressing Send is the single explicit
   processing action, with no separate consent/review box. Extracted context is
   labelled untrusted and sent with the typed request. Sent images are persisted
-  through the ordinary Media action when the role holds `media:manage`, so the
+  through the ordinary Media action immediately on selection when the role
+  holds `media:manage`, so the
   exact image renders in history and can ground a product or storefront
   proposal; PDFs remain transient. Provider retention policies still apply.
   PDFs are parsed in a bounded child
@@ -1487,9 +1490,9 @@ Exit criteria:
   multimodal deployment switch is needed. The configured
   `MINK_VERTEX_MODEL` must support all enabled inputs; unsupported capabilities
   fail explicitly, without an unapproved model fallback.
-  Migrations 0090 and 0120 update Help. ECH-P8E tests cover merchant requests,
+  Migrations 0090, 0120 and 0121 update Help. ECH-P8E tests cover merchant requests,
   automatic Send processing, errors, cancellation, isolation and adversarial input.
-  Composer refinement (0091/0092): plus for one-file pick/drop and a separate
+  Composer refinement (0091/0092/0121): plus for up-to-five-file pick/drop and a separate
   mic for live browser speech-to-text. One mic click starts listening after the
   browser permission prompt; interim words appear in the editable composer as
   they are recognised, so Send is usable before Finish. Finish/60 seconds keeps
@@ -1648,10 +1651,11 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   ★ MEDIA IS ITS OWN PERMISSION, not `builder`. Filenames alone can carry a
   supplier's name or an unreleased product's, and an admin trusted to arrange a
   page is not automatically trusted to enumerate every file the store holds.
-  ★ SAVING IS NOT A MINK ACTION: no credit, no approval, no model tool. It is a
-  second, separate consent beside 8E's extraction consent — extraction still
-  persists nothing, and a merchant may do either, both or neither. Mink's only
-  involvement is that it can afterwards SEE the result.
+  ★ SAVING IS NOT A MINK ACTION: no credit, no approval, no model tool.
+  Permitted images now use the ordinary Media upload immediately when selected;
+  extraction still persists nothing, and removing or abandoning the preview
+  cleans up the staged asset. Mink's only involvement is that it can afterwards
+  SEE the result.
   ★ THE GUARD FINDS MEDIA BY THE `_url` SUFFIX rather than by enumerating the
   seventeen section types, so a new field is covered by construction; the
   convention is pinned by a test that scans the section registry's source and
@@ -1764,7 +1768,9 @@ lib/mink/` returned NOTHING before this: eighteen read tools and not one knew
   provider failure. The runtime now uses Google's recommended
   `gemini-2.5-flash-image` replacement through `generateContent` at `global`;
   a one-attempt live smoke call with the same project credentials returned a
-  valid 16:9 JPEG (611,734 bytes).
+  valid 16:9 JPEG (611,734 bytes). The current production default is now
+  `gemini-3.1-flash-image`; storefront generation requests 2K output, with 21:9
+  hero/promo framing and explicit responsive crop-safe creative direction.
   Local verification (2026-09-13): all 6,814 active tests pass (57 skipped), as
   do TypeScript, ESLint, migration lint, Help content lint and the Next 16
   production build. The attachment flow has focused coverage for compact

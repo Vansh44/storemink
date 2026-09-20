@@ -5108,6 +5108,35 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260921_0121_mink_multi_attachments_campaign_art",
+      "description": "Explain five 5 MiB attachments, immediate image upload, and crop-safe campaign artwork",
+      "file": "sql/20260921_0121_mink_multi_attachments_campaign_art.sql",
+      "transaction": true,
+      "requires": ["20260920_0120_mink_automatic_attachments"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains the five-file immediate-upload flow",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%one message can carry up to five files%' and body like '%each selected image starts uploading immediately%' and body like '%Attachment errors disappear automatically after a few seconds%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide explains creative crop-safe campaign artwork",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%purpose-shaped campaign artwork%' and body like '%responsive crop-safe area%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete two MiB limit was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Each file must be no larger than <strong>2 MiB</strong>%'",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }
