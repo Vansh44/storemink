@@ -6,7 +6,11 @@ import { readMinkBoundedJson } from "@/lib/mink/bounded-json";
 import { MINK_INPUT_BODY_BYTES } from "@/lib/mink/input-policy";
 import { describeDesignReading } from "@/lib/mink/design-from-image";
 import { parseMinkInput, validateMinkInput } from "@/lib/mink/input-validation";
-import { extractMinkDesign, extractMinkInput } from "@/lib/mink/input-provider";
+import {
+  boundMinkReading,
+  extractMinkDesign,
+  extractMinkInput,
+} from "@/lib/mink/input-provider";
 import { reserveMinkInput } from "@/lib/mink/input-limits";
 import { MinkRequestError } from "@/lib/mink/errors";
 import { logInfo } from "@/lib/observability/logger";
@@ -66,12 +70,12 @@ export async function POST(request: Request) {
     attempted = true;
     // ★ Same isolated reader, same limits and consent — only the SHAPE of what
     // comes back differs. Routing the design read through this endpoint is what
-    // gives it the 2 MiB cap, the image validation, the replay key and the rate
+    // gives it the 5 MiB cap, the image validation, the replay key and the rate
     // limits for free; a second endpoint would have had to repeat all of them.
     const result =
       input.mode === "design"
         ? await extractMinkDesign(config, checked, signal)
-        : await extractMinkInput(config, checked, signal);
+        : await extractMinkInput(config, checked, signal, input.maxCharacters);
     // Content-free telemetry only. Never log a filename, byte buffer, transcript or provider error.
     logInfo("mink.input.completed", {
       requestId: id,
@@ -97,7 +101,12 @@ export async function POST(request: Request) {
         ? {
             // The exact values, plus the block the composer shows the merchant.
             design: result.reading,
-            text: describeDesignReading(result.reading),
+            // Same bounding as an extraction, from the same helper: a bare
+            // slice cuts mid-word and says nothing about having cut.
+            text: boundMinkReading(
+              describeDesignReading(result.reading),
+              input.maxCharacters,
+            ),
             kind: checked.kind,
             mode: "design",
           }

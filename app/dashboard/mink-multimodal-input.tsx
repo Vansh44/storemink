@@ -2,21 +2,53 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { FileText, Loader2, Mic, Plus, Upload, X } from "lucide-react";
-import { uploadMediaAsset } from "@/app/actions/media-actions";
+import {
+  deleteMediaAsset,
+  uploadMediaAsset,
+  type MediaAsset,
+} from "@/app/actions/media-actions";
 import {
   addReviewedMinkDocument,
   decodeMinkDocument,
   DOCUMENT_BYTES,
 } from "@/lib/mink/document-input";
-import { inputKind, MINK_INPUT_BYTES } from "@/lib/mink/input-policy";
 import {
-  addSavedMinkMediaReference,
-  readSavedMinkMediaReference,
-} from "@/lib/mink/media-attachment";
+  inputKind,
+  minkAttachmentsFit,
+  minkReadingBudget,
+  MINK_INPUT_BYTES,
+  MINK_INPUT_FILES,
+  MINK_MESSAGE_MAX_CHARS,
+} from "@/lib/mink/input-policy";
+import { addSavedMinkMediaReference } from "@/lib/mink/media-attachment";
 import { startMinkRecording } from "@/lib/mink/voice-recorder";
 
 const COMPOSER_FILE_ACCEPT =
   ".png,.jpg,.jpeg,.webp,.pdf,.txt,.md,image/png,image/jpeg,image/webp,application/pdf,text/plain,text/markdown";
+
+type ComposerAttachment = {
+  id: string;
+  file: File;
+  preview: string;
+  localText: string | null;
+  asset: MediaAsset | null;
+  uploadState: "local" | "uploading" | "ready" | "error";
+  /**
+   * ★★ A READING SURVIVES A FAILED SEND, so a retry only redoes what failed.
+   * `submit()` rebuilds the message from the raw text every time, so without
+   * this a five-file send that died on the last file re-extracted the first
+   * four — five more provider calls, five more slots of the per-minute input
+   * budget, and a retry that hit the rate limit instead of the thing that
+   * actually went wrong. A `processing >= 2` 429 or one provider timeout
+   * therefore used to cost the whole batch.
+   *
+   * ★ KEYED ON MODE, NOT JUST PRESENT. Whether an image is read as a design or
+   * as an extraction depends on the MESSAGE (`shouldReadMinkImageAsStorefrontDesign`),
+   * which the merchant may edit between attempts — serving a cached design
+   * reading for an extraction request is a wrong answer, not a stale one.
+   */
+  reading: { mode: "extract" | "design"; text: string } | null;
+};
 
 export function MinkMultimodalInput({
   message,
@@ -39,14 +71,14 @@ export function MinkMultimodalInput({
     submit: () => Promise<void>;
   }) => ReactNode;
 }) {
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewId, setPreviewId] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
-  const [file, setFile] = useState<File | null>(null);
-  const [preview, setPreview] = useState("");
-  const [localText, setLocalText] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [saved, setSaved] = useState("");
+  const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
+  const attachmentsRef = useRef<ComposerAttachment[]>([]);
+  const uploadPromises = useRef(new Map<string, Promise<MediaAsset | null>>());
+  const removedAttachmentIds = useRef(new Set<string>());
+  const [submitting, setSubmitting] = useState(false);
   const [dictationState, setDictationState] = useState<
     "starting" | "listening" | "processing" | null
   >(null);
@@ -60,37 +92,80 @@ export function MinkMultimodalInput({
     latestMessage.current = { message, onAdd };
   }, [message, onAdd]);
 
-  function clearAttachment() {
-    generation.current++;
-    operation.current?.abort();
-    operation.current = null;
-    setBusy(false);
-    setPreviewOpen(false);
-    setDragging(false);
-    dragDepth.current = 0;
-    setFile(null);
-    setLocalText(null);
-    setSaved("");
-    setError("");
+  function updateAttachments(
+    updater: (current: ComposerAttachment[]) => ComposerAttachment[],
+  ) {
+    const next = updater(attachmentsRef.current);
+    attachmentsRef.current = next;
+    setAttachments(next);
+  }
+
+  function removeAttachment(id: string) {
+    const attachment = attachmentsRef.current.find((item) => item.id === id);
+    if (!attachment) return;
+    removedAttachmentIds.current.add(id);
+    updateAttachments((current) => current.filter((item) => item.id !== id));
+    if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+    if (attachment.asset) void deleteMediaAsset(attachment.asset.id);
+    if (previewId === id) setPreviewId(null);
   }
 
   useEffect(
     () => () => {
       generation.current++;
       operation.current?.abort();
+      for (const attachment of attachmentsRef.current) {
+        removedAttachmentIds.current.add(attachment.id);
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+        if (attachment.asset) void deleteMediaAsset(attachment.asset.id);
+      }
     },
     [],
   );
 
+  /**
+   * ★★ THE UNMOUNT CLEANUP ABOVE CANNOT SURVIVE A REAL UNLOAD. It calls a
+   * Server Action, and the browser cancels that request when the page is going
+   * away — so picking an image and then closing the tab left the upload in the
+   * merchant's Media Library permanently, with nothing marking it as a chat
+   * leftover. The two effects cover different exits: that one handles in-app
+   * navigation, where the request completes normally; this one handles the
+   * page actually being discarded.
+   *
+   * ★ `sendBeacon`, NOT `fetch(..., {keepalive: true})`. It is the API built
+   * for exactly this and cannot be cancelled by the unload — and because
+   * `application/json` is not a CORS-simple content type, a cross-origin
+   * beacon would need a preflight it cannot make, so the browser refuses one
+   * outright. That is a layer above the route's own same-origin check.
+   *
+   * ★ GUARDED ON `persisted === false`, WHICH IS LOAD-BEARING. `pagehide` also
+   * fires when the page goes into the back/forward cache — an ordinary mobile
+   * tab switch — and that page comes BACK with the previews still on screen.
+   * Deleting there would leave Send citing a URL we had already destroyed,
+   * which is worse than the orphan this exists to prevent.
+   */
   useEffect(() => {
-    if (!file || !/\.(png|jpe?g|webp)$/i.test(file.name)) {
-      setPreview("");
-      return;
-    }
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    return () => URL.revokeObjectURL(url);
-  }, [file]);
+    const discard = (event: PageTransitionEvent) => {
+      if (event.persisted) return;
+      for (const attachment of attachmentsRef.current) {
+        if (!attachment.asset) continue;
+        navigator.sendBeacon?.(
+          "/api/mink/media/discard",
+          new Blob([JSON.stringify({ id: attachment.asset.id })], {
+            type: "application/json",
+          }),
+        );
+      }
+    };
+    window.addEventListener("pagehide", discard);
+    return () => window.removeEventListener("pagehide", discard);
+  }, []);
+
+  useEffect(() => {
+    if (!error) return;
+    const timer = window.setTimeout(() => setError(""), 5000);
+    return () => window.clearTimeout(timer);
+  }, [error]);
 
   useEffect(() => {
     if (!dictationState) return;
@@ -116,8 +191,10 @@ export function MinkMultimodalInput({
       event.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      if (!disabled && !busy && !dictationState) {
-        setError("Drop one file onto the message box, or use the plus button.");
+      if (!disabled && !submitting && !dictationState) {
+        setError(
+          `Drop up to ${MINK_INPUT_FILES} files onto the message box, or use the plus button.`,
+        );
       }
     };
     window.addEventListener("dragover", over);
@@ -126,49 +203,137 @@ export function MinkMultimodalInput({
       window.removeEventListener("dragover", over);
       window.removeEventListener("drop", drop);
     };
-  }, [disabled, busy, dictationState]);
+  }, [disabled, submitting, dictationState]);
 
-  async function choose(next: File) {
-    if (disabled || busy || dictationState) return;
-    clearAttachment();
-    const id = generation.current;
+  async function choose(nextFiles: File[]) {
+    if (disabled || submitting || dictationState || !nextFiles.length) return;
+    setError("");
+    const remaining = MINK_INPUT_FILES - attachmentsRef.current.length;
+    if (nextFiles.length > remaining) {
+      setError(
+        `Attach up to ${MINK_INPUT_FILES} files at a time. Remove a file before adding another.`,
+      );
+      return;
+    }
+    const staged: ComposerAttachment[] = [];
     try {
-      if (/\.(txt|md)$/i.test(next.name)) {
-        if (next.size > DOCUMENT_BYTES)
-          throw new Error("Choose a text file up to 8 KiB.");
-        setBusy(true);
-        const decoded = decodeMinkDocument(next.name, await next.arrayBuffer());
-        if (id !== generation.current) return;
-        setFile(next);
-        setLocalText(decoded);
-      } else {
-        let kind;
-        try {
-          kind = inputKind(next.name);
-        } catch {
-          throw new Error(
-            "Attach a PNG, JPEG, WebP or PDF, or a .txt or .md file.",
-          );
+      for (const next of nextFiles) {
+        let localText: string | null = null;
+        const image = /\.(png|jpe?g|webp)$/i.test(next.name);
+        if (/\.(txt|md)$/i.test(next.name)) {
+          if (next.size > DOCUMENT_BYTES)
+            throw new Error("Choose a text file up to 8 KiB.");
+          localText = decodeMinkDocument(next.name, await next.arrayBuffer());
+        } else {
+          let kind;
+          try {
+            kind = inputKind(next.name);
+          } catch {
+            throw new Error(
+              "Attach a PNG, JPEG, WebP or PDF, or a .txt or .md file.",
+            );
+          }
+          if (kind === "audio")
+            throw new Error(
+              "Use the microphone button for speech to text. Attach a PNG, JPEG, WebP or PDF here.",
+            );
+          if (!next.size || next.size > MINK_INPUT_BYTES)
+            throw new Error("Choose a non-empty file up to 5 MiB.");
         }
-        if (kind === "audio")
-          throw new Error(
-            "Use the microphone button for speech to text. Attach a PNG, JPEG, WebP or PDF here.",
+        staged.push({
+          id: crypto.randomUUID(),
+          file: next,
+          preview: image ? URL.createObjectURL(next) : "",
+          localText,
+          asset: null,
+          uploadState: image && canSaveMedia ? "uploading" : "local",
+          reading: null,
+        });
+      }
+      // ★ Local text is known exactly here, so the deterministic overflow — five
+      //   3,000-character notes — is refused before anything is staged rather
+      //   than at Send, where the only advice left is one the merchant cannot
+      //   act on. Provider readings are reserved at their floor; the budget
+      //   above shrinks them to fit.
+      const all = [...attachmentsRef.current, ...staged];
+      if (
+        !minkAttachmentsFit(
+          latestMessage.current.message.trim().length,
+          all.flatMap((item) =>
+            item.localText === null ? [] : [item.localText.length],
+          ),
+          all.filter((item) => item.localText === null).length,
+        )
+      )
+        throw new Error(
+          `Your message and these files do not fit in ${MINK_MESSAGE_MAX_CHARS.toLocaleString()} characters. Remove a file or shorten your message before attaching another.`,
+        );
+      updateAttachments((current) => [...current, ...staged]);
+      for (const attachment of staged) {
+        if (attachment.preview && canSaveMedia)
+          void startUpload(attachment.id).catch((cause) =>
+            setError(
+              cause instanceof Error
+                ? cause.message
+                : "Could not upload this image.",
+            ),
           );
-        if (!next.size || next.size > MINK_INPUT_BYTES)
-          throw new Error("Choose one non-empty file up to 2 MiB.");
-        setFile(next);
       }
     } catch (e) {
-      if (id === generation.current)
-        setError(e instanceof Error ? e.message : "Unsupported file.");
+      for (const attachment of staged) {
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+      }
+      setError(e instanceof Error ? e.message : "Unsupported file.");
+    }
+  }
+
+  async function startUpload(id: string): Promise<MediaAsset | null> {
+    const pending = uploadPromises.current.get(id);
+    if (pending) return pending;
+    const attachment = attachmentsRef.current.find((item) => item.id === id);
+    if (!attachment?.preview || !canSaveMedia) return attachment?.asset ?? null;
+    if (attachment.asset) return attachment.asset;
+    updateAttachments((current) =>
+      current.map((item) =>
+        item.id === id ? { ...item, uploadState: "uploading" } : item,
+      ),
+    );
+    const promise = (async () => {
+      const form = new FormData();
+      form.set("file", attachment.file);
+      const result = await uploadMediaAsset(form);
+      if (result.error || !result.asset)
+        throw new Error(result.error || "Could not upload this image.");
+      if (removedAttachmentIds.current.has(id)) {
+        await deleteMediaAsset(result.asset.id);
+        return null;
+      }
+      updateAttachments((current) =>
+        current.map((item) =>
+          item.id === id
+            ? { ...item, asset: result.asset!, uploadState: "ready" }
+            : item,
+        ),
+      );
+      return result.asset;
+    })();
+    uploadPromises.current.set(id, promise);
+    try {
+      return await promise;
+    } catch (cause) {
+      updateAttachments((current) =>
+        current.map((item) =>
+          item.id === id ? { ...item, uploadState: "error" } : item,
+        ),
+      );
+      throw cause;
     } finally {
-      if (id === generation.current) setBusy(false);
+      uploadPromises.current.delete(id);
     }
   }
 
   async function startDictation() {
-    if (disabled || busy || dictationState) return;
-    clearAttachment();
+    if (disabled || submitting || dictationState) return;
     setError("");
     const id = generation.current;
     const controller = new AbortController();
@@ -231,9 +396,9 @@ export function MinkMultimodalInput({
       const before = current.message.trimEnd();
       const transcript = data.text.trim();
       const combined = before ? `${before} ${transcript}` : transcript;
-      if (combined.length > 4_000)
+      if (combined.length > MINK_MESSAGE_MAX_CHARS)
         throw new Error(
-          "The transcript does not fit in the 4,000-character message limit. Shorten the message and try again.",
+          `The transcript does not fit in the ${MINK_MESSAGE_MAX_CHARS.toLocaleString()}-character message limit. Shorten the message and try again.`,
         );
       current.onAdd(combined);
     } catch (e) {
@@ -263,6 +428,7 @@ export function MinkMultimodalInput({
     mode: "extract" | "design",
     id: number,
     controller: AbortController,
+    maxCharacters: number,
   ) {
     const bytes = new Uint8Array(await source.arrayBuffer());
     let binary = "";
@@ -282,6 +448,7 @@ export function MinkMultimodalInput({
         // Send is explicit permission to process this visible attachment. It
         // never counts as approval for a product/storefront mutation.
         confirmed: true,
+        maxCharacters,
         ...(mode === "design" ? { mode } : {}),
       }),
     });
@@ -295,7 +462,7 @@ export function MinkMultimodalInput({
     if (
       typeof data.text !== "string" ||
       !data.text.trim() ||
-      data.text.length > 3000
+      data.text.length > maxCharacters
     )
       throw new Error("The attachment returned an invalid result.");
     return data.text.trim();
@@ -303,61 +470,92 @@ export function MinkMultimodalInput({
 
   async function submit() {
     const current = latestMessage.current.message.trim();
-    if (dictationState || !current || disabled || busy || !onSubmit) return;
-    if (!file) {
+    if (dictationState || !current || disabled || submitting || !onSubmit)
+      return;
+    const staged = attachmentsRef.current;
+    if (!staged.length) {
       onSubmit(current);
       return;
     }
 
-    setBusy(true);
+    setSubmitting(true);
     setError("");
-    const source = file;
     const id = ++generation.current;
     const controller = new AbortController();
     operation.current = controller;
     try {
-      const image = /\.(png|jpe?g|webp)$/i.test(source.name);
-      if (image && shouldUseMinkImageOnStorefront(current) && !canSaveMedia)
+      if (
+        staged.some((attachment) => Boolean(attachment.preview)) &&
+        shouldUseMinkImageOnStorefront(current) &&
+        !canSaveMedia
+      )
         throw new Error(
           "You need permission to add Media Library images before Mink can use this image for a product or storefront change.",
         );
 
       let prepared = current;
-      let asset = saved ? { url: saved, filename: source.name } : null;
-      // A sent image needs a durable store-owned URL so the conversation can
-      // restore its preview and proposals can cite the exact same pixels.
-      if (image && canSaveMedia && !asset) {
-        const form = new FormData();
-        form.set("file", source);
-        const result = await uploadMediaAsset(form);
+      let pendingReadings = staged.filter(
+        (attachment) => attachment.localText === null,
+      ).length;
+      for (const attachment of staged) {
+        const image = Boolean(attachment.preview);
+        const asset =
+          attachment.asset ??
+          (image && canSaveMedia ? await startUpload(attachment.id) : null);
         if (id !== generation.current) return;
-        if (result.error || !result.asset)
-          throw new Error(result.error || "Could not save this image.");
-        asset = {
-          url: result.asset.url,
-          filename: result.asset.filename || source.name,
-        };
-        setSaved(asset.url);
-      }
-      if (asset && !readSavedMinkMediaReference(prepared))
-        prepared = addSavedMinkMediaReference(prepared, asset);
+        if (asset)
+          prepared = addSavedMinkMediaReference(prepared, {
+            url: asset.url,
+            filename: asset.filename || attachment.file.name,
+          });
 
-      const extracted =
-        localText ??
-        (await extractAttachment(
-          source,
-          image && shouldReadMinkImageAsStorefrontDesign(current)
-            ? "design"
-            : "extract",
-          id,
-          controller,
-        ));
-      prepared = addReviewedMinkDocument(prepared, extracted, {
-        filename: source.name,
-        kind: image ? "image" : "document",
-      });
+        let extracted: string;
+        if (attachment.localText !== null) {
+          extracted = attachment.localText;
+        } else {
+          const mode =
+            image && shouldReadMinkImageAsStorefrontDesign(current)
+              ? "design"
+              : "extract";
+          // ★ The budget is recomputed from the message as it really stands,
+          //   so a long reading early on narrows what is left for the rest
+          //   instead of overflowing addReviewedMinkDocument at the end.
+          const budget = minkReadingBudget(prepared.length, pendingReadings);
+          if (budget === null)
+            throw new Error(
+              `Your message and these files do not fit in ${MINK_MESSAGE_MAX_CHARS.toLocaleString()} characters. Remove a file or shorten your message, then send again.`,
+            );
+          extracted =
+            attachment.reading?.mode === mode
+              ? attachment.reading.text
+              : await extractAttachment(
+                  attachment.file,
+                  mode,
+                  id,
+                  controller,
+                  budget,
+                );
+          if (id !== generation.current) return;
+          const reading = { mode, text: extracted } as const;
+          updateAttachments((currentAttachments) =>
+            currentAttachments.map((item) =>
+              item.id === attachment.id ? { ...item, reading } : item,
+            ),
+          );
+          pendingReadings--;
+        }
+        prepared = addReviewedMinkDocument(prepared, extracted, {
+          filename: attachment.file.name,
+          kind: image ? "image" : "document",
+        });
+      }
       if (id !== generation.current) return;
-      clearAttachment();
+      for (const attachment of staged) {
+        if (attachment.preview) URL.revokeObjectURL(attachment.preview);
+      }
+      attachmentsRef.current = [];
+      setAttachments([]);
+      setPreviewId(null);
       latestMessage.current.onAdd(prepared);
       onSubmit(prepared);
     } catch (e) {
@@ -368,7 +566,7 @@ export function MinkMultimodalInput({
     } finally {
       if (id === generation.current) {
         operation.current = null;
-        setBusy(false);
+        setSubmitting(false);
       }
     }
   }
@@ -380,7 +578,12 @@ export function MinkMultimodalInput({
       type="button"
       aria-label="Add image or document"
       title="Add image or document"
-      disabled={disabled || busy || Boolean(dictationState)}
+      disabled={
+        disabled ||
+        submitting ||
+        Boolean(dictationState) ||
+        attachments.length >= MINK_INPUT_FILES
+      }
       className={iconButton}
       onClick={() => fileRef.current?.click()}
     >
@@ -392,80 +595,99 @@ export function MinkMultimodalInput({
       type="button"
       aria-label={dictationState ? "Dictation in progress" : "Dictate message"}
       title={dictationState ? "Dictation in progress" : "Dictate message"}
-      disabled={disabled || busy || Boolean(dictationState)}
+      disabled={disabled || submitting || Boolean(dictationState)}
       className={iconButton}
       onClick={() => void startDictation()}
     >
       <Mic className="h-5 w-5" aria-hidden="true" />
     </button>
   );
-  const attachment = file ? (
-    preview ? (
-      <div className="relative mb-2 h-16 w-16">
-        <button
-          type="button"
-          className="h-16 w-16 overflow-hidden rounded-xl border border-[#dedede] bg-[#f7f7f8] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff]"
-          aria-label={`View ${file.name}`}
-          onClick={() => setPreviewOpen(true)}
-        >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={preview} alt="" className="h-full w-full object-cover" />
-          {busy && (
-            <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 text-white">
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-            </span>
-          )}
-        </button>
-        <button
-          type="button"
-          aria-label={`Remove ${file.name}`}
-          title="Remove attachment"
-          disabled={busy}
-          className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[#d7d7d7] bg-white text-[#555] shadow-sm hover:bg-[#f3f3f3] disabled:opacity-40"
-          onClick={clearAttachment}
-        >
-          <X className="h-3.5 w-3.5" aria-hidden="true" />
-        </button>
-      </div>
-    ) : (
-      <div className="mb-2 flex max-w-full items-center gap-2 rounded-2xl border border-[#dedede] bg-[#f7f7f8] p-2 pr-2.5 text-left shadow-sm">
-        <button
-          type="button"
-          className="flex min-w-0 flex-1 items-center gap-2 text-left"
-          aria-label={`View ${file.name}`}
-          onClick={() => setPreviewOpen(true)}
-        >
-          <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-[#6d4dff]">
-            {busy ? (
-              <Loader2 className="h-5 w-5 animate-spin" aria-hidden="true" />
-            ) : (
-              <FileText className="h-5 w-5" aria-hidden="true" />
-            )}
-          </span>
-          <span className="min-w-0">
-            <span className="block truncate text-sm font-medium text-[#252525]">
-              {file.name}
-            </span>
-            <span className="block text-xs text-[#777]">
-              {busy
-                ? "Processing attachment…"
-                : `${Math.max(1, Math.round(file.size / 1024))} KiB`}
-            </span>
-          </span>
-        </button>
-        <button
-          type="button"
-          aria-label={`Remove ${file.name}`}
-          title="Remove attachment"
-          disabled={busy}
-          className={iconButton}
-          onClick={clearAttachment}
-        >
-          <X className="h-4 w-4" aria-hidden="true" />
-        </button>
-      </div>
-    )
+  const attachment = attachments.length ? (
+    <div className="mb-2 flex max-w-full flex-wrap gap-2">
+      {attachments.map((item) =>
+        item.preview ? (
+          <div key={item.id} className="relative h-16 w-16">
+            <button
+              type="button"
+              className="h-16 w-16 overflow-hidden rounded-xl border border-[#dedede] bg-[#f7f7f8] shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#6d4dff]"
+              aria-label={`View ${item.file.name}`}
+              onClick={() => setPreviewId(item.id)}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={item.preview}
+                alt=""
+                className="h-full w-full object-cover"
+              />
+              {(item.uploadState === "uploading" || submitting) && (
+                <span className="absolute inset-0 flex items-center justify-center rounded-xl bg-black/45 text-white">
+                  <Loader2
+                    className="h-5 w-5 animate-spin"
+                    aria-hidden="true"
+                  />
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              aria-label={`Remove ${item.file.name}`}
+              title="Remove attachment"
+              disabled={submitting}
+              className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[#d7d7d7] bg-white text-[#555] shadow-sm hover:bg-[#f3f3f3] disabled:opacity-40"
+              onClick={() => removeAttachment(item.id)}
+            >
+              <X className="h-3.5 w-3.5" aria-hidden="true" />
+            </button>
+          </div>
+        ) : (
+          <div
+            key={item.id}
+            className="flex min-w-52 max-w-full items-center gap-2 rounded-2xl border border-[#dedede] bg-[#f7f7f8] p-2 pr-2.5 text-left shadow-sm"
+          >
+            <button
+              type="button"
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+              aria-label={`View ${item.file.name}`}
+              onClick={() => setPreviewId(item.id)}
+            >
+              <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-white text-[#6d4dff]">
+                {submitting ? (
+                  <Loader2
+                    className="h-5 w-5 animate-spin"
+                    aria-hidden="true"
+                  />
+                ) : (
+                  <FileText className="h-5 w-5" aria-hidden="true" />
+                )}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-medium text-[#252525]">
+                  {item.file.name}
+                </span>
+                <span className="block text-xs text-[#777]">
+                  {submitting
+                    ? "Processing attachment…"
+                    : `${Math.max(1, Math.round(item.file.size / 1024))} KiB`}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              aria-label={`Remove ${item.file.name}`}
+              title="Remove attachment"
+              disabled={submitting}
+              className={iconButton}
+              onClick={() => removeAttachment(item.id)}
+            >
+              <X className="h-4 w-4" aria-hidden="true" />
+            </button>
+          </div>
+        ),
+      )}
+    </div>
   ) : null;
+
+  const previewAttachment = attachments.find((item) => item.id === previewId);
 
   return (
     <div
@@ -475,22 +697,22 @@ export function MinkMultimodalInput({
         if (event.key === "Escape" && dictationState) {
           event.stopPropagation();
           cancelDictation();
-        } else if (event.key === "Escape" && previewOpen) {
+        } else if (event.key === "Escape" && previewId) {
           event.stopPropagation();
-          setPreviewOpen(false);
+          setPreviewId(null);
         }
       }}
       onDragEnter={(event) => {
         if (!Array.from(event.dataTransfer.types).includes("Files")) return;
         event.preventDefault();
         dragDepth.current++;
-        if (!disabled && !busy && !dictationState) setDragging(true);
+        if (!disabled && !submitting && !dictationState) setDragging(true);
       }}
       onDragOver={(event) => {
         if (!Array.from(event.dataTransfer.types).includes("Files")) return;
         event.preventDefault();
         event.dataTransfer.dropEffect =
-          disabled || busy || dictationState ? "none" : "copy";
+          disabled || submitting || dictationState ? "none" : "copy";
       }}
       onDragLeave={(event) => {
         if (!Array.from(event.dataTransfer.types).includes("Files")) return;
@@ -504,41 +726,37 @@ export function MinkMultimodalInput({
         event.stopPropagation();
         dragDepth.current = 0;
         setDragging(false);
-        if (disabled || busy || dictationState) return;
-        if (event.dataTransfer.files.length !== 1) {
-          clearAttachment();
-          setError("Add one file at a time.");
-          return;
-        }
-        void choose(event.dataTransfer.files[0]);
+        if (disabled || submitting || dictationState) return;
+        void choose(Array.from(event.dataTransfer.files));
       }}
     >
       <input
         ref={fileRef}
         type="file"
+        multiple
         accept={COMPOSER_FILE_ACCEPT}
         aria-label="Choose image or document"
         className="sr-only"
         tabIndex={-1}
-        disabled={disabled || busy || Boolean(dictationState)}
+        disabled={
+          disabled ||
+          submitting ||
+          Boolean(dictationState) ||
+          attachments.length >= MINK_INPUT_FILES
+        }
         onChange={(event) => {
-          const files = event.target.files;
-          const next = files?.[0];
-          const count = files?.length ?? 0;
+          const files = Array.from(event.target.files ?? []);
           event.target.value = "";
-          if (count > 1) {
-            clearAttachment();
-            setError("Add one file at a time.");
-          } else if (next) void choose(next);
+          void choose(files);
         }}
       />
-      {previewOpen && file && (
+      {previewAttachment && (
         <div
           role="dialog"
           aria-modal="true"
-          aria-label={`Attachment preview: ${file.name}`}
+          aria-label={`Attachment preview: ${previewAttachment.file.name}`}
           className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4"
-          onClick={() => setPreviewOpen(false)}
+          onClick={() => setPreviewId(null)}
         >
           <div
             className="relative max-h-[90dvh] max-w-4xl overflow-auto rounded-2xl bg-white p-3 shadow-2xl"
@@ -548,15 +766,15 @@ export function MinkMultimodalInput({
               type="button"
               aria-label="Close attachment preview"
               className="absolute right-3 top-3 z-10 flex h-9 w-9 items-center justify-center rounded-full bg-black/65 text-white"
-              onClick={() => setPreviewOpen(false)}
+              onClick={() => setPreviewId(null)}
             >
               <X className="h-5 w-5" aria-hidden="true" />
             </button>
-            {preview ? (
+            {previewAttachment.preview ? (
               /* eslint-disable-next-line @next/next/no-img-element */
               <img
-                src={preview}
-                alt={file.name}
+                src={previewAttachment.preview}
+                alt={previewAttachment.file.name}
                 className="max-h-[78dvh] max-w-full rounded-xl object-contain"
               />
             ) : (
@@ -566,10 +784,11 @@ export function MinkMultimodalInput({
                   aria-hidden="true"
                 />
                 <p className="max-w-sm break-all text-sm font-medium text-[#252525]">
-                  {file.name}
+                  {previewAttachment.file.name}
                 </p>
                 <p className="text-xs text-[#777]">
-                  {Math.max(1, Math.round(file.size / 1024))} KiB
+                  {Math.max(1, Math.round(previewAttachment.file.size / 1024))}{" "}
+                  KiB
                 </p>
               </div>
             )}
@@ -629,7 +848,7 @@ export function MinkMultimodalInput({
           className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center gap-2 rounded-2xl border-2 border-dashed border-[#6d4dff] bg-[#f6f2ff]/95 p-4 text-sm font-medium text-[#6d4dff]"
         >
           <Upload className="h-5 w-5" aria-hidden="true" />
-          Drop one image or document here
+          Drop up to five images or documents here
         </div>
       )}
     </div>

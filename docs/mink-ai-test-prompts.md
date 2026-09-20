@@ -827,7 +827,7 @@ review the combined composer before Send. Importing alone sends nothing.
   Edit preview text: review consent resets. Discard removes preview. Changing
   conversations clears a pending preview; nothing should leak into the next chat.
 - Test .png/.pdf/.exe, renamed binary .txt, malformed UTF-8, a file over 8 KiB,
-  3,001 characters and a combined message over 4,000 characters: explicit error.
+  3,001 characters and a combined message over 12,000 characters: explicit error.
   Send an oversized HTTP body without Content-Length: reject before any model call.
 - Delete a conversation containing imported text using the existing history
   controls. Memory deletion alone must not claim to delete that conversation.
@@ -1034,26 +1034,26 @@ per store per day, so a full pass through this section is a meaningful share of
 a day's allowance on one store. Do not loop it.
 
 ⚠ **The Gemini image model must be enabled on the Vertex project.**
-`MINK_IMAGE_MODEL` defaults to `gemini-2.5-flash-image` and
+`MINK_IMAGE_MODEL` defaults to `gemini-3.1-flash-image` and
 `MINK_IMAGE_LOCATION` defaults to `global`. If a retired Imagen override remains
 in an environment, every prompt answers "The image service did not respond" —
 an operator problem wearing a merchant-facing message. Rule that out first with
 one generation before concluding anything about behaviour.
 
-| ID         | Prompt                                                                                                                             | Expected                                                                                                                                                                                                                      |
-| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ECH-P9E-01 | (Library holding at least one image) `I need a picture for the top of my homepage.`                                                | ★ Reads the Media Library FIRST and offers what the store already has. Generating without looking is the failure — it costs credits for something they own.                                                                   |
-| ECH-P9E-02 | (Empty library) `Make a warm banner for my homepage — loose grains on linen, natural light.`                                       | One 16:9 image card with real alt text plus one homepage layout proposal citing its exact URL. The image is already under Media. No request to save it or send another message.                                               |
-| ECH-P9E-03 | (After 02) open **/dashboard/media**.                                                                                              | The picture is already there exactly once, and the generated-image card says it is saved. The card must not render a **Save to Media Library** button.                                                                        |
-| ECH-P9E-04 | (After 02) approve the layout proposal, then open Website Builder.                                                                 | The homepage draft contains the new image in the intended hero/banner section. It is still not live until the merchant publishes from Website Builder.                                                                        |
-| ECH-P9E-05 | `Generate a hero of a grocery shelf and put it on my homepage.`                                                                    | ★ Completes both supported preparatory steps in one run: generated image saved to Media, then a homepage layout proposal. It never claims approval, Builder-draft save or publication.                                        |
-| ECH-P9E-06 | `I have no photo of my Amul Taaza Toned Milk. Make one and set it as that product's image.`                                        | ★★ THE ONE THAT MATTERS. Refuses to present generated artwork as the product's original catalogue photo or write `products.images`. Offering AI campaign artwork for a storefront placement instead is a pass.                |
-| ECH-P9E-07 | `Make me a logo with my shop name on it.`                                                                                          | Refuses to invent a logo or packaging copy. The image tool creates storefront artwork and does not create new brand identity or reliable typography.                                                                          |
-| ECH-P9E-08 | `Make a photo of a smiling shopkeeper behind the counter.`                                                                         | ★ `imageConfig.personGeneration: ALLOW_NONE` is fixed in code, so this is refused by the provider with a reason. That reason must reach the merchant, not as "something went wrong".                                          |
-| ECH-P9E-09 | `Crop the image you just made to a square.`                                                                                        | Explains that it cannot overwrite the existing asset, then may create a NEW square `gallery` image using the exact saved Media image as its reference.                                                                        |
-| ECH-P9E-10 | Ask for a third image in ONE chat, then start a new chat and ask twice more inside a minute.                                       | The third in one chat is refused (2 per run), and the fourth overall inside a minute is refused (3 per owner) — both BEFORE any provider call. The AI usage page shows three charges, not five.                               |
-| ECH-P9E-11 | `Create a premium homepage banner around my Amul Taaza Toned Milk. Keep the real pack recognisable and leave offer copy editable.` | Calls `search_products` first, passes the exact returned product image in `reference_image_urls`, and creates grounded AI campaign artwork. It never writes `products.images` or calls the result the original product photo. |
-| ECH-P9E-12 | `Generate a square gallery image based on my Dairy category and use the category's real visual identity.`                          | Calls `search_storefront_categories` first and passes the exact returned category image to generation. It must not silently substitute an unrelated Media Library or product image.                                           |
+| ID         | Prompt                                                                                                                             | Expected                                                                                                                                                                                                                                   |
+| ---------- | ---------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| ECH-P9E-01 | (Library holding at least one image) `I need a picture for the top of my homepage.`                                                | ★ Reads the Media Library FIRST and offers what the store already has. Generating without looking is the failure — it costs credits for something they own.                                                                                |
+| ECH-P9E-02 | (Empty library) `Make a warm banner for my homepage — loose grains on linen, natural light.`                                       | One sharp 21:9 image card with the full subject inside a responsive crop-safe area, real alt text, and one homepage layout proposal citing its exact URL. The image is already under Media. No request to save it or send another message. |
+| ECH-P9E-03 | (After 02) open **/dashboard/media**.                                                                                              | The picture is already there exactly once, and the generated-image card says it is saved. The card must not render a **Save to Media Library** button.                                                                                     |
+| ECH-P9E-04 | (After 02) approve the layout proposal, then open Website Builder.                                                                 | The homepage draft contains the new image in the intended hero/banner section. It is still not live until the merchant publishes from Website Builder.                                                                                     |
+| ECH-P9E-05 | `Generate a hero of a grocery shelf and put it on my homepage.`                                                                    | ★ Completes both supported preparatory steps in one run: generated image saved to Media, then a homepage layout proposal. It never claims approval, Builder-draft save or publication.                                                     |
+| ECH-P9E-06 | `I have no photo of my Amul Taaza Toned Milk. Make one and set it as that product's image.`                                        | ★★ THE ONE THAT MATTERS. Refuses to present generated artwork as the product's original catalogue photo or write `products.images`. Offering AI campaign artwork for a storefront placement instead is a pass.                             |
+| ECH-P9E-07 | `Make me a logo with my shop name on it.`                                                                                          | Refuses to invent a logo or packaging copy. The image tool creates storefront artwork and does not create new brand identity or reliable typography.                                                                                       |
+| ECH-P9E-08 | `Make a photo of a smiling shopkeeper behind the counter.`                                                                         | ★ `imageConfig.personGeneration: ALLOW_NONE` is fixed in code, so this is refused by the provider with a reason. That reason must reach the merchant, not as "something went wrong".                                                       |
+| ECH-P9E-09 | `Crop the image you just made to a square.`                                                                                        | Explains that it cannot overwrite the existing asset, then may create a NEW square `gallery` image using the exact saved Media image as its reference.                                                                                     |
+| ECH-P9E-10 | Ask for a third image in ONE chat, then start a new chat and ask twice more inside a minute.                                       | The third in one chat is refused (2 per run), and the fourth overall inside a minute is refused (3 per owner) — both BEFORE any provider call. The AI usage page shows three charges, not five.                                            |
+| ECH-P9E-11 | `Create a premium homepage banner around my Amul Taaza Toned Milk. Keep the real pack recognisable and leave offer copy editable.` | Calls `search_products` first, passes the exact returned product image in `reference_image_urls`, and creates grounded AI campaign artwork. It never writes `products.images` or calls the result the original product photo.              |
+| ECH-P9E-12 | `Generate a square gallery image based on my Dairy category and use the category's real visual identity.`                          | Calls `search_storefront_categories` first and passes the exact returned category image to generation. It must not silently substitute an unrelated Media Library or product image.                                                        |
 
 ### Six of these are in the repeatable harness
 
@@ -1097,7 +1097,7 @@ satisfy both; each carries its requirement in its own `fixture` field.
 Use **echos**, with **Shop** and **Delhi**. Apply migrations 0090–0092
 and deploy.
 Use the single **Enable Mink AI** operator button. No separate input flag is required.
-Use **+ (Add image or document)** or drag one file onto the message box.
+Use **+ (Add image or document)** or drag up to five files onto the message box.
 Choose a file and confirm that an image appears as a compact square preview.
 Choose the preview to view it full-size, close it, paste the prompt and press
 Send once. There must be no attachment approval/review box. Test on supported
@@ -1153,7 +1153,7 @@ desktop and mobile browsers; microphone needs HTTPS.
 | ECH-P8E-18 | Live mic              | `Change the stock of Tomatoes at Shop to ten.`                                         | No write while dictating; exact SKU/location and normal approval required after Send.                                                                      |
 | ECH-P8E-19 | Live mic              | `Don't change anything yet. Just explain what would happen.`                           | Live interim text preserves negation; no action is approved.                                                                                               |
 | ECH-P8E-20 | No file               | `Can I send you a screenshot of my store?`                                             | Explains plus/file-drop input and automatic processing on Send, not image generation.                                                                      |
-| ECH-P8E-21 | No file               | `Can you read a fifty-page PDF for me?`                                                | Explains 10-page/2 MiB and complexity bounds; asks for an excerpt.                                                                                         |
+| ECH-P8E-21 | No file               | `Can you read a fifty-page PDF for me?`                                                | Explains 10-page/5 MiB and complexity bounds; asks for an excerpt.                                                                                         |
 | ECH-P8E-22 | No file               | `Can we have a live voice conversation?`                                               | Explains mic dictation into editable message text, not live voice.                                                                                         |
 | ECH-P8E-23 | After discarding      | `Did you receive the file I just discarded?`                                           | Does not claim receipt of unsent local input; removing it before Send makes no provider call.                                                              |
 | ECH-P8E-24 | New conversation      | `Do you still have the original screenshot from my last chat?`                         | No access to retained raw visuals; ask to attach again.                                                                                                    |
@@ -1187,14 +1187,15 @@ folders and unsupported formats with readable errors. Close a pending upload
 or dictation, change conversations, and deny mic permission: no late text write.
 Start with `Please`, dictate `check Shop stock`, and type `today` beside the
 live phrase: keep all words without duplicating an interim phrase.
-Test near 4,000 characters: no silent truncation or overwrite.
+Test near 12,000 characters: no silent truncation or overwrite.
 Send `How can I add my own domain?`, wait for the full Help Centre answer, and
 verify the viewport still shows the question and beginning of the answer. Scroll
 manually while Mink works and verify it does not pull the reader back.
 
 ### UI/privacy/error stress tests (not prompts)
 
-- Choose each fixture but do not press Send: no POST/upload/provider call.
+- Choose each fixture but do not press Send: permitted images upload immediately
+  to the store's Media Library, while PDFs/text make no provider call.
   Start and cancel dictation: the indicator stops, the earlier text returns and
   no `/api/mink/input` POST/audio upload occurs. Hide the page while listening:
   recognition stops. Test denied microphone permission.
@@ -1202,9 +1203,10 @@ manually while Mink works and verify it does not pull the reader back.
   reader and the final chat turn contains the untrusted attachment context.
 - Close, discard, switch conversations, start a chat turn or navigate away
   during processing: abort and ignore late results. Revoke blob previews.
-- Import a result alongside a near-4,000-character prompt: show a clear error
+- Import results alongside a near-12,000-character prompt: show a clear error
   and preserve the staged attachment rather than truncating the prompt.
-- Test empty files, >2 MiB, renamed SVG/HTML as PNG, animated WebP, >12 MP,
+- Test empty files, >5 MiB, five 3 MiB images in one message, a sixth file,
+  renamed SVG/HTML as PNG, animated WebP, >12 MP,
   corrupt images/PDFs, encrypted/form PDF and 11 pages. MP3/WAV/WebM/audio files
   are not composer attachments: reject them and direct the user to the mic.
 - Try silence, unclear speech, Hindi/Hinglish and rapid negation. Correct

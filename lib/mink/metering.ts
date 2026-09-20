@@ -71,6 +71,13 @@ export const MINK_CREDIT_BANDS: readonly MinkCreditBand[] = [
   { name: "heavy", maxUnits: null, credits: 8 },
 ] as const;
 
+/** The most any single run can cost. Derived, so a re-banding moves the
+ *  composer's low-balance warning with it. */
+export const MINK_MAX_RUN_CREDITS = MINK_CREDIT_BANDS.reduce(
+  (most, band) => Math.max(most, band.credits),
+  0,
+);
+
 /** The band a run of this size falls in. Pure, and safe on the client so the
  *  composer can say what a request will cost before it is sent. */
 export function minkCreditBand(usage: MinkUsage): {

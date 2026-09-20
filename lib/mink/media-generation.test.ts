@@ -30,7 +30,7 @@ const { MinkRequestError, MinkToolInputError } = await import("./errors");
 
 const config = {
   projectId: "project-1" as string | null,
-  imageModel: "gemini-2.5-flash-image",
+  imageModel: "gemini-3.1-flash-image",
   imageLocation: "global",
 };
 
@@ -98,7 +98,12 @@ describe("asking Gemini for one storefront image", () => {
       }
       // ★ The aspect comes from the purpose. A model choosing 9:16 for a hero
       //   produces an image the renderer crops through its subject.
-      expect(sent.imageConfig.aspectRatio).toBe("16:9");
+      expect(sent.imageConfig.aspectRatio).toBe("21:9");
+      expect(sent.imageConfig.imageSize).toBe("2K");
+      expect(sent.imageConfig.outputCompressionQuality).toBe(95);
+      expect(instruction).toContain("ultra-wide campaign scene");
+      expect(instruction).toContain("not a product cutout pasted");
+      expect(instruction).toContain("commercial quality");
     });
   });
 

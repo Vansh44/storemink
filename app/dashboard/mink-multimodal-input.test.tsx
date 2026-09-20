@@ -23,9 +23,10 @@ const recording = vi.hoisted(() => ({
 vi.mock("@/lib/mink/voice-recorder", () => ({
   startMinkRecording: recording.start,
 }));
-const media = vi.hoisted(() => ({ upload: vi.fn() }));
+const media = vi.hoisted(() => ({ upload: vi.fn(), remove: vi.fn() }));
 vi.mock("@/app/actions/media-actions", () => ({
   uploadMediaAsset: media.upload,
+  deleteMediaAsset: media.remove,
 }));
 
 const fetchMock = vi.fn();
@@ -40,9 +41,11 @@ beforeEach(() => {
     json: async () => ({ text: "Visible product and storefront details" }),
   });
   media.upload.mockReset();
+  media.remove.mockReset();
   media.upload.mockResolvedValue({
-    asset: { url: SAVED_URL, filename: "echos.png" },
+    asset: { id: "asset-1", url: SAVED_URL, filename: "echos.png" },
   });
+  media.remove.mockResolvedValue({ success: true });
   recording.start.mockReset();
   recording.done = null;
   recording.signal = null;
@@ -154,7 +157,7 @@ describe("ChatGPT-style Mink attachments", () => {
     );
   });
 
-  it("persists a permitted sent image and includes its exact URL and extraction", async () => {
+  it("uploads a permitted image immediately and includes its exact URL on Send", async () => {
     const submit = vi.fn();
     render(
       <LiveComposer
@@ -164,6 +167,8 @@ describe("ChatGPT-style Mink attachments", () => {
       />,
     );
     await stageImage();
+    await waitFor(() => expect(media.upload).toHaveBeenCalledOnce());
+    expect(fetchMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Send message" }));
     await waitFor(() => expect(submit).toHaveBeenCalledOnce());
     expect(media.upload).toHaveBeenCalledOnce();
@@ -229,6 +234,155 @@ describe("ChatGPT-style Mink attachments", () => {
     fireEvent.click(screen.getByRole("button", { name: "Remove echos.png" }));
     expect(screen.queryByRole("button", { name: "View echos.png" })).toBeNull();
     expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:local");
+  });
+
+  it("cleans up an immediately uploaded image when the composer is abandoned", async () => {
+    const view = render(
+      <LiveComposer initial="Use this" canSaveMedia onSubmit={vi.fn()} />,
+    );
+    await stageImage();
+    await waitFor(() => expect(media.upload).toHaveBeenCalledOnce());
+    view.unmount();
+    await waitFor(() => expect(media.remove).toHaveBeenCalledWith("asset-1"));
+  });
+
+  it("accepts five attachments in one selection", async () => {
+    render(<LiveComposer initial="Compare these" />);
+    const files = Array.from(
+      { length: 5 },
+      (_, index) => new File([`note ${index}`], `note-${index}.txt`),
+    );
+    for (const [index, file] of files.entries()) {
+      Object.defineProperty(file, "arrayBuffer", {
+        value: async () => new TextEncoder().encode(`note ${index}`).buffer,
+      });
+    }
+    fireEvent.change(screen.getByLabelText("Choose image or document"), {
+      target: { files },
+    });
+    expect(
+      await screen.findByRole("button", { name: "View note-4.txt" }),
+    ).toBeVisible();
+    expect(screen.getAllByRole("button", { name: /^View note-/ })).toHaveLength(
+      5,
+    );
+    expect(
+      screen.getByRole("button", { name: "Add image or document" }),
+    ).toBeDisabled();
+  });
+
+  // ★★ A FAILED SEND MUST NOT RE-READ WHAT ALREADY SUCCEEDED. submit() rebuilds
+  // the message from raw text every time, so without a cached reading a
+  // five-file send that died on the last file re-extracted the first four —
+  // five more provider calls and five more slots of the per-minute input
+  // budget, so the retry hit the rate limit instead of the real fault.
+  it("re-reads only the attachment that failed", async () => {
+    const submit = vi.fn();
+    render(<LiveComposer initial="Compare these" onSubmit={submit} />);
+    const files = ["a.pdf", "b.pdf"].map((name) => {
+      const file = new File(["x"], name, { type: "application/pdf" });
+      Object.defineProperty(file, "arrayBuffer", {
+        value: async () => new TextEncoder().encode("x").buffer,
+      });
+      return file;
+    });
+    fireEvent.change(screen.getByLabelText("Choose image or document"), {
+      target: { files },
+    });
+    expect(
+      await screen.findByRole("button", { name: "View b.pdf" }),
+    ).toBeVisible();
+
+    fetchMock
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ text: "First reading" }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        json: async () => ({ error: "Busy" }),
+      });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await screen.findByRole("alert");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(submit).not.toHaveBeenCalled();
+
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ text: "Second reading" }),
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send message" }));
+    await waitFor(() => expect(submit).toHaveBeenCalledOnce());
+    // One more call, not two: a.pdf's reading was kept.
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(submit.mock.calls[0][0]).toContain("First reading");
+    expect(submit.mock.calls[0][0]).toContain("Second reading");
+  });
+
+  // ★★ FIVE 3,000-CHARACTER NOTES CANNOT FIT 12,000 CHARACTERS, and the Help
+  // guide offers exactly that combination. It used to be refused at Send, after
+  // staging, with "shorten the text" — advice about a file the composer cannot
+  // edit.
+  it("refuses local text that cannot fit before staging it", async () => {
+    render(<LiveComposer initial="Summarise these" />);
+    const files = Array.from({ length: 5 }, (_, index) => {
+      const body = "n".repeat(2900);
+      const file = new File([body], `note-${index}.md`);
+      Object.defineProperty(file, "arrayBuffer", {
+        value: async () => new TextEncoder().encode(body).buffer,
+      });
+      return file;
+    });
+    fireEvent.change(screen.getByLabelText("Choose image or document"), {
+      target: { files },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      /do not fit in 12,000 characters/i,
+    );
+    expect(screen.queryByRole("button", { name: "View note-0.md" })).toBeNull();
+  });
+
+  // ★★ A DISCARDED UPLOAD MUST OUTLIVE THE PAGE. The unmount cleanup calls a
+  // Server Action, which the browser cancels on unload, so a selected-then-
+  // abandoned image stayed in the merchant's Media Library.
+  it("beacons a staged upload away when the page is discarded", async () => {
+    const beacon = vi.fn(() => true);
+    vi.stubGlobal("navigator", { ...navigator, sendBeacon: beacon });
+    render(<LiveComposer initial="Use this" canSaveMedia onSubmit={vi.fn()} />);
+    await stageImage();
+    await waitFor(() => expect(media.upload).toHaveBeenCalledOnce());
+
+    // bfcache: the page comes back with the preview still on screen.
+    fireEvent(
+      window,
+      Object.assign(new Event("pagehide"), { persisted: true }),
+    );
+    expect(beacon).not.toHaveBeenCalled();
+
+    fireEvent(
+      window,
+      Object.assign(new Event("pagehide"), { persisted: false }),
+    );
+    expect(beacon).toHaveBeenCalledWith(
+      "/api/mink/media/discard",
+      expect.any(Blob),
+    );
+  });
+
+  it("dismisses attachment errors after a few seconds", async () => {
+    vi.useFakeTimers();
+    try {
+      render(<LiveComposer initial="Read this" />);
+      fireEvent.change(screen.getByLabelText("Choose image or document"), {
+        target: { files: [new File(["x"], "attack.html")] },
+      });
+      await act(async () => Promise.resolve());
+      expect(screen.getByRole("alert")).toBeVisible();
+      act(() => vi.advanceTimersByTime(5001));
+      expect(screen.queryByRole("alert")).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("rejects unsupported, audio and oversized text attachments", async () => {

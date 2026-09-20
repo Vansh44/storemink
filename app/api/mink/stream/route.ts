@@ -24,11 +24,12 @@ import type { MinkRunProgress } from "@/lib/mink/types";
 import { selectMinkThinkingLevel } from "@/lib/mink/thinking";
 import { loadMinkMemoryReference } from "@/lib/mink/memories";
 import { readMinkBoundedJson } from "@/lib/mink/bounded-json";
+import { MINK_MESSAGE_MAX_CHARS } from "@/lib/mink/input-policy";
 
 export const runtime = "nodejs";
 
-const MAX_BODY_BYTES = 16_384;
-const MAX_MESSAGE_LENGTH = 4_000;
+const MAX_BODY_BYTES = 65_536;
+const MAX_MESSAGE_LENGTH = MINK_MESSAGE_MAX_CHARS;
 const UUID_PATTERN =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const EMPTY_PROGRESS: MinkRunProgress = {

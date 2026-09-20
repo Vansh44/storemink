@@ -11,10 +11,12 @@ import {
   latestMinkUserMessageId,
   minkComposerHeight,
   minkCreditIndicatorState,
+  minkCreditWarning,
   minkHistoryStartsOpen,
   minkTurnAnchorSpace,
   shouldSubmitMinkComposer,
 } from "./dashboard-chat";
+import { MINK_MAX_RUN_CREDITS } from "@/lib/mink/metering";
 import { useChat } from "./chat-context";
 import { addSavedMinkMediaReference } from "@/lib/mink/media-attachment";
 
@@ -506,5 +508,58 @@ describe("Mink composer", () => {
         isComposing: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("★★ minkCreditWarning", () => {
+  const summary = (cap: number | null, used: number, creditBalance = 0) => ({
+    cap,
+    used,
+    creditBalance,
+    resetsAt: "2026-10-01T00:00:00.000Z",
+  });
+
+  it("says nothing while there is room for the heaviest run", () => {
+    expect(minkCreditWarning(summary(300, 0))).toBeNull();
+    expect(minkCreditWarning(summary(20, 12))).toBeNull();
+  });
+
+  // ★★ ABSOLUTE CREDITS, NOT A FRACTION. The ring turns amber at 20%, which is
+  // 60 credits on Pro — not low — and 4 on Free. What decides whether the next
+  // request fits is the heaviest band, and that is the same number for both.
+  it("warns the same way on a big plan and a small one", () => {
+    const pro = minkCreditWarning(summary(300, 295));
+    const free = minkCreditWarning(summary(20, 15));
+    expect(pro?.level).toBe("low");
+    expect(free?.level).toBe("low");
+    expect(pro?.message).toBe(free?.message);
+  });
+
+  it("scales with the heaviest band rather than a literal", () => {
+    expect(
+      minkCreditWarning(summary(300, 300 - MINK_MAX_RUN_CREDITS)),
+    ).toBeNull();
+    expect(
+      minkCreditWarning(summary(300, 300 - MINK_MAX_RUN_CREDITS + 1))?.level,
+    ).toBe("low");
+  });
+
+  // ⚠ 1-7 credits is NOT blocked: minkRunAffordability allows a run whenever
+  //   anything is left and settlement clamps. Saying "blocked" here would be a
+  //   lie the server contradicts a second later.
+  it("does not claim a low balance is blocked", () => {
+    expect(minkCreditWarning(summary(20, 19))?.level).toBe("low");
+    expect(minkCreditWarning(summary(20, 20))?.level).toBe("empty");
+  });
+
+  it("counts purchased credits, not only the plan allowance", () => {
+    expect(minkCreditWarning(summary(20, 20, 50))).toBeNull();
+    expect(minkCreditWarning(summary(20, 20, 2))?.level).toBe("low");
+  });
+
+  // ⚠ cap null is an unmetered plan AND what a failed read looks like; neither
+  //   should produce a warning.
+  it("stays silent on an unmetered plan", () => {
+    expect(minkCreditWarning(summary(null, 0))).toBeNull();
   });
 });

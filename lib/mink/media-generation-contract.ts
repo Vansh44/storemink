@@ -58,7 +58,7 @@ export type MinkMediaPurpose = (typeof MINK_MEDIA_PURPOSES)[number];
 export interface MinkMediaPurposeSpec {
   label: string;
   /** The image model's supported vocabulary; every value here is documented. */
-  aspectRatio: "1:1" | "3:4" | "4:3" | "16:9" | "9:16";
+  aspectRatio: "1:1" | "3:4" | "4:3" | "16:9" | "9:16" | "21:9";
   /** Where a merchant would place it, for the review card. */
   placement: string;
 }
@@ -69,7 +69,7 @@ export const MINK_MEDIA_PURPOSE_SPECS: Record<
 > = {
   hero: {
     label: "Hero banner",
-    aspectRatio: "16:9",
+    aspectRatio: "21:9",
     placement: "the wide image at the top of a page",
   },
   gallery: {
@@ -84,7 +84,7 @@ export const MINK_MEDIA_PURPOSE_SPECS: Record<
   },
   banner: {
     label: "Promo banner",
-    aspectRatio: "16:9",
+    aspectRatio: "21:9",
     placement: "a full-width strip between sections",
   },
 };

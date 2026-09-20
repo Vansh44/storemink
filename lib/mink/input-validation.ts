@@ -16,13 +16,21 @@ export type ValidatedMinkInput = {
 const invalid = () =>
   new MinkRequestError(
     "invalid_input",
-    "This file is unsupported, damaged or exceeds the limits. Use an image up to 12 megapixels, a plain PDF up to 10 pages, or mono 16 kHz PCM WAV up to 30 seconds; maximum 2 MiB.",
+    "This file is unsupported, damaged or exceeds the limits. Use an image up to 12 megapixels, a plain PDF up to 10 pages, or mono 16 kHz PCM WAV up to 30 seconds; maximum 5 MiB.",
     400,
   );
 export function parseMinkInput(body: Record<string, unknown>) {
   if (
     Object.keys(body).some(
-      (k) => !["name", "data", "confirmed", "requestKey", "mode"].includes(k),
+      (k) =>
+        ![
+          "name",
+          "data",
+          "confirmed",
+          "requestKey",
+          "mode",
+          "maxCharacters",
+        ].includes(k),
     ) ||
     body.confirmed !== true ||
     typeof body.name !== "string" ||
@@ -64,12 +72,20 @@ export function parseMinkInput(body: Record<string, unknown>) {
   if (mode !== "extract" && mode !== "design") throw invalid();
   // Only an image has a design to read.
   if (mode === "design" && kind !== "image") throw invalid();
+  const maxCharacters = body.maxCharacters ?? 3000;
+  if (
+    !Number.isInteger(maxCharacters) ||
+    (maxCharacters as number) < 200 ||
+    (maxCharacters as number) > 3000
+  )
+    throw invalid();
   return {
     kind,
     mode,
     bytes,
     name: body.name,
     requestKey: body.requestKey,
+    maxCharacters: maxCharacters as number,
   };
 }
 export async function validateMinkInput(

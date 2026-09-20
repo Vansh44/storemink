@@ -49,9 +49,9 @@ export function addReviewedMinkDocument(
         : {}),
       ...(attachment?.kind ? { kind: attachment.kind } : {}),
     });
-  if (result.length > 4000)
+  if (result.length > MINK_MESSAGE_MAX_CHARS)
     throw new Error(
-      "Your message and document together exceed 4,000 characters. Shorten the text before adding it.",
+      `Your message and documents together exceed ${MINK_MESSAGE_MAX_CHARS.toLocaleString()} characters. Shorten the text before adding them.`,
     );
   return result.trim();
 }
@@ -91,3 +91,4 @@ export function readReviewedMinkDocument(message: string): {
     return null;
   }
 }
+import { MINK_MESSAGE_MAX_CHARS } from "./input-policy";

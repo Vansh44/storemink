@@ -57,7 +57,7 @@ describe("local document review", () => {
     const add = vi.fn();
     render(
       <MinkDocumentInput
-        message={"x".repeat(4000)}
+        message={"x".repeat(12_000)}
         onAdd={add}
         disabled={false}
       />,
@@ -66,7 +66,7 @@ describe("local document review", () => {
     await screen.findByLabelText("Document text");
     fireEvent.click(screen.getByRole("checkbox"));
     fireEvent.click(screen.getByText("Add reviewed text to message"));
-    expect(await screen.findByRole("alert")).toHaveTextContent("exceed 4,000");
+    expect(await screen.findByRole("alert")).toHaveTextContent("exceed 12,000");
     expect(add).not.toHaveBeenCalled();
   });
 });

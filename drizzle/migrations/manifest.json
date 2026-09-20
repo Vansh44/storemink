@@ -5108,6 +5108,80 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260921_0121_mink_multi_attachments_campaign_art",
+      "description": "Explain five 5 MiB attachments, immediate image upload, and crop-safe campaign artwork",
+      "file": "sql/20260921_0121_mink_multi_attachments_campaign_art.sql",
+      "transaction": true,
+      "requires": ["20260920_0120_mink_automatic_attachments"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains the five-file immediate-upload flow",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%one message can carry up to five files%' and body like '%each selected image starts uploading immediately%' and body like '%Attachment errors disappear automatically after a few seconds%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide explains creative crop-safe campaign artwork",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%purpose-shaped campaign artwork%' and body like '%responsive crop-safe area%'",
+            "equals": "1"
+          },
+          {
+            "name": "the obsolete two MiB limit was removed",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Each file must be no larger than <strong>2 MiB</strong>%'",
+            "equals": "0"
+          }
+        ]
+      },
+      "supersedesVerifyQueries": [
+        {
+          "migrationId": "20260907_0084_mink_phase_8d_memories",
+          "queryName": "Memory and text input guide published"
+        }
+      ]
+    },
+    {
+      "id": "20260921_0122_mink_credit_charging_help",
+      "description": "Correct the guides that promised Mink requests do not spend credits",
+      "file": "sql/20260921_0122_mink_credit_charging_help.sql",
+      "transaction": true,
+      "requires": ["20260921_0121_mink_multi_attachments_campaign_art"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide states the per-request credit amounts",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Every request you send to Mink uses credits%' and body like '%a longer piece of work uses 3, and a large one uses 8%'",
+            "equals": "1"
+          },
+          {
+            "name": "an unfinished request is stated to be free",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%A request that does not finish costs you nothing%'",
+            "equals": "1"
+          },
+          {
+            "name": "a proposal and its answer are stated not to add up",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%at whichever of the two amounts is higher, never both added together%' and body not like '%The composer estimate is a preview%'",
+            "equals": "1"
+          },
+          {
+            "name": "the plan matrix publishes the charging-era allowance",
+            "sql": "select count(*)::text from help_articles where status='published' and body like '%<tr><td>Included Mink credits each month</td><td>20</td><td>100</td><td>300</td></tr>%'",
+            "equals": "1"
+          },
+          {
+            "name": "no published guide still says Mink does not spend credits",
+            "sql": "select count(*)::text from help_articles where status='published' and (body like '%still does not debit AI credits%' or body like '%Included AI generations each month%')",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

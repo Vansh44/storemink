@@ -92,16 +92,95 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 > ordinary Echos merchant requests, separate tester expectations, clarification
 > conversations and a distinct technical security appendix.
 
-### Mink credit charging — installed, switched off (2026-09-11)
+### Mink credit charging — ON by default (2026-09-21)
 
-The mechanism to bill a conversation exists; nothing bills yet.
-`MINK_CHARGE_CREDITS` is **opt-IN** (the inverse of `MINK_AI_ENABLED`, which
-defaults on) and unset everywhere, so `minkRunAffordability` makes no extra
-read and `settleMinkRunCredits` spends nothing. Turning it on is a pricing
-decision, taken once the shadow bands have been calibrated against live traffic
-and once the cache-hit figure is known — at a band ceiling the margin is 1.09×
-uncached and roughly 3× cached, so that number decides whether these bands are
-safe to charge at all.
+**★★ AND AN UNSETTLED RUN IS COLLECTED LATE (2026-09-21).**
+`settleMinkRunCredits` is allowed to fail by design — it runs after the run row
+commits so a billing failure cannot roll back a reply already on screen — and
+the cost of that rule is a ledger row with a NULL `credit_source`: the answer
+went out and the credits never came off. Nothing retried it.
+`lib/mink/run-credit-reconcile.ts` is the retry, riding the existing per-minute
+`/api/cron/mink-workflows` heartbeat rather than taking a Scheduler entry of
+its own (docs/cron-jobs.md records three jobs documented and never created).
+★ NULL is an unambiguous signal, which is what makes the sweep safe: every
+other outcome is recorded, INCLUDING a run that owed nothing (`'none'`).
+★ It calls the SAME `settleMinkRunCredits` the live path calls, so there is no
+second copy of the band arithmetic to drift; the actor parameter was narrowed
+to the three fields settlement reads so a ledger row is a valid input.
+⚠ **`CHARGING_STARTED_AT` FENCES OFF THE BACKLOG.** Every run before charging
+was switched on was genuinely free, so "everything unsettled" would bill
+merchants retroactively for it — measured on a staging copy, **43 rows** would
+have been charged without the fence and **0** with it. A 24-hour lookback keeps
+a charge in the cycle that earned it, and a 10-minute minimum age keeps the
+sweep off the live path's heels.
+⚠ It also fixes a structural NULL nobody had noticed: the stream route is the
+only caller and passes `status: "succeeded"`, so a FAILED run is never settled
+and its row stays NULL for ever. Settling one charges nothing (band 0, and
+`minkRunCreditCharge` returns only the untaken part) but records the fact.
+All five safety properties are mutation-checked, and the query was executed
+against a real PostgreSQL — a mocked driver cannot tell valid SQL from invalid.
+
+**★★ A LOW-BALANCE WARNING SITS ABOVE THE COMPOSER (2026-09-21).**
+`minkCreditWarning` is the pure rule, and it is measured in CREDITS rather than
+in a fraction — which is why it is not simply the ring's colour. "Can I afford
+my next request" is an absolute question: the heaviest run costs
+`MINK_MAX_RUN_CREDITS` whoever is asking, so a Pro store on 15 of 300 and a
+Free store on 15 of 20 are in the same practical position. The ring turns amber
+at 20%, which is 60 credits on Pro (not low at all) and 4 on Free, so a
+fraction is the wrong unit for a warning even though it is a fine one for a
+gradient. ★ It is WORDS: the ring is 20 pixels and shows its number only on
+hover or click, so "nearly out" was something a merchant had to go looking for,
+and the first real signal was a refusal. ★ Two levels, because the actions
+differ — at zero the next request is refused and only buying or upgrading
+helps. ⚠ It must NOT call 1–7 credits blocked: `minkRunAffordability`
+deliberately allows a run whenever anything is left and lets settlement clamp
+to `'short'`, so that would be a lie the server contradicts a second later.
+⚠ `MINK_MAX_RUN_CREDITS` is derived from `MINK_CREDIT_BANDS`, so re-banding
+moves the warning with it. All three properties are mutation-checked.
+⚠ The 402 refusal itself already reached the merchant verbatim —
+`responseError` surfaces the server's `error` string — so only the warning
+BEFORE zero was missing. Still unbuilt, and deliberately not part of this: a
+per-answer "used N credits" line, a published price list, and a first-time
+notice.
+
+**★★ AND THE COMPOSER'S COST HINT IS GONE (2026-09-21).** A line above the
+message box named the proposal kind and its price while you typed
+(`estimateMinkDraftIntent`). It guessed from keywords in the partial message
+and got it wrong in ordinary use: "can you create the cover image for the blog"
+was announced as **Blog post proposal — Expected cost: 5 Mink credits** when a
+generated image costs 3. Its own source comment already recorded an earlier
+misfire of the same shape (`website` + `create` quoting 5 for a 3-credit
+product draft), which is the tell that a keyword chain cannot answer this: the
+kind is decided by the model mid-run, from tools the composer cannot see. A
+forecast that can name the wrong number is worse than none, so the ~90-line
+estimator and its tests went with the markup — it had no other caller.
+⚠ `MinkProposalCardProps.expectedCredits` is now passed and never read; the
+card has always reported the ACTUAL charge instead. Left alone as pre-existing.
+
+**★★ IT WAS OPT-IN AND THEREFORE NEVER ON.** `MINK_CHARGE_CREDITS` shipped as
+the inverse of `MINK_AI_ENABLED` so that billing something which had always
+been free could not be reached by forgetting a variable — and it was then set
+in no environment at all: absent from every `cloudbuild.yaml` substitution and
+from the live Cloud Run revision. Measured on production before the flip:
+**28 runs, 6 credits charged — both of them PROPOSAL weights, never the
+conversation — against 80 the shadow meter had recorded**, with all 28
+`credit_source` values NULL because `settleMinkRunCredits` had never run once.
+So the merchant-visible rule was "preparing something to approve costs credits,
+asking anything at all is free, however heavy", which is not a rule anybody
+chose. `chargeCredits` is now `enabled()`, and `_MINK_CHARGE_CREDITS` is wired
+through the deploy so `false` is a real emergency stop rather than the silent
+default.
+
+⚠ Band mix those 28 runs would have produced: 16 light, 6 standard, 2 heavy,
+4 failed-and-free. ⚠ At a band ceiling the margin is 1.09× uncached and roughly
+3× cached, so the cache-hit figure is what decides whether these bands are
+safe long-term; tightening them is the wrong lever, because it triples the
+charge on ordinary runs.
+⚠ Still not built, and now shipping without them: a pre-flight disclosure of
+what a request will cost (the composer's balance ring is the only signal), and
+a reconciler for runs left with a NULL `credit_source`. The second is a revenue
+leak rather than a merchant harm — settlement runs after the answer commits and
+never throws, so a failure under-charges.
 
 **★★ ONE SWITCH RAISES THE ALLOWANCE AND STARTS THE CHARGE TOGETHER.**
 `PLAN_LIMITS` gained `aiCreditsPerMonth` (20/100/300) beside the legacy
@@ -252,12 +331,18 @@ correct for every row whenever it was written.
 ### Mink Phase 8E — Automatic multimodal input (2026-09-20)
 
 `app/dashboard/mink-multimodal-input.tsx` is the unified composer attachment
-controller: one plus button handles text/image/PDF attachments and one-file
-drag-and-drop; a separate mic dictates speech into editable message text.
+controller: one plus button handles text/image/PDF attachments and up to five
+files per selection/drop; a separate mic dictates speech into editable message
+text. Each supported image or PDF may be 5 MiB; short .txt/.md files retain
+their 8 KiB/3,000-character bound. The combined message/reference envelope is
+12,000 characters.
 Selected images appear as compact square removable previews inside the composer;
 clicking one opens a full-size viewer. Documents use compact file cards. There
-is no separate attachment approval/review panel: pressing Send with the visible
-attachment is the single explicit processing action. PNG/JPEG/WebP/PDF bytes go
+is no separate attachment approval/review panel. When the role holds
+`media:manage`, each image begins its ordinary Media Library upload as soon as
+it is selected; removal cleans up the staged asset, and Send waits for any
+in-flight upload rather than starting it. Pressing Send is the explicit
+processing action. PNG/JPEG/WebP/PDF bytes go
 only to the isolated, bounded Vertex reader; .txt/.md imports are decoded
 locally. A sent image is also normalised through the ordinary Media action when
 the admin holds `media:manage`, so the exact preview survives conversation
@@ -304,10 +389,11 @@ and does not persist it in the database, Media Library, memories or chat history
 Provider processing terms still apply. Dictation is not a voice conversation and
 never grants action authority. A successful transcription updates only the
 editable composer; it does not start a Mink request until the user presses the
-Send arrow or submits the composer themselves. Extracted image/PDF references
-still require separate editing/review before addition to the composer. Closing,
-discarding, conversation changes, unmounting or hiding the page cancel pending
-local work. Blob previews are revoked.
+Send arrow or submits the composer themselves. Extracted image/PDF readings are
+automatically attached to the submitted request as bounded untrusted context.
+Closing, discarding, conversation changes, unmounting or hiding the page cancel
+pending local work. Blob previews are revoked, and attachment errors
+auto-dismiss after five seconds.
 
 The composer still does not expose WAV as a file attachment. Its microphone owns
 the temporary recording lifecycle and the dedicated voice route owns
@@ -326,9 +412,39 @@ shared; the composer now words its own refusal. ⚠ `MINK_INPUT_ACCEPT` still
 lists `.wav` because the API validates one; `COMPOSER_FILE_ACCEPT` is the
 merchant-facing list and must not.
 
+★★ THE PER-READING BUDGET IS DERIVED FROM THE MESSAGE, AND A SEND IS RESUMABLE
+(`minkReadingBudget`, `minkAttachmentsFit`, `ComposerAttachment.reading`).
+The composer split a flat 7,500 characters between the provider files — a
+number unrelated to `MINK_MESSAGE_MAX_CHARS` — so five readings plus five media
+references plus a long message passed every per-file check and then made
+`addReviewedMinkDocument` throw at the very END, after five provider calls and
+five Media uploads had been paid for, with "shorten the text" as the advice.
+The budget is now recomputed from the live assembled message before each call,
+so a verbose early reading simply narrows what is left; it returns NULL rather
+than clamping when nothing fits, because calling the provider for a reading
+that cannot go in the message is the waste being prevented. ★ Local .txt/.md is
+refused at SELECTION time instead, where its length is known exactly — five
+3,000-character notes is a combination the guide offers and the cap cannot
+hold. ⚠ Provider readings are reserved there at their FLOOR, never their cap,
+or an ordinary five-image message that fits comfortably would be refused up
+front. ★★ AND EACH READING IS KEPT ON ITS ATTACHMENT, so a retry redoes only
+what failed: `submit()` rebuilds the message from raw text every time, so a
+five-file send that died on the last file used to re-extract the first four —
+five more provider calls and five more slots of the per-minute input budget,
+which made the retry hit the rate limit rather than the real fault. ⚠ Cached
+per MODE, not merely present: whether an image is read as a design or an
+extraction depends on the message text, so serving a design reading for an
+extraction request is a wrong answer, not a stale one.
+⚠ The `processing >= 2` per-instance guard is deliberately NOT raised. Each
+request now decodes up to 5 MiB rather than 2 MiB, so per-request memory went
+UP 2.5× and loosening it is the wrong direction without measurement; what made
+its 429 harmful was that it discarded the whole batch, which resumability
+fixes.
+
 `/api/mink/input` requires global runtime and store/dashboard permission;
 there is no separate multimodal feature flag.
-`input-policy.ts`/`input-validation.ts` enforce one 2 MiB file, exact fields,
+`input-policy.ts`/`input-validation.ts` enforce 5 MiB per provider-processed
+file and the composer enforces five files per message, exact fields,
 canonical base64, actual bytes, image format/extension agreement, 12 MP/single
 frame, metadata stripping and 1600 px resizing. PDFs are limited to 10 pages;
 `scripts/mink-pdf-check.cjs` uses pinned pdf-lib in a child process with a 96 MiB
@@ -340,13 +456,52 @@ child is resource isolation, not an OS security sandbox. Next standalone tracing
 includes checker dependencies. WAV validation accepts only canonical mono
 16 kHz/16-bit PCM up to 30 seconds, not claimed MIME or duration metadata.
 
-`input-limits.ts` uses database rate limits directly, failing closed: 5/owner/
-minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay keys.
+`input-limits.ts` uses database rate limits directly, failing closed:
+15/owner/minute, 30/store/hour, 100/store/day, 500/global/hour, one-hour replay
+keys. ★★ EVERY BUCKET COUNTS FILES AND A MESSAGE CARRIES UP TO
+`MINK_INPUT_FILES`, so the owner budget is DERIVED as
+`3 × MINK_INPUT_FILES` rather than restated: at a literal 5 it was exactly
+equal to the per-message file cap, so one five-file send spent the whole
+minute — and `submit()` rebuilds the message from scratch on a retry, so the
+first retry after any mid-batch failure was refused with "the input limit was
+reached" and no attachment could be sent for up to a minute. Three sends, not
+two, so a full send plus a full retry still leaves a spare attempt. ⚠ The
+store and global ceilings are deliberately NOT scaled: no single legal action
+can exhaust them, and multiplying them would multiply the worst-case provider
+bill per store — they are a real tightening in MESSAGE terms (30 files an hour
+is now six five-file sends), which is a spend decision to revisit on evidence
+rather than a defect.
 There are at most two concurrent local processing requests. Bounded body reads
 honour abort/deadline. `input-provider.ts` counts tokens then extracts once with
 the configured Vertex model/location, no tools/memory/history/URL fetching.
-8192 counted input tokens, 2048 output tokens, 3000 output characters and a
-45-second deadline; incomplete/safety-blocked output is rejected, not truncated.
+8192 counted input tokens, at most 2048 output tokens, a caller-bounded result
+of up to 3000 output characters per file (reduced when several files share a
+message), and a 45-second deadline. Incomplete and safety-blocked output is
+rejected, never truncated.
+★★ BUT A COMPLETE READING THAT MERELY OVERSHOOTS THE CHARACTER BUDGET IS CUT
+DOWN, NOT REFUSED (`boundMinkReading`). The only thing holding the model to that
+budget is a sentence of prose in the system instruction, so overshoot is
+ordinary — and refusing it threw away a whole `STOP`-finished reading and failed
+the entire send. With five attachments sharing one message the budget is 1,500
+characters, so one chatty description of one photo killed a request that had
+already spent four provider calls and four slots of the per-minute input budget,
+which then made the retry hit the rate limit too. The cut is MARKED with an
+ellipsis: a silently shortened reading reads to the agent, and to the merchant,
+as the whole document. Every other refusal stands — those say the content cannot
+be trusted or does not exist; this one only ever said there was more of it than
+we asked for.
+★★ AND THE TOKEN CEILING IS NOT THE CHARACTER BUDGET
+(`minkReadingTokenCeiling`). `maxCharacters` bounds what goes in the merchant's
+message; the ceiling bounds what we pay the provider for, and the exchange rate
+is the tokenizer's, which varies by script. The reader transcribes "in its
+original language", so a Devanagari or Tamil reading can cost well over one
+token per character while an English one costs about a quarter — setting the
+ceiling TO `maxCharacters` under-provisions exactly the languages most of this
+platform's merchants write in, cuts the generation off, and gets a good reading
+rejected as MAX_TOKENS. It provisions at 1.5x the budget (a floor on headroom,
+not an estimate of any tokenizer) under the unchanged 2048 ceiling, so it can
+only ever raise the allowance a budget used to get. ⚠ The same helper bounds the
+design branch in the route, which was doing a bare `.slice`.
 No automatic retry or model fallback. Beta extraction deducts no credits;
 content-free logs report modality and provider tokens/unknown failure usage,
 not filenames/bytes/transcripts. Audio is not priced using the text estimator.
@@ -369,10 +524,14 @@ Migration `20260909_0090_mink_phase_8e_inputs.sql` adds published Help guidance;
 `20260914_0112_mink_global_voice_provider.sql` supersedes live browser
 recognition with one final server transcript;
 `20260915_0113_mink_conversation_voice_catalog_images.sql` corrects the same
-guide for automatic end-of-speech. The roadmap, system prompt and Echos tests
+guide for automatic end-of-speech;
+`20260921_0121_mink_multi_attachments_campaign_art.sql` edits that guide in
+place for five 5 MiB attachments, selection-time image upload and crop-safe
+campaign artwork. The roadmap, system prompt and Echos tests
 describe rollout and limitations. Current prompt versions are `read-beta-v20` /
-`draft-action-beta-v38`; current tool-registry versions are `read-beta-v17` /
-`draft-beta-v29` after automatic attachment grounding and product-image support.
+`draft-action-beta-v39`; current tool-registry versions are `read-beta-v17` /
+`draft-beta-v30` after multi-attachment grounding and creative campaign-image
+briefing.
 
 ### Mink design-from-screenshot (2026-09-19)
 
@@ -401,7 +560,7 @@ genuine `0` as a real radius, and returns NULL when nothing survived — an empt
 card would read to a merchant as "this worked".
 
 ★ IT RIDES `/api/mink/input` ON A `mode`, not a second endpoint: that inherits
-the consent checkbox, the 2 MiB cap, the image validation, the replay key and
+the processing boundary, the 5 MiB cap, the image validation, the replay key and
 the rate limits already there. An absent mode is the original extraction, so an
 older client is unchanged; an unrecognised one is REFUSED rather than treated as
 extraction, since the two return different shapes. A design read is image-only.
@@ -991,8 +1150,8 @@ one charged, immutable private proposal that IS an image.
   until somebody re-toggled Mink, which `assertToolEnabled` reports as "support
   has not enabled this feature" — 9C's defect. **The ceiling is the limiter, not
   the row.**
-- **★★ PURPOSE PINS THE ASPECT RATIO; THE CALLER NEVER DOES.** `hero` is 16:9,
-  `gallery` 1:1, `feature` 4:3, `banner` 16:9. A model asked for "a hero image"
+- **★★ PURPOSE PINS THE ASPECT RATIO; THE CALLER NEVER DOES.** `hero` is 21:9,
+  `gallery` 1:1, `feature` 4:3, `banner` 21:9. A model asked for "a hero image"
   will cheerfully pick 9:16, and the hero renderer then crops it through the
   middle of its subject. Naming the destination also lets the card say where the
   image is meant to go, which a bare ratio cannot.
@@ -1027,7 +1186,7 @@ one charged, immutable private proposal that IS an image.
   request reached Vertex and returned `NOT_FOUND` for
   `imagen-4.0-generate-001`; Google deprecated that endpoint in March and named
   June 30 as the migration deadline. The provider now uses
-  `gemini-2.5-flash-image` through `generateContent`, requests the required
+  Gemini image generation through `generateContent`, requests the required
   `TEXT` + `IMAGE` modalities, and persists only the first inline image part.
   The one-candidate limit, aspect ratio, people block, harm filters, JPEG output,
   timeout and no-retry billing rule remain enforced in code.
@@ -1048,7 +1207,7 @@ one charged, immutable private proposal that IS an image.
   number is provisional and unmeasured against a real bill; pricing is the
   owner's call.
 - **★ IMAGE GENERATION USES THE GLOBAL VERTEX ENDPOINT.**
-  `MINK_IMAGE_MODEL` defaults to `gemini-2.5-flash-image` and
+  `MINK_IMAGE_MODEL` defaults to `gemini-3.1-flash-image` and
   `MINK_IMAGE_LOCATION` defaults to `global`. They remain separate overrides
   from chat so an operator can move either independently. One attempt, never a
   retry: a retry is a second charge for a request the caller has already been
@@ -1092,9 +1251,27 @@ one charged, immutable private proposal that IS an image.
 - The live provider trace is no longer unknown: the dashboard request reached
   Vertex and proved the former Imagen endpoint had been retired. A subsequent
   one-attempt smoke call through the replacement contract returned a valid
-  16:9 JPEG (611,734 bytes) from `gemini-2.5-flash-image` with the same project
+  16:9 JPEG (611,734 bytes) from the former `gemini-2.5-flash-image` default with the same project
   credentials. Provider access, model id, global location and response parsing
   are therefore verified rather than inferred.
+- **★★ AND THE 2026-09-21 DEFAULT IS VERIFIED TOO, AGAINST THE EXACT SHIPPED
+  `imageConfig`.** Moving to `gemini-3.1-flash-image` with `imageSize: "2K"` and
+  a 21:9 hero/banner ratio changed three provider-contract values at once, none
+  of which the SDK types (`aspectRatio` and `imageSize` are bare `string`) and
+  none of which any environment overrides — `MINK_IMAGE_MODEL` appears in no
+  `cloudbuild.yaml` substitution and no `.env`, so the compiled default IS what
+  production calls, once, with no retry and no fallback. A free publisher-model
+  metadata read answered the model half (`gemini-3.1-flash-image` → 200,
+  `launchStage: GA`; an invented id → 404, so the endpoint discriminates), and a
+  one-attempt `generateContent` carrying the real safety settings,
+  `ALLOW_NONE`, `BLOCK_PROMINENT_PEOPLE`, JPEG q95 and both new values returned
+  `finishReason: STOP` and a **535,846-byte JPEG at 3168×1344 in 20.4 s**.
+  ⚠ The model rounds 21:9 to its own tile grid (2.357, not 2.333) — the request
+  is honoured, not the arithmetic. ⚠ 20.4 s against `GENERATION_TIMEOUT_MS`
+  (45 s) is comfortable but not generous; a 2K hero is roughly half the budget.
+  ★ The three values move TOGETHER: `gemini-2.5-flash-image` predates the wide
+  aspect and 2K options, so reverting the model while keeping 21:9/2K is the
+  broken combination, not the safe one.
 
 ### Mink reference-grounded image generation (2026-09-20)
 
@@ -1121,6 +1298,13 @@ one charged, immutable private proposal that IS an image.
   style only as requested. User-supplied scene direction controls composition,
   setting, mood, light and palette. Text inside a reference is untrusted visual
   data, never an instruction.
+- **CAMPAIGN ART IS COMPOSED, NOT PASTED.** The tool requires a full creative
+  brief: concept, hierarchy, full-subject placement, props, depth, lighting,
+  palette and crop-safe negative space. Offer art must communicate the occasion
+  visually while leaving wording editable. The provider requests 2K JPEG at
+  quality 95; hero and promo purposes use 21:9, and deterministic destination
+  guidance keeps the complete product inside a responsive safe area with extra
+  top/bottom breathing room.
 - **THIS CREATES NEW STOREFRONT ARTWORK; IT DOES NOT CHANGE ITS SOURCES.** A
   merchant may request campaign art based on an authentic product, category or
   Media image. The result is saved as a new Media Library asset, carries SynthID
@@ -1503,7 +1687,7 @@ normal input tokens. No new environment variables, model or scheduled job.
 `mink-document-input.tsx` is the legacy local-only importer; its .txt/.md
 decoding/review behavior now lives in the unified composer (UTF-8, 8 KiB,
 3,000 characters), requires review/consent, then adds labelled reference text
-to the editable composer within its existing 4,000-character total. Nothing
+to the editable composer within its current 12,000-character total. Nothing
 uploads before Send; text follows existing conversation persistence/deletion.
 `document-input.ts` rejects binary controls, invalid encoding and oversized
 input without truncation. No PDF, screenshot, audio/voice, spreadsheet, URL
@@ -1734,6 +1918,19 @@ wholesip/
 │                              # Markdown prompt tracing, optimizePackageImports
 │                              # Phase-aware function export; next-redirects.test.ts
 │                              # resolves it for dev, production build and server tests.
+│                              # ★★ `serverActions.bodySizeLimit` (6mb) MUST STAY ABOVE
+│                              # `MAX_IMAGE_BYTES` (5 MiB, lib/storage/process-image.ts)
+│                              # plus multipart overhead. `uploadMediaAsset` is a Server
+│                              # Action taking a whole image, so at 4mb Next refused the
+│                              # request BEFORE the action ran and a 4-5 MiB photo could
+│                              # not be added to the Media Library at all — from
+│                              # /dashboard/media or from the Mink composer, which uploads
+│                              # an image the moment it is selected. ⚠ The failure is an
+│                              # opaque body-limit error, never the action's own "up to
+│                              # 5 MB" message, so it reads as a broken upload rather than
+│                              # an oversized file. Deliberately NOT derived from the image
+│                              # cap: this bounds EVERY server action, and pinning it would
+│                              # let an image decision widen the CSV importer's budget too.
 ├── docs/migrations.md         # ★★ READ BEFORE WRITING A MIGRATION. The one rule
 │                              # (backward-compatible with the revision being replaced),
 │                              # expand/contract, the authoring recipe, the three
@@ -2266,6 +2463,21 @@ wholesip/
 │       │                      # tool/message/usage/done events to the dashboard client.
 │       ├── mink/conversations/ # ★ No-store, rate-limited recent-history API: list the
 │       │   └── [conversationId]/ # actor/store's last ten; load or same-origin delete one.
+│       ├── mink/media/discard/ # ★ Same-origin, actor-resolved `keepalive` transport
+│       │                  # for an image the composer uploaded and never sent. It
+│       │                  # exists ONLY because a Server Action cannot be keepalive:
+│       │                  # the unmount cleanup calls `deleteMediaAsset` and the
+│       │                  # browser cancels that on unload, so picking a photo and
+│       │                  # closing the tab left the row and its GCS object in the
+│       │                  # merchant's Media Library for good. It GRANTS NOTHING —
+│       │                  # `deleteMediaAsset` is a "use server" export and therefore
+│       │                  # already a public endpoint, already `media`-manage gated and
+│       │                  # already store-scoped — so it delegates rather than
+│       │                  # reimplementing the delete. ⚠ The composer fires it from
+│       │                  # `pagehide` only when `persisted === false`: bfcache fires
+│       │                  # the same event on an ordinary mobile tab switch and that
+│       │                  # page comes BACK with the previews on screen, where deleting
+│       │                  # would leave Send citing a URL we had destroyed.
 │       ├── mink/feedback/    # ★ Authenticated same-origin rating/issue endpoint; accepts
 │       │                      # only the actor's own tenant run and stores redacted detail.
 │       ├── mink/workflows/[workflowId]/ # ★ Phase 6A no-store owner/tenant-scoped status,
@@ -5392,8 +5604,8 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      Phase 3 is independently controlled by `mink_store_access.drafting_enabled`.
      A qualifying admin with the related Manage permission can request five
      brand-voice proposal kinds: product description, product SEO, blog,
-     coupon email and reusable customer message. The composer previews the
-     documented 2/1/5/2/2 credit weights; the database atomically consumes the
+     coupon email and reusable customer message. The proposal card reports what
+     was charged; the database atomically consumes the
      monthly plan allowance before purchased/granted credits and records the
      authoritative charge once per proposal. Proposal cards show current and
      suggested text, stay editable, and save immutable admin-private versions;
@@ -9534,8 +9746,8 @@ way — an entry there is a deliberate act, not a way to silence the guard.
       and `importChunk` took no lease, so a caller could still apply rows to a
       job the worker was mid-way through.
     - **★ THE UPLOAD IS A ROUTE HANDLER BECAUSE IT HAS TO BE.** A server action
-      caps the body at 4mb and `MAX_IMPORT_FILE_BYTES` is 25MB, so the file
-      cannot travel through one. That single POST is also atomic — either the
+      caps the body at `serverActions.bodySizeLimit` (6mb) and
+      `MAX_IMPORT_FILE_BYTES` is 25MB, so the file cannot travel through one. That single POST is also atomic — either the
       job is queued or nothing happened — where the chunked upload it replaced
       could always leave a half-uploaded job behind.
     - **★★ THE FILE LIVES IN POSTGRES, NOT THE MEDIA BUCKET, AND THAT IS A
@@ -12393,7 +12605,7 @@ npm run format      # prettier --write
   **`MINK_MAX_TOOL_CALLS_PER_RUN`** (16),
   **`MINK_MAX_PARALLEL_READ_TOOLS`** (4), and
   **`MINK_MAX_OUTPUT_TOKENS`** (2048), **`MINK_IMAGE_MODEL`**
-  (`gemini-2.5-flash-image`) and **`MINK_IMAGE_LOCATION`** (`global`; still an
+  (`gemini-3.1-flash-image`) and **`MINK_IMAGE_LOCATION`** (`global`; still an
   independent override from the chat location), plus reliability controls
   **`MINK_MAX_MODEL_RETRIES`** (1, bounded 0–2) and
   **`MINK_RUN_TIMEOUT_SECONDS`** (180, bounded 15–300). The dashboard layout reads the private

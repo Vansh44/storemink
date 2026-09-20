@@ -35,9 +35,9 @@ describe("Phase 9D saved media reference", () => {
     ).toThrow("no address");
   });
 
-  it("refuses to push the composer past its own 4,000-character cap", () => {
+  it("refuses to push the composer past its own 12,000-character cap", () => {
     expect(() =>
-      addSavedMinkMediaReference("x".repeat(3990), {
+      addSavedMinkMediaReference("x".repeat(11_990), {
         url: URL,
         filename: "a.png",
       }),

@@ -261,7 +261,7 @@ describe("POST /api/mink/stream", () => {
   });
   it("bounds the actual body even without a length header", async () => {
     const response = await POST(
-      request({ message: "Hello", padding: "x".repeat(20000) }),
+      request({ message: "Hello", padding: "x".repeat(66_000) }),
     );
     expect(response.status).toBe(413);
     expect(holder.actor).not.toHaveBeenCalled();
