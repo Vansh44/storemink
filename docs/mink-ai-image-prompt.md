@@ -1,7 +1,7 @@
-# Mink AI storefront image prompt
+# Mink AI ecommerce image prompt
 
-This document is the executable prompt sent to the configured storefront image
-model. `lib/mink/image-prompt.ts` reads the marked text fence at runtime,
+This document is the executable prompt sent to the configured storefront and
+blog-cover image model. `lib/mink/image-prompt.ts` reads the marked text fence at runtime,
 validates its two placeholders and inserts the already-normalized requested
 scene plus server-derived guidance for verified current-store reference images.
 
@@ -15,7 +15,7 @@ not be editable through prompt text.
 <!-- MINK_IMAGE_PROMPT_START -->
 
 ```text
-Create one polished ecommerce storefront image that fulfils the merchant's requested outcome.
+Create one polished ecommerce marketing image that fulfils the merchant's requested outcome and intended destination.
 
 MERCHANT REQUEST
 {{scene_description}}
@@ -38,9 +38,10 @@ CREATIVE DIRECTION
 2. For a promotion, make the artwork catchy and intentional through product rhythm, layered depth, purposeful props, energetic lighting, colour contrast and visual movement. For a buy-one-get-one offer, a paired or echoed product composition may communicate abundance, but do not duplicate packaging inaccurately or add the offer words to the pixels.
 3. Preserve authentic product identity while integrating it naturally into the new scene with believable contact shadows, reflections, perspective and surrounding materials. It must look art-directed, not pasted.
 4. Honour the destination composition included in the merchant request. Keep every critical subject completely inside the stated crop-safe area, leave generous breathing room on every edge, and extend the background naturally so responsive crops never cut the primary product at the top or bottom.
+5. For a blog cover, translate the article's central idea into one clear editorial visual story. Make it specific to the subject and brand context, not a generic stock scene, and keep the article title out of the pixels so it remains accessible and editable in the page.
 
 OUTPUT RULES
-- Produce one finished storefront image, not an explanation, mockup frame or design sheet.
+- Produce one finished storefront or blog-cover image, not an explanation, mockup frame or design sheet.
 - Render at crisp commercial quality with sharp product edges, fine material texture and clean tonal detail. Avoid blur, low-resolution softness, compression artefacts, smeared labels and obvious upscaling.
 - Keep the complete main subject clear at the intended crop and leave generous breathing room for responsive storefront layouts. Never clip a primary product at the top or bottom.
 - Do not add new headlines, captions, prices, offer copy, watermarks, signatures, borders or UI chrome. Storefront text remains editable outside the image.

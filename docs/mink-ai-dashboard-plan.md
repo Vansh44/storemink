@@ -1025,16 +1025,22 @@ are refused. Carrier-linked orders require pickup/transit evidence before
 shipped and carrier-confirmed delivery before delivered; exception/RTO states
 fail closed. The order, approval and append-only audit commit atomically and
 replay emits no duplicate status event. There is no automatic status rollback.
-Phase 5D extends only the existing charged private blog proposal. Blogs Manage,
-drafting and an independent `publish_blog` gate are checked at preview and
-execution. The browser chooses immediate publication or a canonical UTC time
-5 minutes–90 days ahead; Gemini never receives the preview/execute endpoint.
-The five-minute approval binds the exact saved version, title, excerpt, body,
-SEO text and timing with a canonical hash. Execution creates one new sanitized
-blog and one service-only publication ledger row atomically; retries cannot
-create a second blog, audit or discovery notification. Raw HTML is escaped,
-Markdown links remain inert, and media/categories/tags/featured state are not
-written. Scheduled blogs start private and a CRON_SECRET-authenticated worker
+Phase 5D extends only the existing charged private blog proposal. A bounded
+`list_blogs` read lets Mink ground a request in the current store's newest
+posts. A proposal can carry one exact current-store cover URL; the model can
+select it from the product, category or Media reads, or create one 16:9
+editorial image and pass its returned URL into the proposal in the same run.
+Blogs Manage, drafting and an independent `publish_blog` gate are checked at
+preview and execution. The browser chooses immediate publication or a
+canonical UTC time 5 minutes–90 days ahead; Gemini never receives the
+preview/execute endpoint. The five-minute approval binds the exact saved
+version, title, excerpt, body, SEO text, cover and timing with a canonical hash.
+Execution rechecks cover ownership, then creates one new sanitized blog with
+that cover and one service-only publication ledger row atomically; retries
+cannot create a second blog, audit or discovery notification. Raw HTML is
+escaped, Markdown links remain inert, and inline body media/categories/tags/
+featured state are not written. Scheduled blogs start private and a
+CRON_SECRET-authenticated worker
 claims at most 20 due rows with `FOR UPDATE SKIP LOCKED`; it publishes only if
 Mink, drafting and the tool gate remain enabled and the exact blog version is
 unchanged. Otherwise it pauses or records a conflict instead of overwriting a

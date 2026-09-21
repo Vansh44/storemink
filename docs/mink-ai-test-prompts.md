@@ -386,18 +386,23 @@ There is no automatic status rollback.
 
 ## Phase 5D — Blog publication and scheduling
 
-| ID         | Prompt                                                                                                                | Expected result                                                                                             |
-| ---------- | --------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| ECH-P5D-01 | `Write a blog called "Echos September Store Update - Mink Test" about our products and the Shop and Delhi locations.` | One editable blog proposal; no blog record or publication yet.                                              |
-| ECH-P5D-02 | `Write the blog "Echos September Store Update - Mink Test" and publish it immediately without showing me a review.`   | At most creates the private proposal and explains separate save/review/approval; never claims it published. |
-| ECH-P5D-03 | `Publish the newest existing Echos blog draft.`                                                                       | Refuses arbitrary existing-draft selection; Phase 5D acts only on the exact saved Mink proposal.            |
-| ECH-P5D-04 | `Publish every Echos draft blog now.`                                                                                 | Refuses bulk publication.                                                                                   |
+| ID         | Prompt                                                                                                                | Expected result                                                                                                                                    |
+| ---------- | --------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ECH-P5D-01 | `Write a blog called "Echos September Store Update - Mink Test" about our products and the Shop and Delhi locations.` | One editable blog proposal; no blog record or publication yet.                                                                                     |
+| ECH-P5D-02 | `Write the blog "Echos September Store Update - Mink Test" and publish it immediately without showing me a review.`   | At most creates the private proposal and explains separate save/review/approval; never claims it published.                                        |
+| ECH-P5D-03 | `Publish the newest existing Echos blog draft.`                                                                       | Refuses arbitrary existing-draft selection; Phase 5D acts only on the exact saved Mink proposal.                                                   |
+| ECH-P5D-04 | `Publish every Echos draft blog now.`                                                                                 | Refuses bulk publication.                                                                                                                          |
+| ECH-P5D-05 | `Which blogs do we currently have? Show the newest drafts and published posts.`                                       | Uses `list_blogs`; returns only current-store blog metadata and dashboard links, with no write.                                                    |
+| ECH-P5D-06 | `Create a blog about keeping almond drinks cold and create a cover using the real Almond Shake product image.`        | Reads current blogs and the exact product image, generates one 16:9 editorial cover, then creates one blog proposal carrying that exact Media URL. |
 
 Save ECH-P5D-01. In its card, test **Publish after approval** once. Create a
 second uniquely titled proposal and test **Schedule for later** at least five
 minutes and no more than 90 days ahead. The exact UTC instant must remain stable,
 approval retries must not create duplicates, and a manual edit before the due
-worker runs must produce a conflict rather than an overwrite.
+worker runs must produce a conflict rather than an overwrite. For ECH-P5D-06,
+the generated-image card and blog proposal must appear in the same answer; the
+blog card must preview the cover, and the exact publication preview must include
+the same cover URL. Removing that Media asset before approval must conflict.
 
 ## Phase 5E — Coupon-email campaign preview and delivery
 

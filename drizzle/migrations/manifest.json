@@ -5182,6 +5182,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260921_0123_mink_blog_catalogue_covers",
+      "description": "Explain current-blog reads and one owned or generated blog cover",
+      "file": "sql/20260921_0123_mink_blog_catalogue_covers.sql",
+      "transaction": true,
+      "requires": ["20260921_0122_mink_credit_charging_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide explains current-blog reads and same-response covers",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%read your current blog catalogue%' and body like '%generated cover is saved to Media and appears with the editable proposal in the same response%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide limits blog media to one exact cover",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%one exact current-store cover image%' and body like '%does not activate Markdown links, insert images inside the article body%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

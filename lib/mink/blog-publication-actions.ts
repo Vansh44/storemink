@@ -30,6 +30,7 @@ import {
 import { normalizeMinkDraftContent } from "./draft-types";
 import { MinkRequestError } from "./errors";
 import type { MinkActorContext } from "./types";
+import { selectOwnedStorefrontImageUrls } from "./storefront-media-read";
 
 const APPROVAL_TTL_MS = 5 * 60 * 1_000;
 const TOOL_VERSION = 1;
@@ -96,6 +97,11 @@ export async function previewMinkBlogPublication(input: {
     }
     await assertToolEnabled(db, input.actor.storeId);
     const content = normalizeBlogContent(draft.content);
+    await assertOwnedBlogCover(
+      db,
+      input.actor.storeId,
+      content.cover_image_url,
+    );
     const before = values(content, null);
     const after = values(content, timing);
     return createApproval(db, {
@@ -173,6 +179,11 @@ export async function executeMinkBlogPublication(input: {
       };
     }
     const content = normalizeBlogContent(draft.content);
+    await assertOwnedBlogCover(
+      db,
+      input.actor.storeId,
+      content.cover_image_url,
+    );
     const approvedBefore = valuesFromJson(approval.beforeJson);
     const approvedAfter = valuesFromJson(approval.afterJson);
     const timing = timingFromApproval(approval, approvedAfter);
@@ -388,6 +399,7 @@ async function insertBlog(
     slug,
     excerpt: input.content.excerpt,
     content: input.rendered,
+    coverImageUrl: input.content.cover_image_url || null,
     status: input.timing.mode === "publish_now" ? "published" : "draft",
     tags: [] as string[],
     categories: [] as string[],
@@ -474,6 +486,7 @@ function normalizeBlogContent(value: unknown) {
       title: string;
       excerpt: string;
       content: string;
+      cover_image_url: string;
       seo_title: string;
       seo_description: string;
     };
@@ -504,9 +517,27 @@ function values(
     title: content.title,
     excerpt: content.excerpt,
     content: content.content,
+    cover_image_url: content.cover_image_url || null,
     seo_title: content.seo_title || null,
     seo_description: content.seo_description || null,
   };
+}
+
+async function assertOwnedBlogCover(
+  db: Db,
+  storeId: string,
+  coverImageUrl: string,
+): Promise<void> {
+  if (!coverImageUrl) return;
+  const owned = await selectOwnedStorefrontImageUrls(db, storeId, [
+    coverImageUrl,
+  ]);
+  if (!owned.has(coverImageUrl)) {
+    throw conflict(
+      "mink_blog_cover_unavailable",
+      "The selected cover image is no longer available in this store. Choose a current Media Library or catalogue image and review again.",
+    );
+  }
 }
 
 function timingForRequest(mode: unknown, scheduledFor: unknown) {

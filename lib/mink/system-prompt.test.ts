@@ -141,6 +141,9 @@ describe("Mink system prompt document", () => {
     );
     expect(template).toContain("up to five attachments");
     expect(template).toContain("original art-directed campaign scene");
+    expect(template).toContain("ALWAYS call it before propose_blog_draft");
+    expect(template).toContain("purpose=blog_cover");
+    expect(template).toContain("exact returned URL as cover_image_url");
     expect(template).toContain("pass that URL unchanged as image_url");
     expect(template).toContain("answer in at most two short sentences");
     expect(template).toContain("single Apply to Website Builder draft button");

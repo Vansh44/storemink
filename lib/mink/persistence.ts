@@ -417,11 +417,11 @@ export async function startMinkRun(input: {
         model,
         thinkingLevel: input.thinkingLevel ?? "low",
         promptVersion: actor.draftingEnabled
-          ? "draft-action-beta-v39"
-          : "read-beta-v20",
+          ? "draft-action-beta-v40"
+          : "read-beta-v21",
         toolRegistryVersion: actor.draftingEnabled
-          ? "draft-beta-v30"
-          : "read-beta-v17",
+          ? "draft-beta-v31"
+          : "read-beta-v18",
         riskTier: actor.draftingEnabled ? "R1" : "R0",
         currentPath: actor.currentPath ?? null,
         selectedResourceType: actor.selectedResource?.type ?? null,

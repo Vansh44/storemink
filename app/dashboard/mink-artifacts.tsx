@@ -488,6 +488,8 @@ function RecordArtifact({
         icon={
           artifact.recordType === "storefront" ? (
             <PanelsTopLeft className="h-3.5 w-3.5" />
+          ) : artifact.recordType === "blog" ? (
+            <BookOpen className="h-3.5 w-3.5" />
           ) : (
             <Boxes className="h-3.5 w-3.5" />
           )
