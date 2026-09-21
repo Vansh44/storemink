@@ -5206,6 +5206,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260922_0124_mink_complete_blog_covers_prepared_images",
+      "description": "Explain automatic blog-cover hand-off and destination-shaped authentic images",
+      "file": "sql/20260922_0124_mink_complete_blog_covers_prepared_images.sql",
+      "transaction": true,
+      "requires": ["20260921_0123_mink_blog_catalogue_covers"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide promises one automatic cover in the same proposal",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Every new Mink blog includes a cover by default%' and body like '%You do not need to copy its URL or open the blog editor to finish the hand-off%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide explains non-destructive destination preparation",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%automatically prepares a square Media copy%' and body like '%The original upload is never cropped or overwritten%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

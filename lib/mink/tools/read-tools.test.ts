@@ -332,6 +332,22 @@ describe("Phase 9D media library tool", () => {
       },
     });
   });
+
+  it("requires every new blog proposal to carry its finished cover", () => {
+    const blogTool = minkReadToolRegistry
+      .declarationsFor({
+        ...ACTOR,
+        draftingEnabled: true,
+        permissions: { blogs: ["manage"] },
+      } as MinkActorContext)
+      .find((tool) => tool.name === "propose_blog_draft");
+    expect(blogTool?.parametersJsonSchema).toMatchObject({
+      required: ["title", "excerpt", "content", "cover_image_url"],
+      properties: {
+        cover_image_url: { type: "string", minLength: 1, maxLength: 2_048 },
+      },
+    });
+  });
 });
 
 describe("Mink read-tool declarations", () => {

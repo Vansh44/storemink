@@ -44,7 +44,7 @@ import {
   normalizeMinkOrderReference,
   readMinkOrderStatusTarget,
 } from "../order-status-target";
-import { readOwnedStorefrontImageUrls } from "../storefront-media-read";
+import { prepareMinkImageForDestination } from "../media-preparation";
 
 const draftingAvailable = (actor: MinkActorContext) =>
   actor.draftingEnabled === true;
@@ -158,7 +158,7 @@ export const proposeBlogDraftTool: MinkTool = {
   declaration: {
     name: "propose_blog_draft",
     description:
-      "Create one charged, private and editable blog proposal in the store's brand voice. Call list_blogs first so the new article is grounded in the current blog catalogue and does not accidentally duplicate an existing post. Use only facts in the conversation or trusted tool results. If the merchant asked for a cover, first create or resolve an exact current-store image and pass its returned URL as cover_image_url in this same run; never invent or guess a URL. This does not create or publish a blog post.",
+      "Create one charged, private and editable blog proposal in the store's brand voice. Call list_blogs first so the new article is grounded in the current blog catalogue and does not accidentally duplicate an existing post. EVERY new blog proposal requires a cover: unless the merchant supplied an exact image or explicitly chose an existing current-store image, generate one 16:9 editorial cover first, then pass its exact returned URL as cover_image_url in this same run. Never stop after saving the image to Media and never tell the merchant to attach it manually. The server preserves the whole source and prepares an exact 16:9 copy when needed. Use only facts in the conversation or trusted tool results. This does not create or publish a blog post.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -172,38 +172,36 @@ export const proposeBlogDraftTool: MinkTool = {
         },
         cover_image_url: {
           type: "string",
+          minLength: 1,
           maxLength: 2_048,
           description:
-            "Optional exact current-store Media Library or catalogue image URL returned by a trusted read or image-generation tool. Required when the merchant asked for a cover; never guess a URL.",
+            "Required exact current-store Media Library or catalogue image URL returned by a trusted read or image-generation tool. A blog-creation request includes its cover by default; never guess a URL or leave this out after generating the image.",
         },
         seo_title: { type: "string", maxLength: 70 },
         seo_description: { type: "string", maxLength: 180 },
       },
-      required: ["title", "excerpt", "content"],
+      required: ["title", "excerpt", "content", "cover_image_url"],
       additionalProperties: false,
     },
   },
   permission: { section: "blogs", action: "manage" },
   available: draftingAvailable,
-  timeoutMs: 8_000,
+  timeoutMs: 25_000,
   artifact: proposalArtifact,
   async execute(actor, args) {
     const title = readString(args.title, "title", 200);
-    const coverImageUrl = readOptionalString(
+    const requestedCoverImageUrl = readString(
       args.cover_image_url,
       "cover_image_url",
       2_048,
     );
-    if (coverImageUrl) {
-      const owned = await readOwnedStorefrontImageUrls(actor.storeId, [
-        coverImageUrl,
-      ]);
-      if (!owned.has(coverImageUrl)) {
-        throw new MinkToolInputError(
-          "Blog cover image must be an exact current-store Media Library or catalogue image URL returned by a trusted tool.",
-        );
-      }
-    }
+    const coverImageUrl = (
+      await prepareMinkImageForDestination(
+        actor,
+        requestedCoverImageUrl,
+        "blog_cover",
+      )
+    ).url;
     return proposalOutput(
       await createMinkDraftProposal({
         actor,
@@ -384,7 +382,7 @@ export const proposeProductCreateTool: MinkTool = {
   declaration: {
     name: "propose_product_create",
     description:
-      "Create a charged, private proposal for a new draft product. The proposal can later create only an unpublished product with inventory tracking disabled; it cannot publish, add stock, variants, categories or tax/shipping settings. When the composer supplies an exact saved image URL with the request, pass it unchanged as image_url so the approved product uses that uploaded image; never invent or substitute an image URL.",
+      "Create a charged, private proposal for a new draft product. The proposal can later create only an unpublished product with inventory tracking disabled; it cannot publish, add stock, variants, categories or tax/shipping settings. When the composer supplies an exact saved image URL with the request, pass that exact source as image_url; the server analyses its dimensions, preserves the complete authentic photo and automatically prepares a square product canvas when needed before storing the proposal. Never invent, omit or substitute an attached product image URL.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -422,7 +420,7 @@ export const proposeProductCreateTool: MinkTool = {
   },
   permission: { section: "products", action: "manage" },
   available: draftingAvailable,
-  timeoutMs: 8_000,
+  timeoutMs: 25_000,
   artifact: proposalArtifact,
   async execute(actor, args) {
     await assertProductProposalCapacity(actor);
@@ -433,17 +431,20 @@ export const proposeProductCreateTool: MinkTool = {
         "The product name must contain letters or numbers so StoreMink can create a URL slug.",
       );
     }
-    const imageUrl = readOptionalString(args.image_url, "image_url", 2_048);
-    if (imageUrl) {
-      const owned = await readOwnedStorefrontImageUrls(actor.storeId, [
-        imageUrl,
-      ]);
-      if (!owned.has(imageUrl)) {
-        throw new MinkToolInputError(
-          "Product image must be the exact current-store Media Library URL supplied with this request.",
-        );
-      }
-    }
+    const requestedImageUrl = readOptionalString(
+      args.image_url,
+      "image_url",
+      2_048,
+    );
+    const imageUrl = requestedImageUrl
+      ? (
+          await prepareMinkImageForDestination(
+            actor,
+            requestedImageUrl,
+            "product_photo",
+          )
+        ).url
+      : "";
     return proposalOutput(
       await createMinkDraftProposal({
         actor,

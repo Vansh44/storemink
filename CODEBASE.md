@@ -375,6 +375,13 @@ only to the isolated, bounded Vertex reader; .txt/.md imports are decoded
 locally. A sent image is also normalised through the ordinary Media action when
 the admin holds `media:manage`, so the exact preview survives conversation
 reloads and can ground a product, storefront-layout or generated-image proposal.
+When product creation uses that exact source, `media-preparation.ts`
+auto-orients it and, only when necessary, saves an idempotent 1:1 WebP copy on
+a white canvas with the whole authentic photo visible. Blog covers use the same
+server boundary with a 16:9 canvas and ambient blurred fill. The original Media
+item is never cropped or overwritten; an already-correct ratio is reused. The
+proposal and later approval bind the prepared URL, so the merchant is never
+sent away to resize or reupload it.
 `lib/mink/voice-recorder.ts` captures one canonical mono 16 kHz PCM WAV locally.
 After speech begins, 1.2 seconds of sustained silence finishes the utterance;
 the 30-second cap remains a stalled-audio fallback. The temporary recording is
@@ -2856,7 +2863,8 @@ wholesip/
 │   ├── storage/               # ★ Google Cloud Storage media backend (GCS-only —
 │   │                          # lib/supabase/ removed, Supabase fully out of code):
 │   │                          # gcs.ts — gcsConfigured/gcsUploadObject/gcsSignUploadUrl/
-│   │                          # gcsDeletePaths/gcsDeletePrefix/gcsPublicUrl/gcsPathFromUrl
+│   │                          # gcsDownloadObject/gcsDeletePaths/gcsDeletePrefix/
+│   │                          # gcsPublicUrl/gcsPathFromUrl
 │   │                          # (ADC or
 │   │                          # GCP_SA_KEY; public bucket; lazy SDK import). uploads.ts —
 │   │                          # client helpers (uploadImage POSTs /api/upload; uploadVideo
@@ -3043,6 +3051,9 @@ wholesip/
 │   │                          # blog-publication-policy/content/action-types/actions/worker add
 │   │                          # Phase 5D exact sanitized blog publication, UTC schedule bounds,
 │   │                          # tenant-composite persistence and conflict-safe bounded execution;
+│   │                          # media-preparation.ts creates idempotent destination-shaped Media
+│   │                          # copies of authentic images (1:1 product or 16:9 blog) without
+│   │                          # cropping, generative replacement or overwriting the source;
 │   │                          # campaign-policy/audience/action-types/actions add Phase 5E exact audience
 │   │                          # snapshots, branded sample, final confirmation and queue scheduling;
 │   │                          # bulk-price-policy/targets/action-types/actions add Phase 5F exact-SKU
@@ -5786,13 +5797,17 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      categories, tags, dates and exact cover-image URLs. The existing 5-credit
      `blog` proposal remains the only model-facing blog write capability;
      Gemini still has no live publish or schedule tool. A new-blog request reads
-     that catalogue first to avoid accidental duplicate topics. The proposal
-     may carry one optional `cover_image_url`, but only when the exact URL is
-     owned by this store's Media Library or product catalogue. A requested
-     generated cover uses the existing image-generation gate and spend ceiling
-     with the pinned `blog_cover` purpose (16:9), saves to Media, and feeds its
-     exact URL into `propose_blog_draft` in the same run. The proposal card
-     renders a safe same-origin cover preview beside the editable copy.
+     that catalogue first to avoid accidental duplicate topics. Every new
+     proposal requires one `cover_image_url`; blog creation authorizes one
+     16:9 editorial cover by default unless the merchant supplied or explicitly
+     chose an existing current-store image. Generation uses the existing gate
+     and spend ceiling, saves to Media, and must feed the exact returned URL
+     into `propose_blog_draft` in the same run. `lib/mink/media-preparation.ts`
+     then inspects the real source dimensions. A mismatched authentic image is
+     copied onto a 16:9 canvas that preserves the complete source, while an
+     already-correct generated cover is reused without another Media row. The
+     proposal card renders a safe same-origin cover preview beside the editable
+     copy; the normal blog editor also accepts a pasted GCS Media URL.
      The saved proposal card exposes Publish after approval or Schedule for
      later only in the authenticated browser. `POST
      /api/mink/drafts/[draftId]/blog-publication` accepts a saved version,
@@ -5828,7 +5843,9 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      campaigns and automatic rollback remain outside Phase 5D. Migration
      `20260901_0052_mink_phase_5d_blog_publication` owns the constraints, table,
      indexes and access contract; `20260921_0123_mink_blog_catalogue_covers`
-     updates the published merchant flow in place.
+     adds the catalogue/cover guidance and
+     `20260922_0124_mink_complete_blog_covers_prepared_images` replaces it in
+     place with the automatic hand-off and destination-preparation guarantee.
 
      Phase 5E keeps `get_coupon_for_draft` and `propose_coupon_email` as the
      only model-facing campaign capabilities. The authenticated proposal card
