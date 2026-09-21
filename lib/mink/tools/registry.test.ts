@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MinkToolInputError } from "../errors";
+import { MinkRequestError, MinkToolInputError } from "../errors";
 import type { MinkActorContext } from "../types";
 import { MinkToolRegistry, type MinkTool } from "./registry";
 
@@ -177,5 +177,53 @@ describe("per-actor declarations", () => {
     const [declared] = registry.declarationsFor(a);
     const result = await registry.execute(a, { name: declared.name, args: {} });
     expect(result.response.output).toEqual({ storeIdUsed: "store-1" });
+  });
+});
+
+// ★★ A `MinkRequestError` CARRIES AN AUTHOR-WRITTEN, MERCHANT-SAFE SENTENCE —
+//    the same text the HTTP routes return — and the catch-all replaced every
+//    one with "could not finish right now". That is the difference between
+//    the model rephrasing actionable advice and it retrying the same failing
+//    input until the run's tool budget is gone.
+describe("tool failure messages", () => {
+  it("forwards a MinkRequestError's own message", async () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        execute: vi.fn(async () => {
+          throw new MinkRequestError(
+            "image_preparation_source_failed",
+            "Choose another image and try again.",
+            422,
+          );
+        }),
+      }),
+    ]);
+    const result = await registry.execute(
+      actor({ permissions: { products: ["view"] } }),
+      { name: "read_products", args: {} },
+    );
+    expect(result.response.error).toMatchObject({
+      code: "tool_failed",
+      message: "Choose another image and try again.",
+    });
+  });
+
+  // Anything else still gets the generic text, so no database or stack
+  // detail can reach the model context.
+  it("keeps an unrecognised error generic", async () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        execute: vi.fn(async () => {
+          throw new Error('relation "orders" does not exist');
+        }),
+      }),
+    ]);
+    const result = await registry.execute(
+      actor({ permissions: { products: ["view"] } }),
+      { name: "read_products", args: {} },
+    );
+    expect(result.response.error).toMatchObject({
+      message: "The Mink AI tool could not finish right now.",
+    });
   });
 });

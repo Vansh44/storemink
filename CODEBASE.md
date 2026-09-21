@@ -1009,11 +1009,17 @@ than a warning on the card.
   unreleased product's, and an admin trusted to arrange a page is not
   automatically trusted to enumerate every file the store has uploaded.
 - **★★ `lib/mink/storefront-media-policy.ts` — THE ALLOWLIST IS "WHAT THE MODEL
-  WAS SHOWN", NOTHING WIDER.** Three sources, each provably real: a URL already
+  WAS SHOWN", NOTHING WIDER.** Four sources, each provably real: a URL already
   on the CURRENT page (so a proposal that keeps or moves a block is never refused
   for its own images — and a pure reorder asks the database nothing at all), a
-  `media_assets.url` for this store, or an exact current-store product primary
-  or gallery URL returned by a product read. A store-owned **GCS PREFIX** rule was
+  `media_assets.url` for this store, an exact current-store product primary
+  or gallery URL returned by a product read, or an exact current-store
+  `categories.image_url` returned by `search_storefront_categories`. ★ The
+  category source was added with the Mink blog cover work, because
+  `selectOwnedStorefrontImageUrls` is ALSO what `assertOwnedCover` re-checks
+  inside the publication transaction — a cover resolved from a category read
+  had to survive it. It obeys the same rule as the other three: a read tool
+  returned it, so the model was shown it. A store-owned **GCS PREFIX** rule was
   considered and REJECTED: the builder's own `ImageUpload` writes to
   `stores/{storeId}/uploads/` with no row anywhere, so no read tool can list
   one and the model could only ever reach it by CONSTRUCTING a path — the
@@ -5930,6 +5936,44 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      adds the catalogue/cover guidance and
      `20260922_0124_mink_complete_blog_covers_prepared_images` replaces it in
      place with the automatic hand-off and destination-preparation guarantee.
+     **★★ PREPARATION IS BEST-EFFORT; OWNERSHIP IS NOT.** The only refusal in
+     `prepareMinkImageForDestination` is an image the store does not own —
+     the one thing the caller can act on. A legacy object outside our bucket,
+     a format sharp will not decode, a failed download or upload, an admin
+     without `media:manage`: each falls back to the source URL unchanged,
+     which is what every one of these calls did before preparation existed.
+     Any of them as a hard failure loses a whole blog or product proposal —
+     and the credits already spent on its generated cover — over a picture
+     that merely renders in the wrong shape. ★ Ownership asks
+     `readOwnedStorefrontImageUrls`, the SAME question `assertOwnedCover`
+     re-asks inside the publication transaction, so a cover accepted at
+     proposal time cannot be refused at approval; resolving it through the
+     image-model reference path was strictly narrower (a per-collection View
+     permission, a PNG/JPEG/WebP content type and an object inside our bucket)
+     and locked a store still serving legacy Supabase media out of using its
+     own catalogue photograph. ★ The `media:manage` check runs BEFORE the
+     download, which needs no image data and costs real CPU.
+     **★★ AND THE TOLERANCE ASKS WHAT WOULD BE LOST, NOT WHETHER THE RATIO IS
+     EXACT.** It was `|ratio − target| <= 0.002`, far tighter than a generated
+     image can be relied on to hit — §9E records the model rounding a
+     requested 21:9 to 3168×1344 (2.357 against 2.333), because the request is
+     honoured and the arithmetic is not. So the DEFAULT path, a freshly
+     generated cover, was the one at risk of being letterboxed and downscaled
+     from 2K. `croppedAwayFraction` allows a 6% crop instead: 1.80 against 16:9
+     loses 1.2% and passes through, while a 21:9 banner used as a cover (25%)
+     and a portrait photo on a square card (33%) still qualify.
+     ⚠ `withoutEnlargement` on the contain/inside resizes keeps a small
+     authentic photo at native size on the full-size canvas rather than
+     interpolating it up; the blurred backdrop deliberately still enlarges,
+     since a gap would be worse than softness nobody sees through a 28px blur.
+     ★ `recordPreparedImage` takes a `pg_advisory_xact_lock` on the digest and
+     re-checks under it, because `media_assets` has no unique index on
+     (store_id, path): a plain check-then-insert lets two runs write a row for
+     one object, and deleting either removes the shared file and leaves the
+     other rendering a broken image. The upload stays OUTSIDE that transaction.
+     ★ `MinkPreparedImageResult.createdPath` is the compensation handle — null
+     for a cache hit and a pass-through — so `discardPreparedMinkImage` can
+     only ever undo what this run added when the proposal then fails.
 
      Phase 5E keeps `get_coupon_for_draft` and `propose_coupon_email` as the
      only model-facing campaign capabilities. The authenticated proposal card

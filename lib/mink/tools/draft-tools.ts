@@ -49,7 +49,11 @@ import {
   normalizeMinkOrderReference,
   readMinkOrderStatusTarget,
 } from "../order-status-target";
-import { prepareMinkImageForDestination } from "../media-preparation";
+import {
+  discardPreparedMinkImage,
+  prepareMinkImageForDestination,
+  type MinkPreparedImageResult,
+} from "../media-preparation";
 
 const draftingAvailable = (actor: MinkActorContext) =>
   actor.draftingEnabled === true;
@@ -160,6 +164,29 @@ export const proposeCurrentProductSeoTool: MinkTool = {
 };
 
 /**
+ * Create the proposal, and undo a derivative this run made if it fails.
+ *
+ * ★ PREPARATION COMMITS A MEDIA ROW BEFORE THE PROPOSAL EXISTS, so a proposal
+ *   that then fails - most often on the credit check - would leave an
+ *   unexplained `blog_cover-…webp` in the merchant's Media Library that they
+ *   did not create and cannot connect to anything. `createdPath` is null for a
+ *   cache hit and for a pass-through, so this can only ever remove what this
+ *   call itself added.
+ */
+async function proposalWithPreparedImage<T>(
+  actor: MinkActorContext,
+  prepared: MinkPreparedImageResult | null,
+  create: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await create();
+  } catch (error) {
+    if (prepared) await discardPreparedMinkImage(actor, prepared);
+    throw error;
+  }
+}
+
+/**
  * Whether ANY tool this actor is offered can return an image URL.
  *
  * ★★ THIS IS WHAT DECIDES THE COVER IS REQUIRED, NOT A CONSTANT. Every cover
@@ -240,36 +267,37 @@ export const proposeBlogDraftTool: MinkTool = {
     const requestedCoverImageUrl = coverRequired
       ? readString(args.cover_image_url, "cover_image_url", 2_048)
       : readOptionalString(args.cover_image_url, "cover_image_url", 2_048);
-    const coverImageUrl = requestedCoverImageUrl
-      ? (
-          await prepareMinkImageForDestination(
-            actor,
-            requestedCoverImageUrl,
-            "blog_cover",
-          )
-        ).url
-      : "";
+    const preparedCover = requestedCoverImageUrl
+      ? await prepareMinkImageForDestination(
+          actor,
+          requestedCoverImageUrl,
+          "blog_cover",
+        )
+      : null;
+    const coverImageUrl = preparedCover?.url ?? "";
     return proposalOutput(
-      await createMinkDraftProposal({
-        actor,
-        kind: "blog",
-        title: `Blog draft: ${title}`,
-        destinationType: "blog",
-        destinationLabel: "Blogs",
-        destinationPath: "/dashboard/blogs",
-        content: {
-          title,
-          excerpt: readString(args.excerpt, "excerpt", 500),
-          content: readString(args.content, "content", 12_000),
-          cover_image_url: coverImageUrl,
-          seo_title: readOptionalString(args.seo_title, "seo_title", 70),
-          seo_description: readOptionalString(
-            args.seo_description,
-            "seo_description",
-            180,
-          ),
-        },
-      }),
+      await proposalWithPreparedImage(actor, preparedCover, () =>
+        createMinkDraftProposal({
+          actor,
+          kind: "blog",
+          title: `Blog draft: ${title}`,
+          destinationType: "blog",
+          destinationLabel: "Blogs",
+          destinationPath: "/dashboard/blogs",
+          content: {
+            title,
+            excerpt: readString(args.excerpt, "excerpt", 500),
+            content: readString(args.content, "content", 12_000),
+            cover_image_url: coverImageUrl,
+            seo_title: readOptionalString(args.seo_title, "seo_title", 70),
+            seo_description: readOptionalString(
+              args.seo_description,
+              "seo_description",
+              180,
+            ),
+          },
+        }),
+      ),
     );
   },
 };
@@ -483,38 +511,42 @@ export const proposeProductCreateTool: MinkTool = {
       "image_url",
       2_048,
     );
-    const imageUrl = requestedImageUrl
-      ? (
-          await prepareMinkImageForDestination(
-            actor,
-            requestedImageUrl,
-            "product_photo",
-          )
-        ).url
-      : "";
+    const preparedImage = requestedImageUrl
+      ? await prepareMinkImageForDestination(
+          actor,
+          requestedImageUrl,
+          "product_photo",
+        )
+      : null;
+    const imageUrl = preparedImage?.url ?? "";
     return proposalOutput(
-      await createMinkDraftProposal({
-        actor,
-        kind: "product_create",
-        title: `New draft product: ${name}`,
-        destinationType: "product",
-        destinationLabel: "New draft product",
-        destinationPath: "/dashboard/products/new",
-        content: {
-          name,
-          slug: proposedSlug,
-          description: readString(args.description, "description", 3_000),
-          seo_title: readString(args.seo_title, "seo_title", 70),
-          seo_description: readString(
-            args.seo_description,
-            "seo_description",
-            180,
-          ),
-          base_price: readNumberString(args.base_price, "base_price"),
-          selling_price: readNumberString(args.selling_price, "selling_price"),
-          image_url: imageUrl,
-        },
-      }),
+      await proposalWithPreparedImage(actor, preparedImage, () =>
+        createMinkDraftProposal({
+          actor,
+          kind: "product_create",
+          title: `New draft product: ${name}`,
+          destinationType: "product",
+          destinationLabel: "New draft product",
+          destinationPath: "/dashboard/products/new",
+          content: {
+            name,
+            slug: proposedSlug,
+            description: readString(args.description, "description", 3_000),
+            seo_title: readString(args.seo_title, "seo_title", 70),
+            seo_description: readString(
+              args.seo_description,
+              "seo_description",
+              180,
+            ),
+            base_price: readNumberString(args.base_price, "base_price"),
+            selling_price: readNumberString(
+              args.selling_price,
+              "selling_price",
+            ),
+            image_url: imageUrl,
+          },
+        }),
+      ),
     );
   },
 };

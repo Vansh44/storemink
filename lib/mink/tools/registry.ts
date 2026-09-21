@@ -2,7 +2,11 @@ import "server-only";
 
 import { can } from "@/app/dashboard/lib/permissions";
 import { logError } from "@/lib/observability/logger";
-import { MinkToolInputError, MinkToolTimeoutError } from "../errors";
+import {
+  MinkRequestError,
+  MinkToolInputError,
+  MinkToolTimeoutError,
+} from "../errors";
 import type {
   MinkActorContext,
   MinkToolCall,
@@ -133,6 +137,24 @@ export class MinkToolRegistry {
           "tool_timeout",
           "The Mink AI tool took too long. Try a narrower request.",
         );
+      }
+      // ★★ A `MinkRequestError` CARRIES AN AUTHOR-WRITTEN, MERCHANT-SAFE
+      //    SENTENCE - it is the same text the HTTP routes return - and the
+      //    catch-all below replaced every one of them with "could not finish
+      //    right now". That is the difference between the model rephrasing
+      //    "choose another image and try again" and it retrying the same
+      //    failing input until the run's tool budget is gone. Only the
+      //    MESSAGE is forwarded; the code stays in this file's own closed
+      //    vocabulary, and anything unrecognised still falls through to the
+      //    generic text so no database or stack detail can reach the model.
+      if (error instanceof MinkRequestError) {
+        logError("mink.tool: request failed", error, {
+          requestId: actor.requestId,
+          storeId: actor.storeId,
+          adminId: actor.adminId,
+          tool: call.name,
+        });
+        return failure(call, "tool_failed", error.message);
       }
       logError("mink.tool: failed", error, {
         requestId: actor.requestId,
