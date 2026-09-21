@@ -57,6 +57,26 @@ describe("readMinkArtifacts", () => {
     expect(readMinkArtifacts([valid])).toEqual([valid]);
     expect(
       readMinkArtifacts([
+        {
+          ...valid,
+          title: "Blog cover",
+          destinationLabel: "Media Library · Blog cover",
+          purpose: "blog_cover",
+          aspectRatio: "16:9",
+          placement: "The editorial cover above a blog post",
+        },
+        {
+          ...valid,
+          title: "Promo banner",
+          destinationLabel: "Media Library · Promo banner",
+          purpose: "banner",
+          aspectRatio: "21:9",
+          placement: "A full-width strip between sections",
+        },
+      ]),
+    ).toHaveLength(2);
+    expect(
+      readMinkArtifacts([
         { ...valid, template: "revenue_decline_investigation" },
         { ...valid, template: "product_launch_preparation" },
         { ...valid, template: "slow_inventory_promotion" },

@@ -127,6 +127,13 @@ export const MINK_DRAFT_CONFIG: Record<
         maxLength: 12_000,
       },
       {
+        key: "cover_image_url",
+        label: "Cover image",
+        required: false,
+        multiline: false,
+        maxLength: 2_048,
+      },
+      {
         key: "seo_title",
         label: "SEO title",
         required: false,

@@ -137,6 +137,29 @@ describe("Mink draft contracts", () => {
     });
   });
 
+  it("keeps one optional owned-image URL in a blog proposal", () => {
+    expect(
+      normalizeMinkDraftContent("blog", {
+        title: "  Pantry guide ",
+        excerpt: " Store grains well. ",
+        content: "# Pantry guide\n\nKeep grains dry.",
+        cover_image_url:
+          " https://storage.googleapis.com/storemink-media/stores/s1/media/cover.webp ",
+        seo_title: " Pantry guide ",
+        seo_description: " Practical pantry storage. ",
+        featured: "true",
+      }),
+    ).toEqual({
+      title: "Pantry guide",
+      excerpt: "Store grains well.",
+      content: "# Pantry guide\n\nKeep grains dry.",
+      cover_image_url:
+        "https://storage.googleapis.com/storemink-media/stores/s1/media/cover.webp",
+      seo_title: "Pantry guide",
+      seo_description: "Practical pantry storage.",
+    });
+  });
+
   it("allowlists only Phase 5C forward order targets and an internal note", () => {
     expect(
       normalizeMinkDraftContent("order_status_transition", {

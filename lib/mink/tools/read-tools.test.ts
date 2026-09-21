@@ -340,6 +340,7 @@ describe("Mink read-tool declarations", () => {
 
     expect(declarations.map((tool) => tool.name)).toEqual([
       "get_store_profile",
+      "list_blogs",
       "list_storefront_pages",
       "get_storefront_page_context",
       "get_storefront_section_context",
@@ -431,6 +432,7 @@ describe("Mink read-tool declarations", () => {
       "search_help_centre",
     ]);
     expect(declared({ promotions: ["view"] })).toEqual(["list_current_offers"]);
+    expect(declared({ blogs: ["view"] })).toEqual(["list_blogs"]);
     expect(declared({ dashboard: ["view"], inventory: ["view"] })).toEqual([
       "get_store_profile",
       "list_low_stock",

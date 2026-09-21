@@ -35,7 +35,7 @@
 // `storefront-design-contract.ts` already makes for the same reason).
 // ---------------------------------------------------------------------------
 
-export const MINK_MEDIA_GENERATION_SCHEMA_VERSION = 2 as const;
+export const MINK_MEDIA_GENERATION_SCHEMA_VERSION = 3 as const;
 
 /**
  * What the image is FOR, which is the only thing that may pick its shape.
@@ -52,6 +52,7 @@ export const MINK_MEDIA_PURPOSES = [
   "gallery",
   "feature",
   "banner",
+  "blog_cover",
 ] as const;
 export type MinkMediaPurpose = (typeof MINK_MEDIA_PURPOSES)[number];
 
@@ -86,6 +87,11 @@ export const MINK_MEDIA_PURPOSE_SPECS: Record<
     label: "Promo banner",
     aspectRatio: "21:9",
     placement: "a full-width strip between sections",
+  },
+  blog_cover: {
+    label: "Blog cover",
+    aspectRatio: "16:9",
+    placement: "the editorial cover above a blog post",
   },
 };
 

@@ -94,6 +94,34 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 
 ### Mink credit charging — ON by default (2026-09-21)
 
+**★★ THE CHAT PANEL'S CHROME IS THINNER (2026-09-21).** Measured against
+Shopify's Sidekick side by side, the difference was not taste but element
+count: their header carries four quiet icons, ours carried EIGHT — sidebar
+toggle, avatar, an `ASSISTANT_NAME` wordmark, the conversation title, a
+`Memories` link, a `Watches` link, expand and close — in a ~380px panel, which
+is why the title rendered as `whic…`. Four changes, each removing repetition
+rather than information:
+★ Memories and Watches moved behind one `MoreHorizontal` overflow
+(`MinkHeaderMenu`, reusing `MinkCreditIndicator`'s pointerdown/Escape
+mechanics rather than a second differently-behaving menu). They are
+destinations visited occasionally, not controls used while reading.
+★ The purple wordmark is gone; the avatar beside it and the topbar button that
+opens the panel already say it, and the title is the only part of that block
+carrying anything new.
+★ The avatar and name are no longer stamped on EVERY answer. Alignment already
+says who is speaking — merchant turns are right-aligned lavender bubbles — and
+the full column width matters more to an artifact card than a label does.
+★ Feedback controls reveal on hover, in `dashboard.css` rather than a Tailwind
+variant so they can be gated on `(hover: hover) and (pointer: fine)` — the same
+query the storefront card hover-image uses. ⚠ On touch there is no hover, so
+they stay visible; `:focus-within` keeps them reachable by keyboard, without
+which this trades clutter for an accessibility regression.
+⚠ `Powered by StoreMink` and the credit ring are UNTOUCHED: the mark is a
+platform branding decision (§ "Mink credit balance in chat"), not a density one.
+⚠ Verified structurally — jsdom renders no layout, so the element counts and
+the menu behaviour are pinned by tests and mutation-checked, but nobody has
+looked at the pixels.
+
 **★★ AND AN UNSETTLED RUN IS COLLECTED LATE (2026-09-21).**
 `settleMinkRunCredits` is allowed to fail by design — it runs after the run row
 commits so a billing failure cannot roll back a reply already on screen — and
@@ -1092,10 +1120,10 @@ one charged, immutable private proposal that IS an image.
 - **★★ SAFETY HERE IS STRUCTURAL, NOT A WORD FILTER.** A generated picture must
   never reach a shopper as a photograph of goods the shop actually sells, and
   that is guaranteed by the SHAPE of the system: **Mink has no tool that writes
-  `products.images`**, and 9D means the only place a generated URL can land is a
-  layout section the merchant separately approves. So generated campaign
-  artwork may be grounded in the merchant's authentic product image but cannot
-  become or overwrite a catalogue product photo. ⚠ A brand/product keyword
+  `products.images`**, and a generated URL can land only in an owned blog-cover
+  field or a layout section the merchant separately approves. So generated
+  campaign artwork may be grounded in the merchant's authentic product image
+  but cannot become or overwrite a catalogue product photo. ⚠ A brand/product keyword
   blocklist was considered and REJECTED as security theatre — it fails on every
   misspelling and every brand nobody listed, while reading like a guarantee.
   What is enforced is what can be: bounded prompts, a fixed aspect per purpose,
@@ -1151,7 +1179,8 @@ one charged, immutable private proposal that IS an image.
   has not enabled this feature" — 9C's defect. **The ceiling is the limiter, not
   the row.**
 - **★★ PURPOSE PINS THE ASPECT RATIO; THE CALLER NEVER DOES.** `hero` is 21:9,
-  `gallery` 1:1, `feature` 4:3, `banner` 21:9. A model asked for "a hero image"
+  `gallery` 1:1, `feature` 4:3, `banner` 21:9 and `blog_cover` 16:9. A model
+  asked for "a hero image"
   will cheerfully pick 9:16, and the hero renderer then crops it through the
   middle of its subject. Naming the destination also lets the card say where the
   image is meant to go, which a bare ratio cannot.
@@ -5752,8 +5781,18 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      workflows. Migration `20260901_0051_mink_phase_5c_order_status` owns the new
      allowlists, target constraints, partial indexes and published Help contract.
 
-     Phase 5D keeps the existing 5-credit `blog` proposal as the only
-     model-facing capability; Gemini still has no live publish or schedule tool.
+     Phase 5D exposes the bounded Blogs View `list_blogs` read for the current
+     store's newest titles, slugs, excerpts, statuses, featured flags,
+     categories, tags, dates and exact cover-image URLs. The existing 5-credit
+     `blog` proposal remains the only model-facing blog write capability;
+     Gemini still has no live publish or schedule tool. A new-blog request reads
+     that catalogue first to avoid accidental duplicate topics. The proposal
+     may carry one optional `cover_image_url`, but only when the exact URL is
+     owned by this store's Media Library or product catalogue. A requested
+     generated cover uses the existing image-generation gate and spend ceiling
+     with the pinned `blog_cover` purpose (16:9), saves to Media, and feeds its
+     exact URL into `propose_blog_draft` in the same run. The proposal card
+     renders a safe same-origin cover preview beside the editable copy.
      The saved proposal card exposes Publish after approval or Schedule for
      later only in the authenticated browser. `POST
      /api/mink/drafts/[draftId]/blog-publication` accepts a saved version,
@@ -5761,8 +5800,8 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      it has a 4KB streamed body cap, strict-key parsing, same-origin protection,
      a six-per-minute actor/store limit and Blogs Manage plus drafting plus the
      independent `publish_blog` gate. The five-minute approval canonically
-     hashes the exact title, excerpt, Markdown body, optional SEO fields,
-     publication mode and UTC instant. Execution rechecks the actor/store,
+     hashes the exact title, excerpt, Markdown body, optional owned cover URL
+     and SEO fields, publication mode and UTC instant. Execution rechecks the actor/store,
      permission, gates, draft version and hash inside one service transaction,
      escapes raw HTML, sanitizes a deliberately small Markdown subset and does
      not activate Markdown links. It creates exactly one new blog plus one
@@ -5779,11 +5818,17 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      other publication records a conflict instead of overwriting, while
      deliberate blog deletion cascades the still-pending publication row.
      The service-only ledger has forced RLS, revoked app-user access and
-     store-composite foreign keys to the draft, approval and blog. Categories,
-     tags, media, featured state, product/page/storefront/bulk publication,
+     store-composite foreign keys to the draft, approval and blog. Publication
+     preview and execution both re-check cover ownership in the same
+     transaction, and the insert writes that exact URL to
+     `blogs.cover_image_url`; removing the source after proposal creation
+     conflicts instead of publishing a broken or cross-store image. Inline body
+     media remains unsupported. Categories, tags, featured state,
+     product/page/storefront/bulk publication,
      campaigns and automatic rollback remain outside Phase 5D. Migration
      `20260901_0052_mink_phase_5d_blog_publication` owns the constraints, table,
-     indexes, access contract and published Help guidance.
+     indexes and access contract; `20260921_0123_mink_blog_catalogue_covers`
+     updates the published merchant flow in place.
 
      Phase 5E keeps `get_coupon_for_draft` and `propose_coupon_email` as the
      only model-facing campaign capabilities. The authenticated proposal card

@@ -8,7 +8,7 @@ import {
 } from "./media-generation-contract";
 
 const valid = {
-  schemaVersion: 2,
+  schemaVersion: 3,
   purpose: "hero",
   prompt: "A warm overhead still life of loose grains and pulses on linen.",
   referenceImageUrls: [],
@@ -107,7 +107,7 @@ describe("Phase 9E generation request", () => {
 
   it("reports every problem at once so one retry can fix them all", () => {
     const result = validateMinkMediaGenerationRequest({
-      schemaVersion: 2,
+      schemaVersion: 3,
       purpose: "nope",
       prompt: "x",
       referenceImageUrls: "none",
@@ -138,5 +138,13 @@ describe("the shape a purpose pins", () => {
       aspectRatio: "9:16",
     });
     expect(result.ok).toBe(false);
+  });
+
+  it("pins editorial blog covers to a landscape social-preview shape", () => {
+    expect(MINK_MEDIA_PURPOSE_SPECS.blog_cover).toMatchObject({
+      label: "Blog cover",
+      aspectRatio: "16:9",
+    });
+    expect(aspectRatioFor("blog_cover")).toBe("16:9");
   });
 });

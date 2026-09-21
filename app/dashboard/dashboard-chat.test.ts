@@ -563,3 +563,64 @@ describe("★★ minkCreditWarning", () => {
     expect(minkCreditWarning(summary(null, 0))).toBeNull();
   });
 });
+
+describe("★★ panel chrome density", () => {
+  const withAnswer = {
+    ...baseChatState,
+    activeConversationTitle: "Which blogs are there?",
+    messages: [
+      { id: "u1", role: "user", text: "which blogs are there?" },
+      {
+        id: "a1",
+        role: "assistant",
+        text: "Here are your blogs.",
+        runId: "r1",
+      },
+    ],
+  };
+
+  // ★★ The header carried 8 things in a ~380px panel, so the conversation
+  // title truncated to "whic…". Memories and Watches are destinations, not
+  // reading controls, so they sit behind one overflow.
+  it("keeps Memories and Watches out of the header bar", () => {
+    render(createElement(DashboardChat, { variant: "overlay" }));
+    expect(screen.queryByRole("link", { name: "Memories" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Watches" })).toBeNull();
+    const menu = screen.getByRole("button", { name: "Mink options" });
+    expect(menu).toBeVisible();
+    fireEvent.click(menu);
+    expect(screen.getByRole("menuitem", { name: "Memories" })).toBeVisible();
+    expect(screen.getByRole("menuitem", { name: "Watches" })).toBeVisible();
+  });
+
+  it("closes that menu on Escape", () => {
+    render(createElement(DashboardChat, { variant: "overlay" }));
+    fireEvent.click(screen.getByRole("button", { name: "Mink options" }));
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByRole("menuitem", { name: "Memories" })).toBeNull();
+  });
+
+  // ★ The wordmark said what the avatar beside it already said, and cost the
+  //   title the width it needed.
+  it("shows the conversation title without a wordmark above it", () => {
+    vi.mocked(useChat).mockReturnValue(
+      withAnswer as unknown as ReturnType<typeof useChat>,
+    );
+    render(createElement(DashboardChat, { variant: "overlay" }));
+    expect(screen.getByText("Which blogs are there?")).toBeVisible();
+    // The name survives in the empty state and the composer label, never as a
+    // header wordmark stacked on the title.
+    expect(screen.queryByText("Mink AI", { selector: "header *" })).toBeNull();
+  });
+
+  // ★★ Alignment already says who is speaking, so stamping every answer with
+  //    the name is repetition down the length of a thread.
+  it("does not label each answer with the assistant name", () => {
+    vi.mocked(useChat).mockReturnValue(
+      withAnswer as unknown as ReturnType<typeof useChat>,
+    );
+    render(createElement(DashboardChat, { variant: "overlay" }));
+    expect(screen.getByText("Here are your blogs.")).toBeVisible();
+    expect(screen.queryByText("Mink AI")).toBeNull();
+  });
+});

@@ -53,6 +53,7 @@ export const MINK_BLOG_PUBLICATION_FIELDS = [
   "title",
   "excerpt",
   "content",
+  "cover_image_url",
   "seo_title",
   "seo_description",
 ] as const;
@@ -63,6 +64,7 @@ export const MINK_BLOG_PUBLICATION_FIELD_LABELS: Record<string, string> = {
   title: "Title",
   excerpt: "Excerpt",
   content: "Content",
+  cover_image_url: "Cover image",
   seo_title: "SEO title",
   seo_description: "SEO description",
 };

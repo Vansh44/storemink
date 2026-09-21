@@ -11,6 +11,7 @@ import {
   MessageSquare,
   MessageSquarePlus,
   Minimize2,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   RotateCcw,
@@ -437,13 +438,14 @@ export function DashboardChat({
             )}
           </button>
           <MinkMark />
-          <span className="min-w-0">
-            <span className="block text-[11px] font-semibold uppercase tracking-[0.08em] text-[#6d4dff]">
-              {ASSISTANT_NAME}
-            </span>
-            <span className="block truncate text-sm font-semibold text-[#1a1a1a]">
-              {activeConversationTitle ?? "New conversation"}
-            </span>
+          {/* ★ ONE LINE, NOT TWO. The purple ASSISTANT_NAME wordmark sat above
+              the title saying what the avatar beside it and the topbar button
+              that opened this panel both already say — and in a ~380px panel
+              the width it took is why the conversation title truncated to
+              "whic…". The title is the only part of this block that carries
+              information the merchant does not already have. */}
+          <span className="min-w-0 truncate text-sm font-semibold text-[#1a1a1a]">
+            {activeConversationTitle ?? "New conversation"}
           </span>
           {isHistoryLoading && (
             <LoaderCircle className="h-3.5 w-3.5 shrink-0 animate-spin text-[#8c9196]" />
@@ -451,22 +453,7 @@ export function DashboardChat({
         </div>
 
         <div className="flex shrink-0 items-center gap-1 text-[#5c5f62]">
-          <Link
-            href="/dashboard/mink-memories"
-            onNavigate={closeChat}
-            className="rounded-md px-2 py-1 text-xs hover:bg-[#f1f1f1]"
-            title="Review your private approved memories"
-          >
-            Memories
-          </Link>
-          <Link
-            href="/dashboard/mink-watches"
-            onNavigate={closeChat}
-            className="rounded-md px-2 py-1 text-xs hover:bg-[#f1f1f1]"
-            title="Manage your recurring Mink watches"
-          >
-            Watches
-          </Link>
+          <MinkHeaderMenu onNavigate={closeChat} />
           <button
             type="button"
             onClick={toggleExpand}
@@ -586,15 +573,18 @@ export function DashboardChat({
                         <MinkUserMessage text={message.text} />
                       </div>
                     ) : (
+                      /* ★ NO PER-MESSAGE ATTRIBUTION. The avatar and the name
+                         were stamped on every answer, which in a two-party
+                         conversation repeats what the layout already says: the
+                         merchant's turns are right-aligned in a lavender
+                         bubble and Mink's are not. Dropping them also gives an
+                         answer the full column width, which the artifact cards
+                         need more than a label does. */
                       <div
                         key={message.id}
-                        className="flex min-w-0 gap-2.5 py-1"
+                        className="mink-answer-row flex min-w-0 py-1"
                       >
-                        <MinkMark size="sm" />
                         <div className="min-w-0 flex-1">
-                          <div className="mb-1 text-[11px] font-semibold text-[#5c5f62]">
-                            {ASSISTANT_NAME}
-                          </div>
                           <div className="pr-1">
                             <MinkAnswer text={message.text} />
                           </div>
@@ -858,6 +848,86 @@ export function DashboardChat({
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Memories and Watches, behind one control.
+ *
+ * ★★ THEY WERE TWO TEXT LINKS IN A ~380px HEADER, competing for width with the
+ * conversation title — which is why the title rendered as "whic…". They are
+ * destinations a merchant visits occasionally, not controls they use while
+ * reading an answer, so they belong behind an overflow the way Shopify's
+ * Sidekick puts its equivalents behind one icon. Nothing moved further away
+ * than one extra click.
+ *
+ * ★ Same popover mechanics as MinkCreditIndicator below — pointerdown outside
+ * and Escape both close it — rather than a second, differently-behaving menu.
+ */
+function MinkHeaderMenu({ onNavigate }: { onNavigate: () => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const close = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const escape = (event: globalThis.KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", close);
+    document.addEventListener("keydown", escape);
+    return () => {
+      document.removeEventListener("pointerdown", close);
+      document.removeEventListener("keydown", escape);
+    };
+  }, [open]);
+
+  const item =
+    "block rounded-md px-3 py-2 text-left text-xs text-[#1a1a1a] hover:bg-[#f4f4f4]";
+  return (
+    <div ref={rootRef} className="relative">
+      <button
+        type="button"
+        aria-label="Mink options"
+        aria-expanded={open}
+        title="Mink options"
+        onClick={() => setOpen((value) => !value)}
+        className="rounded-md p-1.5 transition-colors hover:bg-[#f1f1f1]"
+      >
+        <MoreHorizontal className="h-4 w-4" aria-hidden="true" />
+      </button>
+      {open && (
+        <div
+          role="menu"
+          className="absolute right-0 top-9 z-30 w-44 rounded-xl border border-[#e5e5e5] bg-white p-1 shadow-lg"
+        >
+          <Link
+            href="/dashboard/mink-memories"
+            role="menuitem"
+            onNavigate={() => {
+              setOpen(false);
+              onNavigate();
+            }}
+            className={item}
+          >
+            Memories
+          </Link>
+          <Link
+            href="/dashboard/mink-watches"
+            role="menuitem"
+            onNavigate={() => {
+              setOpen(false);
+              onNavigate();
+            }}
+            className={item}
+          >
+            Watches
+          </Link>
         </div>
       )}
     </div>

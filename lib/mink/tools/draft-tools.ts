@@ -158,7 +158,7 @@ export const proposeBlogDraftTool: MinkTool = {
   declaration: {
     name: "propose_blog_draft",
     description:
-      "Create a charged, private and editable blog proposal in the store's brand voice. Use only facts in the conversation or trusted tool results. This does not create or publish a blog post.",
+      "Create one charged, private and editable blog proposal in the store's brand voice. Call list_blogs first so the new article is grounded in the current blog catalogue and does not accidentally duplicate an existing post. Use only facts in the conversation or trusted tool results. If the merchant asked for a cover, first create or resolve an exact current-store image and pass its returned URL as cover_image_url in this same run; never invent or guess a URL. This does not create or publish a blog post.",
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -169,6 +169,12 @@ export const proposeBlogDraftTool: MinkTool = {
           minLength: 1,
           maxLength: 12_000,
           description: "Plain Markdown blog body. Do not output HTML.",
+        },
+        cover_image_url: {
+          type: "string",
+          maxLength: 2_048,
+          description:
+            "Optional exact current-store Media Library or catalogue image URL returned by a trusted read or image-generation tool. Required when the merchant asked for a cover; never guess a URL.",
         },
         seo_title: { type: "string", maxLength: 70 },
         seo_description: { type: "string", maxLength: 180 },
@@ -183,6 +189,21 @@ export const proposeBlogDraftTool: MinkTool = {
   artifact: proposalArtifact,
   async execute(actor, args) {
     const title = readString(args.title, "title", 200);
+    const coverImageUrl = readOptionalString(
+      args.cover_image_url,
+      "cover_image_url",
+      2_048,
+    );
+    if (coverImageUrl) {
+      const owned = await readOwnedStorefrontImageUrls(actor.storeId, [
+        coverImageUrl,
+      ]);
+      if (!owned.has(coverImageUrl)) {
+        throw new MinkToolInputError(
+          "Blog cover image must be an exact current-store Media Library or catalogue image URL returned by a trusted tool.",
+        );
+      }
+    }
     return proposalOutput(
       await createMinkDraftProposal({
         actor,
@@ -195,6 +216,7 @@ export const proposeBlogDraftTool: MinkTool = {
           title,
           excerpt: readString(args.excerpt, "excerpt", 500),
           content: readString(args.content, "content", 12_000),
+          cover_image_url: coverImageUrl,
           seo_title: readOptionalString(args.seo_title, "seo_title", 70),
           seo_description: readOptionalString(
             args.seo_description,

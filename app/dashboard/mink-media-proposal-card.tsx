@@ -102,7 +102,11 @@ export function MinkMediaProposalCard({ proposal }: { proposal: Proposal }) {
               {proposal.referenceImageCount === 1 ? "" : "s"}
             </Badge>
           ) : null}
-          <Badge>Not on your storefront</Badge>
+          <Badge>
+            {proposal.purpose === "blog_cover"
+              ? "Not published"
+              : "Not on your storefront"}
+          </Badge>
         </div>
 
         <details className="rounded-xl border border-[#eeeaf8] bg-[#fbfaff] px-3 py-2 text-[9px] leading-4">
@@ -127,8 +131,9 @@ export function MinkMediaProposalCard({ proposal }: { proposal: Proposal }) {
             <div>
               <p className="font-semibold">Saved to your Media Library</p>
               <p className="mt-1">
-                If you requested a page change, apply the Website Builder draft
-                shown with this response.
+                {proposal.purpose === "blog_cover"
+                  ? "The blog proposal shown with this response can use this exact cover."
+                  : "If you requested a page change, apply the Website Builder draft shown with this response."}
               </p>
             </div>
           </div>
@@ -163,7 +168,7 @@ export function MinkMediaProposalCard({ proposal }: { proposal: Proposal }) {
         ) : null}
 
         <div className="rounded-xl border border-[#e5e1eb] bg-[#f8f7fa] px-3 py-2 text-[9px] leading-4 text-[#65616b]">
-          AI-generated storefront artwork with an invisible SynthID watermark.
+          AI-generated ecommerce artwork with an invisible SynthID watermark.
           Store images may guide it, but it does not replace an original
           catalogue product photograph.
         </div>

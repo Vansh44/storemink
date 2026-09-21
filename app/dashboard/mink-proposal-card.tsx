@@ -512,6 +512,20 @@ export function MinkProposalCard({ proposal }: { proposal: Proposal }) {
               <span className="mb-1 block text-[10px] font-semibold text-[#5f5868]">
                 {field.label}
               </span>
+              {draft.kind === "blog" &&
+              field.key === "cover_image_url" &&
+              isRenderableBlogCover(content[field.key] ?? "") ? (
+                <div className="mb-2 overflow-hidden rounded-xl border border-[#e4e0ef] bg-[#f8f7fa]">
+                  {/* eslint-disable-next-line @next/next/no-img-element -- the
+                      same-origin proxy validates the configured media bucket
+                      before fetching this stored proposal URL. */}
+                  <img
+                    src={`/api/og-image?url=${encodeURIComponent(content[field.key] ?? "")}`}
+                    alt={content.title || "Blog cover preview"}
+                    className="aspect-video w-full object-cover"
+                  />
+                </div>
+              ) : null}
               {draft.before[field.key] ? (
                 <details className="mb-1.5 rounded-lg bg-[#f6f6f7] px-2.5 py-2 text-[10px] text-[#77717d]">
                   <summary className="cursor-pointer font-medium">
@@ -1435,6 +1449,19 @@ function isCampaignApproval(
   approval: MinkActionApproval,
 ): approval is MinkCampaignApproval {
   return !("product" in approval) && approval.resource.type === "campaign";
+}
+
+function isRenderableBlogCover(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === "https:" &&
+      (url.hostname === "storage.googleapis.com" ||
+        url.hostname.endsWith(".storage.googleapis.com"))
+    );
+  } catch {
+    return false;
+  }
 }
 
 function isAnyNonRollbackApproval(

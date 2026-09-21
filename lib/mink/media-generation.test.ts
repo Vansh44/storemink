@@ -35,7 +35,7 @@ const config = {
 };
 
 const request = {
-  schemaVersion: 2 as const,
+  schemaVersion: 3 as const,
   purpose: "hero" as const,
   prompt: "A warm overhead still life of loose grains on linen.",
   referenceImageUrls: [],
@@ -123,6 +123,24 @@ describe("asking Gemini for one storefront image", () => {
         mimeType: PRODUCT_REFERENCE.mimeType,
       },
     });
+  });
+
+  it("gives a blog cover its editorial crop and no-text direction", async () => {
+    generateContent.mockResolvedValue(imageResponse());
+    await generateMinkMediaImage(config as never, {
+      ...request,
+      purpose: "blog_cover",
+      prompt: "An editorial still life about keeping pantry staples fresh.",
+    });
+
+    const call = generateContent.mock.calls[0][0];
+    expect(call.config.imageConfig.aspectRatio).toBe("16:9");
+    expect(call.contents[0].parts[0].text).toContain(
+      "expresses the article's central idea",
+    );
+    expect(call.contents[0].parts[0].text).toContain(
+      "do not put the article title",
+    );
   });
 
   it("decodes the image the provider returned", async () => {

@@ -362,8 +362,12 @@ function isMediaImageProposal(value: Record<string, unknown>): boolean {
       (Number.isInteger(value.referenceImageCount) &&
         Number(value.referenceImageCount) >= 0 &&
         Number(value.referenceImageCount) <= 4)) &&
-    ["hero", "gallery", "feature", "banner"].includes(String(value.purpose)) &&
-    ["1:1", "4:3", "16:9", "3:4", "9:16"].includes(String(value.aspectRatio)) &&
+    ["hero", "gallery", "feature", "banner", "blog_cover"].includes(
+      String(value.purpose),
+    ) &&
+    ["1:1", "4:3", "16:9", "3:4", "9:16", "21:9"].includes(
+      String(value.aspectRatio),
+    ) &&
     isBoundedText(value.placement, 200) &&
     typeof value.saved === "boolean" &&
     value.status === "private_preview" &&

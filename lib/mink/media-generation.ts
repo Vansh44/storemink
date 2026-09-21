@@ -245,6 +245,9 @@ function compositionGuidance(
   if (purpose === "gallery") {
     return "Compose for a square crop. Keep the full primary subject inside a generous central safe area, add deliberate depth and supporting details, and avoid edge clipping or a flat pasted-cutout look.";
   }
+  if (purpose === "blog_cover") {
+    return "Compose one polished 16:9 editorial cover that expresses the article's central idea at a glance. Build a coherent visual story rather than a generic stock image or pasted product cutout. Keep the main subject fully visible inside a generous central safe area, preserve calm space for responsive crops, and do not put the article title or other words in the pixels.";
+  }
   return "Compose for a landscape feature block. Keep the complete primary subject comfortably inside the frame, balance it with intentional environment and negative space, and avoid edge clipping or a flat pasted-cutout look.";
 }
 
