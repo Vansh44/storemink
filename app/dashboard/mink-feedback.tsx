@@ -61,7 +61,7 @@ export function MinkFeedbackControls({
   };
 
   return (
-    <div className="mt-1.5">
+    <div className="mink-feedback mt-1.5">
       <div className="flex items-center gap-1 text-[#8c9196]">
         <button
           type="button"

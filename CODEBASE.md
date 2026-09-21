@@ -94,6 +94,34 @@ and cached-icon troubleshooting to the published storefront-branding guide.
 
 ### Mink credit charging — ON by default (2026-09-21)
 
+**★★ THE CHAT PANEL'S CHROME IS THINNER (2026-09-21).** Measured against
+Shopify's Sidekick side by side, the difference was not taste but element
+count: their header carries four quiet icons, ours carried EIGHT — sidebar
+toggle, avatar, an `ASSISTANT_NAME` wordmark, the conversation title, a
+`Memories` link, a `Watches` link, expand and close — in a ~380px panel, which
+is why the title rendered as `whic…`. Four changes, each removing repetition
+rather than information:
+★ Memories and Watches moved behind one `MoreHorizontal` overflow
+(`MinkHeaderMenu`, reusing `MinkCreditIndicator`'s pointerdown/Escape
+mechanics rather than a second differently-behaving menu). They are
+destinations visited occasionally, not controls used while reading.
+★ The purple wordmark is gone; the avatar beside it and the topbar button that
+opens the panel already say it, and the title is the only part of that block
+carrying anything new.
+★ The avatar and name are no longer stamped on EVERY answer. Alignment already
+says who is speaking — merchant turns are right-aligned lavender bubbles — and
+the full column width matters more to an artifact card than a label does.
+★ Feedback controls reveal on hover, in `dashboard.css` rather than a Tailwind
+variant so they can be gated on `(hover: hover) and (pointer: fine)` — the same
+query the storefront card hover-image uses. ⚠ On touch there is no hover, so
+they stay visible; `:focus-within` keeps them reachable by keyboard, without
+which this trades clutter for an accessibility regression.
+⚠ `Powered by StoreMink` and the credit ring are UNTOUCHED: the mark is a
+platform branding decision (§ "Mink credit balance in chat"), not a density one.
+⚠ Verified structurally — jsdom renders no layout, so the element counts and
+the menu behaviour are pinned by tests and mutation-checked, but nobody has
+looked at the pixels.
+
 **★★ AND AN UNSETTLED RUN IS COLLECTED LATE (2026-09-21).**
 `settleMinkRunCredits` is allowed to fail by design — it runs after the run row
 commits so a billing failure cannot roll back a reply already on screen — and

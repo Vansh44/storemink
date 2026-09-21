@@ -5038,3 +5038,35 @@ a.customer-detail-field:hover {
     font-size: 16px;
   }
 }
+
+/* ---------------------------------------------------------------------------
+ * Mink answer feedback: present, but not competing with the answer.
+ *
+ * ★★ REVEALED ON HOVER ONLY WHERE THERE IS A POINTER. The copy / thumbs row sat
+ * under every answer permanently, so a long thread carried three grey icons per
+ * turn between the reader and the next reply. Shopify's Sidekick reveals the
+ * equivalent on hover, and that is the whole difference between a conversation
+ * and a log.
+ *
+ * ⚠ GATED ON `(hover: hover) and (pointer: fine)`, the same query the storefront
+ * card hover-image uses (CODEBASE §11). A touch device has no hover, so hiding
+ * it there would make the controls unreachable rather than tidy — on a tablet
+ * they simply stay visible.
+ *
+ * ⚠ `:focus-within` is not optional: without it the controls are invisible to
+ * anyone tabbing through the thread, which is worse than the clutter it
+ * removes. The row keeps its height either way, so revealing it cannot reflow
+ * the message above.
+ * ------------------------------------------------------------------------- */
+.dashboard-shell .mink-feedback {
+  transition: opacity 120ms ease;
+}
+@media (hover: hover) and (pointer: fine) {
+  .dashboard-shell .mink-answer-row .mink-feedback {
+    opacity: 0;
+  }
+  .dashboard-shell .mink-answer-row:hover .mink-feedback,
+  .dashboard-shell .mink-answer-row:focus-within .mink-feedback {
+    opacity: 1;
+  }
+}
