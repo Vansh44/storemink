@@ -123,3 +123,59 @@ describe("MinkToolRegistry", () => {
     });
   });
 });
+
+describe("per-actor declarations", () => {
+  it("narrows the declaration to what this actor can satisfy", () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        declarationFor: (a) => ({
+          name: "read_products",
+          description: "Read products.",
+          parametersJsonSchema: {
+            type: "object",
+            properties: {},
+            required: a.isSuperadmin ? ["cover"] : [],
+            additionalProperties: false,
+          },
+        }),
+      }),
+    ]);
+    const limited = registry.declarationsFor(
+      actor({ permissions: { products: ["view"] } }),
+    );
+    expect(
+      (limited[0].parametersJsonSchema as { required: string[] }).required,
+    ).toEqual([]);
+    const full = registry.declarationsFor(actor({ isSuperadmin: true }));
+    expect(
+      (full[0].parametersJsonSchema as { required: string[] }).required,
+    ).toEqual(["cover"]);
+  });
+
+  it("falls back to the static declaration when a tool defines none", () => {
+    const registry = new MinkToolRegistry([tool()]);
+    expect(
+      registry
+        .declarationsFor(actor({ permissions: { products: ["view"] } }))
+        .map((d) => d.name),
+    ).toEqual(["read_products"]);
+  });
+
+  // The registry is keyed on `declaration.name`, so a variant that renamed the
+  // tool would be routable to the model and unroutable on the way back.
+  it("is still executable under its registered name", async () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        declarationFor: () => ({
+          name: "read_products",
+          description: "Narrowed.",
+          parametersJsonSchema: { type: "object", properties: {} },
+        }),
+      }),
+    ]);
+    const a = actor({ permissions: { products: ["view"] } });
+    const [declared] = registry.declarationsFor(a);
+    const result = await registry.execute(a, { name: declared.name, args: {} });
+    expect(result.response.output).toEqual({ storeIdUsed: "store-1" });
+  });
+});

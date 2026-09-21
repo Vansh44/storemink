@@ -5,6 +5,7 @@ import { withUser } from "@/lib/db/client";
 import { categories } from "@/drizzle/schema";
 import { dbErrorMessage, isUniqueViolation } from "@/lib/db/errors";
 import { slugify } from "@/lib/slug";
+import { firstForeignStoreImageUrl } from "@/lib/storage/ownership";
 import type { ParsedRecord } from "../types";
 import {
   failure,
@@ -115,6 +116,30 @@ export async function importCategories(
           rawHandle,
         ),
       );
+    }
+
+    // ★★ A CSV IS A SUPPORTED WAY TO WRITE AN ARBITRARY URL. `coerceUrl`
+    //    checks only the scheme, so an Image URL column can name another
+    //    store's object in the shared bucket — and deleting or re-importing
+    //    that category then sweeps THEIR file. Row-atomic, like every other
+    //    refusal here: one bad row fails, the rest of the file imports.
+    if (firstForeignStoreImageUrl(ctx.storeId, [patch.imageUrl])) {
+      results.push({
+        lines: [record.line],
+        outcome: "failed",
+        issues: [
+          ...issues,
+          issue(
+            record.line,
+            "Image URL",
+            "image_not_owned",
+            "That image belongs to another store. Use an image from this store's Media Library.",
+            "error",
+            patch.imageUrl ?? undefined,
+          ),
+        ],
+      });
+      continue;
     }
 
     try {

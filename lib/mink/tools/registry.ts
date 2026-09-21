@@ -14,6 +14,25 @@ import type {
 
 export interface MinkTool {
   declaration: MinkToolDeclaration;
+  /**
+   * A declaration narrowed to what THIS actor can actually satisfy.
+   *
+   * ★ IT EXISTS FOR REQUIRED ARGUMENTS THE ACTOR CANNOT OBTAIN. A tool is
+   *   offered on its own permission, but an argument may only be produceable
+   *   by a DIFFERENT tool behind a DIFFERENT permission - and declaring that
+   *   argument required then guarantees the call fails for a role that is
+   *   otherwise entitled to the tool. `propose_blog_draft` is the case: every
+   *   cover URL comes from `list_storefront_media` (media:view),
+   *   `generate_storefront_image` (media:manage) or the catalogue reads
+   *   (products:view), so for a blogs:manage-only admin a mandatory
+   *   `cover_image_url` is an argument nothing on the platform can give them.
+   *
+   * ⚠ IT MUST NOT CHANGE THE NAME - the registry is keyed on
+   *   `declaration.name`, so a renamed variant would be unroutable. And it is
+   *   NOT an authorization boundary: `execute` still re-derives every rule
+   *   from the actor, exactly as it does for tool visibility.
+   */
+  declarationFor?: (actor: MinkActorContext) => MinkToolDeclaration;
   permission: MinkToolPermission;
   timeoutMs: number;
   /**
@@ -71,7 +90,7 @@ export class MinkToolRegistry {
   declarationsFor(actor: MinkActorContext): MinkToolDeclaration[] {
     return [...this.tools.values()]
       .filter((tool) => this.allowed(actor, tool))
-      .map((tool) => tool.declaration);
+      .map((tool) => tool.declarationFor?.(actor) ?? tool.declaration);
   }
 
   async execute(

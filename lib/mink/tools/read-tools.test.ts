@@ -333,20 +333,59 @@ describe("Phase 9D media library tool", () => {
     });
   });
 
-  it("requires every new blog proposal to carry its finished cover", () => {
-    const blogTool = minkReadToolRegistry
+  function blogDeclarationFor(overrides: Partial<MinkActorContext>) {
+    return minkReadToolRegistry
       .declarationsFor({
         ...ACTOR,
         draftingEnabled: true,
-        permissions: { blogs: ["manage"] },
+        ...overrides,
       } as MinkActorContext)
       .find((tool) => tool.name === "propose_blog_draft");
+  }
+
+  it("requires every new blog proposal to carry its finished cover", () => {
+    const blogTool = blogDeclarationFor({
+      isSuperadmin: false,
+      permissions: { blogs: ["manage"], media: ["view"] },
+    });
     expect(blogTool?.parametersJsonSchema).toMatchObject({
       required: ["title", "excerpt", "content", "cover_image_url"],
       properties: {
         cover_image_url: { type: "string", minLength: 1, maxLength: 2_048 },
       },
     });
+  });
+
+  // ★★ EVERY COVER URL COMES FROM A TOOL BEHIND A PERMISSION THIS ONE DOES NOT
+  //    REQUIRE — list_storefront_media (media:view), generate_storefront_image
+  //    (media:manage) and the catalogue reads (products:view). A flatly
+  //    mandatory cover therefore failed EVERY blog proposal from a
+  //    blogs:manage-only admin on an argument nothing could give them.
+  it("drops the cover requirement for an admin with no image permission", () => {
+    const blogTool = blogDeclarationFor({
+      isSuperadmin: false,
+      permissions: { blogs: ["manage"] },
+    });
+    expect(blogTool).toBeDefined();
+    expect(
+      (blogTool?.parametersJsonSchema as { required: string[] }).required,
+    ).toEqual(["title", "excerpt", "content"]);
+    expect(blogTool?.description).toContain("omit cover_image_url");
+  });
+
+  it.each([
+    ["media:view", { blogs: ["manage"], media: ["view"] }],
+    ["media:manage", { blogs: ["manage"], media: ["manage"] }],
+    ["products:view", { blogs: ["manage"], products: ["view"] }],
+    ["categories:view", { blogs: ["manage"], categories: ["view"] }],
+  ])("keeps the cover required for an admin holding %s", (_label, perms) => {
+    const blogTool = blogDeclarationFor({
+      isSuperadmin: false,
+      permissions: perms as MinkActorContext["permissions"],
+    });
+    expect(
+      (blogTool?.parametersJsonSchema as { required: string[] }).required,
+    ).toContain("cover_image_url");
   });
 });
 

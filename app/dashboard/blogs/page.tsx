@@ -10,6 +10,8 @@ import {
 } from "../lib/list-params";
 import { RealtimeRefresher } from "../components/realtime-refresher";
 import { fetchBlogTaxonomy } from "@/lib/blog-taxonomy";
+import { gcsConfigured, gcsPublicUrl } from "@/lib/storage/gcs";
+import { storeStoragePrefix } from "@/lib/storage/paths";
 import { BlogsManagementView } from "./blogs-management-view";
 
 export interface Blog {
@@ -253,6 +255,9 @@ export default async function BlogsPage({
         filter={filter}
         categoryOptions={taxonomy.categories.map((c) => c.name)}
         tagOptions={taxonomy.tags.map((t) => t.name)}
+        mediaUrlPrefix={
+          gcsConfigured ? gcsPublicUrl(storeStoragePrefix(storeId)) : ""
+        }
       />
     </>
   );

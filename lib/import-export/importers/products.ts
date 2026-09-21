@@ -10,6 +10,7 @@ import {
 } from "@/drizzle/schema";
 import { dbErrorMessage, isUniqueViolation } from "@/lib/db/errors";
 import { slugify } from "@/lib/slug";
+import { firstForeignStoreImageUrl } from "@/lib/storage/ownership";
 import type { ProductDraft, VariantDraft } from "../parse";
 import type { RowIssue } from "../types";
 import {
@@ -290,6 +291,27 @@ async function applyVariants(
             )
           : null;
 
+    // A variant image reaches the same sweep as the parent's, so it gets the
+    // same rule. The variant is skipped and named rather than saved without
+    // the image the merchant asked for — the `variant_failed` precedent below.
+    if (
+      firstForeignStoreImageUrl(ctx.storeId, [
+        patch.variantImageUrl as string | null | undefined,
+      ])
+    ) {
+      issues.push(
+        issue(
+          draft.line,
+          "Variant Image URL",
+          "image_not_owned",
+          `Couldn't save the variant "${draft.name}": that image belongs to another store.`,
+          "error",
+          draft.name,
+        ),
+      );
+      continue;
+    }
+
     const row: Record<string, unknown> = { ...prices };
     if (specialPrice !== undefined) row.specialPrice = specialPrice;
     if (patch.variantBarcode !== undefined) row.barcode = patch.variantBarcode;
@@ -479,6 +501,34 @@ export async function importProducts(
       draft.values,
       PRODUCT_FIELDS,
     );
+
+    // ★★ A CSV IS A SUPPORTED WAY TO WRITE AN ARBITRARY URL. `coerceUrl`
+    //    checks only the scheme, so an Image URL column can name another
+    //    store's object in the shared bucket — and deleting or re-saving that
+    //    product then sweeps THEIR file. Row-atomic, like every other refusal
+    //    here: one bad row fails and the rest of the file still imports.
+    const foreignImage = firstForeignStoreImageUrl(ctx.storeId, [
+      patch.imageUrl as string | null | undefined,
+      ...((patch.images as string[] | undefined) ?? []),
+    ]);
+    if (foreignImage) {
+      results.push({
+        lines: draft.lines,
+        outcome: "failed",
+        issues: [
+          ...issues,
+          issue(
+            draft.line,
+            "Image URL",
+            "image_not_owned",
+            "That image belongs to another store. Use an image from this store's Media Library.",
+            "error",
+            foreignImage,
+          ),
+        ],
+      });
+      continue;
+    }
 
     // --- references ------------------------------------------------------
     let categoryId: string | null | undefined;

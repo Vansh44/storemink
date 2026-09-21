@@ -26,15 +26,21 @@ vi.mock("@/lib/store/resolve", () => ({
   getCurrentStoreId: vi.fn(async () => "a0000000-0000-4000-8000-000000000001"),
   FALLBACK_STORE_ID: "a0000000-0000-4000-8000-000000000001",
 }));
-vi.mock("@/lib/storage/cleanup", () => ({
+vi.mock("@/lib/storage/cleanup", async (importOriginal) => ({
+  // ★ THE EXTRACTOR IS THE REAL ONE. It is what decides which body images
+  //   reach the orphan sweep, so a stub returning [] would leave the body
+  //   ownership rule asserting nothing — a mock standing in for a data source
+  //   has to return DATA.
+  ...(await importOriginal<typeof import("@/lib/storage/cleanup")>()),
   // ★ `vi.fn(impl)`, NOT `vi.fn().mockReturnValue(...)` — the latter is wiped
   //   by the config's `mockReset: true`, and a wiped `extractMediaUrlsFromHtml`
   //   returns undefined into a `for…of`, which fails as "not iterable" rather
   //   than as the assertion the test was written for.
   deleteStorageUrls: vi.fn(async () => undefined),
-  extractMediaUrlsFromHtml: vi.fn((): string[] => []),
 }));
 vi.mock("@/lib/storage/gcs", () => ({
+  GCS_PUBLIC_HOST: "storage.googleapis.com",
+  gcsDeletePaths: vi.fn(async () => []),
   gcsPathFromUrl: (url: string) => {
     const m = /storage\.googleapis\.com\/[^/]+\/(.+)$/.exec(url || "");
     return m ? m[1] : null;
@@ -77,6 +83,7 @@ import {
   bulkSetBlogStatus,
   bulkSetBlogFeatured,
   bulkDeleteBlogs,
+  autosaveBlog,
 } from "./blog-actions";
 import { getManagerIdentity } from "@/app/dashboard/lib/access";
 import { getServerUser } from "@/lib/auth/server-user";
@@ -110,6 +117,8 @@ function emitted(type: string): boolean {
     .mocked(emitEvent)
     .mock.calls.some(([input]) => input?.type === type);
 }
+
+const STORE_ID = "a0000000-0000-4000-8000-000000000001";
 
 const blogForm = {
   title: "Hello",
@@ -278,6 +287,241 @@ describe("blog-actions", () => {
       const result = await createBlog({ ...blogForm, title: "Hello" });
       expect(result.success).toBe(true);
       expect(dbHolder.current.calls.values[0].slug).toBe("hello-2");
+    });
+  });
+
+  // ★★ THE COVER MUST BE AN IMAGE THIS STORE PROVABLY OWNS. The media bucket is
+  //    shared by every store, so an in-bucket URL is not ownership — and the
+  //    orphan sweep resolves any in-bucket URL to a path with no tenant
+  //    predicate, so storing another merchant's URL means the next cover change
+  //    permanently deletes THEIR object.
+  describe("cover image ownership", () => {
+    const own = `https://storage.googleapis.com/bkt/stores/${STORE_ID}/uploads/mine.webp`;
+    const foreign =
+      "https://storage.googleapis.com/bkt/stores/b0000000-0000-4000-8000-0000000000ff/uploads/victim.webp";
+    // Pre-2026-08-23 `/api/upload` wrote bare paths with no store prefix, so
+    // this object cannot be attributed to anyone.
+    const legacy = "https://storage.googleapis.com/bkt/blog-covers/old.webp";
+    // Not in our bucket at all: `gcsPathFromUrl` returns null, so the sweep
+    // already treats it as unmanaged and can never delete it.
+    const supabase =
+      "https://xyz.supabase.co/storage/v1/object/public/media/old.webp";
+
+    it("createBlog accepts this store's own object", async () => {
+      const r = await createBlog({ ...blogForm, cover_image_url: own });
+      expect(r.error).toBeUndefined();
+      expect(dbHolder.current.calls.values[0].coverImageUrl).toBe(own);
+    });
+
+    it("createBlog refuses another store's object in the same bucket", async () => {
+      const r = await createBlog({ ...blogForm, cover_image_url: foreign });
+      expect(r.error).toMatch(/not one of this store's own images/i);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
+    });
+
+    it("createBlog refuses an unattributable legacy path as a NEW cover", async () => {
+      const r = await createBlog({ ...blogForm, cover_image_url: legacy });
+      expect(r.error).toMatch(/not one of this store's own images/i);
+    });
+
+    it("createBlog allows a URL outside our bucket, which the sweep never deletes", async () => {
+      const r = await createBlog({ ...blogForm, cover_image_url: supabase });
+      expect(r.error).toBeUndefined();
+    });
+
+    // The regression guard: holding an EXISTING blog to the new rule would make
+    // its title uneditable over an image nobody is touching.
+    it("updateBlog keeps an unchanged legacy cover saveable", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [
+          [],
+          [
+            {
+              status: "draft",
+              published_at: null,
+              submitted_by: null,
+              is_customer_submission: false,
+              cover_image_url: legacy,
+              content: null,
+            },
+          ],
+        ],
+      });
+      const r = await updateBlog("b1", {
+        ...blogForm,
+        title: "New title",
+        cover_image_url: legacy,
+      });
+      expect(r.error).toBeUndefined();
+    });
+
+    it("updateBlog refuses a changed cover owned by another store", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [
+          [],
+          [
+            {
+              status: "draft",
+              published_at: null,
+              submitted_by: null,
+              is_customer_submission: false,
+              cover_image_url: own,
+              content: null,
+            },
+          ],
+        ],
+      });
+      const r = await updateBlog("b1", {
+        ...blogForm,
+        cover_image_url: foreign,
+      });
+      expect(r.error).toMatch(/not one of this store's own images/i);
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    // `autosaveBlog` is a server action, so the picker's client-side check is
+    // not the boundary — it has to refuse the same value on its own.
+    it("autosaveBlog refuses a foreign cover", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [[{ cover_image_url: own }]],
+      });
+      const r = await autosaveBlog("b1", { cover_image_url: foreign });
+      expect(r.error).toMatch(/not one of this store's own images/i);
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    // ★★ THE BODY IS THE SAME HOLE. `extractMediaUrlsFromHtml` feeds every
+    //    <img> in the stored HTML to the identical sweep, and the rich-text
+    //    editor inserts images through the very same picker the cover uses.
+    it("createBlog refuses a body image owned by another store", async () => {
+      const r = await createBlog({
+        ...blogForm,
+        content: `<p>hi</p><img src="${foreign}" alt="" />`,
+      });
+      expect(r.error).toMatch(/image in this post is not one of this store/i);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
+    });
+
+    it("createBlog accepts a body image this store owns", async () => {
+      const r = await createBlog({
+        ...blogForm,
+        content: `<p>hi</p><img src="${own}" alt="" />`,
+      });
+      expect(r.error).toBeUndefined();
+    });
+
+    it("updateBlog keeps an unchanged legacy body image saveable", async () => {
+      const body = `<p>old</p><img src="${legacy}" alt="" />`;
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [
+          [],
+          [
+            {
+              status: "draft",
+              published_at: null,
+              submitted_by: null,
+              is_customer_submission: false,
+              cover_image_url: null,
+              content: body,
+            },
+          ],
+        ],
+      });
+      const r = await updateBlog("b1", {
+        ...blogForm,
+        title: "Edited",
+        content: body,
+      });
+      expect(r.error).toBeUndefined();
+    });
+
+    it("updateBlog refuses a newly embedded foreign body image", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [
+          [],
+          [
+            {
+              status: "draft",
+              published_at: null,
+              submitted_by: null,
+              is_customer_submission: false,
+              cover_image_url: null,
+              content: "<p>old</p>",
+            },
+          ],
+        ],
+      });
+      const r = await updateBlog("b1", {
+        ...blogForm,
+        content: `<p>old</p><img src="${foreign}" alt="" />`,
+      });
+      expect(r.error).toMatch(/image in this post is not one of this store/i);
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    it("autosaveBlog refuses a foreign body image", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [[{ cover_image_url: null, content: "<p>old</p>" }]],
+      });
+      const r = await autosaveBlog("b1", {
+        content: `<img src="${foreign}" alt="" />`,
+      });
+      expect(r.error).toMatch(/image in this post is not one of this store/i);
+      expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    // An <img> the sanitiser strips never reaches the sweep, so it must not be
+    // a reason to refuse a save either.
+    it("ignores an image the sanitiser removes", async () => {
+      const r = await createBlog({
+        ...blogForm,
+        content: `<p>hi</p><iframe src="${foreign}"></iframe>`,
+      });
+      expect(r.error).toBeUndefined();
+    });
+
+    // ★★ THE WRITE GUARDS EXEMPT AN UNCHANGED VALUE, so a row poisoned before
+    //    they existed would still be swept. The sweep carries its own scope.
+    it("never sweeps an object owned by another store", async () => {
+      const body = `<p>x</p><img src="${foreign}" alt="" />`;
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [
+          [],
+          [
+            {
+              status: "draft",
+              published_at: null,
+              submitted_by: null,
+              is_customer_submission: false,
+              cover_image_url: null,
+              content: body,
+            },
+          ],
+        ],
+      });
+      // Removing the poisoned image is exactly what used to delete it.
+      const r = await updateBlog("b1", { ...blogForm, content: "<p>x</p>" });
+      expect(r.error).toBeUndefined();
+      expect(deleteStorageUrls).toHaveBeenCalledWith(
+        expect.arrayContaining([foreign]),
+        { ownedByStoreId: STORE_ID },
+      );
+    });
+
+    it("autosaveBlog saves this store's own cover", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "b1" }],
+        selectQueue: [[{ cover_image_url: null }]],
+      });
+      const r = await autosaveBlog("b1", { cover_image_url: own });
+      expect(r.success).toBe(true);
     });
   });
 

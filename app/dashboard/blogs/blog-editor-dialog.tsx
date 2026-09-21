@@ -79,6 +79,8 @@ type Props = {
   /** This store's blog categories/tags (managed in /dashboard/blogs/settings). */
   categoryOptions: string[];
   tagOptions: string[];
+  /** Server-computed public prefix of this store's own GCS objects. */
+  mediaUrlPrefix: string;
 };
 
 // ── Component ─────────────────────────────────────────────────
@@ -129,6 +131,7 @@ export function BlogEditorDialog({
   onSaved,
   categoryOptions,
   tagOptions,
+  mediaUrlPrefix,
 }: Props) {
   const isEditing = !!blog;
   const [isPending, startTransition] = useTransition();
@@ -1151,6 +1154,7 @@ export function BlogEditorDialog({
 
       {/* Media Picker */}
       <MediaPickerDialog
+        mediaUrlPrefix={mediaUrlPrefix}
         open={!!mediaPickerTarget}
         onClose={() => setMediaPickerTarget(null)}
         onSelect={(url) => {

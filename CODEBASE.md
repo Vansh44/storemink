@@ -5800,14 +5800,98 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      that catalogue first to avoid accidental duplicate topics. Every new
      proposal requires one `cover_image_url`; blog creation authorizes one
      16:9 editorial cover by default unless the merchant supplied or explicitly
-     chose an existing current-store image. Generation uses the existing gate
+     chose an existing current-store image.
+     **★★ BUT REQUIRED ONLY FOR AN ADMIN WHO CAN PRODUCE ONE.** Every cover URL
+     comes from a tool behind a permission `propose_blog_draft` does NOT
+     require — `list_storefront_media` (`media:view`),
+     `generate_storefront_image` (`media:manage`), the catalogue reads
+     (`products:view`) and `search_storefront_categories` (`categories:view`) —
+     so for an admin holding only `blogs:manage` a flatly mandatory cover
+     failed EVERY blog proposal on "cover_image_url must be text.", an argument
+     nothing on the platform could give them. `MinkTool.declarationFor(actor)`
+     is the narrowing hook: `canSupplyBlogCover` decides, the description
+     changes with it, and `execute` RE-DERIVES the rule from the actor rather
+     than trusting the declaration the model saw. ★ It only ever narrows — a
+     cover stays required for everyone who can produce one, which is the
+     promise the Help guide makes; the coverless proposal is the fallback for a
+     role that would otherwise be locked out of blog drafting entirely. Generation uses the existing gate
      and spend ceiling, saves to Media, and must feed the exact returned URL
      into `propose_blog_draft` in the same run. `lib/mink/media-preparation.ts`
      then inspects the real source dimensions. A mismatched authentic image is
      copied onto a 16:9 canvas that preserves the complete source, while an
      already-correct generated cover is reused without another Media row. The
      proposal card renders a safe same-origin cover preview beside the editable
-     copy; the normal blog editor also accepts a pasted GCS Media URL.
+     copy; the normal blog editor also accepts a pasted Media URL, scoped to
+     this store's own objects.
+     **★★ THAT PASTE FIELD IS SCOPED TO THE STORE, AND THE HOST ALONE WAS NOT
+     ENOUGH.** `storage.googleapis.com` is shared by every GCS customer on
+     earth AND by every StoreMink store, so a host-only check accepted an
+     arbitrary third party's image (a tracking beacon on the merchant's public
+     storefront) and, worse, another store's object — which `deleteStorageUrls`
+     then PERMANENTLY DELETES on the next cover change, because that sweep
+     resolves any in-bucket URL to a path with no tenant predicate. Same rule,
+     same reason, as `sanitizePhotos` (§28) and `isGeneratedImageUrl` (§9E).
+     `normalizeBlogCoverMediaUrl` now takes the server-computed
+     `mediaUrlPrefix` (`gcsPublicUrl(storeStoragePrefix(storeId))`, threaded
+     from `blogs/page.tsx`; `GCS_BUCKET` is server-only env and the store id
+     must not come from the browser) and the field is not rendered at all when
+     GCS is unconfigured — §23's rule that a control which always fails is
+     worse than no control. ★ THE BOUNDARY IS THE SERVER:
+     `foreignCoverImageError` refuses the same value in `createBlog`,
+     `updateBlog` and `autosaveBlog`, because a server action is reachable
+     without the UI. ⚠ It judges only a CHANGED value, and only an in-bucket
+     one: `/api/upload` wrote bare `blog-covers/<file>` paths with no store
+     prefix until 2026-08-23, so a legacy cover cannot be proven ours and
+     holding an existing blog to the new rule would make its title uneditable
+     over an image nobody is touching; a URL outside our bucket (a legacy
+     Supabase cover) is already unmanaged by the sweep and passes through.
+     `isStoreOwnedObjectPath` (`lib/storage/paths.ts`) is the shared predicate.
+     ★★ THE ARTICLE BODY IS THE SAME HOLE AND IS GUARDED THE SAME WAY.
+     `extractMediaUrlsFromHtml` feeds every `<img>` in the stored HTML to the
+     identical sweep, and the rich-text editor inserts images through the very
+     same picker, so `foreignBodyImageError` refuses a newly embedded
+     in-bucket image belonging to another store in `createBlog`, `updateBlog`,
+     `autosaveBlog` AND both customer-submission paths — a shopper is the least
+     trusted writer here. ★ It judges the SANITISED content, so an `<img>` the
+     sanitiser strips is never a reason to refuse a save and one it keeps is
+     exactly what the sweep will later see; and only images this save ADDS, for
+     the cover rule's reason per image.
+     ★★ AND THE SWEEP CARRIES ITS OWN TENANT SCOPE, because a guard on the
+     write cannot reach a URL that is ALREADY in the database — and the write
+     guards deliberately exempt an unchanged value, so a row poisoned before
+     they existed would still be swept. `deleteStorageUrls(urls, {
+     ownedByStoreId })` skips an object that provably belongs to another store
+     and counts it as `foreign`; every blog call site passes it.
+     ⚠ It asks `isOtherStoreObjectPath` ("provably theirs"), NOT
+     `!isStoreOwnedObjectPath` ("not provably ours"), and the gap between them
+     is the legacy namespace: a pre-2026-08-23 object has no `stores/` prefix
+     at all, so the second reading would silently leak every legacy orphan
+     forever instead of cleaning it. ⚠ The option is OPT-IN — the platform
+     store purge and the Help console legitimately delete outside one store's
+     prefix — so `help-actions` and `platform.ts` remain unscoped.
+     **★★ PRODUCTS AND CATEGORIES CARRY THE SAME RULE, AND A CSV IS WHAT MAKES
+     IT REACHABLE THERE.** `coerceUrl` (`lib/import-export/coerce.ts`) checks
+     only the SCHEME, so an `Image URL` column may name any object in the
+     shared bucket — the import path is the products/categories equivalent of
+     the blog editor's paste field, and writes to `products.image_url`,
+     `products.images[]`, `product_variants.image_url` and
+     `categories.image_url` all reach `deleteStorageUrls` on the next save or
+     delete. `firstForeignStoreImageUrl` therefore guards `createProduct`,
+     `updateProduct`, `createCategory`, `updateCategory` and both CSV
+     importers, and all five product/category sweeps pass `ownedByStoreId`.
+     ★ `lib/storage/ownership.ts` is the ONE predicate all four domains
+     delegate to — blogs included — because a rule about which images a tenant
+     owns, written out four times, is four chances to get the bucket or the
+     prefix subtly different. ★ The importers refuse ROW-ATOMICALLY with an
+     `image_not_owned` issue naming the column (§31's rule: one bad row fails,
+     the other 1,999 import), and a foreign VARIANT image skips that variant
+     rather than saving it without the picture the merchant asked for — the
+     existing `variant_failed` precedent. ⚠ A variant has no `image_url` field
+     on the form; the column is written as `images[0]`, so its gallery is the
+     whole of its contribution.
+     ⚠ Separately pre-existing and NOT fixed here: `deleteUploadedImage` still
+     gates on a bare `blog-covers/` path, which no upload has produced since
+     the store prefix landed, so session-upload cleanup is inert.
      The saved proposal card exposes Publish after approval or Schedule for
      later only in the authenticated browser. `POST
      /api/mink/drafts/[draftId]/blog-publication` accepts a saved version,

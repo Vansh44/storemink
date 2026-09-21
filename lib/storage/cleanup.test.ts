@@ -62,6 +62,7 @@ describe("deleteStorageUrls", () => {
       attempted: 0,
       failed: 0,
       unmanaged: 0,
+      foreign: 0,
     });
     expect(gcsDeletePaths).not.toHaveBeenCalled();
   });
@@ -73,7 +74,7 @@ describe("deleteStorageUrls", () => {
         "https://cdn.other.com/x.png",
         "https://x.example.com/storage/v1/object/public/media/s.png",
       ]),
-    ).resolves.toEqual({ attempted: 0, failed: 0, unmanaged: 2 });
+    ).resolves.toEqual({ attempted: 0, failed: 0, unmanaged: 2, foreign: 0 });
     expect(gcsDeletePaths).not.toHaveBeenCalled();
   });
 
@@ -84,6 +85,7 @@ describe("deleteStorageUrls", () => {
       attempted: 1,
       failed: 0,
       unmanaged: 0,
+      foreign: 0,
     });
     expect(gcsDeletePaths).toHaveBeenCalledWith(["dup.webp"]);
   });
@@ -94,6 +96,68 @@ describe("deleteStorageUrls", () => {
     vi.mocked(gcsDeletePaths).mockRejectedValueOnce(new Error("network"));
     await expect(
       deleteStorageUrls(["https://storage.googleapis.com/bkt/x.webp"]),
-    ).resolves.toEqual({ attempted: 1, failed: 1, unmanaged: 0 });
+    ).resolves.toEqual({ attempted: 1, failed: 1, unmanaged: 0, foreign: 0 });
+  });
+});
+
+// ★★ THE SWEEP IS WHERE CROSS-TENANT DATA LOSS ACTUALLY HAPPENS: it resolves
+//    any in-bucket URL to a path with no tenant predicate, so a row holding
+//    another store's URL destroys that merchant's object on the next clean-up.
+describe("deleteStorageUrls tenant scope", () => {
+  const STORE = "a0000000-0000-4000-8000-000000000001";
+  const OTHER = "b0000000-0000-4000-8000-0000000000ff";
+  const url = (p: string) => `https://storage.googleapis.com/bkt/${p}`;
+
+  beforeEach(() => {
+    vi.mocked(gcsDeletePaths).mockClear();
+  });
+
+  it("refuses an object owned by another store and reports it", async () => {
+    const result = await deleteStorageUrls(
+      [url(`stores/${OTHER}/uploads/victim.webp`)],
+      { ownedByStoreId: STORE },
+    );
+    expect(gcsDeletePaths).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ attempted: 0, foreign: 1 });
+  });
+
+  it("still deletes this store's own object", async () => {
+    await deleteStorageUrls([url(`stores/${STORE}/uploads/mine.webp`)], {
+      ownedByStoreId: STORE,
+    });
+    expect(gcsDeletePaths).toHaveBeenCalledWith([
+      `stores/${STORE}/uploads/mine.webp`,
+    ]);
+  });
+
+  // ★ "PROVABLY THEIRS", NOT "NOT PROVABLY OURS". Objects uploaded before
+  //   2026-08-23 have no store prefix and belong to no store's namespace;
+  //   skipping those would silently leak every legacy orphan instead.
+  it("still deletes an unattributable legacy object", async () => {
+    await deleteStorageUrls([url("blog-covers/old.webp")], {
+      ownedByStoreId: STORE,
+    });
+    expect(gcsDeletePaths).toHaveBeenCalledWith(["blog-covers/old.webp"]);
+  });
+
+  // The platform store purge and the Help console delete outside one store's
+  // prefix on purpose, so an omitted option must not narrow anything.
+  it("applies no scope when none is given", async () => {
+    await deleteStorageUrls([url(`stores/${OTHER}/uploads/victim.webp`)]);
+    expect(gcsDeletePaths).toHaveBeenCalledWith([
+      `stores/${OTHER}/uploads/victim.webp`,
+    ]);
+  });
+
+  it("separates a foreign object from an unmanaged one", async () => {
+    const result = await deleteStorageUrls(
+      [
+        url(`stores/${OTHER}/a.webp`),
+        "https://xyz.supabase.co/storage/v1/object/public/media/b.webp",
+        url(`stores/${STORE}/c.webp`),
+      ],
+      { ownedByStoreId: STORE },
+    );
+    expect(result).toMatchObject({ attempted: 1, foreign: 1, unmanaged: 1 });
   });
 });

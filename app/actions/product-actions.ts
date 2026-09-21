@@ -23,6 +23,10 @@ import {
 } from "@/app/dashboard/lib/access";
 import { emitEvent } from "@/lib/notifications/record";
 import { deleteStorageUrls } from "@/lib/storage/cleanup";
+import {
+  FOREIGN_IMAGE_ERROR,
+  firstForeignStoreImageUrl,
+} from "@/lib/storage/ownership";
 import { notifyStoreContentPublished } from "@/lib/seo/store-indexing";
 import { TAGS } from "@/lib/storefront/tags";
 import { callGemini, brandSystemText } from "@/lib/ai/gemini";
@@ -433,6 +437,24 @@ async function notifyProductsPublished(
 
 // All image URLs currently referenced by a product (primary + gallery + every
 // variant's primary + gallery). Resilient: returns [] on any error.
+/**
+ * Every image URL one product save would store: the product's own, its
+ * gallery, and each variant's.
+ *
+ * ★ THE VARIANTS ARE NOT OPTIONAL. `fetchProductImageUrls` already sweeps
+ *   `product_variants.image_url`, so a foreign URL hidden on a variant reaches
+ *   the delete exactly like one on the parent. A variant has no `image_url`
+ *   field of its own — the column is written as `images[0]` — so its gallery
+ *   is the whole of its contribution.
+ */
+function productFormImageUrls(formData: ProductFormData): string[] {
+  const urls = [formData.image_url, ...(formData.images ?? [])];
+  for (const variant of formData.variants ?? []) {
+    urls.push(...(variant.images ?? []));
+  }
+  return urls.filter(Boolean);
+}
+
 async function fetchProductImageUrls(
   admin: UserIdentity,
   productId: string,
@@ -502,6 +524,12 @@ export async function createProduct(
     return { error: "Description is required." };
   if (!formData.seo_title.trim() || !formData.seo_description.trim())
     return { error: "SEO title and description are required." };
+
+  const foreignImage = firstForeignStoreImageUrl(
+    storeId,
+    productFormImageUrls(formData),
+  );
+  if (foreignImage) return { error: FOREIGN_IMAGE_ERROR };
 
   const base = formData.slug ? slugify(formData.slug) : slugify(formData.name);
   const { slug: firstSlug, bump } = await resolveSlug(admin, base, storeId);
@@ -693,6 +721,15 @@ export async function updateProduct(
   // removed file can be purged from storage.
   const oldImageUrls = await fetchProductImageUrls(admin, id);
 
+  // Only what this save ADDS: an image already on the row may predate
+  // store-prefixed uploads and cannot be proven ours.
+  const foreignImage = firstForeignStoreImageUrl(
+    storeId,
+    productFormImageUrls(formData),
+    new Set(oldImageUrls),
+  );
+  if (foreignImage) return { error: FOREIGN_IMAGE_ERROR };
+
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
     try {
       // Own transaction per attempt; RLS confines the update to the caller's
@@ -737,7 +774,12 @@ export async function updateProduct(
     }
     // Purge files that are no longer referenced after the save.
     const kept = new Set(await fetchProductImageUrls(admin, id));
-    await deleteStorageUrls(oldImageUrls.filter((u) => !kept.has(u)));
+    await deleteStorageUrls(
+      oldImageUrls.filter((u) => !kept.has(u)),
+      {
+        ownedByStoreId: storeId,
+      },
+    );
 
     revalidateProduct(slug);
     await notifyProductsPublished([slug], formData.status === "published");
@@ -782,7 +824,9 @@ export async function deleteProduct(id: string): Promise<ActionResult> {
   }
 
   // Files won't cascade — remove them from storage too.
-  await deleteStorageUrls(imageUrls);
+  await deleteStorageUrls(imageUrls, {
+    ownedByStoreId: await getActingStoreId(),
+  });
 
   emitEvent({
     type: "product.deleted",
@@ -918,7 +962,7 @@ export async function bulkDeleteProducts(ids: string[]): Promise<ActionResult> {
     console.error("bulkDeleteProducts error:", err);
     return { error: dbErrorMessage(err, "Failed to delete products.") };
   }
-  await deleteStorageUrls(urls);
+  await deleteStorageUrls(urls, { ownedByStoreId: await getActingStoreId() });
   revalidateProduct();
   return { success: true };
 }

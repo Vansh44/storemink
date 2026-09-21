@@ -12,6 +12,17 @@ vi.mock("@/app/dashboard/lib/access", () => ({
   getManagerIdentity: vi.fn(),
   getActingStoreId: vi.fn(async () => "a0000000-0000-4000-8000-000000000001"),
 }));
+// The ownership predicate resolves a URL through the real `gcsPathFromUrl`,
+// so the bucket has to be deterministic here rather than read from a local
+// .env that CI does not have.
+vi.mock("@/lib/storage/gcs", () => ({
+  GCS_PUBLIC_HOST: "storage.googleapis.com",
+  gcsDeletePaths: vi.fn(async () => []),
+  gcsPathFromUrl: (url: string) => {
+    const m = /storage\.googleapis\.com\/[^/]+\/(.+)$/.exec(url || "");
+    return m ? m[1] : null;
+  },
+}));
 vi.mock("@/lib/storage/cleanup", () => ({
   deleteStorageUrls: vi.fn().mockResolvedValue(undefined),
 }));
@@ -31,6 +42,8 @@ import {
 } from "./category-actions";
 import { getManagerIdentity } from "@/app/dashboard/lib/access";
 import { deleteStorageUrls } from "@/lib/storage/cleanup";
+
+const STORE_ID = "a0000000-0000-4000-8000-000000000001";
 
 const validForm = {
   name: "Skincare",
@@ -159,7 +172,9 @@ describe("category-actions", () => {
         image_url: newUrl,
       });
       expect(result.success).toBe(true);
-      expect(deleteStorageUrls).toHaveBeenCalledWith([oldUrl]);
+      expect(deleteStorageUrls).toHaveBeenCalledWith([oldUrl], {
+        ownedByStoreId: STORE_ID,
+      });
     });
 
     // When the image is unchanged, deleteStorageUrls is NOT called — we
@@ -192,7 +207,65 @@ describe("category-actions", () => {
       const result = await deleteCategory("c1");
       expect(result.success).toBe(true);
       expect(dbHolder.current.calls.delete).toHaveLength(1);
-      expect(deleteStorageUrls).toHaveBeenCalledWith([url]);
+      expect(deleteStorageUrls).toHaveBeenCalledWith([url], {
+        ownedByStoreId: STORE_ID,
+      });
     });
+  });
+});
+
+// ★★ THE SHARED BUCKET MAKES AN IN-BUCKET URL NOT OWNERSHIP, and the sweep
+//    resolves any in-bucket URL to a path with no tenant predicate — so a row
+//    pointing at another store's object destroys THEIR file when the category
+//    is edited or deleted.
+describe("category image ownership", () => {
+  const own = `https://storage.googleapis.com/bkt/stores/${STORE_ID}/uploads/mine.webp`;
+  const foreign =
+    "https://storage.googleapis.com/bkt/stores/b0000000-0000-4000-8000-0000000000ff/uploads/victim.webp";
+  const legacy = "https://storage.googleapis.com/bkt/categories/old.webp";
+
+  beforeEach(() => {
+    vi.mocked(getManagerIdentity).mockResolvedValue({
+      uid: "user-1",
+      email: "admin@example.com",
+    });
+  });
+
+  it("createCategory refuses another store's image", async () => {
+    const result = await createCategory({ ...validForm, image_url: foreign });
+    expect(result.error).toMatch(/not one of this store's own images/i);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
+  it("createCategory accepts this store's own image", async () => {
+    const result = await createCategory({ ...validForm, image_url: own });
+    expect(result.error).toBeUndefined();
+  });
+
+  it("updateCategory refuses a newly set foreign image", async () => {
+    dbHolder.current = makeDbMock({
+      selectQueue: [[], [{ imageUrl: own }]],
+    });
+    const result = await updateCategory("c1", {
+      ...validForm,
+      image_url: foreign,
+    });
+    expect(result.error).toMatch(/not one of this store's own images/i);
+    expect(dbHolder.current.calls.update).toHaveLength(0);
+  });
+
+  // An image already on the row may predate store-prefixed uploads, so
+  // re-judging it would make the category uneditable over a picture nobody is
+  // touching.
+  it("updateCategory keeps an unchanged legacy image saveable", async () => {
+    dbHolder.current = makeDbMock({
+      selectQueue: [[], [{ imageUrl: legacy }]],
+    });
+    const result = await updateCategory("c1", {
+      ...validForm,
+      name: "Renamed",
+      image_url: legacy,
+    });
+    expect(result.error).toBeUndefined();
   });
 });

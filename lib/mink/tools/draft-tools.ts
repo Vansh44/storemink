@@ -17,7 +17,12 @@ import {
   MAX_MINK_BULK_INVENTORY_LINES,
 } from "../draft-types";
 import { MinkRequestError, MinkToolInputError } from "../errors";
-import type { MinkActorContext, MinkArtifact } from "../types";
+import { can } from "@/app/dashboard/lib/permissions";
+import type {
+  MinkActorContext,
+  MinkArtifact,
+  MinkToolDeclaration,
+} from "../types";
 import {
   resolveMinkBulkInventoryTargets,
   type MinkBulkInventoryLookupInput,
@@ -154,11 +159,42 @@ export const proposeCurrentProductSeoTool: MinkTool = {
   },
 };
 
-export const proposeBlogDraftTool: MinkTool = {
-  declaration: {
+/**
+ * Whether ANY tool this actor is offered can return an image URL.
+ *
+ * ★★ THIS IS WHAT DECIDES THE COVER IS REQUIRED, NOT A CONSTANT. Every cover
+ *    URL comes from a tool behind a permission `propose_blog_draft` does not
+ *    require: `list_storefront_media` (media:view), `generate_storefront_image`
+ *    (media:manage, which `can` resolves through media:view), the catalogue
+ *    reads (products:view) and `search_storefront_categories`
+ *    (categories:view). So an admin holding ONLY blogs:manage has no way to
+ *    obtain one, and a flatly mandatory `cover_image_url` fails every blog
+ *    proposal that role makes with "cover_image_url must be text." - an error
+ *    naming an argument nothing on the platform could have given them.
+ *
+ * ★ IT NARROWS, IT NEVER WIDENS. A cover stays required for everybody who can
+ *   produce one, which is the merchant-visible promise the Help guide makes;
+ *   the coverless proposal is the fallback for a role that would otherwise be
+ *   locked out of blog drafting entirely.
+ */
+function canSupplyBlogCover(actor: MinkActorContext): boolean {
+  return (
+    can(actor.permissions, "media", "view", actor.isSuperadmin) ||
+    can(actor.permissions, "products", "view", actor.isSuperadmin) ||
+    can(actor.permissions, "categories", "view", actor.isSuperadmin)
+  );
+}
+
+const BLOG_COVER_REQUIRED_RULE =
+  "EVERY new blog proposal requires a cover: unless the merchant supplied an exact image or explicitly chose an existing current-store image, generate one 16:9 editorial cover first, then pass its exact returned URL as cover_image_url in this same run. Never stop after saving the image to Media and never tell the merchant to attach it manually. The server preserves the whole source and prepares an exact 16:9 copy when needed.";
+
+const BLOG_COVER_UNAVAILABLE_RULE =
+  "This admin has no image permission, so no tool can return a cover URL for them: omit cover_image_url and propose the article without one. Never invent a URL, and do not tell the merchant to generate or attach an image you cannot reach.";
+
+function blogDraftDeclaration(coverRequired: boolean): MinkToolDeclaration {
+  return {
     name: "propose_blog_draft",
-    description:
-      "Create one charged, private and editable blog proposal in the store's brand voice. Call list_blogs first so the new article is grounded in the current blog catalogue and does not accidentally duplicate an existing post. EVERY new blog proposal requires a cover: unless the merchant supplied an exact image or explicitly chose an existing current-store image, generate one 16:9 editorial cover first, then pass its exact returned URL as cover_image_url in this same run. Never stop after saving the image to Media and never tell the merchant to attach it manually. The server preserves the whole source and prepares an exact 16:9 copy when needed. Use only facts in the conversation or trusted tool results. This does not create or publish a blog post.",
+    description: `Create one charged, private and editable blog proposal in the store's brand voice. Call list_blogs first so the new article is grounded in the current blog catalogue and does not accidentally duplicate an existing post. ${coverRequired ? BLOG_COVER_REQUIRED_RULE : BLOG_COVER_UNAVAILABLE_RULE} Use only facts in the conversation or trusted tool results. This does not create or publish a blog post.`,
     parametersJsonSchema: {
       type: "object",
       properties: {
@@ -174,34 +210,45 @@ export const proposeBlogDraftTool: MinkTool = {
           type: "string",
           minLength: 1,
           maxLength: 2_048,
-          description:
-            "Required exact current-store Media Library or catalogue image URL returned by a trusted read or image-generation tool. A blog-creation request includes its cover by default; never guess a URL or leave this out after generating the image.",
+          description: coverRequired
+            ? "Required exact current-store Media Library or catalogue image URL returned by a trusted read or image-generation tool. A blog-creation request includes its cover by default; never guess a URL or leave this out after generating the image."
+            : "Unavailable to this admin, who holds no Media, Products or Categories View permission. Omit it rather than guessing a URL.",
         },
         seo_title: { type: "string", maxLength: 70 },
         seo_description: { type: "string", maxLength: 180 },
       },
-      required: ["title", "excerpt", "content", "cover_image_url"],
+      required: coverRequired
+        ? ["title", "excerpt", "content", "cover_image_url"]
+        : ["title", "excerpt", "content"],
       additionalProperties: false,
     },
-  },
+  };
+}
+
+export const proposeBlogDraftTool: MinkTool = {
+  declaration: blogDraftDeclaration(true),
+  declarationFor: (actor) => blogDraftDeclaration(canSupplyBlogCover(actor)),
   permission: { section: "blogs", action: "manage" },
   available: draftingAvailable,
   timeoutMs: 25_000,
   artifact: proposalArtifact,
   async execute(actor, args) {
     const title = readString(args.title, "title", 200);
-    const requestedCoverImageUrl = readString(
-      args.cover_image_url,
-      "cover_image_url",
-      2_048,
-    );
-    const coverImageUrl = (
-      await prepareMinkImageForDestination(
-        actor,
-        requestedCoverImageUrl,
-        "blog_cover",
-      )
-    ).url;
+    // Re-derived from the actor, never from the declaration the model saw:
+    // tool visibility is not authorization anywhere else here either.
+    const coverRequired = canSupplyBlogCover(actor);
+    const requestedCoverImageUrl = coverRequired
+      ? readString(args.cover_image_url, "cover_image_url", 2_048)
+      : readOptionalString(args.cover_image_url, "cover_image_url", 2_048);
+    const coverImageUrl = requestedCoverImageUrl
+      ? (
+          await prepareMinkImageForDestination(
+            actor,
+            requestedCoverImageUrl,
+            "blog_cover",
+          )
+        ).url
+      : "";
     return proposalOutput(
       await createMinkDraftProposal({
         actor,
