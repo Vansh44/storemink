@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  basePromptTokens,
   CACHED_INPUT_RATE_MULTIPLIER,
   cachedPromptTokens,
   estimateMinkCost,
@@ -11,6 +12,7 @@ const usage = {
   thoughtTokens: 50,
   totalTokens: 1_250,
   cachedTokens: 0,
+  basePromptTokens: 0,
 };
 
 describe("estimateMinkCost", () => {
@@ -110,5 +112,24 @@ describe("cachedPromptTokens", () => {
 
   it("passes an ordinary count through untouched", () => {
     expect(cachedPromptTokens({ ...usage, cachedTokens: 400 })).toBe(400);
+  });
+});
+
+// ★★ THE LEDGER'S base_prompt_tokens CHECK SHARES A TRANSACTION WITH THE
+// MERCHANT'S REPLY, exactly as cached_tokens does. A value that tripped it
+// would roll back an answer already on screen, so the clamp is not cosmetic.
+describe("basePromptTokens", () => {
+  it("never exceeds the prompt total it is a share of", () => {
+    expect(
+      basePromptTokens({ ...usage, promptTokens: 100, basePromptTokens: 900 }),
+    ).toBe(100);
+  });
+
+  it("never goes negative", () => {
+    expect(basePromptTokens({ ...usage, basePromptTokens: -5 })).toBe(0);
+  });
+
+  it("passes an ordinary value through untouched", () => {
+    expect(basePromptTokens({ ...usage, basePromptTokens: 400 })).toBe(400);
   });
 });

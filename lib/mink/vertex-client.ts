@@ -204,5 +204,8 @@ function toUsage(response: GenerateContentResponse): MinkUsage {
     // nothing", which is read as zero cached rather than as an error: an
     // unreported cache must cost us an accounting discount, never a run.
     cachedTokens: usage?.cachedContentTokenCount ?? 0,
+    // THIS turn's own prompt size. Every turn reports one; the orchestrator
+    // keeps the FIRST, which is the initial prompt each later turn re-sent.
+    basePromptTokens: usage?.promptTokenCount ?? 0,
   };
 }

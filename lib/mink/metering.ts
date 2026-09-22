@@ -35,11 +35,56 @@ export const MINK_OUTPUT_WEIGHT = 5;
  * exactly the expensive HIGH-thinking runs (storefront code) that most need
  * banding correctly.
  */
-export function weightedMinkUnits(usage: MinkUsage): number {
+export interface MinkRunSize {
+  usage: MinkUsage;
+  /** Model turns. Every turn after the first re-sends the initial prompt. */
+  steps: number;
+}
+
+/**
+ * The prompt tokens a run is CHARGED for: the total, less the INITIAL prompt
+ * that every step after the first re-sent.
+ *
+ * ★★ THE PREFIX IS OUR COST STRUCTURE, NOT THE MERCHANT'S REQUEST. The system
+ * prompt plus the permission-filtered tool declarations run to 92,689
+ * characters for a superadmin with drafting on, and every step re-sends all of
+ * it. MEASURED on `mink_usage_ledger`, not estimated: single-step runs report
+ * 16,542–17,072 input tokens, and input per step across 12 recorded runs sits
+ * between 16,542 and 20,029. A question answered with ONE tool call therefore
+ * accumulated ~35,000 prompt tokens even when the merchant's own input and the
+ * tool result were tiny. That is what put "how do I upload a photo?" in the
+ * standard band at 3 credits and made the light band unreachable for any run
+ * that touched a tool. The recorded two-step lookup is the exact shape: 34,941
+ * input, 164 output.
+ *
+ * ★ The provider gives us the whole first prompt, not a token count for the
+ * system-and-tools prefix alone. That first prompt also contains conversation
+ * history, memory and the merchant's message, so it MUST remain billable once.
+ * Subtracting only `(steps - 1) × base` removes repeated copies while leaving
+ * the initial prompt plus the tool results and model turns that accumulated
+ * along the run. A result fetched early still costs more than one fetched late,
+ * which is real because we genuinely pay to re-send it.
+ *
+ * ⚠ AN UNKNOWN BASE CHARGES THE WHOLE PROMPT, which is what this did before.
+ * A run whose provider reported no usage, or a ledger row written before the
+ * figure was recorded, therefore keeps its old band rather than silently
+ * becoming free.
+ *
+ * ⚠ Clamped at zero: `steps` counts turns the provider may not have reported
+ * usage for, so the subtraction can exceed the total. Erring to zero errs
+ * toward the merchant.
+ */
+export function billablePromptTokens(size: MinkRunSize): number {
+  const repeatedInitialPrompt =
+    Math.max(0, size.usage.basePromptTokens) * Math.max(0, size.steps - 1);
+  return Math.max(0, size.usage.promptTokens - repeatedInitialPrompt);
+}
+
+export function weightedMinkUnits(size: MinkRunSize): number {
   return Math.max(
     0,
-    usage.promptTokens +
-      MINK_OUTPUT_WEIGHT * (usage.outputTokens + usage.thoughtTokens),
+    billablePromptTokens(size) +
+      MINK_OUTPUT_WEIGHT * (size.usage.outputTokens + size.usage.thoughtTokens),
   );
 }
 
@@ -80,11 +125,11 @@ export const MINK_MAX_RUN_CREDITS = MINK_CREDIT_BANDS.reduce(
 
 /** The band a run of this size falls in. Pure, and safe on the client so the
  *  composer can say what a request will cost before it is sent. */
-export function minkCreditBand(usage: MinkUsage): {
+export function minkCreditBand(size: MinkRunSize): {
   band: MinkCreditBand;
   weightedUnits: number;
 } {
-  const weightedUnits = weightedMinkUnits(usage);
+  const weightedUnits = weightedMinkUnits(size);
   const band =
     MINK_CREDIT_BANDS.find(
       (candidate) =>
@@ -117,13 +162,15 @@ export function minkShadowMeter(input: {
   toolCalls: number;
   usageKnown: boolean;
   usage: MinkUsage;
+  /** Model turns, so repeated copies of the initial prompt can be excluded. */
+  steps: number;
 }): {
   shadowCredits: number;
   costCohort: MinkCostCohort;
   weightedUnits: number;
   band: MinkCreditBandName | null;
 } {
-  const weightedUnits = weightedMinkUnits(input.usage);
+  const weightedUnits = weightedMinkUnits(input);
   if (!input.usageKnown) {
     return {
       shadowCredits: 0,
@@ -140,7 +187,7 @@ export function minkShadowMeter(input: {
       band: null,
     };
   }
-  const { band } = minkCreditBand(input.usage);
+  const { band } = minkCreditBand(input);
   return {
     shadowCredits: band.credits,
     costCohort: input.toolCalls <= 1 ? "read_lookup" : "read_analysis",

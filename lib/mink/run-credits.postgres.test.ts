@@ -442,6 +442,7 @@ describe.skipIf(!socket)("0100 isolated PostgreSQL run-credit contract", () => {
       thoughtTokens: 0,
       totalTokens: 102_000,
       cachedTokens: 0,
+      basePromptTokens: 0,
     };
     // 110,000 weighted units -> heavy -> 8 credits, less the 5 a proposal in
     // this run already reserved = 3 outstanding. 1 of plan + 2 purchased.
@@ -453,6 +454,7 @@ describe.skipIf(!socket)("0100 isolated PostgreSQL run-credit contract", () => {
       } as MinkActorContext,
       runId: RUN,
       usage,
+      steps: 1,
       status: "succeeded",
       usageKnown: true,
       alreadyCharged: 5,

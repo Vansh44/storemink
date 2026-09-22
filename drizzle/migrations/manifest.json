@@ -5227,6 +5227,11 @@
             "name": "the guide explains non-destructive destination preparation",
             "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%automatically prepares a square Media copy%' and body like '%The original upload is never cropped or overwritten%'",
             "equals": "1"
+          },
+          {
+            "name": "the review sentence now names a blog change",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%approve any product, blog or storefront change separately%'",
+            "equals": "1"
           }
         ]
       }
@@ -5255,6 +5260,26 @@
           {
             "name": "the superseded own-storefront-only sentence is gone",
             "sql": "select count(*)::text from help_articles where status='published' and body like '%Mink combines the visual reading with the current Website Builder state%'",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260923_0126_mink_marginal_metering",
+      "description": "Record the per-step prefix so a run is charged for its own work",
+      "file": "sql/20260923_0126_mink_marginal_metering.sql",
+      "transaction": true,
+      "requires": ["20260922_0125_mink_storefront_from_reference"],
+      "verify": {
+        "columns": ["mink_usage_ledger.base_prompt_tokens"],
+        "constraints": ["mink_usage_ledger_base_prompt_tokens_check"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "every existing ledger row keeps its original band",
+            "sql": "select count(*)::text from mink_usage_ledger where base_prompt_tokens <> 0",
             "equals": "0"
           }
         ]

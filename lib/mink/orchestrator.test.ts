@@ -15,6 +15,7 @@ const ZERO_USAGE: MinkUsage = {
   thoughtTokens: 0,
   totalTokens: 0,
   cachedTokens: 0,
+  basePromptTokens: 0,
 };
 
 const ACTOR: MinkActorContext = {
@@ -90,6 +91,7 @@ describe("runMinkAgent", () => {
           thoughtTokens: 2,
           totalTokens: 27,
           cachedTokens: 12,
+          basePromptTokens: 0,
         },
       }),
     );
@@ -105,6 +107,7 @@ describe("runMinkAgent", () => {
             thoughtTokens: 1,
             totalTokens: 14,
             cachedTokens: 7,
+            basePromptTokens: 0,
           },
         }),
       ),
@@ -143,6 +146,7 @@ describe("runMinkAgent", () => {
         // prefix, so the run-level cached figure has to be the SUM across
         // steps — that total is what the cost estimate prices against.
         cachedTokens: 19,
+        basePromptTokens: 0,
       },
       artifacts: [],
     });
@@ -186,6 +190,38 @@ describe("runMinkAgent", () => {
     expect(onProgress).toHaveBeenLastCalledWith(
       expect.objectContaining({ steps: 2, toolCalls: 1, retryCount: 2 }),
     );
+  });
+
+  it("keeps an unknown first prompt unknown when a later turn reports usage", async () => {
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () =>
+        turn({ functionCalls: [{ name: "get_store_profile", args: {} }] }),
+      ),
+      sendToolResponses: vi.fn(async () =>
+        turn({
+          text: "Ready.",
+          usage: {
+            promptTokens: 20_000,
+            outputTokens: 10,
+            thoughtTokens: 0,
+            totalTokens: 20_010,
+            cachedTokens: 0,
+            basePromptTokens: 20_000,
+          },
+        }),
+      ),
+    };
+
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "Check my store.",
+      config: config(),
+      registry: registry(),
+      session,
+    });
+
+    expect(result.usage.basePromptTokens).toBe(0);
+    expect(result.usage.promptTokens).toBe(20_000);
   });
 
   it("stops before exceeding the reasoning-step cap", async () => {

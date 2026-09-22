@@ -42,6 +42,7 @@ const EMPTY_PROGRESS: MinkRunProgress = {
     thoughtTokens: 0,
     totalTokens: 0,
     cachedTokens: 0,
+    basePromptTokens: 0,
   },
 };
 
@@ -218,6 +219,7 @@ export async function POST(request: Request) {
             actor,
             runId: started.runId,
             usage: result.usage,
+            steps: result.steps,
             status: "succeeded",
             usageKnown: true,
             alreadyCharged: draftCredits,

@@ -6117,6 +6117,11 @@ export const minkUsageLedger = pgTable(
     thoughtTokens: integer("thought_tokens").notNull(),
     /** Subset of input_tokens served from a provider context cache. */
     cachedTokens: integer("cached_tokens").default(0).notNull(),
+    /**
+     * The first model turn's complete prompt, re-sent by every later step.
+     * Readers keep it once and subtract only repeats; 0 means unknown.
+     */
+    basePromptTokens: integer("base_prompt_tokens").default(0).notNull(),
     totalTokens: integer("total_tokens").notNull(),
     usageStatus: text("usage_status").default("reported").notNull(),
     estimatedCostMicrousd: integer("estimated_cost_microusd"),

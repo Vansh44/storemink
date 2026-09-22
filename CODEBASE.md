@@ -271,6 +271,66 @@ says write nothing), and a reconciler for runs left with a NULL
 they owe nothing, and `discardFailedMinkRunDrafts` already compensates any
 proposal credits they reserved.
 
+### Mink marginal metering — the merchant pays for their own work (2026-09-23)
+
+**★★ THE 1-CREDIT BAND WAS UNREACHABLE FOR ANY RUN THAT TOUCHED A TOOL, AND A
+MERCHANT REPORTED IT.** "how can i upload a photo" — one `search_help_centre`
+call, a two-sentence answer — cost **3 credits** on a live Pro store (269 →
+266). Not a pricing disagreement: `weightedMinkUnits` counted the RAW prompt,
+and `orchestrator.ts` drives a chat session, so the system prompt plus the
+permission-filtered tool declarations are re-sent on EVERY model step. Measured
+on `mink_usage_ledger` rather than estimated: single-step runs report
+**16,542–17,072 input tokens**, and input per step across the recorded runs
+sits between **16,542 and 20,029**. So the prefix alone crosses the 30,000
+light ceiling on the SECOND step — one tool call — and the recorded two-step
+lookup (34,941 input, 164 output) bands standard. The practical ladder was
+therefore _1 step = 1 credit, 2–5 = 3, 6+ = 8_, i.e. the band measured **how
+many tools we offer**, not how much work the merchant asked for.
+
+★★ `billablePromptTokens` KEEPS THE INITIAL PROMPT ONCE AND SUBTRACTS ONLY
+ITS REPEATED COPIES — `promptTokens − basePromptTokens × (steps − 1)`. The
+provider reports the complete first prompt, not the system/tool prefix as a
+separate count; that first prompt also includes conversation history, memories
+and the merchant's message, so subtracting it on turn one would make every
+one-step input free. The same two-step lookup still bands **light, 1 credit**:
+one 17,072-token initial prompt + its small accumulated result and ×5-weighted
+answer remain below 30,000, while a large merchant input can still move the
+run into a higher band. ⚠ Output is UNTOUCHED and still carries the ×5 weight.
+★★ `basePromptTokens` IS THE ONE FIELD `addUsage` DOES NOT SUM. Every turn
+reports its own prompt count, so summing them would produce roughly `steps²` of
+initial context and make the subtraction overshoot. The orchestrator copies
+turn one's value exactly, INCLUDING ZERO: if turn one reports no usage, a later
+larger prompt must not impersonate it and erase the run's billable input.
+★★ ZERO MEANS UNKNOWN, NEVER FREE. A provider that reported no usage, and every
+ledger row written before the column existed, fall back to charging the whole
+prompt — exactly what they did before. Verified against the database: **every
+existing row is 0**, so this reprices nothing retroactively and no historical
+band moves. The reconciler passes the stored value, so a late settlement of an
+old run keeps the band it would have had.
+★ `basePromptTokens()` in `cost.ts` is the ONE clamp (`0 ≤ base ≤ prompt`),
+shared by the estimate and the ledger insert for `cachedPromptTokens`' reason:
+that insert shares a transaction with the run-completion update and the
+assistant message, so a value tripping the CHECK would roll back a reply the
+merchant has already read.
+★ The operator console's band mix re-derives from stored counts, so `bandRuns`
+carries the SAME subtraction in SQL
+(`greatest(input − base × greatest(steps − 1, 0), 0)`) — a console that
+disagreed with the meter is the one screen the bands get tuned from.
+⚠ THE REAL FIX FOR THE COST ITSELF IS CACHING, NOT BANDING. This changes what
+the MERCHANT is charged; StoreMink still pays for every re-sent prefix, and
+`cached_tokens` exists to measure how much of it a provider cache is already
+serving. Treat the tool declaration set as a budget: a new tool raises our cost
+on every existing merchant's every question, permanently — it simply no longer
+raises THEIRS.
+
+Migration `20260923_0126_mink_marginal_metering` adds `base_prompt_tokens`
+(NOT NULL DEFAULT 0, CHECK `0 ≤ base ≤ input_tokens`). **No Help Centre update:
+the published guide already promises "a short question or a straightforward
+lookup uses 1 credit, a longer piece of work uses 3, and a large one uses 8"
+(migration 0122) — a sentence that was false when it shipped and is true now.**
+This change makes the product match its own guide, so editing the guide would
+be describing a change nobody needs to act on.
+
 ### Mink cost metering — the prefix is the bill (2026-09-11)
 
 `mink_usage_ledger` has recorded per-run tokens and a shadow cost since Phase
@@ -324,11 +384,13 @@ regional, 2026 intro and 2027 standard — has an output:input ratio of exactly
 rate, a region or a date. `metering.test.ts` pins that against `cost.ts` itself
 across all four variants, so a future price change that breaks the
 proportionality fails there rather than silently skewing every band.
-★★ IT USES RAW PROMPT TOKENS AND IGNORES THE CACHE, deliberately: a merchant
-asking the same question twice must not be charged differently because our
-cache was cold. The cache saving accrues to StoreMink as margin — the right way
-round, since it rewards making the platform cheaper rather than making the bill
-unpredictable.
+★★ IT IGNORES THE CACHE, deliberately: a merchant asking the same question
+twice must not be charged differently because our cache was cold. The cache
+saving accrues to StoreMink as margin — the right way round, since it rewards
+making the platform cheaper rather than making the bill unpredictable.
+⚠ It used the RAW prompt count until 2026-09-23; it now subtracts the re-sent
+prefix first — see "Mink marginal metering" below, which is what made the light
+band reachable at all.
 ★ Reasoning counts as output, or the HIGH-thinking storefront runs that most
 need banding correctly would be the ones under-banded.
 ★ A run that did not succeed meters ZERO. Charging for an answer nobody got is
@@ -3877,6 +3939,38 @@ wholesip/
 │   │                          # immutable, private custom-code proposal` is permanent.
 │   │                          # `npm run help:lint`, in CI; 45 historical violations
 │   │                          # GRANDFATHERED (applied SQL cannot be edited).
+│   │                          # ★★ AND IT REPLAYS EVERY `replace()` TO CATCH A STALE
+│   │                          # QUOTE (`lintStaleQuotes`). `replace()` returns the
+│   │                          # string UNCHANGED when it finds no match, so a migration
+│   │                          # quoting text an earlier one already edited is a SILENT
+│   │                          # no-op: the UPDATE succeeds, rows report updated, nothing
+│   │                          # errors, and the edit never happens. Only `applyVerify`
+│   │                          # notices, at apply time, against a real database — which
+│   │                          # CI does not have, so it surfaced as a failed PRODUCTION
+│   │                          # deploy (20260922_0124). Detectable with no database,
+│   │                          # because the migrations ARE the edit history: replay them
+│   │                          # in manifest order, and a search argument absent from the
+│   │                          # CURRENT text but present in text a migration ORIGINALLY
+│   │                          # published is exactly a quote an earlier edit invalidated.
+│   │                          # ⚠ A quote never seen published is SKIPPED — it names the
+│   │                          # article's original insert, and flagging it is the noise
+│   │                          # that gets a linter switched off. Under-reports, never
+│   │                          # over-reports. ⚠ NO allow marker: a marker cannot make
+│   │                          # replace() find text that is not there.
+│   │                          # ★★ AND EVERY `replace()` MUST HAVE A POSTCONDITION THAT
+│   │                          # COULD FAIL (`lintUnwitnessedEdits`). applyVerify is the
+│   │                          # only thing between a silent no-op and a guide that still
+│   │                          # says the wrong thing — but only if a query can TELL the
+│   │                          # two apart, so it requires a LIKE pattern present in the
+│   │                          # replacement and ABSENT from the text replaced (or the
+│   │                          # reverse for an `equals: "0"` check). A pattern in both
+│   │                          # halves passes against the unedited body and proves
+│   │                          # nothing. 14 of 32 help migrations with a replace() had no
+│   │                          # such check; 13 are applied and GRANDFATHERED_WITNESS,
+│   │                          # since editing an applied entry rewrites its checksum.
+│   │                          # ⚠ It cannot prove a check is SUFFICIENT — the pattern may
+│   │                          # also occur elsewhere in the article, which needs the real
+│   │                          # body (`help:audit:*`), not CI.
 │   ├── help-content-audit.mjs # ★ The same rules against the rows a DATABASE serves —
 │   │                          # catches Help-console operator edits and the ASSEMBLED
 │   │                          # result of many migrations appending to one guide, which
@@ -6344,6 +6438,35 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
       The AGENTS.md rule is now a GATE — update Help only when a
       **merchant-visible** flow changes — and it requires `replace()`ing the
       section that is wrong instead of appending beside it.
+    - **★★ QUOTE THE SENTENCE YOU ARE CHANGING, NOT THE PARAGRAPH AROUND IT.**
+      A forward-only content edit is `replace(body, $old$…$old$, $new$…$new$)`,
+      and **`replace()` returns the string UNCHANGED when it finds no match** —
+      the UPDATE succeeds, rows report updated, nothing errors, and the edit
+      simply does not happen. So a quote is a dependency on every other
+      migration that has touched the same text. `20260922_0124` quoted a whole
+      paragraph as `0120` published it; `0121` had already rewritten that
+      paragraph's closing sentence in place, so the quote was stale before it
+      shipped and **the production deploy was refused by the migration's own
+      `applyVerify`** (which is the system working — the edit would otherwise
+      have vanished silently). A paragraph quote expires the moment ANY sibling
+      edits ANY part of it; a sentence quote only when that sentence changes.
+      ⚠ Check the sentence is UNIQUE in the article first: `replace()` rewrites
+      every occurrence.
+      ★ `npm run help:lint` now replays every `replace()` in manifest order and
+      fails the pull request on a stale quote. The replay is KEYED BY ARTICLE
+      SLUG: identical wording in two guides remains two independent histories,
+      so editing one cannot create a false failure or hide a stale edit in the
+      other. Insert shapes or UPDATEs whose target cannot be proved are skipped
+      deliberately rather than borrowed across articles — see the
+      `help-content-lint.mjs` entry in §4.
+      ★★ AND EVERY `replace()` MUST CARRY AN `applyVerify` QUERY THAT COULD
+      FAIL. The stale quote was caught only because one of `0124`'s two checks
+      happened to name text unique to the replacement; its third edit, added
+      while fixing that, had none at all. A check whose pattern also appears in
+      the text being replaced passes against the unedited body and proves
+      nothing, so `help:lint` requires one that changes value when the edit
+      lands. ⚠ `verify` is the wrong home for it — that block is re-checked
+      forever and freezes the wording it names.
     - **★★ NEVER ASSERT PUBLISHED WORDING IN A DURABLE `verify` BLOCK.** It is
       re-checked for every applied migration on every status/verify/drift run
       in every environment, and it is part of that migration's checksum — so

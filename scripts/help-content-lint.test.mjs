@@ -2,9 +2,13 @@ import { describe, expect, test } from "vitest";
 import {
   GRANDFATHERED,
   GRANDFATHERED_VERIFY,
+  GRANDFATHERED_WITNESS,
   HELP_LINT_RULES,
+  extractReplacements,
   lintHelpSql,
   lintManifest,
+  lintStaleQuotes,
+  lintUnwitnessedEdits,
   lintVerifyContract,
   parseAllowMarkers,
   publishedText,
@@ -188,5 +192,281 @@ describe("help content lint", () => {
     const { failures, checked } = await lintManifest();
     expect(failures).toEqual([]);
     expect(checked).toBeGreaterThan(80);
+  });
+
+  describe("stale replace() quotes", () => {
+    const pub = (text) =>
+      `UPDATE public.help_articles SET body = $guide$${text}$guide$ WHERE slug='g';`;
+    const edit = (search, replacement) =>
+      `UPDATE public.help_articles SET body = replace(body, $old$${search}$old$, $new$${replacement}$new$) WHERE slug='g';`;
+    const mig = (id, sql) => ({ id, file: `sql/${id}.sql`, sql });
+
+    const PARA =
+      "Mink reads the attachment and prepares a proposal. The message is limited to 4,000 characters.";
+
+    test("★★ flags a quote an earlier migration already invalidated", () => {
+      // Exactly the production failure: 0120 publishes a paragraph, 0121
+      // rewrites its closing sentence, 0124 still quotes the 0120 wording.
+      const failures = lintStaleQuotes([
+        mig("0120", pub(PARA)),
+        mig(
+          "0121",
+          edit(
+            "The message is limited to 4,000 characters.",
+            "The message is limited to 12,000 characters.",
+          ),
+        ),
+        mig("0124", edit(PARA, "Something else entirely.")),
+      ]);
+      expect(failures.map((f) => f.id)).toEqual(["0124"]);
+      expect(failures[0].rule).toBe("stale-quote");
+    });
+
+    test("the same edit quoted at sentence level is fine", () => {
+      // The fix: quote only the sentence you are changing, so a sibling
+      // migration editing a different sentence cannot expire your quote.
+      expect(
+        lintStaleQuotes([
+          mig("0120", pub(PARA)),
+          mig(
+            "0121",
+            edit(
+              "The message is limited to 4,000 characters.",
+              "The message is limited to 12,000 characters.",
+            ),
+          ),
+          mig(
+            "0124",
+            edit(
+              "Mink reads the attachment and prepares a proposal.",
+              "Mink reads the attachment, prepares a square copy and proposes.",
+            ),
+          ),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("a chain of edits to the same sentence stays valid", () => {
+      // Each migration quotes what its predecessor left behind.
+      expect(
+        lintStaleQuotes([
+          mig("a", pub("Refunds take five days to arrive.")),
+          mig(
+            "b",
+            edit(
+              "Refunds take five days to arrive.",
+              "Refunds take three days to arrive.",
+            ),
+          ),
+          mig(
+            "c",
+            edit(
+              "Refunds take three days to arrive.",
+              "Refunds usually arrive the next working day.",
+            ),
+          ),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("★★ keeps identical wording isolated by article slug", () => {
+      const shared =
+        "This sufficiently long sentence is intentionally shared by both guides.";
+      expect(
+        lintStaleQuotes([
+          mig("a-publish", pub(shared).replace("slug='g'", "slug='guide-a'")),
+          mig("b-publish", pub(shared).replace("slug='g'", "slug='guide-b'")),
+          mig(
+            "a-edit",
+            edit(
+              shared,
+              "Only guide A receives this sufficiently long edit.",
+            ).replace("slug='g'", "slug='guide-a'"),
+          ),
+          mig(
+            "b-edit",
+            edit(
+              shared,
+              "Only guide B receives this sufficiently long edit.",
+            ).replace("slug='g'", "slug='guide-b'"),
+          ),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("associates VALUES-published bodies with their own article slug", () => {
+      const shared =
+        "This sufficiently long sentence is intentionally shared by inserted guides.";
+      const inserted = mig(
+        "publish",
+        `INSERT INTO public.help_articles (slug, title, excerpt, body) VALUES
+          ('guide-a', 'Guide A', 'Guide A excerpt', $article$${shared}$article$),
+          ('guide-b', 'Guide B', 'Guide B excerpt', $article$${shared}$article$);`,
+      );
+      expect(
+        lintStaleQuotes([
+          inserted,
+          mig(
+            "a-edit",
+            edit(
+              shared,
+              "Only inserted guide A receives this long edit.",
+            ).replace("slug='g'", "slug='guide-a'"),
+          ),
+          mig(
+            "b-edit",
+            edit(
+              shared,
+              "Only inserted guide B receives this long edit.",
+            ).replace("slug='g'", "slug='guide-b'"),
+          ),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("★★ does not borrow a current quote from another article", () => {
+      const shared =
+        "This sufficiently long sentence is intentionally shared by both guides.";
+      const failures = lintStaleQuotes([
+        mig("a-publish", pub(shared).replace("slug='g'", "slug='guide-a'")),
+        mig(
+          "a-edit",
+          edit(
+            shared,
+            "Guide A already changed this sufficiently long sentence.",
+          ).replace("slug='g'", "slug='guide-a'"),
+        ),
+        mig("b-publish", pub(shared).replace("slug='g'", "slug='guide-b'")),
+        mig(
+          "a-stale",
+          edit(
+            shared,
+            "This stale Guide A edit must be rejected by the replay.",
+          ).replace("slug='g'", "slug='guide-a'"),
+        ),
+      ]);
+      expect(failures.map((failure) => failure.id)).toEqual(["a-stale"]);
+    });
+
+    test("⚠ text this has never seen published is skipped, never flagged", () => {
+      // It names copy from the article's original insert, which predates the
+      // fragments a replay can reconstruct. Flagging it would be noise, and a
+      // noisy linter is one somebody switches off.
+      expect(
+        lintStaleQuotes([
+          mig("a", edit("wording from the baseline article", "new wording")),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("extracts the search and replacement of each pair", () => {
+      expect(extractReplacements(edit("before", "after"))).toEqual([
+        { search: "before", replacement: "after" },
+      ]);
+      // A comment quoting the old text must not be read as a replacement.
+      expect(extractReplacements(`-- was $old$x$old$, $new$y$new$\n`)).toEqual(
+        [],
+      );
+    });
+
+    test("every shipped migration survives the replay", async () => {
+      // The guard is only affordable because the real ledger passes it: a
+      // linter that flags existing, correct migrations is one nobody runs.
+      const { failures } = await lintManifest();
+      expect(failures.filter((f) => f.rule === "stale-quote")).toEqual([]);
+    });
+  });
+
+  describe("edits nothing could prove happened", () => {
+    const edit = (search, replacement) =>
+      `UPDATE public.help_articles SET body = replace(body, $old$${search}$old$, $new$${replacement}$new$) WHERE slug='g';`;
+    const mig = (sql, queries) => ({
+      id: "x",
+      file: "sql/x.sql",
+      sql,
+      applyVerify: queries ? { queries } : undefined,
+    });
+    const q = (pattern, equals = "1") => ({
+      name: "check",
+      sql: `select count(*)::text from help_articles where body like '%${pattern}%'`,
+      equals,
+    });
+
+    test("★★ flags a replace() with no postcondition at all", () => {
+      const found = lintUnwitnessedEdits(mig(edit("old text", "new text")));
+      expect(found.map((f) => f.rule)).toEqual(["unwitnessed-edit"]);
+    });
+
+    test("a query naming wording unique to the replacement witnesses it", () => {
+      expect(
+        lintUnwitnessedEdits(
+          mig(edit("refunds take five days", "refunds arrive next day"), [
+            q("refunds arrive next day"),
+          ]),
+        ),
+      ).toEqual([]);
+    });
+
+    test("★★ a check satisfied by the UNEDITED body proves nothing", () => {
+      // The trap this rule exists for: the pattern is in both halves, so the
+      // assertion passes whether or not replace() matched anything.
+      expect(
+        lintUnwitnessedEdits(
+          mig(edit("refunds take five days", "refunds take three days"), [
+            q("refunds take"),
+          ]),
+        ),
+      ).toHaveLength(1);
+    });
+
+    test("an equals-0 check on the removed wording witnesses it too", () => {
+      // Asserting the old text is GONE changes value when the edit lands.
+      expect(
+        lintUnwitnessedEdits(
+          mig(edit("the alpha is read only", "Mink can edit a product"), [
+            q("the alpha is read only", "0"),
+          ]),
+        ),
+      ).toEqual([]);
+    });
+
+    test("every pair needs its own witness, not just one of them", () => {
+      const two = [
+        edit("first old", "first new"),
+        edit("second old", "second new"),
+      ].join("\n");
+      expect(lintUnwitnessedEdits(mig(two, [q("first new")]))).toHaveLength(1);
+      expect(
+        lintUnwitnessedEdits(mig(two, [q("first new"), q("second new")])),
+      ).toEqual([]);
+    });
+
+    test("migrations that publish without replacing are not asked for one", () => {
+      // An INSERT cannot silently no-op the way replace() can.
+      expect(
+        lintUnwitnessedEdits(
+          mig(
+            "INSERT INTO help_articles (body) VALUES ($guide$<p>New guide.</p>$guide$);",
+          ),
+        ),
+      ).toEqual([]);
+    });
+
+    test("⚠ the grandfathered set is applied SQL that cannot be changed", () => {
+      // Editing an applied migration rewrites a recorded checksum and the
+      // runner then refuses every later migration.
+      expect(GRANDFATHERED_WITNESS.size).toBe(13);
+      expect(
+        lintUnwitnessedEdits({
+          ...mig(edit("a", "b")),
+          id: "20260920_0120_mink_automatic_attachments",
+        }),
+      ).toEqual([]);
+    });
+
+    test("every shipped migration is witnessed or grandfathered", async () => {
+      const { failures } = await lintManifest();
+      expect(failures.filter((f) => f.rule === "unwitnessed-edit")).toEqual([]);
+    });
   });
 });

@@ -12,11 +12,28 @@ SET body = replace(
 WHERE slug = 'use-mink-ai-in-your-dashboard'
   AND status = 'published';
 
+-- ★★ SENTENCE-LEVEL, NOT PARAGRAPH-LEVEL, AND THAT IS WHY THIS MIGRATION
+-- FAILED ITS OWN POSTCONDITION ON THE FIRST ATTEMPT. It quoted this whole
+-- paragraph as 20260920_0120 published it -- but 20260921_0121 had already
+-- rewritten the paragraph's closing sentence in place, so `replace()` matched
+-- nothing, the edit silently did not happen, and applyVerify refused the
+-- deploy. A paragraph quote expires the moment ANY sibling migration edits ANY
+-- part of it. Quote only the sentences being changed.
 UPDATE public.help_articles
 SET body = replace(
       body,
-      $old$<p>Mink receives the isolated reading as untrusted reference context and uses it only for the request you typed. Image and PDF reading can omit or misread details; a screenshot is not a verified stock level or action approval. When you ask to create a product from an attached product photo, Mink carries that exact saved image into the private product proposal. When you attach a screenshot of your own storefront and ask for a change, Mink combines the visual reading with the current Website Builder state before preparing the normal private proposal. You still review and approve any product or storefront change separately. Extraction is limited to 3,000 characters and the combined chat message remains limited to 4,000 characters.</p>$old$,
-      $new$<p>Mink receives the isolated reading as untrusted reference context and uses it only for the request you typed. Image and PDF reading can omit or misread details; a screenshot is not a verified stock level or action approval. When you ask to create a product from an attached product photo, Mink keeps the authentic photograph complete and automatically prepares a square Media copy when its shape does not suit a product card, then carries that exact prepared image into the private product proposal. A blog cover is prepared at 16:9 in the same way. The original upload is never cropped or overwritten. When you attach a screenshot of your own storefront and ask for a change, Mink combines the visual reading with the current Website Builder state before preparing the normal private proposal. You still review and approve any product, blog or storefront change separately. Extraction is limited to 3,000 characters per file and the combined chat message remains limited to 12,000 characters.</p>$new$
+      $old$When you ask to create a product from an attached product photo, Mink carries that exact saved image into the private product proposal.$old$,
+      $new$When you ask to create a product from an attached product photo, Mink keeps the authentic photograph complete and automatically prepares a square Media copy when its shape does not suit a product card, then carries that exact prepared image into the private product proposal. A blog cover is prepared at 16:9 in the same way. The original upload is never cropped or overwritten.$new$
+    ),
+    updated_at = now()
+WHERE slug = 'use-mink-ai-in-your-dashboard'
+  AND status = 'published';
+
+UPDATE public.help_articles
+SET body = replace(
+      body,
+      $old$You still review and approve any product or storefront change separately.$old$,
+      $new$You still review and approve any product, blog or storefront change separately.$new$
     ),
     updated_at = now()
 WHERE slug = 'use-mink-ai-in-your-dashboard'
