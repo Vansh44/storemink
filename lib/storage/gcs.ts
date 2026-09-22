@@ -86,6 +86,41 @@ export async function gcsUploadObject(
 }
 
 /**
+ * Read one object from the configured bucket with a hard memory ceiling.
+ *
+ * Server-side image preparation uses this instead of `fetch(publicUrl)`: the
+ * caller has already resolved an exact tenant-owned GCS path, and reading via
+ * the authenticated bucket client avoids turning a public URL into an SSRF
+ * surface. The metadata check prevents an unexpectedly large legacy object
+ * from being buffered before the caller can reject it.
+ */
+export async function gcsDownloadObject(
+  path: string,
+  maxBytes: number,
+): Promise<Uint8Array> {
+  if (!path.trim() || path.split("/").includes("..")) {
+    throw new Error("Invalid GCS object path.");
+  }
+  if (!Number.isSafeInteger(maxBytes) || maxBytes < 1) {
+    throw new Error("Invalid GCS download limit.");
+  }
+  const file = (await bucket()).file(path);
+  const [metadata] = await file.getMetadata();
+  const declaredSize = Number(metadata.size ?? 0);
+  if (!Number.isFinite(declaredSize) || declaredSize < 1) {
+    throw new Error("The image object is empty.");
+  }
+  if (declaredSize > maxBytes) {
+    throw new Error("The image object is too large to prepare safely.");
+  }
+  const [downloaded] = await file.download();
+  if (!downloaded.length || downloaded.length > maxBytes) {
+    throw new Error("The downloaded image exceeded its safe size limit.");
+  }
+  return new Uint8Array(downloaded);
+}
+
+/**
  * Mint a one-time v4 signed URL the client can PUT a video to directly (the
  * serverless body cap makes proxying large files impossible). The signed URL
  * binds the content type, so the client MUST send the same Content-Type header.

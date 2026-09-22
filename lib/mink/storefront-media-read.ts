@@ -2,7 +2,7 @@ import "server-only";
 
 import { sql } from "drizzle-orm";
 import { can } from "@/app/dashboard/lib/permissions";
-import { products } from "@/drizzle/schema";
+import { categories, products } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import type { MinkActorContext } from "./types";
 
@@ -115,8 +115,8 @@ function boundedText(value: unknown, max: number): string {
 }
 
 /**
- * Which of these exact URLs the store owns as a Media Library asset or product
- * catalogue photograph.
+ * Which of these exact URLs the store owns as a Media Library asset, product
+ * catalogue photograph, or category image.
  *
  * ★ IT ASKS ABOUT THE CANDIDATES, IT DOES NOT LIST THE LIBRARY. A store may
  *   hold thousands of assets and a proposal cites at most a few dozen, so
@@ -155,6 +155,11 @@ export async function selectOwnedStorefrontImageUrls(
       cross join lateral unnest(${products.images}) as product_image(url)
       where ${products.storeId} = ${storeId}
         and product_image.url = any(${sql.param(unique)}::text[])
+      union
+      select ${categories.imageUrl} as url
+      from ${categories}
+      where ${categories.storeId} = ${storeId}
+        and ${categories.imageUrl} = any(${sql.param(unique)}::text[])
     ) owned
   `);
   return new Set((result.rows as { url: string }[]).map((row) => row.url));

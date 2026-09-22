@@ -1027,9 +1027,12 @@ fail closed. The order, approval and append-only audit commit atomically and
 replay emits no duplicate status event. There is no automatic status rollback.
 Phase 5D extends only the existing charged private blog proposal. A bounded
 `list_blogs` read lets Mink ground a request in the current store's newest
-posts. A proposal can carry one exact current-store cover URL; the model can
-select it from the product, category or Media reads, or create one 16:9
-editorial image and pass its returned URL into the proposal in the same run.
+posts. Every proposal requires one exact current-store cover URL. Unless the
+merchant supplied or explicitly chose an existing image, blog creation includes
+one new 16:9 editorial image and must pass its returned URL into the proposal in
+the same run. `media-preparation.ts` inspects an authentic source and, when its
+ratio differs, saves a 16:9 copy with the whole source visible rather than
+cropping it; an already-correct source is reused.
 Blogs Manage, drafting and an independent `publish_blog` gate are checked at
 preview and execution. The browser chooses immediate publication or a
 canonical UTC time 5 minutes–90 days ahead; Gemini never receives the

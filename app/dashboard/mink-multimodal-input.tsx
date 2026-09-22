@@ -872,14 +872,27 @@ export function shouldUseMinkImageOnStorefront(message: string) {
   );
 }
 
-/** Exact style requests benefit from the validated design-token reader. */
+/**
+ * Exact style and structure requests benefit from the validated reader.
+ *
+ * ★★ THE NOUN LIST USED TO MISS THE COMMONEST SENTENCE ANYBODY TYPES. It
+ * required one of storefront/website/web page/home page/landing page — so
+ * "make my shop look like this", the phrase this whole path was built for,
+ * matched nothing and fell back to the prose extractor. The merchant got a
+ * paraphrase of their reference ("cream background, dark serif headings") in
+ * place of the exact hexes and block order, with nothing anywhere saying the
+ * better reader had been skipped. Shop, store, site and brand are what people
+ * call their own storefront.
+ *
+ * ★ BOTH HALVES ARE STILL REQUIRED, which is what keeps it narrow: a noun for
+ * the merchant's own storefront AND a word about how it looks or how it is
+ * arranged. "Add this photo to my shop page" names a destination and no
+ * appearance, so it stays an ordinary extraction.
+ */
 export function shouldReadMinkImageAsStorefrontDesign(message: string) {
-  return (
-    /\b(?:storefront|website|web\s?page|home\s?page|landing\s?page)\b/i.test(
-      message,
-    ) &&
-    /\b(?:design|redesign|restyle|style|colou?r|palette|font|typeface|radius|rounded|look\s+like|match)\b/i.test(
-      message,
-    )
-  );
+  const surface =
+    /\b(?:storefront|website|web\s?site|web\s?page|home\s?page|landing\s?page|shop|store|site|brand)\b/i;
+  const appearance =
+    /\b(?:design|redesign|restyle|style|styling|colou?rs?|palettes?|fonts?|typefaces?|radius|rounded|themes?|looks?|aesthetics?|vibe|layouts?|structure|similar|recreate|replicate|inspired|match(?:ing)?|like\s+this|same\s+as)\b/i;
+  return surface.test(message) && appearance.test(message);
 }

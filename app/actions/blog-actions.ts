@@ -21,6 +21,7 @@ import {
   extractMediaUrlsFromHtml,
 } from "@/lib/storage/cleanup";
 import { gcsPathFromUrl } from "@/lib/storage/gcs";
+import { isForeignStoreImageUrl } from "@/lib/storage/ownership";
 import { getStoreSettings } from "@/lib/settings/resolve";
 import { fetchBlogTaxonomy } from "@/lib/blog-taxonomy";
 
@@ -101,6 +102,87 @@ function calculateReadingTime(html: string): number {
 
 // Returns the caller's id only if their role grants `manage` on Blogs.
 // RLS already enforces a baseline at the DB layer; this is the app-layer gate.
+/**
+ * Refuse a cover image that is one of OUR bucket's objects but belongs to a
+ * different store.
+ *
+ * ★★ THE DANGEROUS SET IS EXACTLY "IN OUR BUCKET, OUTSIDE THIS STORE". Storing
+ *    such a URL is not merely a hotlink: the orphan sweep below
+ *    (`deleteStorageUrls` on the refs this save drops) resolves any in-bucket
+ *    URL to a path with NO tenant predicate, so the next cover change
+ *    permanently deletes the other merchant's object while their own row still
+ *    points at it. Blocking the write is what makes that unreachable.
+ *
+ * ★ A URL OUTSIDE OUR BUCKET IS ALLOWED THROUGH, deliberately. `gcsPathFromUrl`
+ *   returns null for it, so the sweep already treats it as unmanaged and never
+ *   deletes it - and refusing it here would break every blog still carrying a
+ *   legacy Supabase-hosted cover, which CODEBASE records as serving until the
+ *   media backfill.
+ *
+ * ★★ AND ONLY A CHANGED VALUE IS JUDGED. `/api/upload` wrote bare
+ *    `blog-covers/<file>` paths with no store prefix until 2026-08-23, so a
+ *    legacy cover of THIS store cannot be proven ours - holding an existing
+ *    blog to the new rule would make its title uneditable over an image nobody
+ *    is touching. New values have only ever come from store-prefixed paths.
+ */
+function foreignCoverImageError(
+  storeId: string,
+  next: string | null | undefined,
+  current?: string | null,
+): string | null {
+  const url = (next ?? "").trim();
+  if (!url || url === (current ?? "").trim()) return null;
+  return isForeignStoreImageUrl(storeId, url)
+    ? "That cover image is not one of this store's own images. Upload it, or pick it from this store's Media Library."
+    : null;
+}
+
+/**
+ * Refuse a body image this store cannot be shown to own.
+ *
+ * ★★ THE ARTICLE BODY IS THE SAME HOLE AS THE COVER. `extractMediaUrlsFromHtml`
+ *    feeds every `<img>` in the stored HTML to the identical orphan sweep, so
+ *    an embedded in-bucket URL belonging to another store is deleted the next
+ *    time the author removes it from the post - and the rich-text editor
+ *    inserts images through the very same picker the cover uses.
+ *
+ * ★ IT JUDGES WHAT WILL BE STORED, not what was posted: `sanitizeBlogContent`
+ *   runs first, so an `<img>` the sanitiser strips is never a reason to refuse
+ *   a save, and one it keeps is exactly what the sweep will later see.
+ *
+ * ★ ONLY AN IMAGE THIS SAVE ADDS. The cover rule's reason, per image: a legacy
+ *   body written before store-prefixed uploads cannot be proven ours, and
+ *   re-judging it would make an old post uneditable over pictures nobody is
+ *   touching. `deleteStorageUrls`'s own tenant scope is what covers a row that
+ *   was poisoned before this check existed.
+ */
+function foreignBodyImageError(
+  storeId: string,
+  nextContent: string | null | undefined,
+  currentContent?: string | null,
+): string | null {
+  if (!nextContent) return null;
+  const kept = new Set(extractMediaUrlsFromHtml(currentContent));
+  const added = extractMediaUrlsFromHtml(
+    sanitizeBlogContent(nextContent),
+  ).filter((url) => !kept.has(url));
+  return added.some((url) => isForeignStoreImageUrl(storeId, url))
+    ? "An image in this post is not one of this store's own images. Remove it, or re-upload it from the editor."
+    : null;
+}
+
+/** Both image rules for one blog write, in the order the editor shows them. */
+function foreignBlogImageError(
+  storeId: string,
+  next: { cover?: string | null; content?: string | null },
+  current?: { cover?: string | null; content?: string | null },
+): string | null {
+  return (
+    foreignCoverImageError(storeId, next.cover, current?.cover) ??
+    foreignBodyImageError(storeId, next.content, current?.content)
+  );
+}
+
 async function getAdminIdentity(): Promise<UserIdentity | null> {
   return getManagerIdentity("blogs");
 }
@@ -277,6 +359,12 @@ export async function createBlog(
     : 0;
   const storeId = await getActingStoreId();
 
+  const imageError = foreignBlogImageError(storeId, {
+    cover: formData.cover_image_url,
+    content: formData.content,
+  });
+  if (imageError) return { error: imageError };
+
   const base = formData.slug || slugify(formData.title);
   const { slug: firstSlug, bump } = await resolveSlug(admin, base, storeId);
   let slug = firstSlug;
@@ -369,6 +457,13 @@ export async function updateBlog(
   );
   const currentBlog = currentRows[0];
 
+  const imageError = foreignBlogImageError(
+    storeId,
+    { cover: formData.cover_image_url, content: formData.content },
+    { cover: currentBlog?.cover_image_url, content: currentBlog?.content },
+  );
+  if (imageError) return { error: imageError };
+
   const publishedAt =
     formData.status === "published"
       ? (currentBlog?.published_at ?? new Date().toISOString())
@@ -437,7 +532,12 @@ export async function updateBlog(
       ...(formData.cover_image_url ? [formData.cover_image_url] : []),
       ...extractMediaUrlsFromHtml(formData.content),
     ]);
-    await deleteStorageUrls(oldRefs.filter((u) => !newRefs.has(u)));
+    await deleteStorageUrls(
+      oldRefs.filter((u) => !newRefs.has(u)),
+      {
+        ownedByStoreId: storeId,
+      },
+    );
 
     revalidateBlogs();
     revalidatePath(`/blogs/${slug}`);
@@ -481,10 +581,10 @@ export async function deleteBlog(id: string): Promise<ActionResult> {
     return { error: dbErrorMessage(err, "Failed to delete blog.") };
   }
 
-  await deleteStorageUrls([
-    prev?.cover_image_url ?? null,
-    ...extractMediaUrlsFromHtml(prev?.content),
-  ]);
+  await deleteStorageUrls(
+    [prev?.cover_image_url ?? null, ...extractMediaUrlsFromHtml(prev?.content)],
+    { ownedByStoreId: await getActingStoreId() },
+  );
 
   revalidateBlogs();
   return { success: true };
@@ -681,7 +781,7 @@ export async function bulkDeleteBlogs(ids: string[]): Promise<ActionResult> {
     urls.push(r.cover_image_url);
     urls.push(...extractMediaUrlsFromHtml(r.content));
   }
-  await deleteStorageUrls(urls);
+  await deleteStorageUrls(urls, { ownedByStoreId: await getActingStoreId() });
 
   revalidateBlogs();
   return { success: true };
@@ -703,6 +803,32 @@ export async function autosaveBlog(
   const userId = admin.uid;
 
   const updateData: Record<string, unknown> = { updatedBy: userId };
+
+  // The extra read is paid only when this autosave actually carries an image
+  // field, and it is what lets a legacy pre-2026-08-23 cover or body keep
+  // saving while a newly added foreign one is refused.
+  if (fields.cover_image_url !== undefined || fields.content !== undefined) {
+    const storeId = await getActingStoreId();
+    const currentRows = await withUser(admin, (db) =>
+      db
+        .select({
+          cover_image_url: blogs.coverImageUrl,
+          content: blogs.content,
+        })
+        .from(blogs)
+        .where(and(eq(blogs.id, id), eq(blogs.storeId, storeId)))
+        .limit(1),
+    );
+    const imageError = foreignBlogImageError(
+      storeId,
+      { cover: fields.cover_image_url, content: fields.content },
+      {
+        cover: currentRows[0]?.cover_image_url,
+        content: currentRows[0]?.content,
+      },
+    );
+    if (imageError) return { error: imageError };
+  }
 
   if (fields.title !== undefined) updateData.title = fields.title;
   if (fields.content !== undefined) {
@@ -802,6 +928,14 @@ export async function submitCustomerBlog(
   const storeId = await getCurrentStoreId();
   const taxonomy = await validateCustomerTaxonomy(storeId, formData);
   if (taxonomy.error !== undefined) return { error: taxonomy.error };
+
+  // A shopper is the least trusted writer here, and their submission reaches
+  // the same orphan sweep as an admin's post.
+  const imageError = foreignBlogImageError(storeId, {
+    cover: formData.cover_image_url,
+    content: formData.content,
+  });
+  if (imageError) return { error: imageError };
 
   const readingTime = calculateReadingTime(formData.content);
   const authorName = `${customer.first_name}${customer.last_name ? " " + customer.last_name : ""}`;
@@ -1072,6 +1206,13 @@ export async function updateCustomerBlog(
   );
   const prev = prevRows[0];
 
+  const imageError = foreignBlogImageError(
+    storeId,
+    { cover: formData.cover_image_url, content: formData.content },
+    { cover: prev?.cover_image_url, content: prev?.content },
+  );
+  if (imageError) return { error: imageError };
+
   try {
     await withUser({ uid: user.id, email: user.email }, (db) =>
       db
@@ -1140,7 +1281,12 @@ export async function updateCustomerBlog(
     ...(formData.cover_image_url ? [formData.cover_image_url] : []),
     ...extractMediaUrlsFromHtml(formData.content),
   ]);
-  await deleteStorageUrls(oldRefs.filter((u) => !newRefs.has(u)));
+  await deleteStorageUrls(
+    oldRefs.filter((u) => !newRefs.has(u)),
+    {
+      ownedByStoreId: storeId,
+    },
+  );
 
   revalidatePath("/dashboard/blogs");
   return { success: true };
@@ -1241,10 +1387,13 @@ export async function deleteCustomerBlog(id: string): Promise<ActionResult> {
   }
 
   const removed = removedRows[0];
-  await deleteStorageUrls([
-    removed.cover_image_url ?? null,
-    ...extractMediaUrlsFromHtml(removed.content),
-  ]);
+  await deleteStorageUrls(
+    [
+      removed.cover_image_url ?? null,
+      ...extractMediaUrlsFromHtml(removed.content),
+    ],
+    { ownedByStoreId: await getCurrentStoreId() },
+  );
 
   revalidatePath("/dashboard/blogs");
   return { success: true };

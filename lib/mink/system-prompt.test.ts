@@ -106,7 +106,7 @@ describe("Mink system prompt document", () => {
       "saved immediately to the store's Media Library and shown to the merchant",
     );
     expect(template).toContain(
-      "continue in the same run with the exact returned URL",
+      "continue immediately in the same run with the exact returned URL",
     );
     expect(template).toContain(
       "use its authentic image in a hero_carousel slide",
@@ -144,7 +144,10 @@ describe("Mink system prompt document", () => {
     expect(template).toContain("ALWAYS call it before propose_blog_draft");
     expect(template).toContain("purpose=blog_cover");
     expect(template).toContain("exact returned URL as cover_image_url");
-    expect(template).toContain("pass that URL unchanged as image_url");
+    expect(template).toContain("automatically creates a square Media copy");
+    expect(template).toContain(
+      "telling the merchant to paste, upload or select that URL themselves is an incomplete task",
+    );
     expect(template).toContain("answer in at most two short sentences");
     expect(template).toContain("single Apply to Website Builder draft button");
     expect(template).toContain(

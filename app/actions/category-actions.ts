@@ -8,6 +8,10 @@ import {
   getActingStoreId,
 } from "@/app/dashboard/lib/access";
 import { deleteStorageUrls } from "@/lib/storage/cleanup";
+import {
+  FOREIGN_IMAGE_ERROR,
+  firstForeignStoreImageUrl,
+} from "@/lib/storage/ownership";
 import { withUser, type UserIdentity } from "@/lib/db/client";
 import { isUniqueViolation, dbErrorMessage } from "@/lib/db/errors";
 import { categories } from "@/drizzle/schema";
@@ -111,6 +115,8 @@ export async function createCategory(
   const storeId = await getActingStoreId();
 
   if (!formData.name.trim()) return { error: "Name is required." };
+  if (firstForeignStoreImageUrl(storeId, [formData.image_url]))
+    return { error: FOREIGN_IMAGE_ERROR };
 
   const base = formData.slug ? slugify(formData.slug) : slugify(formData.name);
   const { slug: firstSlug, bump } = await resolveSlug(admin, base, storeId);
@@ -186,6 +192,18 @@ export async function updateCategory(
   );
   const oldImage = prev[0]?.imageUrl ?? null;
 
+  // Only what this save ADDS: an image already on the row may predate
+  // store-prefixed uploads and cannot be proven ours.
+  if (
+    firstForeignStoreImageUrl(
+      storeId,
+      [formData.image_url],
+      new Set(oldImage ? [oldImage] : []),
+    )
+  ) {
+    return { error: FOREIGN_IMAGE_ERROR };
+  }
+
   // Own transaction per attempt (see createCategory). No store filter needed:
   // RLS (is_store_admin) confines the update to the caller's own store, and
   // updated_at is maintained by the DB trigger.
@@ -196,7 +214,7 @@ export async function updateCategory(
       );
       const newImage = formData.image_url || null;
       if (oldImage && oldImage !== newImage)
-        await deleteStorageUrls([oldImage]);
+        await deleteStorageUrls([oldImage], { ownedByStoreId: storeId });
       revalidateCatalog();
       return { success: true };
     } catch (err) {
@@ -239,7 +257,10 @@ export async function deleteCategory(id: string): Promise<ActionResult> {
     return { error: dbErrorMessage(err, "Failed to delete category.") };
   }
 
-  if (prev[0]?.imageUrl) await deleteStorageUrls([prev[0].imageUrl]);
+  if (prev[0]?.imageUrl)
+    await deleteStorageUrls([prev[0].imageUrl], {
+      ownedByStoreId: await getActingStoreId(),
+    });
 
   revalidateCatalog();
   return { success: true };

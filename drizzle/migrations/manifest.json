@@ -5206,6 +5206,59 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260922_0124_mink_complete_blog_covers_prepared_images",
+      "description": "Explain automatic blog-cover hand-off and destination-shaped authentic images",
+      "file": "sql/20260922_0124_mink_complete_blog_covers_prepared_images.sql",
+      "transaction": true,
+      "requires": ["20260921_0123_mink_blog_catalogue_covers"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide promises one automatic cover in the same proposal",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%Every new Mink blog includes a cover by default%' and body like '%You do not need to copy its URL or open the blog editor to finish the hand-off%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide explains non-destructive destination preparation",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%automatically prepares a square Media copy%' and body like '%The original upload is never cropped or overwritten%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260922_0125_mink_storefront_from_reference",
+      "description": "Describe reading a reference shop's colours and page structure from a screenshot",
+      "file": "sql/20260922_0125_mink_storefront_from_reference.sql",
+      "transaction": true,
+      "requires": ["20260922_0124_mink_complete_blog_covers_prepared_images"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide describes reading a reference shop's design and page structure",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%the order of the blocks down the page%' and body like '%a private design proposal and a private page-layout proposal%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide states the reference's own words and pictures are not copied",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%belonging to the shop in the screenshot are never copied%'",
+            "equals": "1"
+          },
+          {
+            "name": "the superseded own-storefront-only sentence is gone",
+            "sql": "select count(*)::text from help_articles where status='published' and body like '%Mink combines the visual reading with the current Website Builder state%'",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

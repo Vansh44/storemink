@@ -375,6 +375,13 @@ only to the isolated, bounded Vertex reader; .txt/.md imports are decoded
 locally. A sent image is also normalised through the ordinary Media action when
 the admin holds `media:manage`, so the exact preview survives conversation
 reloads and can ground a product, storefront-layout or generated-image proposal.
+When product creation uses that exact source, `media-preparation.ts`
+auto-orients it and, only when necessary, saves an idempotent 1:1 WebP copy on
+a white canvas with the whole authentic photo visible. Blog covers use the same
+server boundary with a 16:9 canvas and ambient blurred fill. The original Media
+item is never cropped or overwritten; an already-correct ratio is reused. The
+proposal and later approval bind the prepared URL, so the merchant is never
+sent away to resize or reupload it.
 `lib/mink/voice-recorder.ts` captures one canonical mono 16 kHz PCM WAV locally.
 After speech begins, 1.2 seconds of sustained silence finishes the utterance;
 the 30-second cap remains a stalled-audio fallback. The temporary recording is
@@ -599,6 +606,92 @@ design, it does not save a file.
 body/display pair from the allowlist, four radii. A screenshot's own typeface
 can only be approximated, and WCAG AA contrast remains a proposal REFUSAL — a
 model copying a screenshot optimises for resemblance over readability.
+
+### Mink reads a reference shop's STRUCTURE too (2026-09-22)
+
+The design reader answered half of "make my shop look like this" and the half
+it answered was invisible on its own. Palette, type and radii repaint whatever
+page the merchant already has, so the result was the reference's colours on the
+merchant's old arrangement — and the arrangement is most of what anybody means
+when they point at a site they like. 9B's `propose_storefront_layout` existed
+and had no evidence: nothing read a hero, a trust strip, a three-up product row
+or an image-beside-copy band out of a picture, so a layout proposal off a
+screenshot was a guess with a screenshot next to it.
+
+**★★ THE READING GAINS A `layout`, AND EVERY FIELD IN IT IS ENUMERATED.** An
+ordered list of section TYPES taken from the builder's own registry, each with
+optional structural values the section schema already accepts — `variant`,
+`columns`, `mediaPosition`, `alignment`, `theme`, `ratio`. So unlike the
+palette half, where a hex at least has to be a hex, there is nowhere here for a
+sentence to land: `parseDesignLayout` has no field that holds free text, and a
+crafted screenshot's best case is a page with the wrong number of columns. An
+entry whose type is not a block we render is dropped WHOLE (a hint with no
+block describes nothing, and inventing the block it might have meant is the
+guess this reader exists to avoid), while a bad hint is dropped INDIVIDUALLY —
+"a hero, and I could not tell which shape" beats silence about the hero.
+
+**★ THE REFERENCE'S OWN WORDS NEVER CROSS, BY CONSTRUCTION.** The reader is
+told not to transcribe headings, copy, product names, prices or logos, and the
+schema could not carry them if it disobeyed. That is both the safer reading and
+the only honest one: a merchant wants the shape of somebody else's page, not
+their sentences, and those are the one part of "make mine like this" that is
+somebody else's to give. Copy comes from the merchant's own brand voice and
+every image from their Media, catalogue or a generated one — 9D's ownership
+rule, unchanged.
+
+★ `DESIGN_LAYOUT_SECTION_TYPES` is DERIVED from `HOMEPAGE_SECTION_TYPES` minus
+`custom_code` (arbitrary code behind its own entitlement and its own approval
+path, refused by a layout proposal anyway) and `rich_text` (a block of prose,
+so reading one means transcribing the reference). A section type added to the
+builder later becomes readable with no edit, and the two lists cannot drift.
+★ The reader's gloss for each type is `SECTION_TYPE_META[type].description` —
+the builder's own merchant-facing words — so what the reader is told a block
+looks like cannot drift from the block it names.
+★ Bounded at 12 entries: a page may hold 40, a screenshot cannot show 40, and
+past a dozen the reader has stopped describing and started filling the shape.
+★ A STRUCTURE-ONLY reading is a real reading. A flat monochrome reference can
+yield no usable token and a perfectly clear block order; refusing it would
+report an unreadable screenshot while holding the answer that was asked for.
+
+**★★ AND THE OUTPUT CEILING HAD TO RISE WITH THE SCHEMA.** `extractMinkDesign`
+capped generation at 1024 tokens, which fitted fourteen design values and not
+twelve blocks as well — and a generation cut off at `MAX_TOKENS` parses to
+nothing, so the whole read would have failed closed with "No readable design
+was found in this image", blaming the merchant's picture for our own ceiling.
+2048 now, the same bound the general extractor works to.
+
+**★★ AND THE TRIGGER MISSED THE SENTENCE PEOPLE ACTUALLY TYPE.**
+`shouldReadMinkImageAsStorefrontDesign` required one of
+storefront/website/web page/home page/landing page, so **"make my shop look
+like this" — the exact phrase this path was built for, and the one this file
+used to motivate it — matched nothing** and fell back to the prose extractor:
+the merchant got "cream background, dark serif headings" where the validated
+reader would have given exact hexes and a block order, with nothing anywhere
+saying the better path had been skipped. Shop, store, site and brand are what
+people call their own storefront, and the intent half now also admits
+similar/recreate/replicate/inspired/layout/structure. ⚠ BOTH halves are still
+required, which is what keeps it narrow — "add this photo to my shop page"
+names a destination and no appearance, so it stays an ordinary extraction.
+⚠ Plurals are load-bearing: `colou?r` with a trailing `\b` does not match
+"colours", and the existing test caught exactly that when `match` was dropped
+from the list in passing.
+
+★ The runtime prompt makes it ONE piece of work: request the design context and
+the target page's context together, then create the design proposal and the
+layout proposal in the SAME run, each separately approved into the private
+Builder draft. Whichever half was unreadable is said plainly rather than
+invented. Prompt versions advance to `draft-action-beta-v43` / `read-beta-v22`
+(the attachment guidance is in the shared document, so a read-only actor's
+prompt moved too); tool registries are UNCHANGED, because no tool schema did.
+Migration `20260922_0125_mink_storefront_from_reference` replaces the published
+sentence that described only a merchant's own storefront, in place.
+
+⚠ Unchanged and still the boundary: Mink proposes, a human approves, and
+publishing stays a separate step in Website Builder. ⚠ Header, footer and
+custom-code sections are not readable from a screenshot and are not proposed
+from one. ⚠ Nobody has yet measured how often a reference page's bands map
+cleanly onto our seventeen section types; a band with no near equivalent is
+skipped by instruction, which is the right failure and an unquantified one.
 
 ### Mink answer legibility — what a run produced, not what it read (2026-09-20)
 
@@ -1002,11 +1095,17 @@ than a warning on the card.
   unreleased product's, and an admin trusted to arrange a page is not
   automatically trusted to enumerate every file the store has uploaded.
 - **★★ `lib/mink/storefront-media-policy.ts` — THE ALLOWLIST IS "WHAT THE MODEL
-  WAS SHOWN", NOTHING WIDER.** Three sources, each provably real: a URL already
+  WAS SHOWN", NOTHING WIDER.** Four sources, each provably real: a URL already
   on the CURRENT page (so a proposal that keeps or moves a block is never refused
   for its own images — and a pure reorder asks the database nothing at all), a
-  `media_assets.url` for this store, or an exact current-store product primary
-  or gallery URL returned by a product read. A store-owned **GCS PREFIX** rule was
+  `media_assets.url` for this store, an exact current-store product primary
+  or gallery URL returned by a product read, or an exact current-store
+  `categories.image_url` returned by `search_storefront_categories`. ★ The
+  category source was added with the Mink blog cover work, because
+  `selectOwnedStorefrontImageUrls` is ALSO what `assertOwnedCover` re-checks
+  inside the publication transaction — a cover resolved from a category read
+  had to survive it. It obeys the same rule as the other three: a read tool
+  returned it, so the model was shown it. A store-owned **GCS PREFIX** rule was
   considered and REJECTED: the builder's own `ImageUpload` writes to
   `stores/{storeId}/uploads/` with no row anywhere, so no read tool can list
   one and the model could only ever reach it by CONSTRUCTING a path — the
@@ -2856,7 +2955,8 @@ wholesip/
 │   ├── storage/               # ★ Google Cloud Storage media backend (GCS-only —
 │   │                          # lib/supabase/ removed, Supabase fully out of code):
 │   │                          # gcs.ts — gcsConfigured/gcsUploadObject/gcsSignUploadUrl/
-│   │                          # gcsDeletePaths/gcsDeletePrefix/gcsPublicUrl/gcsPathFromUrl
+│   │                          # gcsDownloadObject/gcsDeletePaths/gcsDeletePrefix/
+│   │                          # gcsPublicUrl/gcsPathFromUrl
 │   │                          # (ADC or
 │   │                          # GCP_SA_KEY; public bucket; lazy SDK import). uploads.ts —
 │   │                          # client helpers (uploadImage POSTs /api/upload; uploadVideo
@@ -3043,6 +3143,9 @@ wholesip/
 │   │                          # blog-publication-policy/content/action-types/actions/worker add
 │   │                          # Phase 5D exact sanitized blog publication, UTC schedule bounds,
 │   │                          # tenant-composite persistence and conflict-safe bounded execution;
+│   │                          # media-preparation.ts creates idempotent destination-shaped Media
+│   │                          # copies of authentic images (1:1 product or 16:9 blog) without
+│   │                          # cropping, generative replacement or overwriting the source;
 │   │                          # campaign-policy/audience/action-types/actions add Phase 5E exact audience
 │   │                          # snapshots, branded sample, final confirmation and queue scheduling;
 │   │                          # bulk-price-policy/targets/action-types/actions add Phase 5F exact-SKU
@@ -5786,13 +5889,101 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      categories, tags, dates and exact cover-image URLs. The existing 5-credit
      `blog` proposal remains the only model-facing blog write capability;
      Gemini still has no live publish or schedule tool. A new-blog request reads
-     that catalogue first to avoid accidental duplicate topics. The proposal
-     may carry one optional `cover_image_url`, but only when the exact URL is
-     owned by this store's Media Library or product catalogue. A requested
-     generated cover uses the existing image-generation gate and spend ceiling
-     with the pinned `blog_cover` purpose (16:9), saves to Media, and feeds its
-     exact URL into `propose_blog_draft` in the same run. The proposal card
-     renders a safe same-origin cover preview beside the editable copy.
+     that catalogue first to avoid accidental duplicate topics. Every new
+     proposal requires one `cover_image_url`; blog creation authorizes one
+     16:9 editorial cover by default unless the merchant supplied or explicitly
+     chose an existing current-store image.
+     **★★ BUT REQUIRED ONLY FOR AN ADMIN WHO CAN PRODUCE ONE.** Every cover URL
+     comes from a tool behind a permission `propose_blog_draft` does NOT
+     require — `list_storefront_media` (`media:view`),
+     `generate_storefront_image` (`media:manage`), the catalogue reads
+     (`products:view`) and `search_storefront_categories` (`categories:view`) —
+     so for an admin holding only `blogs:manage` a flatly mandatory cover
+     failed EVERY blog proposal on "cover_image_url must be text.", an argument
+     nothing on the platform could give them. `MinkTool.declarationFor(actor)`
+     is the narrowing hook: `canSupplyBlogCover` decides, the description
+     changes with it, and `execute` RE-DERIVES the rule from the actor rather
+     than trusting the declaration the model saw. ★ It only ever narrows — a
+     cover stays required for everyone who can produce one, which is the
+     promise the Help guide makes; the coverless proposal is the fallback for a
+     role that would otherwise be locked out of blog drafting entirely. Generation uses the existing gate
+     and spend ceiling, saves to Media, and must feed the exact returned URL
+     into `propose_blog_draft` in the same run. `lib/mink/media-preparation.ts`
+     then inspects the real source dimensions. A mismatched authentic image is
+     copied onto a 16:9 canvas that preserves the complete source, while an
+     already-correct generated cover is reused without another Media row. The
+     proposal card renders a safe same-origin cover preview beside the editable
+     copy; the normal blog editor also accepts a pasted Media URL, scoped to
+     this store's own objects.
+     **★★ THAT PASTE FIELD IS SCOPED TO THE STORE, AND THE HOST ALONE WAS NOT
+     ENOUGH.** `storage.googleapis.com` is shared by every GCS customer on
+     earth AND by every StoreMink store, so a host-only check accepted an
+     arbitrary third party's image (a tracking beacon on the merchant's public
+     storefront) and, worse, another store's object — which `deleteStorageUrls`
+     then PERMANENTLY DELETES on the next cover change, because that sweep
+     resolves any in-bucket URL to a path with no tenant predicate. Same rule,
+     same reason, as `sanitizePhotos` (§28) and `isGeneratedImageUrl` (§9E).
+     `normalizeBlogCoverMediaUrl` now takes the server-computed
+     `mediaUrlPrefix` (`gcsPublicUrl(storeStoragePrefix(storeId))`, threaded
+     from `blogs/page.tsx`; `GCS_BUCKET` is server-only env and the store id
+     must not come from the browser) and the field is not rendered at all when
+     GCS is unconfigured — §23's rule that a control which always fails is
+     worse than no control. ★ THE BOUNDARY IS THE SERVER:
+     `foreignCoverImageError` refuses the same value in `createBlog`,
+     `updateBlog` and `autosaveBlog`, because a server action is reachable
+     without the UI. ⚠ It judges only a CHANGED value, and only an in-bucket
+     one: `/api/upload` wrote bare `blog-covers/<file>` paths with no store
+     prefix until 2026-08-23, so a legacy cover cannot be proven ours and
+     holding an existing blog to the new rule would make its title uneditable
+     over an image nobody is touching; a URL outside our bucket (a legacy
+     Supabase cover) is already unmanaged by the sweep and passes through.
+     `isStoreOwnedObjectPath` (`lib/storage/paths.ts`) is the shared predicate.
+     ★★ THE ARTICLE BODY IS THE SAME HOLE AND IS GUARDED THE SAME WAY.
+     `extractMediaUrlsFromHtml` feeds every `<img>` in the stored HTML to the
+     identical sweep, and the rich-text editor inserts images through the very
+     same picker, so `foreignBodyImageError` refuses a newly embedded
+     in-bucket image belonging to another store in `createBlog`, `updateBlog`,
+     `autosaveBlog` AND both customer-submission paths — a shopper is the least
+     trusted writer here. ★ It judges the SANITISED content, so an `<img>` the
+     sanitiser strips is never a reason to refuse a save and one it keeps is
+     exactly what the sweep will later see; and only images this save ADDS, for
+     the cover rule's reason per image.
+     ★★ AND THE SWEEP CARRIES ITS OWN TENANT SCOPE, because a guard on the
+     write cannot reach a URL that is ALREADY in the database — and the write
+     guards deliberately exempt an unchanged value, so a row poisoned before
+     they existed would still be swept. `deleteStorageUrls(urls, {
+     ownedByStoreId })` skips an object that provably belongs to another store
+     and counts it as `foreign`; every blog call site passes it.
+     ⚠ It asks `isOtherStoreObjectPath` ("provably theirs"), NOT
+     `!isStoreOwnedObjectPath` ("not provably ours"), and the gap between them
+     is the legacy namespace: a pre-2026-08-23 object has no `stores/` prefix
+     at all, so the second reading would silently leak every legacy orphan
+     forever instead of cleaning it. ⚠ The option is OPT-IN — the platform
+     store purge and the Help console legitimately delete outside one store's
+     prefix — so `help-actions` and `platform.ts` remain unscoped.
+     **★★ PRODUCTS AND CATEGORIES CARRY THE SAME RULE, AND A CSV IS WHAT MAKES
+     IT REACHABLE THERE.** `coerceUrl` (`lib/import-export/coerce.ts`) checks
+     only the SCHEME, so an `Image URL` column may name any object in the
+     shared bucket — the import path is the products/categories equivalent of
+     the blog editor's paste field, and writes to `products.image_url`,
+     `products.images[]`, `product_variants.image_url` and
+     `categories.image_url` all reach `deleteStorageUrls` on the next save or
+     delete. `firstForeignStoreImageUrl` therefore guards `createProduct`,
+     `updateProduct`, `createCategory`, `updateCategory` and both CSV
+     importers, and all five product/category sweeps pass `ownedByStoreId`.
+     ★ `lib/storage/ownership.ts` is the ONE predicate all four domains
+     delegate to — blogs included — because a rule about which images a tenant
+     owns, written out four times, is four chances to get the bucket or the
+     prefix subtly different. ★ The importers refuse ROW-ATOMICALLY with an
+     `image_not_owned` issue naming the column (§31's rule: one bad row fails,
+     the other 1,999 import), and a foreign VARIANT image skips that variant
+     rather than saving it without the picture the merchant asked for — the
+     existing `variant_failed` precedent. ⚠ A variant has no `image_url` field
+     on the form; the column is written as `images[0]`, so its gallery is the
+     whole of its contribution.
+     ⚠ Separately pre-existing and NOT fixed here: `deleteUploadedImage` still
+     gates on a bare `blog-covers/` path, which no upload has produced since
+     the store prefix landed, so session-upload cleanup is inert.
      The saved proposal card exposes Publish after approval or Schedule for
      later only in the authenticated browser. `POST
      /api/mink/drafts/[draftId]/blog-publication` accepts a saved version,
@@ -5828,7 +6019,47 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
      campaigns and automatic rollback remain outside Phase 5D. Migration
      `20260901_0052_mink_phase_5d_blog_publication` owns the constraints, table,
      indexes and access contract; `20260921_0123_mink_blog_catalogue_covers`
-     updates the published merchant flow in place.
+     adds the catalogue/cover guidance and
+     `20260922_0124_mink_complete_blog_covers_prepared_images` replaces it in
+     place with the automatic hand-off and destination-preparation guarantee.
+     **★★ PREPARATION IS BEST-EFFORT; OWNERSHIP IS NOT.** The only refusal in
+     `prepareMinkImageForDestination` is an image the store does not own —
+     the one thing the caller can act on. A legacy object outside our bucket,
+     a format sharp will not decode, a failed download or upload, an admin
+     without `media:manage`: each falls back to the source URL unchanged,
+     which is what every one of these calls did before preparation existed.
+     Any of them as a hard failure loses a whole blog or product proposal —
+     and the credits already spent on its generated cover — over a picture
+     that merely renders in the wrong shape. ★ Ownership asks
+     `readOwnedStorefrontImageUrls`, the SAME question `assertOwnedCover`
+     re-asks inside the publication transaction, so a cover accepted at
+     proposal time cannot be refused at approval; resolving it through the
+     image-model reference path was strictly narrower (a per-collection View
+     permission, a PNG/JPEG/WebP content type and an object inside our bucket)
+     and locked a store still serving legacy Supabase media out of using its
+     own catalogue photograph. ★ The `media:manage` check runs BEFORE the
+     download, which needs no image data and costs real CPU.
+     **★★ AND THE TOLERANCE ASKS WHAT WOULD BE LOST, NOT WHETHER THE RATIO IS
+     EXACT.** It was `|ratio − target| <= 0.002`, far tighter than a generated
+     image can be relied on to hit — §9E records the model rounding a
+     requested 21:9 to 3168×1344 (2.357 against 2.333), because the request is
+     honoured and the arithmetic is not. So the DEFAULT path, a freshly
+     generated cover, was the one at risk of being letterboxed and downscaled
+     from 2K. `croppedAwayFraction` allows a 6% crop instead: 1.80 against 16:9
+     loses 1.2% and passes through, while a 21:9 banner used as a cover (25%)
+     and a portrait photo on a square card (33%) still qualify.
+     ⚠ `withoutEnlargement` on the contain/inside resizes keeps a small
+     authentic photo at native size on the full-size canvas rather than
+     interpolating it up; the blurred backdrop deliberately still enlarges,
+     since a gap would be worse than softness nobody sees through a 28px blur.
+     ★ `recordPreparedImage` takes a `pg_advisory_xact_lock` on the digest and
+     re-checks under it, because `media_assets` has no unique index on
+     (store_id, path): a plain check-then-insert lets two runs write a row for
+     one object, and deleting either removes the shared file and leaves the
+     other rendering a broken image. The upload stays OUTSIDE that transaction.
+     ★ `MinkPreparedImageResult.createdPath` is the compensation handle — null
+     for a cache hit and a pass-through — so `discardPreparedMinkImage` can
+     only ever undo what this run added when the proposal then fails.
 
      Phase 5E keeps `get_coupon_for_draft` and `propose_coupon_email` as the
      only model-facing campaign capabilities. The authenticated proposal card

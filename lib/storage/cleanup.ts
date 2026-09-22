@@ -3,6 +3,7 @@ import {
   gcsPathFromUrl,
   gcsDeletePaths,
 } from "@/lib/storage/gcs";
+import { isOtherStoreObjectPath } from "@/lib/storage/paths";
 import { logError } from "@/lib/observability/logger";
 
 // Server-only helpers to keep object storage in sync with the database.
@@ -34,17 +35,62 @@ export function extractMediaUrlsFromHtml(
 // storage hiccup must not fail the surrounding DB write. Non-GCS URLs (e.g.
 // legacy Supabase) cannot be deleted here and are counted for callers that need
 // to surface an incomplete purge.
+/**
+ * @param options.ownedByStoreId Refuse to delete an object that provably
+ *   belongs to ANOTHER store, and count it as `foreign` instead.
+ *
+ * ★★ THE SWEEP IS THE SHARP EDGE, because it resolves any in-bucket URL to a
+ *    path with no tenant predicate: a row holding another store's URL turns an
+ *    ordinary orphan clean-up into cross-tenant data loss. Writes are guarded
+ *    too, but a guard on the write cannot reach a URL that is ALREADY in the
+ *    database - and the write guards deliberately exempt a value that has not
+ *    changed, so a row poisoned before they existed would still be swept.
+ *
+ * ★ IT ASKS "IS THIS PROVABLY THEIRS", NOT "IS THIS PROVABLY OURS". Objects
+ *   uploaded before 2026-08-23 have no store prefix at all and belong to no
+ *   store's namespace, so they stay deletable; refusing everything we cannot
+ *   prove is ours would silently leak every legacy object instead.
+ *
+ * ⚠ OPT-IN. The platform store purge and the Help console legitimately delete
+ *   outside one store's prefix, so an omitted option means "no tenant scope"
+ *   and every existing caller is unchanged.
+ */
 export async function deleteStorageUrls(
   urls: (string | null | undefined)[],
-): Promise<{ attempted: number; failed: number; unmanaged: number }> {
+  options?: { ownedByStoreId?: string },
+): Promise<{
+  attempted: number;
+  failed: number;
+  unmanaged: number;
+  foreign: number;
+}> {
   const gcsPaths = new Set<string>();
   const unmanagedUrls = new Set<string>();
+  const storeId = options?.ownedByStoreId;
+  let foreign = 0;
 
   for (const url of urls) {
     if (!url) continue;
     const gcsPath = gcsPathFromUrl(url);
-    if (gcsPath) gcsPaths.add(gcsPath);
-    else unmanagedUrls.add(url);
+    if (!gcsPath) {
+      unmanagedUrls.add(url);
+      continue;
+    }
+    if (storeId && isOtherStoreObjectPath(gcsPath, storeId)) {
+      foreign += 1;
+      continue;
+    }
+    gcsPaths.add(gcsPath);
+  }
+
+  if (foreign > 0) {
+    // Never the object's path or URL: this is another tenant's data, and the
+    // count is what an operator needs to notice a poisoned row.
+    logError(
+      "deleteStorageUrls: refused an object owned by another store",
+      new Error("cross_store_object_skipped"),
+      { storeId, foreign },
+    );
   }
 
   if (gcsPaths.size > 0) {
@@ -54,6 +100,7 @@ export async function deleteStorageUrls(
         attempted: gcsPaths.size,
         failed: failed.length,
         unmanaged: unmanagedUrls.size,
+        foreign,
       };
     } catch (err) {
       logError("deleteStorageUrls: GCS delete failed", err);
@@ -61,8 +108,9 @@ export async function deleteStorageUrls(
         attempted: gcsPaths.size,
         failed: gcsPaths.size,
         unmanaged: unmanagedUrls.size,
+        foreign,
       };
     }
   }
-  return { attempted: 0, failed: 0, unmanaged: unmanagedUrls.size };
+  return { attempted: 0, failed: 0, unmanaged: unmanagedUrls.size, foreign };
 }

@@ -79,6 +79,8 @@ type Props = {
   /** This store's blog categories/tags (managed in /dashboard/blogs/settings). */
   categoryOptions: string[];
   tagOptions: string[];
+  /** Server-computed public prefix of this store's own GCS objects. */
+  mediaUrlPrefix: string;
 };
 
 export function BlogsManagementView({
@@ -92,6 +94,7 @@ export function BlogsManagementView({
   filter,
   categoryOptions,
   tagOptions,
+  mediaUrlPrefix,
 }: Props) {
   const router = useRouter();
   const pathname = usePathname();
@@ -818,6 +821,7 @@ export function BlogsManagementView({
       {/* Blog Editor Dialog — mounted on first open (lazy TipTap bundle) */}
       {(editorOpen || editorEverOpened) && (
         <BlogEditorDialog
+          mediaUrlPrefix={mediaUrlPrefix}
           open={editorOpen}
           blog={editingBlog}
           onClose={closeEditor}

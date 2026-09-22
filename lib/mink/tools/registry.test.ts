@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { MinkToolInputError } from "../errors";
+import { MinkRequestError, MinkToolInputError } from "../errors";
 import type { MinkActorContext } from "../types";
 import { MinkToolRegistry, type MinkTool } from "./registry";
 
@@ -120,6 +120,110 @@ describe("MinkToolRegistry", () => {
           code: "tool_timeout",
         },
       },
+    });
+  });
+});
+
+describe("per-actor declarations", () => {
+  it("narrows the declaration to what this actor can satisfy", () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        declarationFor: (a) => ({
+          name: "read_products",
+          description: "Read products.",
+          parametersJsonSchema: {
+            type: "object",
+            properties: {},
+            required: a.isSuperadmin ? ["cover"] : [],
+            additionalProperties: false,
+          },
+        }),
+      }),
+    ]);
+    const limited = registry.declarationsFor(
+      actor({ permissions: { products: ["view"] } }),
+    );
+    expect(
+      (limited[0].parametersJsonSchema as { required: string[] }).required,
+    ).toEqual([]);
+    const full = registry.declarationsFor(actor({ isSuperadmin: true }));
+    expect(
+      (full[0].parametersJsonSchema as { required: string[] }).required,
+    ).toEqual(["cover"]);
+  });
+
+  it("falls back to the static declaration when a tool defines none", () => {
+    const registry = new MinkToolRegistry([tool()]);
+    expect(
+      registry
+        .declarationsFor(actor({ permissions: { products: ["view"] } }))
+        .map((d) => d.name),
+    ).toEqual(["read_products"]);
+  });
+
+  // The registry is keyed on `declaration.name`, so a variant that renamed the
+  // tool would be routable to the model and unroutable on the way back.
+  it("is still executable under its registered name", async () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        declarationFor: () => ({
+          name: "read_products",
+          description: "Narrowed.",
+          parametersJsonSchema: { type: "object", properties: {} },
+        }),
+      }),
+    ]);
+    const a = actor({ permissions: { products: ["view"] } });
+    const [declared] = registry.declarationsFor(a);
+    const result = await registry.execute(a, { name: declared.name, args: {} });
+    expect(result.response.output).toEqual({ storeIdUsed: "store-1" });
+  });
+});
+
+// ★★ A `MinkRequestError` CARRIES AN AUTHOR-WRITTEN, MERCHANT-SAFE SENTENCE —
+//    the same text the HTTP routes return — and the catch-all replaced every
+//    one with "could not finish right now". That is the difference between
+//    the model rephrasing actionable advice and it retrying the same failing
+//    input until the run's tool budget is gone.
+describe("tool failure messages", () => {
+  it("forwards a MinkRequestError's own message", async () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        execute: vi.fn(async () => {
+          throw new MinkRequestError(
+            "image_preparation_source_failed",
+            "Choose another image and try again.",
+            422,
+          );
+        }),
+      }),
+    ]);
+    const result = await registry.execute(
+      actor({ permissions: { products: ["view"] } }),
+      { name: "read_products", args: {} },
+    );
+    expect(result.response.error).toMatchObject({
+      code: "tool_failed",
+      message: "Choose another image and try again.",
+    });
+  });
+
+  // Anything else still gets the generic text, so no database or stack
+  // detail can reach the model context.
+  it("keeps an unrecognised error generic", async () => {
+    const registry = new MinkToolRegistry([
+      tool({
+        execute: vi.fn(async () => {
+          throw new Error('relation "orders" does not exist');
+        }),
+      }),
+    ]);
+    const result = await registry.execute(
+      actor({ permissions: { products: ["view"] } }),
+      { name: "read_products", args: {} },
+    );
+    expect(result.response.error).toMatchObject({
+      message: "The Mink AI tool could not finish right now.",
     });
   });
 });
