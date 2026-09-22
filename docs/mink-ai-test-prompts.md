@@ -106,7 +106,7 @@ missing permission as a zero.
   proposal and approval tests.
 - Keep one eligible online-delivery order open in the dashboard for Phase 5C.
   Its exact order reference is intentionally read from trusted page context;
-  this file never guesses an order reference.
+  this file never guesses an order reference
 - For Phase 5E, first create `MINKTEST10SEP26` with Phase 4C, then manually
   activate it and keep it valid. Add synthetic test customers with safe inboxes
   to `Mink AI Test Group Sep 2026`. Never email real customers.
