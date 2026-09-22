@@ -5259,6 +5259,26 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260923_0126_mink_marginal_metering",
+      "description": "Record the per-step prefix so a run is charged for its own work",
+      "file": "sql/20260923_0126_mink_marginal_metering.sql",
+      "transaction": true,
+      "requires": ["20260922_0125_mink_storefront_from_reference"],
+      "verify": {
+        "columns": ["mink_usage_ledger.base_prompt_tokens"],
+        "constraints": ["mink_usage_ledger_base_prompt_tokens_check"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "every existing ledger row keeps its original band",
+            "sql": "select count(*)::text from mink_usage_ledger where base_prompt_tokens <> 0",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

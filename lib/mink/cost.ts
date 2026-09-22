@@ -31,6 +31,23 @@ export function cachedPromptTokens(usage: MinkUsage): number {
   );
 }
 
+/**
+ * The base prompt count as it may safely be STORED: never negative, never
+ * above the prompt total it is the first step's share of.
+ *
+ * ⚠ ONE implementation, for `cachedPromptTokens`' reason exactly. The ledger's
+ * `base_prompt_tokens` CHECK sits in the same transaction as the run-completion
+ * update and the assistant message, so a value that tripped it would roll back
+ * a reply the merchant has already read. A clamp written twice is not a
+ * rounding bug here; it is a lost answer.
+ */
+export function basePromptTokens(usage: MinkUsage): number {
+  return Math.min(
+    Math.max(0, usage.basePromptTokens),
+    Math.max(0, usage.promptTokens),
+  );
+}
+
 export interface MinkCostEstimate {
   estimatedCostMicrousd: number | null;
   pricingVersion: string | null;

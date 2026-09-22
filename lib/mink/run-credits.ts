@@ -97,6 +97,11 @@ export async function settleMinkRunCredits(input: {
   actor: Pick<MinkActorContext, "storeId" | "adminId" | "effectivePlan">;
   runId: string;
   usage: MinkUsage;
+  /**
+   * Model turns. Needed because each one re-sent the prefix, and the charge is
+   * based on what accumulated on top of it (`weightedMinkUnits`).
+   */
+  steps: number;
   status: "succeeded" | "failed" | "cancelled";
   usageKnown: boolean;
   /** Credits Phase 3+ proposals in this run already reserved for themselves. */
@@ -109,7 +114,7 @@ export async function settleMinkRunCredits(input: {
   // forever as unbilled.
   const bandCredits =
     input.status === "succeeded" && input.usageKnown
-      ? minkCreditBand(input.usage).band.credits
+      ? minkCreditBand({ usage: input.usage, steps: input.steps }).band.credits
       : 0;
   const outstanding = minkRunCreditCharge({
     bandCredits,

@@ -14,7 +14,7 @@ import {
   minkUsageLedger,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
-import { cachedPromptTokens, estimateMinkCost } from "./cost";
+import { basePromptTokens, cachedPromptTokens, estimateMinkCost } from "./cost";
 import { historyWithCompaction } from "./compaction";
 import { MinkRequestError } from "./errors";
 import { minkShadowMeter } from "./metering";
@@ -510,6 +510,7 @@ export async function completeMinkRun(input: {
       usageStatus: "reported",
       status: "succeeded",
       toolCalls: result.toolCalls,
+      steps: result.steps,
     });
     await db
       .update(minkConversations)
@@ -590,6 +591,7 @@ export async function failMinkRun(input: {
       usageStatus: input.usageStatus,
       status: input.status,
       toolCalls: input.progress.toolCalls,
+      steps: input.progress.steps,
     });
   });
 }
@@ -722,6 +724,8 @@ async function insertUsage(
     usageStatus: MinkUsageStatus;
     status: "succeeded" | "failed" | "cancelled";
     toolCalls: number;
+    /** Model turns, for the band's prefix subtraction (metering.ts). */
+    steps: number;
   },
 ): Promise<number> {
   const estimate =
@@ -737,6 +741,7 @@ async function insertUsage(
     toolCalls: input.toolCalls,
     usageKnown: input.usageStatus !== "unavailable",
     usage: input.usage,
+    steps: input.steps,
   });
   const draftUsage = await getMinkRunDraftUsage(
     db,
@@ -759,6 +764,10 @@ async function insertUsage(
       // assistant message, so tripping the ledger's cached_tokens CHECK would
       // roll back a reply the merchant has already read.
       cachedTokens: cachedPromptTokens(input.usage),
+      // The first turn's prompt size, so a run reconciled hours later is
+      // banded by the same rule a timely one was. Zero means unknown, and
+      // every reader then charges the whole prompt (metering.ts).
+      basePromptTokens: basePromptTokens(input.usage),
       usageStatus: input.usageStatus,
       estimatedCostMicrousd: estimate.estimatedCostMicrousd,
       pricingVersion: estimate.pricingVersion,

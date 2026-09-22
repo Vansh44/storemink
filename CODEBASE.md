@@ -271,6 +271,68 @@ says write nothing), and a reconciler for runs left with a NULL
 they owe nothing, and `discardFailedMinkRunDrafts` already compensates any
 proposal credits they reserved.
 
+### Mink marginal metering — the merchant pays for their own work (2026-09-23)
+
+**★★ THE 1-CREDIT BAND WAS UNREACHABLE FOR ANY RUN THAT TOUCHED A TOOL, AND A
+MERCHANT REPORTED IT.** "how can i upload a photo" — one `search_help_centre`
+call, a two-sentence answer — cost **3 credits** on a live Pro store (269 →
+266). Not a pricing disagreement: `weightedMinkUnits` counted the RAW prompt,
+and `orchestrator.ts` drives a chat session, so the system prompt plus the
+permission-filtered tool declarations are re-sent on EVERY model step. Measured
+on `mink_usage_ledger` rather than estimated: single-step runs report
+**16,542–17,072 input tokens**, and input per step across the recorded runs
+sits between **16,542 and 20,029**. So the prefix alone crosses the 30,000
+light ceiling on the SECOND step — one tool call — and the recorded two-step
+lookup (34,941 input, 164 output) bands standard. The practical ladder was
+therefore _1 step = 1 credit, 2–5 = 3, 6+ = 8_, i.e. the band measured **how
+many tools we offer**, not how much work the merchant asked for.
+
+★★ `billablePromptTokens` SUBTRACTS THE PREFIX ONCE PER STEP —
+`promptTokens − basePromptTokens × steps` — so what remains is the merchant's
+message plus the tool RESULTS the run accumulated, which is the only part of
+the prompt their request caused. The same two-step lookup now weighs ~1,600
+units and bands **light, 1 credit**; the regression test asserts both numbers,
+so re-charging the prefix fails it. ⚠ Output is UNTOUCHED and still carries the
+×5 weight, so a long answer is still a big run.
+★ It is the FIRST turn's prompt, because that turn is prefix + the merchant's
+message and nothing else; every later turn is that plus results. Attributing
+the whole first turn to us slightly UNDER-charges (the merchant's own message
+rides in it), which is the right direction for a rounding decision nobody can
+see.
+★★ `basePromptTokens` IS THE ONE FIELD `addUsage` DOES NOT SUM. Every turn
+reports its own prompt count, so summing them would produce roughly `steps²` of
+prefix and make the subtraction overshoot on every multi-step run. First
+non-zero wins, pinned by its own test.
+★★ ZERO MEANS UNKNOWN, NEVER FREE. A provider that reported no usage, and every
+ledger row written before the column existed, fall back to charging the whole
+prompt — exactly what they did before. Verified against the database: **every
+existing row is 0**, so this reprices nothing retroactively and no historical
+band moves. The reconciler passes the stored value, so a late settlement of an
+old run keeps the band it would have had.
+★ `basePromptTokens()` in `cost.ts` is the ONE clamp (`0 ≤ base ≤ prompt`),
+shared by the estimate and the ledger insert for `cachedPromptTokens`' reason:
+that insert shares a transaction with the run-completion update and the
+assistant message, so a value tripping the CHECK would roll back a reply the
+merchant has already read.
+★ The operator console's band mix re-derives from stored counts, so `bandRuns`
+carries the SAME subtraction in SQL (`greatest(input − base × steps, 0)`) —
+a console that disagreed with the meter is the one screen the bands get tuned
+from.
+⚠ THE REAL FIX FOR THE COST ITSELF IS CACHING, NOT BANDING. This changes what
+the MERCHANT is charged; StoreMink still pays for every re-sent prefix, and
+`cached_tokens` exists to measure how much of it a provider cache is already
+serving. Treat the tool declaration set as a budget: a new tool raises our cost
+on every existing merchant's every question, permanently — it simply no longer
+raises THEIRS.
+
+Migration `20260923_0126_mink_marginal_metering` adds `base_prompt_tokens`
+(NOT NULL DEFAULT 0, CHECK `0 ≤ base ≤ input_tokens`). **No Help Centre update:
+the published guide already promises "a short question or a straightforward
+lookup uses 1 credit, a longer piece of work uses 3, and a large one uses 8"
+(migration 0122) — a sentence that was false when it shipped and is true now.**
+This change makes the product match its own guide, so editing the guide would
+be describing a change nobody needs to act on.
+
 ### Mink cost metering — the prefix is the bill (2026-09-11)
 
 `mink_usage_ledger` has recorded per-run tokens and a shadow cost since Phase
@@ -324,11 +386,13 @@ regional, 2026 intro and 2027 standard — has an output:input ratio of exactly
 rate, a region or a date. `metering.test.ts` pins that against `cost.ts` itself
 across all four variants, so a future price change that breaks the
 proportionality fails there rather than silently skewing every band.
-★★ IT USES RAW PROMPT TOKENS AND IGNORES THE CACHE, deliberately: a merchant
-asking the same question twice must not be charged differently because our
-cache was cold. The cache saving accrues to StoreMink as margin — the right way
-round, since it rewards making the platform cheaper rather than making the bill
-unpredictable.
+★★ IT IGNORES THE CACHE, deliberately: a merchant asking the same question
+twice must not be charged differently because our cache was cold. The cache
+saving accrues to StoreMink as margin — the right way round, since it rewards
+making the platform cheaper rather than making the bill unpredictable.
+⚠ It used the RAW prompt count until 2026-09-23; it now subtracts the re-sent
+prefix first — see "Mink marginal metering" below, which is what made the light
+band reachable at all.
 ★ Reasoning counts as output, or the HIGH-thinking storefront runs that most
 need banding correctly would be the ones under-banded.
 ★ A run that did not succeed meters ZERO. Charging for an answer nobody got is

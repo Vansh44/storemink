@@ -34,6 +34,7 @@ const usage = (over: Partial<MinkUsage> = {}): MinkUsage => ({
   thoughtTokens: 0,
   totalTokens: 12_200,
   cachedTokens: 0,
+  basePromptTokens: 0,
   ...over,
 });
 
@@ -44,6 +45,7 @@ const settle = (
     actor,
     runId: "run-1",
     usage: usage(),
+    steps: 1,
     status: "succeeded",
     usageKnown: true,
     alreadyCharged: 0,

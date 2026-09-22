@@ -74,7 +74,10 @@ interface UnsettledRun {
   output_tokens: number;
   thought_tokens: number;
   cached_tokens: number;
+  base_prompt_tokens: number;
   total_tokens: number;
+  /** From mink_runs, not the ledger: the band excludes the re-sent prefix. */
+  step_count: number;
   plan: string;
   comp_plan: string | null;
   comp_expires_at: string | null;
@@ -98,6 +101,7 @@ export async function reconcileMinkRunCredits(
         select l.run_id, l.store_id, l.admin_id, r.status, l.usage_status,
                l.charged_credits, l.input_tokens, l.output_tokens,
                l.thought_tokens, l.cached_tokens, l.total_tokens,
+               l.base_prompt_tokens, r.step_count,
                s.plan, s.comp_plan, s.comp_expires_at
           from mink_usage_ledger l
           join mink_runs r on r.id = l.run_id
@@ -140,7 +144,12 @@ export async function reconcileMinkRunCredits(
         thoughtTokens: row.thought_tokens,
         cachedTokens: row.cached_tokens,
         totalTokens: row.total_tokens,
+        basePromptTokens: row.base_prompt_tokens,
       },
+      // ⚠ A row written before base_prompt_tokens existed carries 0, which
+      //   metering.ts reads as "unknown" and charges the whole prompt for —
+      //   its original band. Nothing is repriced retroactively.
+      steps: row.step_count,
       status: row.status as "succeeded" | "failed" | "cancelled",
       // ⚠ Recomputed from the STORED status, never assumed reported: a run
       //   whose usage was partial or unavailable must meter as it did live.

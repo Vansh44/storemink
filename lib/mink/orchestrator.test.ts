@@ -15,6 +15,7 @@ const ZERO_USAGE: MinkUsage = {
   thoughtTokens: 0,
   totalTokens: 0,
   cachedTokens: 0,
+  basePromptTokens: 0,
 };
 
 const ACTOR: MinkActorContext = {
@@ -90,6 +91,7 @@ describe("runMinkAgent", () => {
           thoughtTokens: 2,
           totalTokens: 27,
           cachedTokens: 12,
+          basePromptTokens: 0,
         },
       }),
     );
@@ -105,6 +107,7 @@ describe("runMinkAgent", () => {
             thoughtTokens: 1,
             totalTokens: 14,
             cachedTokens: 7,
+            basePromptTokens: 0,
           },
         }),
       ),
@@ -143,6 +146,7 @@ describe("runMinkAgent", () => {
         // prefix, so the run-level cached figure has to be the SUM across
         // steps — that total is what the cost estimate prices against.
         cachedTokens: 19,
+        basePromptTokens: 0,
       },
       artifacts: [],
     });

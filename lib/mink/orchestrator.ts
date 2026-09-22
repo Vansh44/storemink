@@ -21,6 +21,7 @@ const EMPTY_USAGE: MinkUsage = {
   thoughtTokens: 0,
   totalTokens: 0,
   cachedTokens: 0,
+  basePromptTokens: 0,
 };
 
 export async function runMinkAgent(input: {
@@ -332,5 +333,12 @@ function addUsage(left: MinkUsage, right: MinkUsage): MinkUsage {
     // the run-level figure is how many prefix tokens the cache served across
     // ALL steps — which is the number the cost estimate needs.
     cachedTokens: left.cachedTokens + right.cachedTokens,
+    // ★★ THE ONLY FIELD HERE THAT IS NOT A SUM. It is the size of the FIRST
+    // turn's prompt, and every later turn re-sends that same prefix, so adding
+    // them would produce roughly `steps²` of it and make the subtraction in
+    // `weightedMinkUnits` over-shoot on every multi-step run. First non-zero
+    // wins: `left` is the accumulator, so this keeps turn 1's figure for the
+    // life of the run and lets a turn that reported no usage inherit it.
+    basePromptTokens: left.basePromptTokens || right.basePromptTokens,
   };
 }

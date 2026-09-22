@@ -406,6 +406,24 @@ export interface MinkUsage {
    * cache is actually serving it is otherwise invisible.
    */
   cachedTokens: number;
+  /**
+   * The FIRST model turn's prompt count — the system prompt, the permitted
+   * tool declarations, any memories and the merchant's message.
+   *
+   * ★★ THIS IS THE PART OF `promptTokens` THE MERCHANT DID NOT ASK FOR. Every
+   * later step re-sends it, so a run's prompt total is roughly `steps × this`
+   * plus the tool results and model turns that accumulated along the way. It
+   * is recorded so the CHARGE can be based on the second part alone
+   * (`weightedMinkUnits`), while `estimateMinkCost` keeps counting every token
+   * we really pay for.
+   *
+   * ⚠ NOT SUMMED by `addUsage` — the first non-zero value wins, because it is
+   * a property of where the run STARTED rather than a per-step counter. Zero
+   * means unknown (a provider that reported no usage, or a row written before
+   * this was recorded), and every consumer falls back to charging the whole
+   * prompt, which is what it did before.
+   */
+  basePromptTokens: number;
 }
 
 export interface MinkModelTurn {
