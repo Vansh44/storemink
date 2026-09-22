@@ -426,6 +426,33 @@ describe("Mink attachment intent", () => {
       ),
     ).toBe(false);
   });
+
+  it("★★ catches the sentence people actually type", () => {
+    // Every one of these missed the validated reader and fell back to a prose
+    // paraphrase of the reference, silently, including the exact phrase this
+    // whole path was built for.
+    for (const message of [
+      "Make my shop look like this",
+      "I like this site, can you make my store similar",
+      "Recreate this layout on my home page",
+      "Use this as inspiration for my brand design",
+    ]) {
+      expect(shouldReadMinkImageAsStorefrontDesign(message)).toBe(true);
+    }
+  });
+
+  it("★ still needs an appearance word, not just a destination", () => {
+    // A placement request names the shop and says nothing about how it looks,
+    // so the general reader — which can quote what is in the picture — stays
+    // the right one.
+    for (const message of [
+      "Add this photo to my shop page",
+      "What does this say?",
+      "Create a product from this image",
+    ]) {
+      expect(shouldReadMinkImageAsStorefrontDesign(message)).toBe(false);
+    }
+  });
 });
 
 describe("Mink dictation", () => {

@@ -5230,6 +5230,35 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260922_0125_mink_storefront_from_reference",
+      "description": "Describe reading a reference shop's colours and page structure from a screenshot",
+      "file": "sql/20260922_0125_mink_storefront_from_reference.sql",
+      "transaction": true,
+      "requires": ["20260922_0124_mink_complete_blog_covers_prepared_images"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the guide describes reading a reference shop's design and page structure",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%the order of the blocks down the page%' and body like '%a private design proposal and a private page-layout proposal%'",
+            "equals": "1"
+          },
+          {
+            "name": "the guide states the reference's own words and pictures are not copied",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%belonging to the shop in the screenshot are never copied%'",
+            "equals": "1"
+          },
+          {
+            "name": "the superseded own-storefront-only sentence is gone",
+            "sql": "select count(*)::text from help_articles where status='published' and body like '%Mink combines the visual reading with the current Website Builder state%'",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

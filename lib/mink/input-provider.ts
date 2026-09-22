@@ -96,7 +96,13 @@ export async function extractMinkDesign(
     contents,
     config: {
       abortSignal: signal,
-      maxOutputTokens: 1024,
+      // ★★ THE CEILING HAD TO RISE WITH THE SCHEMA. A reading is now up to
+      // twelve enumerated blocks as well as the fourteen design values, and a
+      // generation cut off at MAX_TOKENS parses to nothing — so a ceiling left
+      // at 1024 would turn a perfectly good screenshot into "no readable
+      // design was found", which reads as the merchant's picture being at
+      // fault. 2048 is the same ceiling the general extractor is bounded by.
+      maxOutputTokens: 2048,
       responseMimeType: "application/json",
       responseJsonSchema: DESIGN_READING_SCHEMA,
       systemInstruction: DESIGN_READING_INSTRUCTION,

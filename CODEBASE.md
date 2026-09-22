@@ -607,6 +607,92 @@ body/display pair from the allowlist, four radii. A screenshot's own typeface
 can only be approximated, and WCAG AA contrast remains a proposal REFUSAL — a
 model copying a screenshot optimises for resemblance over readability.
 
+### Mink reads a reference shop's STRUCTURE too (2026-09-22)
+
+The design reader answered half of "make my shop look like this" and the half
+it answered was invisible on its own. Palette, type and radii repaint whatever
+page the merchant already has, so the result was the reference's colours on the
+merchant's old arrangement — and the arrangement is most of what anybody means
+when they point at a site they like. 9B's `propose_storefront_layout` existed
+and had no evidence: nothing read a hero, a trust strip, a three-up product row
+or an image-beside-copy band out of a picture, so a layout proposal off a
+screenshot was a guess with a screenshot next to it.
+
+**★★ THE READING GAINS A `layout`, AND EVERY FIELD IN IT IS ENUMERATED.** An
+ordered list of section TYPES taken from the builder's own registry, each with
+optional structural values the section schema already accepts — `variant`,
+`columns`, `mediaPosition`, `alignment`, `theme`, `ratio`. So unlike the
+palette half, where a hex at least has to be a hex, there is nowhere here for a
+sentence to land: `parseDesignLayout` has no field that holds free text, and a
+crafted screenshot's best case is a page with the wrong number of columns. An
+entry whose type is not a block we render is dropped WHOLE (a hint with no
+block describes nothing, and inventing the block it might have meant is the
+guess this reader exists to avoid), while a bad hint is dropped INDIVIDUALLY —
+"a hero, and I could not tell which shape" beats silence about the hero.
+
+**★ THE REFERENCE'S OWN WORDS NEVER CROSS, BY CONSTRUCTION.** The reader is
+told not to transcribe headings, copy, product names, prices or logos, and the
+schema could not carry them if it disobeyed. That is both the safer reading and
+the only honest one: a merchant wants the shape of somebody else's page, not
+their sentences, and those are the one part of "make mine like this" that is
+somebody else's to give. Copy comes from the merchant's own brand voice and
+every image from their Media, catalogue or a generated one — 9D's ownership
+rule, unchanged.
+
+★ `DESIGN_LAYOUT_SECTION_TYPES` is DERIVED from `HOMEPAGE_SECTION_TYPES` minus
+`custom_code` (arbitrary code behind its own entitlement and its own approval
+path, refused by a layout proposal anyway) and `rich_text` (a block of prose,
+so reading one means transcribing the reference). A section type added to the
+builder later becomes readable with no edit, and the two lists cannot drift.
+★ The reader's gloss for each type is `SECTION_TYPE_META[type].description` —
+the builder's own merchant-facing words — so what the reader is told a block
+looks like cannot drift from the block it names.
+★ Bounded at 12 entries: a page may hold 40, a screenshot cannot show 40, and
+past a dozen the reader has stopped describing and started filling the shape.
+★ A STRUCTURE-ONLY reading is a real reading. A flat monochrome reference can
+yield no usable token and a perfectly clear block order; refusing it would
+report an unreadable screenshot while holding the answer that was asked for.
+
+**★★ AND THE OUTPUT CEILING HAD TO RISE WITH THE SCHEMA.** `extractMinkDesign`
+capped generation at 1024 tokens, which fitted fourteen design values and not
+twelve blocks as well — and a generation cut off at `MAX_TOKENS` parses to
+nothing, so the whole read would have failed closed with "No readable design
+was found in this image", blaming the merchant's picture for our own ceiling.
+2048 now, the same bound the general extractor works to.
+
+**★★ AND THE TRIGGER MISSED THE SENTENCE PEOPLE ACTUALLY TYPE.**
+`shouldReadMinkImageAsStorefrontDesign` required one of
+storefront/website/web page/home page/landing page, so **"make my shop look
+like this" — the exact phrase this path was built for, and the one this file
+used to motivate it — matched nothing** and fell back to the prose extractor:
+the merchant got "cream background, dark serif headings" where the validated
+reader would have given exact hexes and a block order, with nothing anywhere
+saying the better path had been skipped. Shop, store, site and brand are what
+people call their own storefront, and the intent half now also admits
+similar/recreate/replicate/inspired/layout/structure. ⚠ BOTH halves are still
+required, which is what keeps it narrow — "add this photo to my shop page"
+names a destination and no appearance, so it stays an ordinary extraction.
+⚠ Plurals are load-bearing: `colou?r` with a trailing `\b` does not match
+"colours", and the existing test caught exactly that when `match` was dropped
+from the list in passing.
+
+★ The runtime prompt makes it ONE piece of work: request the design context and
+the target page's context together, then create the design proposal and the
+layout proposal in the SAME run, each separately approved into the private
+Builder draft. Whichever half was unreadable is said plainly rather than
+invented. Prompt versions advance to `draft-action-beta-v43` / `read-beta-v22`
+(the attachment guidance is in the shared document, so a read-only actor's
+prompt moved too); tool registries are UNCHANGED, because no tool schema did.
+Migration `20260922_0125_mink_storefront_from_reference` replaces the published
+sentence that described only a merchant's own storefront, in place.
+
+⚠ Unchanged and still the boundary: Mink proposes, a human approves, and
+publishing stays a separate step in Website Builder. ⚠ Header, footer and
+custom-code sections are not readable from a screenshot and are not proposed
+from one. ⚠ Nobody has yet measured how often a reference page's bands map
+cleanly onto our seventeen section types; a band with no near equivalent is
+skipped by instruction, which is the right failure and an unquantified one.
+
 ### Mink answer legibility — what a run produced, not what it read (2026-09-20)
 
 Three faults reported together from one trace, "create the banner on the
