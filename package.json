@@ -35,6 +35,7 @@
     "test:watch": "vitest",
     "test:shuffle": "vitest run --coverage=false --sequence.shuffle --sequence.seed=20260813",
     "mink:eval": "node scripts/mink-eval.mjs",
+    "theme-studio:model-check": "node scripts/theme-studio-model-check.mjs",
     "db:lint": "node scripts/migration-lint.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",
     "db:migrate:staging": "DB_HOST=127.0.0.1 DB_PORT=6543 DB_ADMIN_USER=postgres DB_ADMIN_PASSWORD=\"$(gcloud secrets versions access latest --secret=CLOUDSQL_PROD_POSTGRES_PW --project=storemink-prod)\" DB_NAME=storemink_staging sh -c 'c=$1; shift; node scripts/db-migrate.mjs \"$c\" --environment staging \"$@\"' _",

@@ -1,0 +1,23 @@
+[
+  {
+    "key": "opus-5",
+    "label": "Claude Opus 5",
+    "providerModel": "claude-opus-5",
+    "envOverride": "THEME_STUDIO_CLAUDE_OPUS_5_MODEL",
+    "purpose": "High-quality default for theme analysis and package synthesis"
+  },
+  {
+    "key": "opus-5.5",
+    "label": "Claude Opus 5.5",
+    "providerModel": "claude-opus-5-5",
+    "envOverride": "THEME_STUDIO_CLAUDE_OPUS_55_MODEL",
+    "purpose": "Deep candidate generation after target-project availability is verified"
+  },
+  {
+    "key": "fable-5",
+    "label": "Claude Fable 5",
+    "providerModel": "claude-fable-5",
+    "envOverride": "THEME_STUDIO_CLAUDE_FABLE_5_MODEL",
+    "purpose": "Long-horizon multimodal theme exploration"
+  }
+]

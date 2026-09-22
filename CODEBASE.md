@@ -3283,6 +3283,19 @@ wholesip/
 │   │                          # Phase 7D publication remains an authenticated human-only action.
 │   │                          # `evals/mink/read-alpha.json` + `npm run mink:eval` are the
 │   │                          # 81-case live tool/safety/latency gate.
+│   ├── theme-studio/          # ★ OPERATOR-ONLY AI Theme Studio Phase 0 contracts
+│   │                          # (docs/mink-ai-theme-studio-phase0.md; no routes or provider
+│   │                          # runtime yet). contracts.ts owns the bounded ThemeIntent and
+│   │                          # ThemePackageV2 parsers, fixed responsive review viewports,
+│   │                          # project state machine, run/intake ceilings and explicit
+│   │                          # capability-gap vocabulary. It refuses unknown/instruction-
+│   │                          # shaped fields, invented sections, custom_code, undeclared
+│   │                          # assets and unknown models; every bundled theme round-trips
+│   │                          # through V2 without loss. models.json is the ONE task-scoped
+│   │                          # Opus 5 / Opus 5.5 / Fable 5 registry shared by TypeScript and
+│   │                          # the operational probe; models.ts exposes stable UI keys only
+│   │                          # and resolves provider ids server-side. These models are NOT
+│   │                          # registered with merchant Mink.
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -3917,6 +3930,11 @@ wholesip/
 │                              # missing/draft/empty guide drift is repaired before publication.
 │                              # It follows the 0049/0050 UX migrations.
 ├── scripts/
+│   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
+│   │                          # the three Theme Studio model choices. --dry-run makes no
+│   │                          # request; a live probe sends one minimal rawPredict call per
+│   │                          # model, reports only status/latency/safe code and never falls
+│   │                          # back to another model. Not a CI job: quota/terms are external.
 │   ├── help-content-lint.mjs  # ★★ THE HELP CENTRE GATE (docs/help-centre.md).
 │   │                          # AGENTS.md used to require a Help update for EVERY
 │   │                          # change, so the cheapest way to comply was to append
@@ -4620,6 +4638,21 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     one-entry sitemap; the platform nav/footer links to it. Blocked or unhealthy
     demos render an honest unavailable state rather than a broken live link.
     `themes` is also rejected by store-signup slug validation.
+    **Mink AI Theme Studio Phase 0 (2026-09-23; contracts only):**
+    `lib/theme-studio/contracts.ts` defines the strict two-stage model boundary:
+    a bounded, structure-only `ThemeIntent`, then a declarative
+    `ThemePackageV2` wrapping today's `ThemeDefinition` with renderer,
+    capabilities, immutable asset manifest, provenance and explicit capability
+    gaps. The parser reuses publish-mode section validation and refuses
+    invented sections, custom code, undeclared assets, unknown models and
+    instruction-shaped fields. A compatibility test converts, validates and
+    deep-equality round-trips all four bundled themes. `models.json` /
+    `models.ts` form a separate three-model allowlist (Opus 5, Opus 5.5,
+    Fable 5), deliberately absent from merchant Mink. The 32-case golden set is
+    `evals/theme-studio/phase0.json`; the role/state/retention/threat/ADR record
+    is `docs/mink-ai-theme-studio-phase0.md`. No route, DB row, worker, preview,
+    provider call or publish path exists in Phase 0, so this changes no
+    merchant or shopper flow and requires no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -12880,6 +12913,9 @@ npm run test:shuffle # ★ the SAME suite in a different (fixed-seed) order — 
                     #   thing that catches order-dependent tests. CI runs it.
 npm run test:watch  # vitest watch
 npm run format      # prettier --write
+npm run theme-studio:model-check -- --dry-run # resolve the three task-scoped
+                    #   Anthropic model ids without network or cost; omit --dry-run only
+                    #   after setting THEME_STUDIO_GCP_PROJECT_ID and accepting provider terms
 ```
 
 ## 7. Environments / external services
@@ -13020,6 +13056,16 @@ npm run format      # prettier --write
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
   service account holds least-privilege **`roles/speech.client`** to call
   Speech-to-Text. Neither credential is exposed to the dashboard.
+  Theme Studio Phase 0 makes NO provider call from the application. Its manual
+  `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
+  (fallback `GCP_PROJECT_ID`) and **`THEME_STUDIO_VERTEX_LOCATION`** (default
+  `global`). Exact provider ids can be overridden only to a dated/versioned id
+  in the SAME model family with the model-specific
+  **`THEME_STUDIO_CLAUDE_OPUS_5_MODEL`**,
+  **`THEME_STUDIO_CLAUDE_OPUS_55_MODEL`**, and
+  **`THEME_STUDIO_CLAUDE_FABLE_5_MODEL`** variables after verification in the
+  target project. These do not configure merchant Mink; a later dedicated
+  worker will own them.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with
