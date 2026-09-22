@@ -3941,6 +3941,38 @@ wholesip/
 │   │                          # immutable, private custom-code proposal` is permanent.
 │   │                          # `npm run help:lint`, in CI; 45 historical violations
 │   │                          # GRANDFATHERED (applied SQL cannot be edited).
+│   │                          # ★★ AND IT REPLAYS EVERY `replace()` TO CATCH A STALE
+│   │                          # QUOTE (`lintStaleQuotes`). `replace()` returns the
+│   │                          # string UNCHANGED when it finds no match, so a migration
+│   │                          # quoting text an earlier one already edited is a SILENT
+│   │                          # no-op: the UPDATE succeeds, rows report updated, nothing
+│   │                          # errors, and the edit never happens. Only `applyVerify`
+│   │                          # notices, at apply time, against a real database — which
+│   │                          # CI does not have, so it surfaced as a failed PRODUCTION
+│   │                          # deploy (20260922_0124). Detectable with no database,
+│   │                          # because the migrations ARE the edit history: replay them
+│   │                          # in manifest order, and a search argument absent from the
+│   │                          # CURRENT text but present in text a migration ORIGINALLY
+│   │                          # published is exactly a quote an earlier edit invalidated.
+│   │                          # ⚠ A quote never seen published is SKIPPED — it names the
+│   │                          # article's original insert, and flagging it is the noise
+│   │                          # that gets a linter switched off. Under-reports, never
+│   │                          # over-reports. ⚠ NO allow marker: a marker cannot make
+│   │                          # replace() find text that is not there.
+│   │                          # ★★ AND EVERY `replace()` MUST HAVE A POSTCONDITION THAT
+│   │                          # COULD FAIL (`lintUnwitnessedEdits`). applyVerify is the
+│   │                          # only thing between a silent no-op and a guide that still
+│   │                          # says the wrong thing — but only if a query can TELL the
+│   │                          # two apart, so it requires a LIKE pattern present in the
+│   │                          # replacement and ABSENT from the text replaced (or the
+│   │                          # reverse for an `equals: "0"` check). A pattern in both
+│   │                          # halves passes against the unedited body and proves
+│   │                          # nothing. 14 of 32 help migrations with a replace() had no
+│   │                          # such check; 13 are applied and GRANDFATHERED_WITNESS,
+│   │                          # since editing an applied entry rewrites its checksum.
+│   │                          # ⚠ It cannot prove a check is SUFFICIENT — the pattern may
+│   │                          # also occur elsewhere in the article, which needs the real
+│   │                          # body (`help:audit:*`), not CI.
 │   ├── help-content-audit.mjs # ★ The same rules against the rows a DATABASE serves —
 │   │                          # catches Help-console operator edits and the ASSEMBLED
 │   │                          # result of many migrations appending to one guide, which
@@ -6408,6 +6440,32 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
       The AGENTS.md rule is now a GATE — update Help only when a
       **merchant-visible** flow changes — and it requires `replace()`ing the
       section that is wrong instead of appending beside it.
+    - **★★ QUOTE THE SENTENCE YOU ARE CHANGING, NOT THE PARAGRAPH AROUND IT.**
+      A forward-only content edit is `replace(body, $old$…$old$, $new$…$new$)`,
+      and **`replace()` returns the string UNCHANGED when it finds no match** —
+      the UPDATE succeeds, rows report updated, nothing errors, and the edit
+      simply does not happen. So a quote is a dependency on every other
+      migration that has touched the same text. `20260922_0124` quoted a whole
+      paragraph as `0120` published it; `0121` had already rewritten that
+      paragraph's closing sentence in place, so the quote was stale before it
+      shipped and **the production deploy was refused by the migration's own
+      `applyVerify`** (which is the system working — the edit would otherwise
+      have vanished silently). A paragraph quote expires the moment ANY sibling
+      edits ANY part of it; a sentence quote only when that sentence changes.
+      ⚠ Check the sentence is UNIQUE in the article first: `replace()` rewrites
+      every occurrence.
+      ★ `npm run help:lint` now replays every `replace()` in manifest order and
+      fails the pull request on a stale quote — see the `help-content-lint.mjs`
+      entry in §4 for why it needs no database and why it deliberately
+      under-reports.
+      ★★ AND EVERY `replace()` MUST CARRY AN `applyVerify` QUERY THAT COULD
+      FAIL. The stale quote was caught only because one of `0124`'s two checks
+      happened to name text unique to the replacement; its third edit, added
+      while fixing that, had none at all. A check whose pattern also appears in
+      the text being replaced passes against the unedited body and proves
+      nothing, so `help:lint` requires one that changes value when the edit
+      lands. ⚠ `verify` is the wrong home for it — that block is re-checked
+      forever and freezes the wording it names.
     - **★★ NEVER ASSERT PUBLISHED WORDING IN A DURABLE `verify` BLOCK.** It is
       re-checked for every applied migration on every status/verify/drift run
       in every environment, and it is part of that migration's checksum — so

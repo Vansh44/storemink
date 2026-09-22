@@ -5227,6 +5227,11 @@
             "name": "the guide explains non-destructive destination preparation",
             "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%automatically prepares a square Media copy%' and body like '%The original upload is never cropped or overwritten%'",
             "equals": "1"
+          },
+          {
+            "name": "the review sentence now names a blog change",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%approve any product, blog or storefront change separately%'",
+            "equals": "1"
           }
         ]
       }

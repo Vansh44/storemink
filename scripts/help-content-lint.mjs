@@ -329,6 +329,178 @@ export function lintVerifyContract(entry) {
   ];
 }
 
+/**
+ * ★★ A `replace()` WHOSE SEARCH TEXT NO LONGER EXISTS IS A SILENT NO-OP.
+ *
+ * Published Help content is edited forward-only, so a migration that changes a
+ * guide quotes the text it is replacing. `replace()` returns the string
+ * UNCHANGED when it finds no match: the UPDATE succeeds, rows are reported
+ * updated, nothing errors -- and the edit simply did not happen. The only
+ * thing that notices is the migration's own `applyVerify`, which runs at apply
+ * time against a real database. CI has no database, so the failure lands in
+ * the deploy pipeline instead of the pull request.
+ *
+ * 20260922_0124 is the case this was written for. It quoted a whole paragraph
+ * as 20260920_0120 published it, but 20260921_0121 had already rewritten that
+ * paragraph's closing sentence in place. The quote was stale before it shipped,
+ * and the production migrate step refused the release.
+ *
+ * ★ IT IS DETECTABLE WITHOUT A DATABASE, because the migrations ARE the edit
+ * history. Replay them in manifest order over the text they publish: a search
+ * argument that is absent from the CURRENT replayed text but present in text a
+ * migration ORIGINALLY published is, precisely, a quote some earlier edit
+ * invalidated.
+ *
+ * ⚠ A quote it has never seen published at all is SKIPPED, not flagged. Those
+ * name text from the article's original insert, which predates the fragments
+ * this can reconstruct, and flagging them would make the check noise -- which
+ * is how a linter gets switched off (scripts/migration-lint.mjs makes the same
+ * trade). It therefore under-reports and never over-reports.
+ */
+const REPLACE_PAIR =
+  /\$(old|from|search|was)\$([\s\S]*?)\$\1\$\s*,\s*\$([a-zA-Z_]*)\$([\s\S]*?)\$\3\$/g;
+
+/** The `replace(body, $old$X$old$, $new$Y$new$)` pairs of one migration. */
+export function extractReplacements(sql) {
+  const withoutComments = sql.replace(/--[^\n]*/g, " ");
+  return [...withoutComments.matchAll(REPLACE_PAIR)].map((m) => ({
+    search: m[2],
+    replacement: m[4],
+  }));
+}
+
+/** Dollar-quoted blocks a migration publishes, long enough to be real copy. */
+function publishedLiterals(sql) {
+  const withoutComments = sql.replace(/--[^\n]*/g, " ");
+  const out = [];
+  for (const m of withoutComments.matchAll(
+    /\$([a-zA-Z_]*)\$([\s\S]*?)\$\1\$/g,
+  )) {
+    if (DELETION_TAGS.has(m[1].toLowerCase())) continue;
+    if (m[2].length < MIN_LITERAL) continue;
+    out.push(m[2]);
+  }
+  return out;
+}
+
+/** @returns {{id: string, rule: string, message: string, sample: string}[]} */
+export function lintStaleQuotes(migrations) {
+  /** Published text, kept current by every replace that follows it. */
+  let current = [];
+  /** The same text as first published, so an invalidated quote is knowable. */
+  const originally = [];
+  const failures = [];
+
+  for (const migration of migrations) {
+    for (const { search, replacement } of extractReplacements(migration.sql)) {
+      const matches = current.some((text) => text.includes(search));
+      if (matches) {
+        current = current.map((text) =>
+          text.includes(search) ? text.split(search).join(replacement) : text,
+        );
+        continue;
+      }
+      if (!originally.some((text) => text.includes(search))) continue;
+      failures.push({
+        id: migration.id,
+        file: migration.file,
+        rule: "stale-quote",
+        message:
+          "replaces text that an earlier migration has already edited, so replace() will match nothing and the edit will silently not happen. Quote only the sentence you are changing -- a paragraph quote expires the moment any sibling migration edits any part of it.",
+        sample: search.slice(0, 120),
+      });
+    }
+    for (const text of publishedLiterals(migration.sql)) {
+      current.push(text);
+      originally.push(text);
+    }
+  }
+  return failures;
+}
+
+/**
+ * Migrations whose `replace()` edits shipped with no postcondition that could
+ * tell an applied edit from a silent no-op. Their SQL and manifest entries are
+ * applied everywhere, so neither can be changed -- editing either rewrites a
+ * recorded checksum and the runner refuses every later migration.
+ */
+export const GRANDFATHERED_WITNESS = new Set([
+  "20260826_0023_orders_shipping_help",
+  "20260826_0026_plan_entitlements_help",
+  "20260827_0031_pos_checkout_clarity_help",
+  "20260828_0032_pos_phone_checkout_and_verification_help",
+  "20260830_0042_mink_phase_4a_product_actions",
+  "20260910_0093_help_centre_operator_content_removal",
+  "20260911_0094_pos_customer_lookup_help",
+  "20260911_0095_canonical_customer_phone",
+  "20260914_0112_mink_global_voice_provider",
+  "20260915_0113_mink_conversation_voice_catalog_images",
+  "20260916_0114_mink_credits_cycle_pricing",
+  "20260920_0120_mink_automatic_attachments",
+  "20260921_0121_mink_multi_attachments_campaign_art",
+]);
+
+/** The `%…%` arguments of every LIKE in an applyVerify query. */
+function likePatterns(sql) {
+  return [...String(sql ?? "").matchAll(/like\s+'%(.*?)%'/gi)].map((m) =>
+    m[1].split("''").join("'"),
+  );
+}
+
+/**
+ * ★★ EVERY `replace()` NEEDS A POSTCONDITION THAT COULD FAIL.
+ *
+ * `applyVerify` is the only thing standing between a silent no-op and a
+ * published guide that quietly still says the wrong thing -- but only if one
+ * of its queries can actually TELL the two apart. A check that passes against
+ * the unedited body proves nothing; a replace with no check at all proves
+ * less.
+ *
+ * 20260922_0124 is the migration that made this concrete twice over. Its stale
+ * paragraph quote was caught only because one of its two checks happened to
+ * name text unique to the replacement -- and its third edit, added while
+ * fixing that, had no check at all until this rule asked for one.
+ *
+ * ★ A query WITNESSES an edit when a pattern it requires appears in the
+ *   replacement and NOT in the text being replaced (or, for an `equals: "0"`
+ *   check, the reverse: text that is present before and absent after). Either
+ *   way the assertion changes value when the edit lands, which is the whole
+ *   property.
+ *
+ * ⚠ It cannot prove the check is SUFFICIENT -- a pattern may also appear
+ *   elsewhere in the article, where it would pass without this edit. That
+ *   needs the real body, which `npm run help:audit:*` reads and CI cannot.
+ */
+export function lintUnwitnessedEdits(migration) {
+  if (GRANDFATHERED_WITNESS.has(migration.id)) return [];
+  if (!touchesHelpContent(migration.sql)) return [];
+  const pairs = extractReplacements(migration.sql);
+  if (pairs.length === 0) return [];
+
+  const assertions = (migration.applyVerify?.queries ?? []).map((q) => ({
+    expectsPresent: String(q.equals) === "1",
+    patterns: likePatterns(q.sql),
+  }));
+
+  return pairs
+    .filter(
+      ({ search, replacement }) =>
+        !assertions.some(({ expectsPresent, patterns }) =>
+          patterns.some((pattern) =>
+            expectsPresent
+              ? replacement.includes(pattern) && !search.includes(pattern)
+              : search.includes(pattern) && !replacement.includes(pattern),
+          ),
+        ),
+    )
+    .map(({ replacement }) => ({
+      rule: "unwitnessed-edit",
+      message:
+        "edits published text with no applyVerify query that could tell the edit from a silent no-op. replace() succeeds either way, so without one a quote that stops matching publishes nothing and reports success. Add a query naming wording unique to the replacement.",
+      sample: replacement.slice(0, 120),
+    }));
+}
+
 export async function lintManifest(manifestPath) {
   const manifest = await loadManifest(manifestPath);
   const failures = [];
@@ -339,10 +511,12 @@ export async function lintManifest(manifestPath) {
     for (const finding of [
       ...lintHelpSql(migration.sql, { id: migration.id }),
       ...(touches ? lintVerifyContract(migration) : []),
+      ...lintUnwitnessedEdits(migration),
     ]) {
       failures.push({ id: migration.id, file: migration.file, ...finding });
     }
   }
+  failures.push(...lintStaleQuotes(manifest.migrations));
   return { checked, total: manifest.migrations.length, failures };
 }
 
@@ -362,7 +536,21 @@ async function main() {
     console.error(`    [${f.rule}] ${f.message}`);
     console.error(`    found: ${JSON.stringify(f.sample)}`);
     console.error(`    file: ${f.file}`);
-    if (f.rule !== "durable-verify-copy") {
+    if (f.rule === "unwitnessed-edit") {
+      console.error(
+        `    Add an applyVerify query asserting wording unique to the new text.\n` +
+          `    A durable \`verify\` block is the wrong home: it is re-checked forever\n` +
+          `    and would freeze the wording it names (docs/help-centre.md).\n`,
+      );
+    } else if (f.rule === "stale-quote") {
+      // Deliberately NO escape hatch: an allow marker cannot make replace()
+      // find text that is not there. The only fix is to quote what is.
+      console.error(
+        `    Re-read the current wording and quote only the sentence you are\n` +
+          `    changing. There is no marker for this: a stale quote is not a\n` +
+          `    style disagreement, it is an edit that will not happen.\n`,
+      );
+    } else if (f.rule !== "durable-verify-copy") {
       console.error(
         `    If it genuinely belongs in a merchant guide, add inside the SQL:\n` +
           `      -- help-lint: allow ${f.rule} — <why a merchant needs this>\n`,
