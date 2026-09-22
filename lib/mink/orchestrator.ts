@@ -55,7 +55,10 @@ export async function runMinkAgent(input: {
   // there would serve one store's reads to another. This map dies with the run.
   const memo = new Map<string, MinkToolResponse>();
   let turn = await session.sendUserMessage(message);
-  usage = addUsage(usage, turn.usage);
+  // The first prompt is a run-level baseline, not a counter. Copy the first
+  // turn whole so a provider that omits its usage leaves the baseline UNKNOWN;
+  // a later, larger tool-response prompt must never be mistaken for turn one.
+  usage = { ...turn.usage };
   retryCount += turn.retryCount;
   onProgress?.({ steps, toolCalls, retryCount, usage: { ...usage } });
 
@@ -333,12 +336,10 @@ function addUsage(left: MinkUsage, right: MinkUsage): MinkUsage {
     // the run-level figure is how many prefix tokens the cache served across
     // ALL steps — which is the number the cost estimate needs.
     cachedTokens: left.cachedTokens + right.cachedTokens,
-    // ★★ THE ONLY FIELD HERE THAT IS NOT A SUM. It is the size of the FIRST
-    // turn's prompt, and every later turn re-sends that same prefix, so adding
-    // them would produce roughly `steps²` of it and make the subtraction in
-    // `weightedMinkUnits` over-shoot on every multi-step run. First non-zero
-    // wins: `left` is the accumulator, so this keeps turn 1's figure for the
-    // life of the run and lets a turn that reported no usage inherit it.
-    basePromptTokens: left.basePromptTokens || right.basePromptTokens,
+    // ★★ THE ONLY FIELD HERE THAT IS NOT A SUM. `left` already contains
+    // the first turn's prompt (copied above), and later turns must never replace
+    // it. In particular, zero means turn one was unknown; borrowing turn two's
+    // larger prompt would over-subtract and make work look free.
+    basePromptTokens: left.basePromptTokens,
   };
 }

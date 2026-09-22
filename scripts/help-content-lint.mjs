@@ -369,6 +369,105 @@ export function extractReplacements(sql) {
   }));
 }
 
+/**
+ * Split SQL without treating semicolons inside strings, comments or
+ * dollar-quoted Help copy as statement boundaries. This is deliberately a
+ * small lexical splitter, not a SQL parser; its only job is to keep an UPDATE's
+ * WHERE clause attached to that UPDATE's replace() calls.
+ */
+function sqlStatements(sql) {
+  const statements = [];
+  let start = 0;
+  let i = 0;
+  while (i < sql.length) {
+    if (sql.startsWith("--", i)) {
+      const newline = sql.indexOf("\n", i + 2);
+      i = newline === -1 ? sql.length : newline + 1;
+      continue;
+    }
+    if (sql.startsWith("/*", i)) {
+      const end = sql.indexOf("*/", i + 2);
+      i = end === -1 ? sql.length : end + 2;
+      continue;
+    }
+    if (sql[i] === "'") {
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] !== "'") {
+          i += 1;
+          continue;
+        }
+        if (sql[i + 1] === "'") {
+          i += 2;
+          continue;
+        }
+        i += 1;
+        break;
+      }
+      continue;
+    }
+    if (sql[i] === '"') {
+      i += 1;
+      while (i < sql.length) {
+        if (sql[i] !== '"') {
+          i += 1;
+          continue;
+        }
+        if (sql[i + 1] === '"') {
+          i += 2;
+          continue;
+        }
+        i += 1;
+        break;
+      }
+      continue;
+    }
+    if (sql[i] === "$") {
+      const tag = sql.slice(i).match(/^\$(?:[a-zA-Z_][a-zA-Z0-9_]*)?\$/)?.[0];
+      if (tag) {
+        const end = sql.indexOf(tag, i + tag.length);
+        i = end === -1 ? sql.length : end + tag.length;
+        continue;
+      }
+    }
+    if (sql[i] === ";") {
+      statements.push(sql.slice(start, i + 1));
+      start = i + 1;
+    }
+    i += 1;
+  }
+  if (sql.slice(start).trim()) statements.push(sql.slice(start));
+  return statements;
+}
+
+function withoutSqlComments(sql) {
+  return sql.replace(/--[^\n]*/g, " ").replace(/\/\*[\s\S]*?\*\//g, " ");
+}
+
+/** The one article an UPDATE targets, or null when it cannot be proven. */
+function helpArticleSlug(statement) {
+  const withoutComments = withoutSqlComments(statement);
+  if (!/^\s*UPDATE\s+(?:public\.)?help_articles\b/i.test(withoutComments))
+    return null;
+  // Help copy can itself contain SQL-looking words. Remove dollar-quoted
+  // payloads before reading the statement's actual WHERE clause.
+  const sqlOnly = withoutComments.replace(
+    /\$([a-zA-Z_][a-zA-Z0-9_]*|)\$[\s\S]*?\$\1\$/g,
+    " ",
+  );
+  const match = sqlOnly.match(
+    /\bwhere\b[\s\S]*?\b(?:[a-zA-Z_][a-zA-Z0-9_]*\.)?slug\s*=\s*'((?:[^']|'')+)'/i,
+  );
+  return match ? match[1].split("''").join("'") : null;
+}
+
+function scopedReplacements(sql) {
+  return sqlStatements(sql).flatMap((statement) => {
+    const slug = helpArticleSlug(statement);
+    return extractReplacements(statement).map((pair) => ({ ...pair, slug }));
+  });
+}
+
 /** Dollar-quoted blocks a migration publishes, long enough to be real copy. */
 function publishedLiterals(sql) {
   const withoutComments = sql.replace(/--[^\n]*/g, " ");
@@ -383,24 +482,77 @@ function publishedLiterals(sql) {
   return out;
 }
 
+/**
+ * Published copy with its article identity. Unknown insert shapes are skipped:
+ * under-reporting is safer than letting one guide's wording mutate another in
+ * the replay.
+ */
+function publishedFragments(sql) {
+  const fragments = [];
+  for (const statement of sqlStatements(sql)) {
+    const slug = helpArticleSlug(statement);
+    if (slug) {
+      for (const text of publishedLiterals(statement))
+        fragments.push({ slug, text });
+      continue;
+    }
+
+    const withoutComments = withoutSqlComments(statement);
+    if (
+      !/\binsert\s+into\s+(?:public\.)?help_articles\b/i.test(withoutComments)
+    )
+      continue;
+    // All enrolled Help inserts put slug, title, excerpt and body next to each
+    // other in this order, whether they use SELECT literals or a VALUES table.
+    const article =
+      /'((?:[^']|'')+)'\s*,\s*'(?:[^']|'')*'\s*,\s*'(?:[^']|'')*'\s*,\s*\$([a-zA-Z_][a-zA-Z0-9_]*|)\$([\s\S]*?)\$\2\$/g;
+    for (const match of statement.matchAll(article)) {
+      if (match[3].length < MIN_LITERAL) continue;
+      fragments.push({
+        slug: match[1].split("''").join("'"),
+        text: match[3],
+      });
+    }
+  }
+  return fragments;
+}
+
 /** @returns {{id: string, rule: string, message: string, sample: string}[]} */
 export function lintStaleQuotes(migrations) {
-  /** Published text, kept current by every replace that follows it. */
+  /** Published text, keyed by article and kept current by later replacements. */
   let current = [];
   /** The same text as first published, so an invalidated quote is knowable. */
   const originally = [];
   const failures = [];
 
   for (const migration of migrations) {
-    for (const { search, replacement } of extractReplacements(migration.sql)) {
-      const matches = current.some((text) => text.includes(search));
+    for (const { search, replacement, slug } of scopedReplacements(
+      migration.sql,
+    )) {
+      // If the statement does not identify one article, there is no safe replay
+      // scope. Skip it rather than borrowing identical wording from a sibling.
+      if (!slug) continue;
+      const matches = current.some(
+        (fragment) => fragment.slug === slug && fragment.text.includes(search),
+      );
       if (matches) {
-        current = current.map((text) =>
-          text.includes(search) ? text.split(search).join(replacement) : text,
+        current = current.map((fragment) =>
+          fragment.slug === slug && fragment.text.includes(search)
+            ? {
+                ...fragment,
+                text: fragment.text.split(search).join(replacement),
+              }
+            : fragment,
         );
         continue;
       }
-      if (!originally.some((text) => text.includes(search))) continue;
+      if (
+        !originally.some(
+          (fragment) =>
+            fragment.slug === slug && fragment.text.includes(search),
+        )
+      )
+        continue;
       failures.push({
         id: migration.id,
         file: migration.file,
@@ -410,9 +562,9 @@ export function lintStaleQuotes(migrations) {
         sample: search.slice(0, 120),
       });
     }
-    for (const text of publishedLiterals(migration.sql)) {
-      current.push(text);
-      originally.push(text);
+    for (const fragment of publishedFragments(migration.sql)) {
+      current.push(fragment);
+      originally.push(fragment);
     }
   }
   return failures;

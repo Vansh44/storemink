@@ -269,6 +269,85 @@ describe("help content lint", () => {
       ).toEqual([]);
     });
 
+    test("★★ keeps identical wording isolated by article slug", () => {
+      const shared =
+        "This sufficiently long sentence is intentionally shared by both guides.";
+      expect(
+        lintStaleQuotes([
+          mig("a-publish", pub(shared).replace("slug='g'", "slug='guide-a'")),
+          mig("b-publish", pub(shared).replace("slug='g'", "slug='guide-b'")),
+          mig(
+            "a-edit",
+            edit(
+              shared,
+              "Only guide A receives this sufficiently long edit.",
+            ).replace("slug='g'", "slug='guide-a'"),
+          ),
+          mig(
+            "b-edit",
+            edit(
+              shared,
+              "Only guide B receives this sufficiently long edit.",
+            ).replace("slug='g'", "slug='guide-b'"),
+          ),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("associates VALUES-published bodies with their own article slug", () => {
+      const shared =
+        "This sufficiently long sentence is intentionally shared by inserted guides.";
+      const inserted = mig(
+        "publish",
+        `INSERT INTO public.help_articles (slug, title, excerpt, body) VALUES
+          ('guide-a', 'Guide A', 'Guide A excerpt', $article$${shared}$article$),
+          ('guide-b', 'Guide B', 'Guide B excerpt', $article$${shared}$article$);`,
+      );
+      expect(
+        lintStaleQuotes([
+          inserted,
+          mig(
+            "a-edit",
+            edit(
+              shared,
+              "Only inserted guide A receives this long edit.",
+            ).replace("slug='g'", "slug='guide-a'"),
+          ),
+          mig(
+            "b-edit",
+            edit(
+              shared,
+              "Only inserted guide B receives this long edit.",
+            ).replace("slug='g'", "slug='guide-b'"),
+          ),
+        ]),
+      ).toEqual([]);
+    });
+
+    test("★★ does not borrow a current quote from another article", () => {
+      const shared =
+        "This sufficiently long sentence is intentionally shared by both guides.";
+      const failures = lintStaleQuotes([
+        mig("a-publish", pub(shared).replace("slug='g'", "slug='guide-a'")),
+        mig(
+          "a-edit",
+          edit(
+            shared,
+            "Guide A already changed this sufficiently long sentence.",
+          ).replace("slug='g'", "slug='guide-a'"),
+        ),
+        mig("b-publish", pub(shared).replace("slug='g'", "slug='guide-b'")),
+        mig(
+          "a-stale",
+          edit(
+            shared,
+            "This stale Guide A edit must be rejected by the replay.",
+          ).replace("slug='g'", "slug='guide-a'"),
+        ),
+      ]);
+      expect(failures.map((failure) => failure.id)).toEqual(["a-stale"]);
+    });
+
     test("⚠ text this has never seen published is skipped, never flagged", () => {
       // It names copy from the article's original insert, which predates the
       // fragments a replay can reconstruct. Flagging it would be noise, and a

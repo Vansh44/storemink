@@ -287,22 +287,20 @@ lookup (34,941 input, 164 output) bands standard. The practical ladder was
 therefore _1 step = 1 credit, 2–5 = 3, 6+ = 8_, i.e. the band measured **how
 many tools we offer**, not how much work the merchant asked for.
 
-★★ `billablePromptTokens` SUBTRACTS THE PREFIX ONCE PER STEP —
-`promptTokens − basePromptTokens × steps` — so what remains is the merchant's
-message plus the tool RESULTS the run accumulated, which is the only part of
-the prompt their request caused. The same two-step lookup now weighs ~1,600
-units and bands **light, 1 credit**; the regression test asserts both numbers,
-so re-charging the prefix fails it. ⚠ Output is UNTOUCHED and still carries the
-×5 weight, so a long answer is still a big run.
-★ It is the FIRST turn's prompt, because that turn is prefix + the merchant's
-message and nothing else; every later turn is that plus results. Attributing
-the whole first turn to us slightly UNDER-charges (the merchant's own message
-rides in it), which is the right direction for a rounding decision nobody can
-see.
+★★ `billablePromptTokens` KEEPS THE INITIAL PROMPT ONCE AND SUBTRACTS ONLY
+ITS REPEATED COPIES — `promptTokens − basePromptTokens × (steps − 1)`. The
+provider reports the complete first prompt, not the system/tool prefix as a
+separate count; that first prompt also includes conversation history, memories
+and the merchant's message, so subtracting it on turn one would make every
+one-step input free. The same two-step lookup still bands **light, 1 credit**:
+one 17,072-token initial prompt + its small accumulated result and ×5-weighted
+answer remain below 30,000, while a large merchant input can still move the
+run into a higher band. ⚠ Output is UNTOUCHED and still carries the ×5 weight.
 ★★ `basePromptTokens` IS THE ONE FIELD `addUsage` DOES NOT SUM. Every turn
 reports its own prompt count, so summing them would produce roughly `steps²` of
-prefix and make the subtraction overshoot on every multi-step run. First
-non-zero wins, pinned by its own test.
+initial context and make the subtraction overshoot. The orchestrator copies
+turn one's value exactly, INCLUDING ZERO: if turn one reports no usage, a later
+larger prompt must not impersonate it and erase the run's billable input.
 ★★ ZERO MEANS UNKNOWN, NEVER FREE. A provider that reported no usage, and every
 ledger row written before the column existed, fall back to charging the whole
 prompt — exactly what they did before. Verified against the database: **every
@@ -315,9 +313,9 @@ that insert shares a transaction with the run-completion update and the
 assistant message, so a value tripping the CHECK would roll back a reply the
 merchant has already read.
 ★ The operator console's band mix re-derives from stored counts, so `bandRuns`
-carries the SAME subtraction in SQL (`greatest(input − base × steps, 0)`) —
-a console that disagreed with the meter is the one screen the bands get tuned
-from.
+carries the SAME subtraction in SQL
+(`greatest(input − base × greatest(steps − 1, 0), 0)`) — a console that
+disagreed with the meter is the one screen the bands get tuned from.
 ⚠ THE REAL FIX FOR THE COST ITSELF IS CACHING, NOT BANDING. This changes what
 the MERCHANT is charged; StoreMink still pays for every re-sent prefix, and
 `cached_tokens` exists to measure how much of it a provider cache is already
@@ -6455,9 +6453,12 @@ the trusted `store_id`, and direct customer PII is minimized/masked.
       ⚠ Check the sentence is UNIQUE in the article first: `replace()` rewrites
       every occurrence.
       ★ `npm run help:lint` now replays every `replace()` in manifest order and
-      fails the pull request on a stale quote — see the `help-content-lint.mjs`
-      entry in §4 for why it needs no database and why it deliberately
-      under-reports.
+      fails the pull request on a stale quote. The replay is KEYED BY ARTICLE
+      SLUG: identical wording in two guides remains two independent histories,
+      so editing one cannot create a false failure or hide a stale edit in the
+      other. Insert shapes or UPDATEs whose target cannot be proved are skipped
+      deliberately rather than borrowed across articles — see the
+      `help-content-lint.mjs` entry in §4.
       ★★ AND EVERY `replace()` MUST CARRY AN `applyVerify` QUERY THAT COULD
       FAIL. The stale quote was caught only because one of `0124`'s two checks
       happened to name text unique to the replacement; its third edit, added

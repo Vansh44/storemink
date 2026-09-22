@@ -133,14 +133,14 @@ export function normalizeMinkRunFilters(input: {
  * pre-band placeholder on historical rows while the cohort has always been
  * accurate.
  *
- * ★★ THE PREFIX SUBTRACTION HAS TO BE HERE TOO, or the one screen the bands
- * are tuned from would report a distribution nobody is charged. `greatest(…, 0)`
- * is `weightedMinkUnits`' own clamp, and a row with base_prompt_tokens = 0
- * (written before the column existed) subtracts nothing and keeps its original
- * band — which is exactly what the meter does with it.
+ * ★★ THE REPEATED-PROMPT SUBTRACTION HAS TO BE HERE TOO, or the one screen
+ * the bands are tuned from would report a distribution nobody is charged.
+ * `greatest(…, 0)` is `weightedMinkUnits`' own clamp, and a row with
+ * base_prompt_tokens = 0 (written before the column existed) subtracts nothing
+ * and keeps its original band — exactly what the meter does with it.
  */
 function bandRuns(index: number): SQL<number> {
-  const billablePrompt = sql`greatest(${minkUsageLedger.inputTokens} - ${minkUsageLedger.basePromptTokens} * coalesce(${minkRuns.stepCount}, 0), 0)`;
+  const billablePrompt = sql`greatest(${minkUsageLedger.inputTokens} - ${minkUsageLedger.basePromptTokens} * greatest(coalesce(${minkRuns.stepCount}, 0) - 1, 0), 0)`;
   const weighted = sql`(${billablePrompt} + ${MINK_OUTPUT_WEIGHT} * (${minkUsageLedger.outputTokens} + ${minkUsageLedger.thoughtTokens}))`;
   const floor = index === 0 ? null : MINK_CREDIT_BANDS[index - 1].maxUnits;
   const ceiling = MINK_CREDIT_BANDS[index].maxUnits;

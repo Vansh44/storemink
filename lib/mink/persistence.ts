@@ -724,7 +724,7 @@ async function insertUsage(
     usageStatus: MinkUsageStatus;
     status: "succeeded" | "failed" | "cancelled";
     toolCalls: number;
-    /** Model turns, for the band's prefix subtraction (metering.ts). */
+    /** Model turns, for the band's repeated-prompt subtraction (metering.ts). */
     steps: number;
   },
 ): Promise<number> {

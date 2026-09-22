@@ -93,13 +93,24 @@ describe("weightedMinkUnits", () => {
 // 1-credit band unreachable for any run that touched a tool at all.
 // ---------------------------------------------------------------------------
 describe("billablePromptTokens", () => {
-  it("subtracts the prefix once per step", () => {
+  it("keeps the initial prompt once and subtracts only repeated copies", () => {
     expect(
       billablePromptTokens({
         usage: usage({ promptTokens: 50_000, basePromptTokens: 20_000 }),
         steps: 2,
       }),
-    ).toBe(10_000);
+    ).toBe(30_000);
+  });
+
+  it("★★ charges merchant input on a one-step run", () => {
+    // The initial count includes the message, history and memories as well as
+    // platform instructions. None of it is a repeated copy on turn one.
+    expect(
+      billablePromptTokens({
+        usage: usage({ promptTokens: 50_000, basePromptTokens: 20_000 }),
+        steps: 1,
+      }),
+    ).toBe(50_000);
   });
 
   it("★★ prices the reported one-tool-call run at ONE credit", () => {
@@ -107,9 +118,9 @@ describe("billablePromptTokens", () => {
     // search_help_centre call → two model turns → 269 → 266 credits. The
     // figures are a REAL `mink_usage_ledger` row of that shape (a two-step
     // lookup: 34,941 input, 164 output) against the smallest single-step
-    // prompt the same table records, 17,072 — so the prefix is measured
-    // rather than assumed. The merchant's own content is the Help result and
-    // a 164-token answer; everything else was our catalogue, re-sent.
+    // prompt the same table records, 17,072 — so the baseline is measured
+    // rather than assumed. The initial prompt remains once; only its second
+    // copy is removed.
     const run = {
       usage: usage({
         promptTokens: 34_941,
@@ -148,9 +159,9 @@ describe("billablePromptTokens", () => {
     ).toBe(0);
   });
 
-  it("★★ still charges the tool results a long run re-sent", () => {
-    // Removing OUR overhead must not make the merchant's own accumulated
-    // context free: a six-step run carrying large reads is still standard.
+  it("★★ still charges the initial prompt and re-sent tool results", () => {
+    // Removing repeated overhead must not make the merchant's initial context
+    // or accumulated reads free: this six-step run is still standard.
     const busy = {
       usage: usage({
         promptTokens: 6 * 17_072 + 60_000,
@@ -159,7 +170,7 @@ describe("billablePromptTokens", () => {
       }),
       steps: 6,
     };
-    expect(billablePromptTokens(busy)).toBe(60_000);
+    expect(billablePromptTokens(busy)).toBe(77_072);
     expect(minkCreditBand(busy).band.name).toBe("standard");
   });
 });

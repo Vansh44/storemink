@@ -98,8 +98,8 @@ export async function settleMinkRunCredits(input: {
   runId: string;
   usage: MinkUsage;
   /**
-   * Model turns. Needed because each one re-sent the prefix, and the charge is
-   * based on what accumulated on top of it (`weightedMinkUnits`).
+   * Model turns. Needed because every turn after the first re-sent the initial
+   * prompt, and the charge removes only those repeated copies.
    */
   steps: number;
   status: "succeeded" | "failed" | "cancelled";

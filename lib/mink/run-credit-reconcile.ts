@@ -76,7 +76,7 @@ interface UnsettledRun {
   cached_tokens: number;
   base_prompt_tokens: number;
   total_tokens: number;
-  /** From mink_runs, not the ledger: the band excludes the re-sent prefix. */
+  /** From mink_runs: the band excludes repeated initial-prompt copies. */
   step_count: number;
   plan: string;
   comp_plan: string | null;

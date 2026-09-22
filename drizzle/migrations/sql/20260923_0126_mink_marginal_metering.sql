@@ -1,14 +1,14 @@
--- Record the prefix a run re-sent on every step, so the credit band can charge
--- for what the merchant asked for rather than for the size of our tool
--- catalogue.
+-- Record the initial prompt a run re-sent on every later step, so the credit
+-- band can remove repeated platform overhead without removing the merchant's
+-- own message, memory or conversation context from the charge.
 --
 -- The system prompt plus the permission-filtered tool declarations run to
 -- ~92,700 characters for a superadmin with drafting enabled, and every model
 -- turn re-sends all of it. Measured on this table: single-step runs report
--- 16,542-17,072 input tokens, so a question answered with ONE tool call spent
--- ~35,000 prompt tokens before any of its own content was counted. That pushed
--- it into the 3-credit band and left the 1-credit band unreachable for any run
--- that touched a tool.
+-- 16,542-17,072 input tokens, so a question answered with ONE tool call
+-- accumulated ~35,000 prompt tokens even when its message and result were
+-- tiny. That pushed it into the 3-credit band and left the 1-credit band
+-- unreachable for any run that touched a tool.
 --
 -- DEFAULT 0 is the "unknown" value on purpose: every existing row keeps its
 -- current band, because a reader that sees 0 charges the whole prompt exactly

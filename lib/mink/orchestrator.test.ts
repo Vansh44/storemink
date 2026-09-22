@@ -192,6 +192,38 @@ describe("runMinkAgent", () => {
     );
   });
 
+  it("keeps an unknown first prompt unknown when a later turn reports usage", async () => {
+    const session: MinkModelSession = {
+      sendUserMessage: vi.fn(async () =>
+        turn({ functionCalls: [{ name: "get_store_profile", args: {} }] }),
+      ),
+      sendToolResponses: vi.fn(async () =>
+        turn({
+          text: "Ready.",
+          usage: {
+            promptTokens: 20_000,
+            outputTokens: 10,
+            thoughtTokens: 0,
+            totalTokens: 20_010,
+            cachedTokens: 0,
+            basePromptTokens: 20_000,
+          },
+        }),
+      ),
+    };
+
+    const result = await runMinkAgent({
+      actor: ACTOR,
+      message: "Check my store.",
+      config: config(),
+      registry: registry(),
+      session,
+    });
+
+    expect(result.usage.basePromptTokens).toBe(0);
+    expect(result.usage.promptTokens).toBe(20_000);
+  });
+
   it("stops before exceeding the reasoning-step cap", async () => {
     const session: MinkModelSession = {
       sendUserMessage: vi.fn(async () =>
