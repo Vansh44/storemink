@@ -50,7 +50,7 @@ import {
 } from "@/drizzle/schema";
 import { STORE_TAG, FALLBACK_STORE_ID } from "@/lib/store/resolve";
 import { emitEvent } from "@/lib/notifications/record";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
 import { applyTheme } from "@/lib/themes/apply";
 import {
   countOpenReconciliationItems,
@@ -1000,7 +1000,7 @@ export async function seedDemoStore(themeId: string): Promise<SeedDemoResult> {
   if (!(await requireSuperadmin())) {
     return { error: "Only a platform superadmin can seed demo stores." };
   }
-  const theme = getThemeDefinition(themeId);
+  const theme = await resolveThemeDefinition(themeId);
   if (theme.id !== themeId) {
     return { error: `Unknown theme "${themeId}".` };
   }

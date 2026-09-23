@@ -11,6 +11,15 @@ import {
 } from "./storefront-design-contract";
 import { digestMinkStorefrontValue } from "./storefront-code-contract";
 
+vi.mock("@/lib/themes/runtime-registry", () => ({
+  resolveThemeDefinitionWithDb: vi.fn(
+    async (_db: unknown, id: unknown, version?: unknown) => {
+      const { getThemeDefinition } = await import("@/lib/themes");
+      return getThemeDefinition(id, version);
+    },
+  ),
+}));
+
 const state = vi.hoisted(() => ({
   selects: {} as Record<string, any[][]>,
   /** The one raw read: stores LEFT JOIN store_chrome. */

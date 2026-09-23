@@ -9,7 +9,7 @@ import { getManagerUserId, getActingStoreId } from "@/app/dashboard/lib/access";
 import { emitEvent } from "@/lib/notifications/record";
 import { TAGS } from "@/lib/storefront/tags";
 import { contrastIssuesFor } from "@/lib/chrome/design";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import {
   sanitizeChromeForSave,
@@ -152,8 +152,8 @@ export async function publishChrome(
   );
   const themeSelection = readThemeSelection(storeRow?.settings);
   const themeDesign = themeSelection
-    ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
-        .design
+    ? (await resolveThemeDefinition(themeSelection.id, themeSelection.version))
+        .preset.design
     : null;
   const contrastIssues = contrastIssuesFor(published.design, themeDesign);
   if (contrastIssues.length > 0) {

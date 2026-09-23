@@ -1,6 +1,8 @@
-// Server-side theme resolution. NEVER import this from a client component —
-// definitions embed page, menu, and sample-catalog payloads. Client surfaces
-// import the lightweight lib/themes/meta.ts catalog instead.
+// Source-controlled theme releases and the synchronous bundled fallback.
+// Runtime-aware server call sites use lib/themes/runtime-registry.ts, which
+// resolves validated database releases before calling getThemeDefinition here.
+// NEVER import this from a client component: definitions embed page, menu, and
+// sample-catalog payloads. Client surfaces receive a ThemeMeta projection.
 import { DEFAULT_THEME_ID, THEME_META } from "./meta";
 import { basket } from "./definitions/basket";
 import { ritual } from "./definitions/ritual";

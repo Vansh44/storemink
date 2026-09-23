@@ -15,6 +15,12 @@ const dbHolder = vi.hoisted(() => ({ current: null as any }));
 vi.mock("@/lib/db/client", () => ({
   withService: vi.fn((fn: any) => Promise.resolve(fn(dbHolder.current.db))),
 }));
+vi.mock("./runtime-registry", () => ({
+  resolveThemeDefinition: vi.fn(async (id: unknown, version?: unknown) => {
+    const { getThemeDefinition } = await import("./index");
+    return getThemeDefinition(id, version);
+  }),
+}));
 
 import {
   categories,

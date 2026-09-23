@@ -456,7 +456,7 @@ Implementation record: `docs/mink-ai-theme-studio-phase0.md`. The target-GCP
 live model probe remains a deployment prerequisite; the executable probe and
 its non-networking dry-run are included in Phase 0.
 
-### Phase 1 — runtime registry
+### Phase 1 — runtime registry ✅
 
 Deliver:
 
@@ -468,6 +468,10 @@ Deliver:
 
 Exit: one manually inserted database-backed candidate can be previewed and one
 published test release can be selected without an application deploy.
+
+Implementation record: `docs/mink-ai-theme-studio-phase1.md`. The operator
+Studio shell remains Phase 2; Phase 1 exposes exact candidate resolution to
+that future preview path but adds no operator page of its own.
 
 ### Phase 2 — Studio shell and secure intake
 

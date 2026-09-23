@@ -5284,6 +5284,41 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260923_0127_theme_runtime_registry",
+      "description": "Add immutable runtime theme releases and mutable catalog pointers",
+      "file": "sql/20260923_0127_theme_runtime_registry.sql",
+      "transaction": true,
+      "requires": ["20260923_0126_mink_marginal_metering"],
+      "verify": {
+        "tables": ["theme_releases", "theme_catalog_entries"],
+        "columns": [
+          "theme_releases.package_json",
+          "theme_releases.manifest_digest",
+          "theme_catalog_entries.current_release_id",
+          "theme_catalog_entries.visibility"
+        ],
+        "constraints": [
+          "theme_releases_theme_version_key",
+          "theme_releases_digest_check",
+          "theme_releases_package_size_check",
+          "theme_catalog_entries_release_fkey",
+          "theme_catalog_entries_visibility_check"
+        ],
+        "indexes": [
+          "theme_releases_lookup_idx",
+          "theme_catalog_entries_visibility_idx"
+        ],
+        "rlsTables": ["theme_releases", "theme_catalog_entries"],
+        "functions": [
+          "prevent_theme_release_mutation()",
+          "validate_theme_catalog_release()"
+        ]
+      },
+      "applyVerify": {
+        "queries": []
+      }
     }
   ]
 }

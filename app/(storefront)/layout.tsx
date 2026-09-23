@@ -17,7 +17,7 @@ import { resolveStorefrontAppearance } from "@/lib/chrome/types";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
 import { isStoreSearchIndexable } from "@/lib/store/launch";
 import { getStoreUrl } from "@/lib/site";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
 import { designOverrideCssVars } from "@/lib/chrome/design";
@@ -144,8 +144,8 @@ export default async function StorefrontLayout({
   // it stays exactly as today.
   const themeSelection = readThemeSelection(store.settings);
   const design = themeSelection
-    ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
-        .design
+    ? (await resolveThemeDefinition(themeSelection.id, themeSelection.version))
+        .preset.design
     : null;
   // ★★ THE PRESET'S OWN MAP, KEPT SEPARATE FROM THE MERGED ONE. The inline
   // style below wants the merchant's overrides ON TOP; ChromeProvider wants

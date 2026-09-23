@@ -14,6 +14,14 @@ const { execute } = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({
   withService: vi.fn((run: (db: unknown) => unknown) => run({ execute })),
 }));
+vi.mock("@/lib/themes/runtime-registry", () => ({
+  resolveThemeDefinitionWithDb: vi.fn(
+    async (_db: unknown, id: unknown, version?: unknown) => {
+      const { getThemeDefinition } = await import("@/lib/themes");
+      return getThemeDefinition(id, version);
+    },
+  ),
+}));
 
 const ACTOR: MinkActorContext = {
   storeId: "store-1",

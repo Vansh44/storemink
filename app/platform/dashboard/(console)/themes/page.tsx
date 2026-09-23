@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { listAllStores } from "@/app/actions/platform";
-import { THEME_META } from "@/lib/themes/meta";
+import { getThemeCatalog } from "@/lib/themes/runtime-registry";
 import { ThemesPanel } from "../themes-panel";
 import { canManage, requireOperator } from "../require-operator";
 
@@ -21,8 +21,11 @@ export default async function ThemesPage() {
   // Which theme demos actually exist right now. `listAllStores` is the one
   // read that already knows, so the panel can show "seed" vs "reseed" honestly
   // rather than offering a Preview link to a 404.
-  const stores = await listAllStores();
-  const demoSlugs = new Set(THEME_META.map((t) => t.demo.slug));
+  const [stores, themes] = await Promise.all([
+    listAllStores(),
+    getThemeCatalog(),
+  ]);
+  const demoSlugs = new Set(themes.map((t) => t.demo.slug));
   const demoSlugsLive = stores
     .filter((s) => demoSlugs.has(s.slug))
     .map((s) => s.slug);
@@ -39,7 +42,11 @@ export default async function ThemesPage() {
         </p>
       </header>
 
-      <ThemesPanel rootDomain={ROOT_DOMAIN} demoSlugsLive={demoSlugsLive} />
+      <ThemesPanel
+        rootDomain={ROOT_DOMAIN}
+        demoSlugsLive={demoSlugsLive}
+        themes={themes}
+      />
     </div>
   );
 }

@@ -342,20 +342,33 @@ const INDUSTRY_LABELS: Record<ThemeIndustry, string> = {
 };
 
 /** Only render filters backed by at least one visible catalog entry. */
-export const THEME_CATEGORIES: readonly {
+export type ThemeCategory = {
   id: ThemeIndustry | "all";
   label: string;
-}[] = [
-  { id: "all", label: "All" },
-  ...Array.from(
-    new Set(
-      THEME_META.filter(
-        (theme) => theme.catalog.visibility !== "hidden",
-      ).flatMap((theme) => theme.catalog.industries),
+};
+
+/** Build filters from the resolved catalog, not the source-controlled fallback.
+ * Runtime releases can add an industry without requiring an app deploy. */
+export function themeCategoriesFor(
+  themes: readonly ThemeMeta[],
+): ThemeCategory[] {
+  return [
+    { id: "all", label: "All" },
+    ...Array.from(
+      new Set(
+        themes
+          .filter((theme) => theme.catalog.visibility !== "hidden")
+          .flatMap((theme) => theme.catalog.industries),
+      ),
+      (id) => ({ id, label: INDUSTRY_LABELS[id] }),
     ),
-    (id) => ({ id, label: INDUSTRY_LABELS[id] }),
-  ),
-];
+  ];
+}
+
+/** Bundled-only compatibility export. Runtime-aware server and client surfaces
+ * receive their catalog from lib/themes/runtime-registry instead. */
+export const THEME_CATEGORIES: readonly ThemeCategory[] =
+  themeCategoriesFor(THEME_META);
 
 export interface StoredThemeInstallation {
   presetId: string;
@@ -395,7 +408,11 @@ export function readThemeSelection(settings: unknown): ThemeSelection | null {
 }
 
 export function isThemeId(id: unknown): id is string {
-  return typeof id === "string" && THEME_META.some((theme) => theme.id === id);
+  return (
+    typeof id === "string" &&
+    id.length <= 80 &&
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)
+  );
 }
 
 export function isThemeSelectable(theme: ThemeMeta): boolean {

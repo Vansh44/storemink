@@ -5,7 +5,7 @@ import { can } from "@/app/dashboard/lib/permissions";
 import { EMPTY_DESIGN_OVERRIDES } from "@/lib/chrome/design";
 import { DEFAULT_CHROME, sanitizeChromeForSave } from "@/lib/chrome/types";
 import { withService } from "@/lib/db/client";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveThemeDefinitionWithDb } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { createMinkDraftProposal } from "./drafts";
 import { MinkToolInputError } from "./errors";
@@ -65,7 +65,7 @@ export async function readStorefrontDesignTarget(
         : {};
     const selection = readThemeSelection(settings);
     const definition = selection
-      ? getThemeDefinition(selection.id, selection.version)
+      ? await resolveThemeDefinitionWithDb(db, selection.id, selection.version)
       : null;
     const chrome = row.chrome_store_id
       ? sanitizeChromeForSave(row.draft)

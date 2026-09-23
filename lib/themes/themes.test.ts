@@ -226,7 +226,14 @@ describe("theme registry", () => {
     expect(readThemeSelection({ template: "basket" })).toEqual({
       id: "basket",
     });
-    expect(readThemeSelection({ theme: { presetId: "unknown" } })).toBeNull();
+    expect(
+      readThemeSelection({
+        theme: { presetId: "runtime-theme", presetVersion: "1.2.3" },
+      }),
+    ).toEqual({ id: "runtime-theme", version: "1.2.3" });
+    expect(
+      readThemeSelection({ theme: { presetId: "Unknown Theme" } }),
+    ).toBeNull();
     expect(readThemeSelection(null)).toBeNull();
   });
 

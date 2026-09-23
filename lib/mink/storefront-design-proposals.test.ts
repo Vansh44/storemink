@@ -14,6 +14,14 @@ vi.mock("@/lib/db/client", () => ({
     run({ execute: mocks.execute }),
   ),
 }));
+vi.mock("@/lib/themes/runtime-registry", () => ({
+  resolveThemeDefinitionWithDb: vi.fn(
+    async (_db: unknown, id: unknown, version?: unknown) => {
+      const { getThemeDefinition } = await import("@/lib/themes");
+      return getThemeDefinition(id, version);
+    },
+  ),
+}));
 vi.mock("./drafts", () => ({ createMinkDraftProposal: mocks.createDraft }));
 
 import { digestMinkStorefrontDesign } from "./storefront-design-contract";

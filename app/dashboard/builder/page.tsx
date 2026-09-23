@@ -7,7 +7,7 @@ import { getStoreBrand } from "@/lib/store/brand";
 import { getDraftChromeForEditor } from "@/lib/chrome/queries";
 import { DEFAULT_CHROME } from "@/lib/chrome/types";
 import { themeDesignDefaults } from "@/lib/chrome/design";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { BuilderClient } from "./builder-client";
 import type { BlogOption, CategoryOption, ProductOption } from "./section-form";
@@ -76,11 +76,11 @@ export default async function BuilderPage() {
       .limit(1),
   );
   const themeSelection = readThemeSelection(storeRow?.settings);
+  const themeDefinition = themeSelection
+    ? await resolveThemeDefinition(themeSelection.id, themeSelection.version)
+    : null;
   const themeDefaults = themeDesignDefaults(
-    themeSelection
-      ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
-          .design
-      : null,
+    themeDefinition?.preset.design ?? null,
   );
 
   const blogOptions: BlogOption[] = storeData.blogRows.map((b) => ({

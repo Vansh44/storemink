@@ -19,7 +19,7 @@ import {
   type PageSectionItem,
   type RichTextConfig,
 } from "@/lib/sections/registry";
-import { getThemeDefinition } from "./index";
+import { resolveThemeDefinition } from "./runtime-registry";
 import type { StoredThemeInstallation } from "./meta";
 import type { ThemeDefinition } from "./types";
 
@@ -75,7 +75,7 @@ export async function applyTheme(
     publishSampleProducts?: boolean;
   },
 ): Promise<ApplyThemeResult> {
-  const theme = getThemeDefinition(themeId);
+  const theme = await resolveThemeDefinition(themeId);
   const { preset } = theme;
   const errors: string[] = [];
   const fail = (step: string, message: string) => {

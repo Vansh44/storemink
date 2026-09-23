@@ -4621,7 +4621,8 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     **Public theme catalog (Phase 4, in progress)**:
     `themes.{ROOT_DOMAIN}` is a reserved platform host (`isThemesHost`) rewritten
     by `proxy.ts` to `app/themes/`, never resolved as merchant tenancy. The
-    server-rendered catalog imports only client-safe `THEME_META`, so its
+    server-rendered catalog receives only client-safe `ThemeMeta` from the
+    runtime registry (with bundled `THEME_META` as fallback), so its
     industry filters, plan badges, release labels, preview image, demo health,
     and signup CTA share the exact source used by onboarding. The hero and
     closing galleries receive a small serializable projection of every
@@ -4653,6 +4654,24 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     is `docs/mink-ai-theme-studio-phase0.md`. No route, DB row, worker, preview,
     provider call or publish path exists in Phase 0, so this changes no
     merchant or shopper flow and requires no Help Centre migration.
+    **Mink AI Theme Studio Phase 1 (2026-09-23; runtime registry):** migration
+    `20260923_0127_theme_runtime_registry` adds service-only
+    `theme_releases` (immutable, content-addressed `ThemePackageV2` rows) and
+    `theme_catalog_entries` (the mutable current-release/visibility pointer).
+    Database triggers forbid release mutation and forbid a catalog pointer to
+    a non-published row; `app_user` has no table privileges. Server-only
+    `lib/themes/runtime-registry.ts` validates every JSON package and SHA-256
+    digest before use, resolves an exact installed database version first, and
+    falls back through bundled immutable releases to the default. The cached
+    catalog projection now feeds the storefront, public catalog, signup,
+    theme application, demos, Website Builder and existing Mink storefront
+    design readers; full packages never enter the signup client bundle.
+    `npm run theme-registry:import` is dry-run by default, idempotently imports
+    bundled releases with `--commit`, and can explicitly select/restore a
+    published pointer with `--activate id@version`; it never advances an
+    existing pointer during routine import. Full contract and rollout record:
+    `docs/mink-ai-theme-studio-phase1.md`. This is internal infrastructure, so
+    there is no merchant-visible change and no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

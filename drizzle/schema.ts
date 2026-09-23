@@ -2193,6 +2193,96 @@ export const platformAdmins = pgTable(
   ],
 );
 
+// Theme Studio Phase 1: immutable, service-owned runtime packages. A release
+// row is never updated or deleted (the database trigger enforces that); stores
+// pin theme_id + version, while the catalog pointer below can move between
+// published releases without changing any existing installation.
+export const themeReleases = pgTable(
+  "theme_releases",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    themeId: text("theme_id").notNull(),
+    version: text().notNull(),
+    releaseStatus: text("release_status").notNull(),
+    packageJson: jsonb("package_json").notNull(),
+    manifestDigest: text("manifest_digest").notNull(),
+    source: text().default("theme-studio").notNull(),
+    // Actor snapshot only. A release stays immutable if that operator row is
+    // later removed, so no ON DELETE action may rewrite this column.
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("theme_releases_theme_version_key").on(table.themeId, table.version),
+    unique("theme_releases_id_theme_key").on(table.id, table.themeId),
+    index("theme_releases_lookup_idx").on(
+      table.themeId,
+      table.version,
+      table.releaseStatus,
+    ),
+    check(
+      "theme_releases_theme_id_check",
+      sql`${table.themeId} ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$' AND char_length(${table.themeId}) <= 80`,
+    ),
+    check(
+      "theme_releases_version_check",
+      sql`${table.version} ~ '^[0-9]+\.[0-9]+\.[0-9]+$'`,
+    ),
+    check(
+      "theme_releases_status_check",
+      sql`${table.releaseStatus} IN ('candidate', 'approved', 'published', 'blocked')`,
+    ),
+    check(
+      "theme_releases_digest_check",
+      sql`${table.manifestDigest} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "theme_releases_source_check",
+      sql`${table.source} IN ('bundled-import', 'theme-studio')`,
+    ),
+    check(
+      "theme_releases_package_size_check",
+      sql`octet_length(${table.packageJson}::text) <= 2097152`,
+    ),
+  ],
+);
+
+export const themeCatalogEntries = pgTable(
+  "theme_catalog_entries",
+  {
+    themeId: text("theme_id").primaryKey().notNull(),
+    currentReleaseId: uuid("current_release_id").notNull(),
+    visibility: text().notNull(),
+    updatedBy: uuid("updated_by").references(() => platformAdmins.id, {
+      onDelete: "set null",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.currentReleaseId, table.themeId],
+      foreignColumns: [themeReleases.id, themeReleases.themeId],
+      name: "theme_catalog_entries_release_fkey",
+    }),
+    index("theme_catalog_entries_visibility_idx").on(
+      table.visibility,
+      table.themeId,
+    ),
+    check(
+      "theme_catalog_entries_theme_id_check",
+      sql`${table.themeId} ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$' AND char_length(${table.themeId}) <= 80`,
+    ),
+    check(
+      "theme_catalog_entries_visibility_check",
+      sql`${table.visibility} IN ('hidden', 'legacy', 'public')`,
+    ),
+  ],
+);
+
 /**
  * StoreMink's OWN tax identity, edited by an operator (owner decision: GST is
  * operator-configured, not merchant-facing).
