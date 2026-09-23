@@ -15,6 +15,10 @@ const repo = vi.hoisted(() => ({
   })),
   cancelThemeStudioRun: vi.fn(async () => ({ status: "cancelled" })),
   retryThemeStudioRun: vi.fn(async () => ({ runId: "r2", duplicate: false })),
+  submitThemeStudioDetails: vi.fn(async () => ({
+    runId: "r3",
+    duplicate: false,
+  })),
   removeThemeStudioReference: vi.fn(async () => undefined),
   archiveThemeStudioProject: vi.fn(async () => undefined),
 }));
@@ -64,7 +68,7 @@ const calls: [
         catalogSizes: ["small"],
         requiredFeatures: [],
         baseThemeId: null,
-        modelKey: "opus-5",
+        modelKey: "gemini-3.8-flash",
       }),
     "createThemeStudioProject",
   ],
@@ -92,6 +96,17 @@ const calls: [
         idempotencyKey: "k".repeat(20),
       }),
     "retryThemeStudioRun",
+  ],
+  [
+    "submit details",
+    () =>
+      actions.submitThemeStudioDetailsAction({
+        projectId,
+        expectedRevision: 0,
+        body: "Photography comes from the operator.",
+        idempotencyKey: "k".repeat(20),
+      }),
+    "submitThemeStudioDetails",
   ],
   [
     "remove reference",

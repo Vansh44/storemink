@@ -3,7 +3,7 @@
 > **Status:** Implemented 2026-09-23. Operator-only. No merchant, staff or
 > shopper flow changes, so there is **no Help Centre migration**. No model is
 > called: this phase ships an offline test provider so the durable pipeline can
-> be exercised before Phase 3 wires in Anthropic on Vertex AI.
+> be exercised before Phase 3 wires in Gemini on Vertex AI.
 
 ## 1. What an operator can do now
 
@@ -127,8 +127,9 @@ thrown away. Up to three attempts (one plus two provider retries).
 
 The worker runs in-process after a queue/retry (`after()`), and the existing
 per-minute `/api/cron/mink-workflows` heartbeat runs it as an isolated backstop:
-a Studio failure is logged and never fails merchant Mink workflows. No new Cloud
-Scheduler job is needed.
+a Studio failure is logged and never fails merchant Mink workflows. Both paths
+run offline-provider runs only; Phase 3 model runs need a dedicated worker job
+(`docs/mink-ai-theme-studio-phase3.md` §6).
 
 Logs carry run id, provider, model key, attempt and outcome — never the brief,
 a reference, or provider output.
@@ -146,10 +147,10 @@ invalid output, so the failure and retry paths can be drilled on staging.
 
 ## 7. Configuration
 
-| Variable                          | Default | Effect                                                             |
-| --------------------------------- | ------- | ------------------------------------------------------------------ |
-| `THEME_STUDIO_PROVIDER`           | `fake`  | Provider for new runs. `anthropic-vertex` is refused until Phase 3 |
-| `THEME_STUDIO_GENERATION_ENABLED` | on      | `false` is the Studio emergency stop for new runs                  |
+| Variable                          | Default | Effect                                                    |
+| --------------------------------- | ------- | --------------------------------------------------------- |
+| `THEME_STUDIO_PROVIDER`           | `fake`  | Provider for new runs. `vertex-gemini` arrives in Phase 3 |
+| `THEME_STUDIO_GENERATION_ENABLED` | on      | `false` is the Studio emergency stop for new runs         |
 
 Both are independent of merchant Mink's `MINK_AI_ENABLED`. With generation off,
 projects and references still work and cancel/archive still work.

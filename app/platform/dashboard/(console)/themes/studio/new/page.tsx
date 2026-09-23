@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft } from "lucide-react";
 import { getThemeStudioActor } from "@/lib/theme-studio/access";
+import { getThemeStudioConfig } from "@/lib/theme-studio/config";
 import {
   THEME_STUDIO_CATALOG_SIZES,
   THEME_STUDIO_FEATURES,
@@ -18,6 +19,9 @@ export const metadata = { title: "New Studio project — StoreMink Admin" };
 export default async function NewThemeStudioProjectPage() {
   await requireOperator();
   const actor = await getThemeStudioActor();
+  // A model switched off in this environment is not offered, rather than
+  // offered and then refused at queue time.
+  const { disabledModels } = getThemeStudioConfig();
   // Base themes are the bundled/runtime catalogue, as metadata only.
   const baseThemes = actor
     ? (await getThemeCatalog()).map((t) => ({ id: t.id, name: t.name }))
@@ -41,7 +45,9 @@ export default async function NewThemeStudioProjectPage() {
         // Vocabularies come from the contract on the server, so the form can
         // only offer what validateProjectInput will accept.
         <NewProjectForm
-          models={[...themeStudioModelOptions()]}
+          models={themeStudioModelOptions().filter(
+            (m) => !disabledModels.has(m.key),
+          )}
           baseThemes={baseThemes}
           industries={[...THEME_STUDIO_INDUSTRIES]}
           catalogSizes={[...THEME_STUDIO_CATALOG_SIZES]}

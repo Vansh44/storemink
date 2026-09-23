@@ -1,9 +1,11 @@
 # Mink AI Theme Studio — implementation plan
 
-> **Status:** Phases 0–2 are implemented: contracts, the runtime registry, and
-> the superadmin Studio shell with secure intake and a durable queue driven by
-> an offline test provider. Phases 3–7 remain proposed; no model generation,
-> preview, or publication capability is available yet.
+> **Status:** Phases 0–3 are implemented: contracts, the runtime registry, the
+> superadmin Studio shell with secure intake, and the Gemini-on-Vertex
+> generation pipeline (moved from Anthropic models on 2026-09-23, owner's
+> decision). Phase 3 has not yet been run against a live model, and
+> the offline provider stays the default until it has. Phases 4–7 remain
+> proposed; no preview or publication capability is available yet.
 >
 > **Plan date:** 2026-09-23
 >
@@ -14,7 +16,7 @@
 
 Build **Mink AI Theme Studio** as a superadmin-only workspace inside the
 existing operator Themes area. An operator supplies a brief and optional
-reference screenshots, chooses an allowlisted Anthropic model served through
+reference screenshots, chooses an allowlisted Gemini model served through
 Vertex AI, reviews an immutable generated candidate at desktop/tablet/mobile
 sizes, requests revisions, and explicitly publishes an approved release.
 
@@ -154,7 +156,7 @@ flowchart LR
   API --> GCS[(Private input and candidate assets)]
   API --> Q[Cloud Tasks queue]
   Q --> W[Dedicated theme-studio worker]
-  W --> V[Anthropic models on Vertex AI]
+  W --> V[Gemini models on Vertex AI]
   W --> C[Theme compiler and validators]
   C --> DB
   C --> P[Private preview renderer]
@@ -168,8 +170,8 @@ flowchart LR
 
 ### 4.1 Dedicated model boundary
 
-Create a Theme Studio model adapter; do not add Anthropic models to the normal
-merchant Mink router or its dropdowns.
+Create a Theme Studio model adapter; do not add Theme Studio models to the
+normal merchant Mink router or its dropdowns, even though both use Gemini.
 
 Recommended boundary:
 
@@ -183,11 +185,10 @@ Recommended boundary:
 
 Initial logical choices:
 
-| UI key     | Intended provider model | Use                                                              |
-| ---------- | ----------------------- | ---------------------------------------------------------------- |
-| `opus-5`   | Claude Opus 5           | high-quality default                                             |
-| `opus-5.5` | Claude Opus 5.5         | deeper candidate generation after project enablement is verified |
-| `fable-5`  | Claude Fable 5          | long-horizon, multimodal theme exploration                       |
+| UI key             | Provider model           | Use                                                    |
+| ------------------ | ------------------------ | ------------------------------------------------------ |
+| `gemini-3.8-flash` | `gemini-3.8-flash`       | default for analysis and package synthesis             |
+| `gemini-3.1-pro`   | `gemini-3.1-pro-preview` | deeper reasoning for hard briefs (Preview; never only) |
 
 Provider ids, region support, launch status, terms, and quota must be verified
 in the target GCP project before a choice becomes enabled. Keep the mapping in
@@ -195,10 +196,10 @@ server configuration so a provider rename or dated version does not alter
 stored history. Each run records both the stable UI key and the resolved model
 id.
 
-The target project must enable the relevant Model Garden models and required
-terms. Vertex's current partner-model flow uses the Anthropic Messages schema
-through the publisher-model `rawPredict`/`streamRawPredict` endpoint. Use ADC;
-never store an Anthropic API key in StoreMink.
+Gemini models are Google first-party publisher models: no Model Garden
+partner enablement is needed, only the Vertex AI API and
+`roles/aiplatform.user`. Calls use `@google/genai` in Vertex mode with ADC;
+never store a Gemini API key for Theme Studio.
 
 ### 4.2 Durable asynchronous runs
 
@@ -324,7 +325,7 @@ and valid publication transitions.
 - Require every published asset to record `generated`, `operator-owned`, or
   `licensed` provenance plus any source/license note.
 
-Anthropic's listed models produce text, not final raster theme photography.
+The selected Gemini models produce text, not final raster theme photography.
 For the first release, use operator-provided licensed assets or a curated
 StoreMink asset library. A later image-generation step may reuse StoreMink's
 existing media pipeline, but it needs its own prompt, provenance, crop, and
@@ -492,11 +493,11 @@ stored sanitized in a service-only table rather than a private GCS prefix,
 because the media bucket is public; revisions, the retention sweep and draft
 brief editing remain later work.
 
-### Phase 3 — Anthropic generation pipeline
+### Phase 3 — Gemini generation pipeline ✅
 
 Deliver:
 
-- dedicated Vertex/Anthropic client and server allowlist;
+- dedicated Gemini-on-Vertex client and server allowlist;
 - Stage A intent analysis and Stage B package synthesis;
 - strict parsing, bounded repair loop, prompt/version capture, idempotent jobs;
 - usage/cost telemetry and emergency controls; and
@@ -504,6 +505,13 @@ Deliver:
 
 Exit: each enabled model produces valid immutable candidates from text and
 images, and malformed/prompt-injected output fails closed.
+
+Implementation record: `docs/mink-ai-theme-studio-phase3.md`. Images are
+server-generated placeholders marked in the package, which publication must
+refuse. Model runs execute on a dedicated internal worker route that needs its
+own Scheduler job and a longer Cloud Run timeout before `vertex-gemini` is
+enabled. The live evaluation per model is the remaining gate: until it passes,
+the exit criterion is met only up to the provider boundary.
 
 ### Phase 4 — preview and iterative revision
 
@@ -578,7 +586,7 @@ At minimum, add tests for:
   hide, restore, and cache invalidation;
 - existing bundled-theme compatibility and pinned old-release resolution; and
 - proof that merchant Mink APIs and model selectors cannot request any Theme
-  Studio Anthropic model.
+  Studio model.
 
 Use mutation tests for authorization, digest binding, publication state
 transitions, and model allowlisting; these are the places where a removed line
@@ -609,7 +617,7 @@ lib/theme-studio/
   access.ts
   repository.ts
   models.ts
-  anthropic-vertex.ts
+  gemini-vertex.ts
   intent-schema.ts
   package-schema.ts
   prompts.ts
@@ -635,8 +643,8 @@ independently authorized mutation adapters.
 
 ## 13. Deployment prerequisites
 
-- Enable the required Anthropic publisher models and accept applicable Google
-  Cloud/Anthropic terms in the target project.
+- Enable the Vertex AI API in the target project and confirm both Gemini ids
+  resolve (`npm run theme-studio:model-check`, the free `countTokens` call).
 - Confirm the exact provider id and endpoint for every dropdown entry with a
   startup/health probe; disable unavailable entries rather than falling back to
   another model silently.
@@ -674,7 +682,7 @@ The first production release is complete only when:
 
 - only superadmins can access any Studio data or action;
 - text plus reference images can produce an immutable validated candidate with
-  an explicitly selected allowlisted Anthropic model;
+  an explicitly selected allowlisted Gemini model;
 - every revision creates a traceable child version;
 - the real storefront can be reviewed at the three required viewports and on a
   physical device;
@@ -690,7 +698,6 @@ The first production release is complete only when:
 
 ## 16. Provider references checked for this plan
 
-- Google Cloud: [Request predictions with Claude models](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/use-claude)
-- Google Cloud: [Claude Opus 5 model card](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/opus-5)
-- Google Cloud: [Claude Fable 5 model card](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/claude/fable-5)
-- Google Cloud: [Partner-model availability and endpoints](https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/partner-models/use-partner-models)
+- Google AI: [Gemini API pricing](https://ai.google.dev/gemini-api/docs/pricing) (the rates in `lib/theme-studio/cost.ts`)
+- Google AI: [Structured output](https://ai.google.dev/gemini-api/docs/structured-output) (the supported JSON Schema subset)
+- Google AI: [Thinking](https://ai.google.dev/gemini-api/docs/thinking) (`thinkingLevel`)

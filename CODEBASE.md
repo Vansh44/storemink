@@ -2721,6 +2721,10 @@ wholesip/
 │       │                      # work remains, and returns 503 on provider failure
 │       ├── cron/mink-publications/ # ★ Every minute: CRON_SECRET-gated bounded Phase 5D
 │       │                      # due-blog publisher; exact-version conflict detection + SKIP LOCKED.
+│       ├── internal/theme-studio/runs/ # ★ Theme Studio Phase 3 MODEL worker: CRON_SECRET
+│       │                      # bearer, maxDuration 1200, ONE run of any provider per call.
+│       │                      # Needs its own Scheduler job (1200s deadline, no retries) and a
+│       │                      # ≥1200s Cloud Run timeout — docs/cron-jobs.md. Takes no input.
 │       ├── cron/mink-workflows/ # ★ Every minute: CRON_SECRET-gated Phase 6A lease worker;
 │       │                      # bounded deterministic steps, retries, cancellation and completion.
 │       ├── cron/domain-reconcile/ # ★ HOURLY (§30): finishes every custom domain
@@ -3292,10 +3296,22 @@ wholesip/
 │   │                          # shaped fields, invented sections, custom_code, undeclared
 │   │                          # assets and unknown models; every bundled theme round-trips
 │   │                          # through V2 without loss. models.json is the ONE task-scoped
-│   │                          # Opus 5 / Opus 5.5 / Fable 5 registry shared by TypeScript and
+│   │                          # Gemini 3.8 Flash / 3.1 Pro registry shared by TypeScript and
 │   │                          # the operational probe; models.ts exposes stable UI keys only
 │   │                          # and resolves provider ids server-side. These models are NOT
 │   │                          # registered with merchant Mink.
+│   │                          # Phase 3: gemini-vertex.ts (the ONLY Studio model client —
+│   │                          # @google/genai Vertex mode, ADC, responseJsonSchema, no
+│   │                          # tools, HIGH thinking, thought parts discarded),
+│   │                          # schemas.ts (closed Stage A/B JSON schemas), prompts.ts
+│   │                          # (deterministic, versioned, untrusted input fenced),
+│   │                          # compiler.ts (draft → ThemePackageV2; the server owns id,
+│   │                          # engine, release, assets; URLs/hrefs/sources refused),
+│   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
+│   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
+│   │                          # cost.ts (versioned ESTIMATE, priced per call because
+│   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
+│   │                          # grading + independent package safety checks).
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -3930,11 +3946,16 @@ wholesip/
 │                              # missing/draft/empty guide drift is repaired before publication.
 │                              # It follows the 0049/0050 UX migrations.
 ├── scripts/
+│   ├── theme-studio-eval.ts   # ★ Phase 0 golden set through the Phase 3 pipeline, no DB.
+│   │                          # Offline (fake) by default and grades nothing; --live needs
+│   │                          # --max-usd AND --yes, because GCP_PROJECT_ID in a dev .env
+│   │                          # would otherwise be all it takes to spend money. Exits 1 on
+│   │                          # any package safety violation.
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
-│   │                          # the three Theme Studio model choices. --dry-run makes no
-│   │                          # request; a live probe sends one minimal rawPredict call per
+│   │                          # the two Theme Studio Gemini models. --dry-run makes no
+│   │                          # request; a live probe sends one FREE countTokens call per
 │   │                          # model, reports only status/latency/safe code and never falls
-│   │                          # back to another model. Not a CI job: quota/terms are external.
+│   │                          # back to another model. Not a CI job: needs ADC + a project.
 │   ├── help-content-lint.mjs  # ★★ THE HELP CENTRE GATE (docs/help-centre.md).
 │   │                          # AGENTS.md used to require a Help update for EVERY
 │   │                          # change, so the cheapest way to comply was to append
@@ -4648,8 +4669,8 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     invented sections, custom code, undeclared assets, unknown models and
     instruction-shaped fields. A compatibility test converts, validates and
     deep-equality round-trips all four bundled themes. `models.json` /
-    `models.ts` form a separate three-model allowlist (Opus 5, Opus 5.5,
-    Fable 5), deliberately absent from merchant Mink. The 32-case golden set is
+    `models.ts` form a separate two-model allowlist (Gemini 3.8 Flash and
+    Gemini 3.1 Pro preview), deliberately absent from merchant Mink. The 32-case golden set is
     `evals/theme-studio/phase0.json`; the role/state/retention/threat/ADR record
     is `docs/mink-ai-theme-studio-phase0.md`. No route, DB row, worker, preview,
     provider call or publish path exists in Phase 0, so this changes no
@@ -4718,6 +4739,46 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     independent of `MINK_AI_ENABLED`. Record:
     `docs/mink-ai-theme-studio-phase2.md`. Operator-only: no Help Centre
     migration.
+    **Mink AI Theme Studio Phase 3 (2026-09-23; Gemini generation
+    pipeline, NOT yet run against a live model):** `pipeline.ts` runs Stage A
+    (brief + references → intent, or ≤5 clarifying questions, or a decline) and
+    Stage B (intent → a closed DRAFT) against the project's allowlisted model
+    through `gemini-vertex.ts` (`gemini-3.8-flash` default,
+    `gemini-3.1-pro-preview` for hard briefs). ★ Overrides may only pin a dated version of
+    the SAME model (`-001`, `-09-2026`); `-lite` or another family throws, so an
+    env var cannot silently substitute a model. ⚠ Gemini's schema subset has no
+    length/pattern keywords and may reject a very large schema outright — the
+    Stage B draft schema is the one at risk, and only a live call settles it.
+    ★★ The model never writes a package:
+    `compiler.ts` builds the `ThemePackageV2`, owning id, engine, release
+    (`0.0.N` draft, hidden, demo unavailable), provenance and every asset, and
+    refuses any non-slot `*_url`, off-site `*_href`, non-empty `video_url` or
+    id-based product source; custom_code/latest_blogs/video cannot be
+    expressed. Section configs pass the registry's publish-mode
+    `validateConfig`, then `validateThemePackageV2`. Invalid output gets ≤2
+    fresh single-turn repairs per stage and then FAILS the run
+    (`invalid_output`); refusal, truncation and provider errors are terminal
+    with closed codes, and there is no model fallback. ★ Because the package
+    demands a digest for every image and there is no image model yet, images
+    are server-rendered solid-colour placeholders stored as
+    `theme_studio_assets` purpose `placeholder` and marked in the package —
+    publication (Phase 6) must refuse them. A clarify leaves the project
+    `blocked`; `submitThemeStudioDetails` records the answer as a message and
+    queues a new run. ★★ Model runs execute ONLY on the dedicated
+    `/api/internal/theme-studio/runs` worker; `after()` and the Mink heartbeat
+    run the offline provider only, because a model run can outlive both.
+    Migration `20260923_0129_theme_studio_generation` adds
+    `runs.outcome_detail` and widens the asset-purpose and event vocabularies;
+    the model/provider CHECKs (0128) admit only the Gemini keys and
+    `vertex-gemini`. Usage records input (incl. cached), cached, output and
+    thinking tokens; the estimate uses Gemini API list prices
+    (`gemini-api-list-2026-09`) — Vertex billing is authoritative.
+    Controls: per-model `THEME_STUDIO_DISABLED_MODELS`, a per-operator
+    rolling-24h ESTIMATED spend cap `THEME_STUDIO_DAILY_SPEND_USD` (default 25,
+    checked at queue/retry/answer; the fake is exempt), and the Phase 2
+    emergency stop. `npm run theme-studio:eval` runs the Phase 0 golden set.
+    Record and rollout steps: `docs/mink-ai-theme-studio-phase3.md`.
+    Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -12978,9 +13039,12 @@ npm run test:shuffle # ★ the SAME suite in a different (fixed-seed) order — 
                     #   thing that catches order-dependent tests. CI runs it.
 npm run test:watch  # vitest watch
 npm run format      # prettier --write
-npm run theme-studio:model-check -- --dry-run # resolve the three task-scoped
-                    #   Anthropic model ids without network or cost; omit --dry-run only
-                    #   after setting THEME_STUDIO_GCP_PROJECT_ID and accepting provider terms
+npm run theme-studio:model-check -- --dry-run # resolve the two task-scoped
+                    #   Gemini model ids without network; without --dry-run it calls the
+                    #   FREE countTokens endpoint per model (needs ADC + a project id)
+npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, offline
+                    #   (fake provider, grades nothing). A paid live run needs
+                    #   `-- --live --model=gemini-3.8-flash --max-usd=5 --yes`
 ```
 
 ## 7. Environments / external services
@@ -13121,20 +13185,22 @@ npm run theme-studio:model-check -- --dry-run # resolve the three task-scoped
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
   service account holds least-privilege **`roles/speech.client`** to call
   Speech-to-Text. Neither credential is exposed to the dashboard.
-  Theme Studio Phase 2 reads **`THEME_STUDIO_PROVIDER`** (default `fake`, the
-  offline test provider; `anthropic-vertex` is refused until Phase 3) and
-  **`THEME_STUDIO_GENERATION_ENABLED`** (`false` stops new Studio runs without
-  affecting merchant Mink).
-  Theme Studio Phase 0 makes NO provider call from the application. Its manual
-  `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
+  Theme Studio reads **`THEME_STUDIO_PROVIDER`** (default `fake`, the offline
+  test provider; `vertex-gemini` sends new runs to the allowlisted models
+  and must not be set until the dedicated worker job exists — §4
+  `api/internal/theme-studio/runs`), **`THEME_STUDIO_GENERATION_ENABLED`**
+  (`false` stops new Studio runs without affecting merchant Mink),
+  **`THEME_STUDIO_DISABLED_MODELS`** (comma-separated model KEYS to switch
+  off) and **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
+  estimated-spend ceiling, default 25).
+  Theme Studio's manual `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
   (fallback `GCP_PROJECT_ID`) and **`THEME_STUDIO_VERTEX_LOCATION`** (default
   `global`). Exact provider ids can be overridden only to a dated/versioned id
   in the SAME model family with the model-specific
-  **`THEME_STUDIO_CLAUDE_OPUS_5_MODEL`**,
-  **`THEME_STUDIO_CLAUDE_OPUS_55_MODEL`**, and
-  **`THEME_STUDIO_CLAUDE_FABLE_5_MODEL`** variables after verification in the
-  target project. These do not configure merchant Mink; a later dedicated
-  worker will own them.
+  **`THEME_STUDIO_GEMINI_38_FLASH_MODEL`** and
+  **`THEME_STUDIO_GEMINI_31_PRO_MODEL`** variables after verification in the
+  target project. These do not configure merchant Mink; since Phase 3 the
+  same project/location variables configure the Studio model worker.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with

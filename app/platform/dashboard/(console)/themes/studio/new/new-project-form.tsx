@@ -104,7 +104,7 @@ export function NewProjectForm({
   const [chosenFeatures, setFeatures] = useState<ThemeFeature[]>([]);
   const [baseThemeId, setBaseThemeId] = useState("");
   const [modelKey, setModelKey] = useState<ThemeStudioModelKey>(
-    models[0]?.key ?? "opus-5",
+    models[0]?.key ?? "gemini-3.8-flash",
   );
 
   function submit(event: React.FormEvent) {

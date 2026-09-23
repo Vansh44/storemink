@@ -72,9 +72,12 @@ async function handle(request: Request) {
     let themeStudio: Awaited<ReturnType<typeof runThemeStudioWorker>> | null =
       null;
     try {
+      // Offline runs and lease reaping only. Model runs take minutes and have
+      // their own worker route, so they never hold this heartbeat open.
       themeStudio = await runThemeStudioWorker({
         maxRuns: 5,
         budgetMs: 15_000,
+        providers: ["fake"],
       });
     } catch (error) {
       logError("mink workflow cron: theme studio pass failed", error);

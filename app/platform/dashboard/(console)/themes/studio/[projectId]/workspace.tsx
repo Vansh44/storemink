@@ -18,6 +18,7 @@ import {
   queueThemeStudioGenerationAction,
   removeThemeStudioReferenceAction,
   retryThemeStudioRunAction,
+  submitThemeStudioDetailsAction,
 } from "@/app/actions/theme-studio-actions";
 import type { ThemeStudioProjectDetail } from "@/lib/theme-studio/repository";
 import { StudioStatusBadge, studioDate } from "../studio-ui";
@@ -28,7 +29,20 @@ import { StudioStatusBadge, studioDate } from "../studio-ui";
 // public URL for them to leak through.
 
 const ERROR_TEXT: Record<string, string> = {
-  invalid_output: "The provider returned a result that failed validation.",
+  invalid_output:
+    "The model's output still failed validation after its repair attempts.",
+  model_refused: "The model declined this request for safety reasons.",
+  model_declined: "The model declined to build this theme.",
+  output_truncated: "The model ran out of output space before finishing.",
+  rate_limited:
+    "The model provider is rate-limiting requests. Try again shortly.",
+  provider_auth: "StoreMink couldn't authenticate with the model provider.",
+  provider_rejected: "The model provider rejected the request.",
+  provider_timeout: "The model provider took too long to respond.",
+  run_timeout: "The run hit its time limit.",
+  generation_disabled: "Generation was switched off before this run started.",
+  model_disabled: "This model was switched off before this run started.",
+  cancelled: "The run was cancelled.",
   provider_error: "The provider failed after its retries.",
   provider_unavailable: "No provider was available for this run.",
   lease_expired: "The run stopped responding and ran out of attempts.",
@@ -41,6 +55,10 @@ const REFERENCE_ACCEPT = "image/jpeg,image/png,image/webp,image/avif";
 
 function newKey(): string {
   return crypto.randomUUID();
+}
+
+function formatCost(microUsd: number): string {
+  return `~$${(microUsd / 1_000_000).toFixed(microUsd < 10_000 ? 4 : 2)}`;
 }
 
 function formatBytes(n: number): string {
@@ -69,11 +87,15 @@ export function ProjectWorkspace({
   // One key per intent, reused if the same click is retried, so a double
   // submit finds its own run instead of queueing two.
   const queueKey = useRef<string>(newKey());
+  const detailsKey = useRef<string>(newKey());
+  const [details, setDetails] = useState("");
 
   const activeRun = project.runs.find(
     (r) => r.status === "queued" || r.status === "running",
   );
   const latestRun = project.runs[0] ?? null;
+  const awaitingDetails =
+    project.status === "blocked" && (latestRun?.questions.length ?? 0) > 0;
   const referencesEditable = ["draft", "ready", "failed", "blocked"].includes(
     project.status,
   );
@@ -246,6 +268,52 @@ export function ProjectWorkspace({
         ) : null}
       </section>
 
+      {awaitingDetails && latestRun ? (
+        <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+          <h2 className="text-sm font-semibold text-amber-900">
+            The model needs more details
+          </h2>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-900">
+            {latestRun.questions.map((q) => (
+              <li key={q}>{q}</li>
+            ))}
+          </ul>
+          <textarea
+            className="mt-3 block min-h-28 w-full rounded-lg border border-amber-300 bg-white px-3 py-2 text-sm focus:border-amber-600 focus:outline-none"
+            value={details}
+            maxLength={12_000}
+            onChange={(e) => setDetails(e.target.value)}
+            placeholder="Answer the questions. Your answer is added to the brief and sent with the current references."
+          />
+          <div className="mt-3 flex justify-end">
+            <button
+              type="button"
+              disabled={pending || !generationEnabled || !details.trim()}
+              onClick={() =>
+                run(
+                  () =>
+                    submitThemeStudioDetailsAction({
+                      projectId: project.id,
+                      expectedRevision: project.revision,
+                      body: details,
+                      idempotencyKey: detailsKey.current,
+                    }),
+                  "Details sent. Generation queued.",
+                )
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+            >
+              {pending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Answer and regenerate
+            </button>
+          </div>
+        </section>
+      ) : null}
+
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h2 className="text-sm font-semibold text-slate-900">
@@ -353,17 +421,49 @@ export function ProjectWorkspace({
                         : ""}
                     </p>
                     <p className="text-xs text-slate-500">
-                      {r.provider === "fake" ? "Test provider" : r.provider} ·
-                      attempt {r.attemptCount}/{r.maxAttempts} · queued{" "}
+                      {r.provider === "fake"
+                        ? "Test provider"
+                        : "Gemini on Vertex AI"}{" "}
+                      · attempt {r.attemptCount}/{r.maxAttempts} · queued{" "}
                       {studioDate(r.createdAt)}
                       {r.finishedAt
                         ? ` · finished ${studioDate(r.finishedAt)}`
                         : ""}
                     </p>
+                    {r.usage ? (
+                      <p className="text-xs text-slate-500">
+                        {r.usage.inputTokens.toLocaleString("en-IN")} in ·{" "}
+                        {r.usage.outputTokens.toLocaleString("en-IN")} out
+                        {r.usage.thinkingTokens > 0
+                          ? ` · ${r.usage.thinkingTokens.toLocaleString("en-IN")} thinking`
+                          : ""}
+                        {r.usage.cachedTokens > 0
+                          ? ` · ${r.usage.cachedTokens.toLocaleString("en-IN")} cached`
+                          : ""}{" "}
+                        · {formatCost(r.usage.estimatedCostMicroUsd)} estimated
+                        {r.usage.repairs > 0
+                          ? ` · ${r.usage.repairs} repair(s)`
+                          : ""}
+                      </p>
+                    ) : null}
                     {r.errorCode ? (
                       <p className="text-xs text-red-700">
                         {ERROR_TEXT[r.errorCode] ?? "The run failed."}{" "}
                         <span className="font-mono">({r.errorCode})</span>
+                        {r.refusalCategory
+                          ? ` · category ${r.refusalCategory}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    {r.declineReason ? (
+                      <p className="text-xs text-red-700">
+                        Reason: {r.declineReason}
+                      </p>
+                    ) : null}
+                    {r.questions.length > 0 ? (
+                      <p className="text-xs text-amber-700">
+                        Asked {r.questions.length} clarifying question
+                        {r.questions.length === 1 ? "" : "s"}.
                       </p>
                     ) : null}
                   </div>
@@ -431,6 +531,44 @@ export function ProjectWorkspace({
                   {v.id === project.currentVersionId ? " · current" : ""}
                 </p>
                 <p className="mt-1 text-sm text-slate-700">{v.summary}</p>
+                {v.packageSummary ? (
+                  <div className="mt-2 space-y-1 text-xs text-slate-600">
+                    <p>
+                      {v.packageSummary.pages} pages ·{" "}
+                      {v.packageSummary.sections} sections ·{" "}
+                      {v.packageSummary.products} sample products
+                    </p>
+                    {v.packageSummary.placeholders > 0 ? (
+                      <p className="text-amber-700">
+                        {v.packageSummary.placeholders} placeholder image
+                        {v.packageSummary.placeholders === 1 ? "" : "s"}. Real
+                        imagery must replace them before this theme can be
+                        published.
+                      </p>
+                    ) : null}
+                    {v.packageSummary.gaps.length > 0 ? (
+                      <ul className="space-y-0.5">
+                        {v.packageSummary.gaps.map((gap, i) => (
+                          <li key={`${gap.code}-${i}`}>
+                            <span
+                              className={
+                                gap.blocking
+                                  ? "font-semibold text-red-700"
+                                  : "text-slate-700"
+                              }
+                            >
+                              {gap.blocking ? "Blocking gap" : "Gap"}
+                            </span>
+                            : {gap.requestedCapability}{" "}
+                            <span className="font-mono text-slate-400">
+                              ({gap.code})
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                ) : null}
                 {v.assumptions.length > 0 ? (
                   <ul className="mt-2 list-disc pl-5 text-xs text-slate-500">
                     {v.assumptions.map((a) => (
@@ -441,9 +579,7 @@ export function ProjectWorkspace({
                 <p className="mt-2 font-mono text-[11px] text-slate-400">
                   intent {v.intentDigest.slice(0, 16)} ·{" "}
                   {studioDate(v.createdAt)}
-                  {v.hasPackage
-                    ? ""
-                    : " · design intent only (package synthesis arrives in a later phase)"}
+                  {v.hasPackage ? "" : " · design intent only"}
                 </p>
               </li>
             ))}

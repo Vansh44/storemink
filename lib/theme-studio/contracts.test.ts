@@ -142,7 +142,7 @@ describe("Theme Studio contracts", () => {
     );
     pkg.provenance = {
       origin: "generated",
-      modelKey: "opus-5",
+      modelKey: "gemini-3.8-flash",
       promptVersion: "theme-studio-intent-v1",
       referenceDigests: [],
     };

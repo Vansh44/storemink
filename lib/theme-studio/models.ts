@@ -6,9 +6,8 @@ import modelRegistry from "./models.json";
 // ever forwarded to Vertex.
 
 export const THEME_STUDIO_MODEL_KEYS = [
-  "opus-5",
-  "opus-5.5",
-  "fable-5",
+  "gemini-3.8-flash",
+  "gemini-3.1-pro",
 ] as const;
 
 export type ThemeStudioModelKey = (typeof THEME_STUDIO_MODEL_KEYS)[number];
@@ -82,8 +81,18 @@ export function resolveThemeStudioModel(
   };
 }
 
+// An override may pin a published VERSION of the same model — "-001", or a
+// dated "-09-2026" / "-09-15" snapshot — and nothing else. A bare prefix test
+// would admit "gemini-3.8-flash-lite", which is a different, cheaper model: the
+// silent substitution this registry exists to forbid.
+const VERSION_SUFFIX = /^-(?:\d{3}|\d{2}-\d{4}|\d{2}-\d{2})$/;
+
 function isAllowedProviderVersion(base: string, candidate: string): boolean {
-  return candidate === base || candidate.startsWith(`${base}@`);
+  return (
+    candidate === base ||
+    (candidate.startsWith(base) &&
+      VERSION_SUFFIX.test(candidate.slice(base.length)))
+  );
 }
 
 export function themeStudioModelOptions(): readonly {

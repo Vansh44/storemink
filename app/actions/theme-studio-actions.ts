@@ -28,6 +28,7 @@ import {
   queueThemeStudioGeneration,
   removeThemeStudioReference,
   retryThemeStudioRun,
+  submitThemeStudioDetails,
   ThemeStudioError,
   validateProjectInput,
   type CreateThemeStudioProjectInput,
@@ -59,7 +60,13 @@ function failure(error: unknown, context: string): ThemeStudioActionResult {
 function kickWorker() {
   after(async () => {
     try {
-      await runThemeStudioWorker({ maxRuns: 2, budgetMs: 20_000 });
+      // Offline runs only: they finish instantly. A model run takes minutes
+      // and is executed by the dedicated worker route instead.
+      await runThemeStudioWorker({
+        maxRuns: 2,
+        budgetMs: 20_000,
+        providers: ["fake"],
+      });
     } catch (error) {
       logError("theme studio: after-response worker failed", error);
     }
@@ -144,6 +151,36 @@ export async function retryThemeStudioRunAction(input: {
     return { ok: true, id: runId };
   } catch (error) {
     return failure(error, "retry run");
+  }
+}
+
+/** Answer the model's clarifying questions and regenerate. */
+export async function submitThemeStudioDetailsAction(input: {
+  projectId: string;
+  expectedRevision: number;
+  body: string;
+  idempotencyKey: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) {
+    return {
+      ok: false,
+      error: "The request is malformed. Reload and try again.",
+    };
+  }
+  try {
+    const { runId } = await submitThemeStudioDetails(actor, {
+      projectId: String(input.projectId),
+      expectedRevision: input.expectedRevision,
+      body: String(input.body ?? ""),
+      idempotencyKey: String(input.idempotencyKey),
+    });
+    kickWorker();
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true, id: runId };
+  } catch (error) {
+    return failure(error, "submit details");
   }
 }
 

@@ -8,13 +8,12 @@ import {
 } from "./models";
 
 describe("Theme Studio model registry", () => {
-  it("exposes exactly the three task-scoped model choices", () => {
+  it("exposes exactly the two task-scoped Gemini choices, Flash first", () => {
     expect(THEME_STUDIO_MODELS.map((model) => model.key)).toEqual([
-      "opus-5",
-      "opus-5.5",
-      "fable-5",
+      "gemini-3.8-flash",
+      "gemini-3.1-pro",
     ]);
-    expect(new Set(THEME_STUDIO_MODEL_KEYS).size).toBe(3);
+    expect(new Set(THEME_STUDIO_MODEL_KEYS).size).toBe(2);
     expect(themeStudioModelOptions()).toEqual(
       THEME_STUDIO_MODELS.map(({ key, label, purpose }) => ({
         key,
@@ -26,31 +25,57 @@ describe("Theme Studio model registry", () => {
   });
 
   it("accepts stable UI keys and refuses raw provider or merchant model ids", () => {
-    expect(parseThemeStudioModelKey("opus-5")).toBe("opus-5");
-    expect(parseThemeStudioModelKey("opus-5.5")).toBe("opus-5.5");
-    expect(parseThemeStudioModelKey("fable-5")).toBe("fable-5");
-    expect(parseThemeStudioModelKey("claude-opus-5")).toBeNull();
+    expect(parseThemeStudioModelKey("gemini-3.8-flash")).toBe(
+      "gemini-3.8-flash",
+    );
+    expect(parseThemeStudioModelKey("gemini-3.1-pro")).toBe("gemini-3.1-pro");
+    // The Pro key is not its provider id, so a raw id cannot be posted.
+    expect(parseThemeStudioModelKey("gemini-3.1-pro-preview")).toBeNull();
+    // Merchant Mink's model is not a Theme Studio model.
     expect(parseThemeStudioModelKey("gemini-3.7-flash")).toBeNull();
+    expect(parseThemeStudioModelKey("gemini-3.1-flash-lite")).toBeNull();
     expect(parseThemeStudioModelKey(5)).toBeNull();
   });
 
-  it("resolves provider ids only after allowlisting and honors a scoped override", () => {
-    expect(resolveThemeStudioModel("opus-5", {})).toMatchObject({
-      key: "opus-5",
-      providerModel: "claude-opus-5",
+  it("resolves provider ids only after allowlisting", () => {
+    expect(resolveThemeStudioModel("gemini-3.8-flash", {})).toMatchObject({
+      key: "gemini-3.8-flash",
+      providerModel: "gemini-3.8-flash",
     });
+    expect(resolveThemeStudioModel("gemini-3.1-pro", {})).toMatchObject({
+      key: "gemini-3.1-pro",
+      providerModel: "gemini-3.1-pro-preview",
+    });
+  });
+
+  it("lets an override pin a version of the same model and nothing else", () => {
+    for (const pinned of [
+      "gemini-3.8-flash-001",
+      "gemini-3.8-flash-09-2026",
+      "gemini-3.8-flash-09-15",
+    ]) {
+      expect(
+        resolveThemeStudioModel("gemini-3.8-flash", {
+          THEME_STUDIO_GEMINI_38_FLASH_MODEL: pinned,
+        }).providerModel,
+      ).toBe(pinned);
+    }
+    for (const swapped of [
+      "gemini-3.8-flash-lite",
+      "gemini-3.7-flash",
+      "gemini-3.8-flash-image",
+      "gemini-3.8-flash@001",
+    ]) {
+      expect(() =>
+        resolveThemeStudioModel("gemini-3.8-flash", {
+          THEME_STUDIO_GEMINI_38_FLASH_MODEL: swapped,
+        }),
+      ).toThrow("must stay within the gemini-3.8-flash model family");
+    }
     expect(
-      resolveThemeStudioModel("opus-5.5", {
-        THEME_STUDIO_CLAUDE_OPUS_55_MODEL: "claude-opus-5-5@verified",
-      }),
-    ).toMatchObject({
-      key: "opus-5.5",
-      providerModel: "claude-opus-5-5@verified",
-    });
-    expect(() =>
-      resolveThemeStudioModel("opus-5", {
-        THEME_STUDIO_CLAUDE_OPUS_5_MODEL: "gemini-3.7-flash",
-      }),
-    ).toThrow("must stay within the claude-opus-5 model family");
+      resolveThemeStudioModel("gemini-3.1-pro", {
+        THEME_STUDIO_GEMINI_31_PRO_MODEL: "gemini-3.1-pro-preview-09-2026",
+      }).providerModel,
+    ).toBe("gemini-3.1-pro-preview-09-2026");
   });
 });

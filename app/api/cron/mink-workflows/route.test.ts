@@ -144,6 +144,9 @@ describe("Mink workflow cron", () => {
     const ok = await GET(request());
     expect(ok.status).toBe(200);
     expect(runStudio).toHaveBeenCalledTimes(1);
+    // A paid model run can take many minutes; it must never execute on this
+    // shared per-minute heartbeat, only on the dedicated worker route.
+    expect(runStudio.mock.calls[0][0].providers).toEqual(["fake"]);
     expect((await ok.json()).themeStudio).toMatchObject({ succeeded: 1 });
 
     runStudio.mockRejectedValueOnce(new Error("studio down"));

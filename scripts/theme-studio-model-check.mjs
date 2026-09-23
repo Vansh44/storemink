@@ -37,9 +37,16 @@ for (const model of resolved) {
   const base = registry.find(
     (candidate) => candidate.key === model.key,
   ).providerModel;
+  // Same rule as lib/theme-studio/models.ts: a published version of the same
+  // model ("-001", "-09-2026", "-09-15"), never a different model sharing the
+  // prefix, such as "-lite".
+  const suffix = model.providerModel.slice(base.length);
   if (
     model.providerModel !== base &&
-    !model.providerModel.startsWith(`${base}@`)
+    !(
+      model.providerModel.startsWith(base) &&
+      /^-(?:\d{3}|\d{2}-\d{4}|\d{2}-\d{2})$/.test(suffix)
+    )
   ) {
     process.stderr.write(
       `${model.envOverride} must stay within the ${base} model family.\n`,
@@ -80,7 +87,10 @@ const endpointHost =
 const results = [];
 for (const model of resolved) {
   const started = Date.now();
-  const url = `https://${endpointHost}/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/anthropic/models/${encodeURIComponent(model.providerModel)}:rawPredict`;
+  // countTokens, not a generation: it is free of charge, and answering it
+  // still proves the model id exists at this location and that this project's
+  // credentials may call it — which is everything the probe needs to know.
+  const url = `https://${endpointHost}/v1/projects/${encodeURIComponent(projectId)}/locations/${encodeURIComponent(location)}/publishers/google/models/${encodeURIComponent(model.providerModel)}:countTokens`;
   try {
     const response = await fetch(url, {
       method: "POST",
@@ -89,9 +99,7 @@ for (const model of resolved) {
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        anthropic_version: "vertex-2023-10-16",
-        max_tokens: 8,
-        messages: [{ role: "user", content: "Reply only with OK." }],
+        contents: [{ role: "user", parts: [{ text: "OK" }] }],
       }),
       signal: AbortSignal.timeout(30_000),
     });

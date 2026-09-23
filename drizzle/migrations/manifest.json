@@ -5352,7 +5352,10 @@
           "theme_studio_runs_lease_check",
           "theme_studio_runs_idempotency_key",
           "theme_studio_versions_number_key",
-          "theme_studio_events_type_check"
+          "theme_studio_events_type_check",
+          "theme_studio_projects_model_check",
+          "theme_studio_runs_model_check",
+          "theme_studio_runs_provider_check"
         ],
         "indexes": [
           "theme_studio_projects_active_theme_key",
@@ -5384,6 +5387,35 @@
             "name": "Theme Studio immutability and lifecycle triggers are installed",
             "sql": "select count(*)::text from pg_trigger where not tgisinternal and tgname in ('theme_studio_messages_immutable','theme_studio_assets_immutable','theme_studio_versions_immutable','theme_studio_events_immutable','theme_studio_projects_guard')",
             "equals": "5"
+          },
+          {
+            "name": "the Gemini provider is admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_runs_provider_check' and pg_get_constraintdef(oid) like '%vertex-gemini%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260923_0129_theme_studio_generation",
+      "description": "Theme Studio generation: run outcome detail, placeholder asset purpose and clarification events",
+      "file": "sql/20260923_0129_theme_studio_generation.sql",
+      "transaction": true,
+      "requires": ["20260923_0128_theme_studio_intake"],
+      "verify": {
+        "columns": ["theme_studio_runs.outcome_detail"],
+        "constraints": [
+          "theme_studio_runs_outcome_detail_check",
+          "theme_studio_assets_purpose_check",
+          "theme_studio_events_type_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "placeholder is an accepted asset purpose",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_assets_purpose_check' and pg_get_constraintdef(oid) like '%placeholder%'",
+            "equals": "1"
           }
         ]
       }

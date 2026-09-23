@@ -12,7 +12,7 @@ const valid = {
   catalogSizes: ["small"],
   requiredFeatures: ["faq"],
   baseThemeId: "studio",
-  modelKey: "opus-5",
+  modelKey: "gemini-3.8-flash",
 };
 
 function refused(input: Record<string, unknown>): string {
@@ -35,12 +35,14 @@ describe("Theme Studio project input", () => {
       catalogSizes: ["small"],
       requiredFeatures: ["faq"],
       baseThemeId: "studio",
-      modelKey: "opus-5",
+      modelKey: "gemini-3.8-flash",
     });
   });
 
   it("refuses a raw provider model id; only a stable key is accepted", () => {
-    expect(refused({ modelKey: "claude-opus-5" })).toMatch(/listed models/);
+    expect(refused({ modelKey: "gemini-3.1-pro-preview" })).toMatch(
+      /listed models/,
+    );
     expect(refused({ modelKey: "gemini-3.7-flash" })).toMatch(/listed models/);
   });
 

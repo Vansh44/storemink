@@ -9,7 +9,7 @@
 1. Theme Studio is a StoreMink **platform** tool, never a merchant Mink tool.
 2. Only a platform superadmin may create, generate, inspect, approve, publish,
    hide, restore, archive, or delete Studio data.
-3. Anthropic model selection is a closed server registry. A browser sends a
+3. Model selection is a closed server registry. A browser sends a
    stable key; it never sends a provider model id.
 4. The model produces declarative StoreMink data. It receives no shell,
    repository, SQL, database, generic HTTP, URL-fetch, or publication tool.
@@ -151,7 +151,7 @@ Phase 0 sets the product policy later storage work must encode:
 | Candidate preview assets/screenshots  | Project lifetime               | Delete within 30 days                                  | Only approved release assets/evidence persist        |
 | Usage, latency, safe errors, digests  | 1 year                         | 1 year                                                 | Indefinite publication audit                         |
 
-Google/Anthropic provider-side abuse-monitoring retention is outside
+Google provider-side abuse-monitoring retention is outside
 StoreMink's deletion control and must be disclosed in the Studio before the
 first real call. Production enablement is blocked until the applicable terms
 and logging/data-sharing configuration are recorded for each model/location.
@@ -187,15 +187,18 @@ table is the launch checklist, not background reading.
 ## 8. Model registry and enablement probe
 
 `lib/theme-studio/models.json` is the single registry read by both TypeScript
-and the operational probe. The stable keys are `opus-5`, `opus-5.5`, and
-`fable-5`. Provider ids can be changed only to a dated/versioned id in the same
-model family through the model-specific server environment override, and each
-run will eventually persist the resolved id. An override cannot redirect Opus
-to Gemini, another Claude family, or an arbitrary publisher model.
+and the operational probe. The stable keys are `gemini-3.8-flash` (provider id
+`gemini-3.8-flash`, the default) and `gemini-3.1-pro` (provider id
+`gemini-3.1-pro-preview`). Provider ids can be changed only to a dated/versioned
+id of the same model (`-001`, `-09-2026`) through the model-specific server
+environment override, and each run persists the resolved id. An override cannot
+redirect Flash to a `-lite` or image variant, to Pro, or to an arbitrary
+publisher model.
 
 The browser projection from `themeStudioModelOptions()` omits provider ids.
-Passing `claude-opus-5`, a Gemini id, or any other raw name to
-`parseThemeStudioModelKey` returns `null`.
+Passing a provider id such as `gemini-3.1-pro-preview`, merchant Mink's
+`gemini-3.7-flash`, or any other raw name to `parseThemeStudioModelKey` returns
+`null`.
 
 Probe configuration without making a paid call:
 
@@ -214,16 +217,14 @@ Optional configuration:
 
 ```text
 THEME_STUDIO_VERTEX_LOCATION=global
-THEME_STUDIO_CLAUDE_OPUS_5_MODEL=<verified provider id>
-THEME_STUDIO_CLAUDE_OPUS_55_MODEL=<verified provider id>
-THEME_STUDIO_CLAUDE_FABLE_5_MODEL=<verified provider id>
+THEME_STUDIO_GEMINI_38_FLASH_MODEL=<verified provider id>
+THEME_STUDIO_GEMINI_31_PRO_MODEL=<verified provider id>
 ```
 
-The probe sends one minimal `rawPredict` request per selected model, prints
+The probe sends one free `countTokens` request per selected model, prints
 only model/status/latency/safe error code, and exits non-zero if any choice is
-unavailable. It never silently substitutes another model. It is intentionally
-manual in Phase 0: CI must not spend partner-model tokens or depend on external
-quota.
+unavailable. It never silently substitutes another model. It stays manual: CI
+must not depend on external credentials or quota.
 
 ## 9. Evaluation contract
 

@@ -193,7 +193,7 @@ describe("runtime theme registry", () => {
       })),
       provenance: {
         origin: "generated" as const,
-        modelKey: "opus-5" as const,
+        modelKey: "gemini-3.8-flash" as const,
         promptVersion: "theme-studio-stage-b-v1",
         referenceDigests: [],
       },

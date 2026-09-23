@@ -152,6 +152,14 @@ the session (`getThemeStudioActor`) before touching anything. Reference images
 are stored sanitized in Postgres and served only through a gated, no-store
 route. Full record: `docs/mink-ai-theme-studio-phase2.md`.
 
+Since Phase 3 a run can call a paid Gemini model on Vertex AI. Each run shows
+its tokens and estimated cost, and a per-operator ceiling on estimated spend in
+any 24 hours refuses new runs once reached. A model that asks for details
+leaves the project **blocked** until the operator answers in the workspace.
+Every image in a generated version is a marked placeholder, so a version is a
+draft to review, never something to publish. Record:
+`docs/mink-ai-theme-studio-phase3.md`.
+
 ## Phases
 
 - **Phase 1 — IA, stores, themes, pricing ✅**

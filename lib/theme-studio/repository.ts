@@ -29,11 +29,14 @@ import {
   THEME_STUDIO_LIMITS,
   type ThemeStudioProjectState,
 } from "./contracts";
+import { getVertexConfig } from "./gemini-vertex";
+import { PLACEHOLDER_LICENSE_NOTE } from "./compiler";
 import {
   getThemeStudioConfig,
   isImplementedProvider,
   THEME_STUDIO_FAKE_PROMPT_VERSION,
 } from "./config";
+import { THEME_STUDIO_PROMPT_VERSION } from "./prompts";
 import {
   parseThemeStudioModelKey,
   resolveThemeStudioModel,
@@ -97,7 +100,21 @@ export interface ThemeStudioReferenceView {
   cited: boolean;
 }
 
+export interface ThemeStudioRunUsageView {
+  inputTokens: number;
+  outputTokens: number;
+  thinkingTokens: number;
+  cachedTokens: number;
+  estimatedCostMicroUsd: number;
+  repairs: number;
+}
+
 export interface ThemeStudioRunView {
+  usage: ThemeStudioRunUsageView | null;
+  /** Operator-readable result that isn't a version: questions or a reason. */
+  questions: string[];
+  declineReason: string | null;
+  refusalCategory: string | null;
   id: string;
   kind: "generate" | "revise";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
@@ -113,7 +130,16 @@ export interface ThemeStudioRunView {
   finishedAt: string | null;
 }
 
+export interface ThemeStudioPackageSummary {
+  pages: number;
+  sections: number;
+  products: number;
+  placeholders: number;
+  gaps: { code: string; requestedCapability: string; blocking: boolean }[];
+}
+
 export interface ThemeStudioVersionView {
+  packageSummary: ThemeStudioPackageSummary | null;
   id: string;
   versionNumber: number;
   parentVersionId: string | null;
@@ -225,6 +251,78 @@ function intentField(intent: unknown, key: string): unknown {
     : undefined;
 }
 
+function num(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function runExtras(usage: unknown, detail: unknown) {
+  const u = (usage && typeof usage === "object" ? usage : {}) as Record<
+    string,
+    unknown
+  >;
+  const totals = (
+    u.totals && typeof u.totals === "object" ? u.totals : null
+  ) as Record<string, unknown> | null;
+  const repairs = (
+    u.repairs && typeof u.repairs === "object" ? u.repairs : {}
+  ) as Record<string, unknown>;
+  const d = (detail && typeof detail === "object" ? detail : {}) as Record<
+    string,
+    unknown
+  >;
+  return {
+    usage: totals
+      ? {
+          inputTokens: num(totals.inputTokens),
+          outputTokens: num(totals.outputTokens),
+          thinkingTokens: num(totals.thinkingTokens),
+          cachedTokens: num(totals.cachedTokens),
+          estimatedCostMicroUsd: num(u.estimatedCostMicroUsd),
+          repairs: num(repairs.intent) + num(repairs.draft),
+        }
+      : null,
+    questions:
+      d.kind === "clarify" && Array.isArray(d.questions)
+        ? d.questions.filter((q): q is string => typeof q === "string")
+        : [],
+    declineReason:
+      d.kind === "declined" && typeof d.reason === "string" ? d.reason : null,
+    refusalCategory: typeof d.category === "string" ? d.category : null,
+  };
+}
+
+function packageSummary(pkg: unknown): ThemeStudioPackageSummary | null {
+  if (!pkg || typeof pkg !== "object") return null;
+  const p = pkg as {
+    definition?: {
+      preset?: {
+        pages?: { sections?: unknown[] }[];
+        sampleData?: { products?: unknown[] };
+      };
+    };
+    assets?: { licenseNote?: string }[];
+    capabilityGaps?: {
+      code?: string;
+      requestedCapability?: string;
+      blocking?: boolean;
+    }[];
+  };
+  const pages = p.definition?.preset?.pages ?? [];
+  return {
+    pages: pages.length,
+    sections: pages.reduce((n, page) => n + (page.sections?.length ?? 0), 0),
+    products: p.definition?.preset?.sampleData?.products?.length ?? 0,
+    placeholders: (p.assets ?? []).filter(
+      (a) => a.licenseNote === PLACEHOLDER_LICENSE_NOTE,
+    ).length,
+    gaps: (p.capabilityGaps ?? []).map((gap) => ({
+      code: String(gap.code ?? ""),
+      requestedCapability: String(gap.requestedCapability ?? ""),
+      blocking: gap.blocking === true,
+    })),
+  };
+}
+
 export async function getThemeStudioProject(
   projectId: string,
 ): Promise<ThemeStudioProjectDetail | null> {
@@ -249,7 +347,12 @@ export async function getThemeStudioProject(
         createdAt: themeStudioAssets.createdAt,
       })
       .from(themeStudioAssets)
-      .where(eq(themeStudioAssets.projectId, projectId))
+      .where(
+        and(
+          eq(themeStudioAssets.projectId, projectId),
+          eq(themeStudioAssets.purpose, "reference"),
+        ),
+      )
       .orderBy(asc(themeStudioAssets.createdAt));
     const messages = await db
       .select({
@@ -276,6 +379,7 @@ export async function getThemeStudioProject(
         runId: themeStudioVersions.runId,
         intentDigest: themeStudioVersions.intentDigest,
         intentJson: themeStudioVersions.intentJson,
+        packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
         createdAt: themeStudioVersions.createdAt,
       })
@@ -315,6 +419,7 @@ export async function getThemeStudioProject(
         createdAt: m.createdAt,
       })),
       runs: runs.map((r) => ({
+        ...runExtras(r.usage, r.outcomeDetail),
         id: r.id,
         kind: r.kind as "generate" | "revise",
         status: r.status as ThemeStudioRunView["status"],
@@ -333,6 +438,7 @@ export async function getThemeStudioProject(
         const summary = intentField(v.intentJson, "summary");
         const assumptions = intentField(v.intentJson, "assumptions");
         return {
+          packageSummary: packageSummary(v.packageJson),
           id: v.id,
           versionNumber: v.versionNumber,
           parentVersionId: v.parentVersionId,
@@ -668,6 +774,7 @@ export async function addThemeStudioReference(
       .where(
         and(
           eq(themeStudioAssets.projectId, projectId),
+          eq(themeStudioAssets.purpose, "reference"),
           eq(themeStudioAssets.sha256, reference.sha256),
         ),
       )
@@ -680,7 +787,12 @@ export async function addThemeStudioReference(
         bytes: sum(themeStudioAssets.originalByteSize),
       })
       .from(themeStudioAssets)
-      .where(eq(themeStudioAssets.projectId, projectId));
+      .where(
+        and(
+          eq(themeStudioAssets.projectId, projectId),
+          eq(themeStudioAssets.purpose, "reference"),
+        ),
+      );
     if (Number(totals?.n ?? 0) >= THEME_STUDIO_LIMITS.referenceImages) {
       throw new ThemeStudioError(
         "limit",
@@ -764,6 +876,7 @@ export async function removeThemeStudioReference(
         and(
           eq(themeStudioAssets.id, assetId),
           eq(themeStudioAssets.projectId, projectId),
+          eq(themeStudioAssets.purpose, "reference"),
         ),
       )
       .returning({ id: themeStudioAssets.id });
@@ -796,14 +909,57 @@ function resolveProviderForQueue(modelKey: ThemeStudioModelKey) {
       "No theme generation provider is available in this environment.",
     );
   }
+  if (config.disabledModels.has(modelKey)) {
+    throw new ThemeStudioError(
+      "provider_unavailable",
+      "That model is switched off in this environment. Nothing was queued.",
+    );
+  }
+  if (config.provider === "vertex-gemini" && !getVertexConfig()) {
+    throw new ThemeStudioError(
+      "provider_unavailable",
+      "Vertex AI is not configured in this environment.",
+    );
+  }
   // Resolve the model even for the fake provider, so an invalid deployment
   // override fails the queue here rather than silently at run time.
   const model = resolveThemeStudioModel(modelKey);
   return {
     provider: config.provider,
     providerModel: config.provider === "fake" ? "fake" : model.providerModel,
-    promptVersion: THEME_STUDIO_FAKE_PROMPT_VERSION,
+    promptVersion:
+      config.provider === "fake"
+        ? THEME_STUDIO_FAKE_PROMPT_VERSION
+        : THEME_STUDIO_PROMPT_VERSION,
+    dailySpendMicroUsd: config.dailySpendMicroUsd,
   };
+}
+
+/** Estimated model spend this operator started in the last 24 hours. Only a
+ * paid provider counts; the offline provider records zero. */
+async function assertSpendHeadroom(
+  db: Db,
+  actor: ThemeStudioActor,
+  resolved: ReturnType<typeof resolveProviderForQueue>,
+) {
+  if (resolved.provider === "fake") return;
+  const [row] = await db
+    .select({
+      spent: sql<string>`coalesce(sum((${themeStudioRuns.usage} ->> 'estimatedCostMicroUsd')::bigint), 0)`,
+    })
+    .from(themeStudioRuns)
+    .where(
+      and(
+        eq(themeStudioRuns.createdBy, actor.id),
+        sql`${themeStudioRuns.createdAt} > now() - interval '24 hours'`,
+      ),
+    );
+  if (Number(row?.spent ?? 0) >= resolved.dailySpendMicroUsd) {
+    throw new ThemeStudioError(
+      "limit",
+      "You have reached today's Theme Studio spending limit. Try again tomorrow.",
+    );
+  }
 }
 
 async function assertRunCapacity(db: Db, actor: ThemeStudioActor) {
@@ -876,11 +1032,17 @@ export async function queueThemeStudioGeneration(
       project.modelKey as ThemeStudioModelKey,
     );
     await assertRunCapacity(db, actor);
+    await assertSpendHeadroom(db, actor, resolved);
 
     const refs = await db
       .select({ id: themeStudioAssets.id })
       .from(themeStudioAssets)
-      .where(eq(themeStudioAssets.projectId, project.id))
+      .where(
+        and(
+          eq(themeStudioAssets.projectId, project.id),
+          eq(themeStudioAssets.purpose, "reference"),
+        ),
+      )
       .orderBy(asc(themeStudioAssets.createdAt));
     const [message] = await db
       .insert(themeStudioMessages)
@@ -1056,6 +1218,7 @@ export async function retryThemeStudioRun(
       project.modelKey as ThemeStudioModelKey,
     );
     await assertRunCapacity(db, actor);
+    await assertSpendHeadroom(db, actor, resolved);
     const [retry] = await db
       .insert(themeStudioRuns)
       .values({
@@ -1084,6 +1247,118 @@ export async function retryThemeStudioRun(
       detail: { retryOfRunId: run.id },
     });
     return { runId: retry.id, duplicate: false };
+  });
+}
+
+/** Answer the model's clarifying questions. Only a project the model paused
+ * (`blocked` after a clarify outcome) takes details; the answer becomes an
+ * immutable message citing the current references, and a new run reads every
+ * message so far. */
+export async function submitThemeStudioDetails(
+  actor: ThemeStudioActor,
+  input: {
+    projectId: string;
+    expectedRevision: number;
+    body: string;
+    idempotencyKey: string;
+  },
+): Promise<{ runId: string; duplicate: boolean }> {
+  if (!isUuid(input.projectId)) {
+    throw new ThemeStudioError("not_found", "That project no longer exists.");
+  }
+  if (!IDEMPOTENCY_RE.test(input.idempotencyKey)) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      "The request is malformed. Reload and try again.",
+    );
+  }
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (!body || body.length > THEME_STUDIO_LIMITS.promptChars) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      `Write your answer in up to ${THEME_STUDIO_LIMITS.promptChars.toLocaleString("en-IN")} characters.`,
+    );
+  }
+  return withService(async (db) => {
+    const project = await lockProject(db, input.projectId);
+    const [prior] = await db
+      .select({ id: themeStudioRuns.id, projectId: themeStudioRuns.projectId })
+      .from(themeStudioRuns)
+      .where(eq(themeStudioRuns.idempotencyKey, input.idempotencyKey))
+      .limit(1);
+    if (prior) {
+      if (prior.projectId !== project.id) {
+        throw new ThemeStudioError(
+          "invalid_input",
+          "The request is malformed. Reload and try again.",
+        );
+      }
+      return { runId: prior.id, duplicate: true };
+    }
+    if (project.revision !== input.expectedRevision) {
+      throw new ThemeStudioError(
+        "stale",
+        "This project changed in another tab. Reload to see it.",
+      );
+    }
+    if (project.status !== "blocked") {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "This project isn't waiting for more details.",
+      );
+    }
+    const resolved = resolveProviderForQueue(
+      project.modelKey as ThemeStudioModelKey,
+    );
+    await assertRunCapacity(db, actor);
+    await assertSpendHeadroom(db, actor, resolved);
+    const refs = await db
+      .select({ id: themeStudioAssets.id })
+      .from(themeStudioAssets)
+      .where(
+        and(
+          eq(themeStudioAssets.projectId, project.id),
+          eq(themeStudioAssets.purpose, "reference"),
+        ),
+      )
+      .orderBy(asc(themeStudioAssets.createdAt));
+    const [message] = await db
+      .insert(themeStudioMessages)
+      .values({
+        projectId: project.id,
+        kind: "revision",
+        body,
+        referenceAssetIds: refs.map((r) => r.id),
+        createdBy: actor.id,
+      })
+      .returning({ id: themeStudioMessages.id });
+    const [run] = await db
+      .insert(themeStudioRuns)
+      .values({
+        projectId: project.id,
+        messageId: message.id,
+        kind: "generate",
+        provider: resolved.provider,
+        modelKey: project.modelKey,
+        providerModel: resolved.providerModel,
+        promptVersion: resolved.promptVersion,
+        idempotencyKey: input.idempotencyKey,
+        maxAttempts: 1 + THEME_STUDIO_LIMITS.modelRetries,
+        createdBy: actor.id,
+      })
+      .returning({ id: themeStudioRuns.id });
+    await db
+      .update(themeStudioProjects)
+      .set({ status: "generating", revision: project.revision + 1 })
+      .where(eq(themeStudioProjects.id, project.id));
+    await recordEvent(db, {
+      projectId: project.id,
+      runId: run.id,
+      actor,
+      eventType: "details_added",
+      detail: { messageId: message.id, references: refs.length },
+    });
+    return { runId: run.id, duplicate: false };
   });
 }
 

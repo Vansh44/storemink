@@ -39,7 +39,7 @@ CREATE TABLE public.theme_studio_projects (
     CHECK (status IN ('draft', 'generating', 'ready', 'candidate', 'approved',
                       'published', 'failed', 'blocked', 'archived')),
   CONSTRAINT theme_studio_projects_model_check
-    CHECK (model_key IN ('opus-5', 'opus-5.5', 'fable-5')),
+    CHECK (model_key IN ('gemini-3.8-flash', 'gemini-3.1-pro')),
   CONSTRAINT theme_studio_projects_base_theme_check
     CHECK (base_theme_id IS NULL OR base_theme_id ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$'),
   CONSTRAINT theme_studio_projects_list_bounds_check
@@ -146,9 +146,9 @@ CREATE TABLE public.theme_studio_runs (
   CONSTRAINT theme_studio_runs_kind_check CHECK (kind IN ('generate', 'revise')),
   CONSTRAINT theme_studio_runs_status_check
     CHECK (status IN ('queued', 'running', 'succeeded', 'failed', 'cancelled')),
-  CONSTRAINT theme_studio_runs_provider_check CHECK (provider IN ('fake', 'anthropic-vertex')),
+  CONSTRAINT theme_studio_runs_provider_check CHECK (provider IN ('fake', 'vertex-gemini')),
   CONSTRAINT theme_studio_runs_model_check
-    CHECK (model_key IN ('opus-5', 'opus-5.5', 'fable-5')),
+    CHECK (model_key IN ('gemini-3.8-flash', 'gemini-3.1-pro')),
   CONSTRAINT theme_studio_runs_idempotency_check
     CHECK (idempotency_key ~ '^[A-Za-z0-9_-]{16,80}$'),
   CONSTRAINT theme_studio_runs_idempotency_key UNIQUE (idempotency_key),

@@ -129,6 +129,7 @@ gcloud builds submit --project storemink-prod --region global --config=cloudbuil
 | `storemink-help-embeddings`         | `50 * * * *`   | `https://storemink.com/api/cron/help-embeddings`         |
 | `storemink-mink-publications`       | `* * * * *`    | `https://storemink.com/api/cron/mink-publications`       |
 | `storemink-mink-workflows`          | `* * * * *`    | `https://storemink.com/api/cron/mink-workflows`          |
+| `storemink-theme-studio-runs`       | `* * * * *`    | `https://storemink.com/api/internal/theme-studio/runs`   |
 
 > ⚠ **The table above is the INTENDED state. Measured live 2026-09-08 with
 > `gcloud scheduler jobs list --project storemink-prod --location asia-south1`,
@@ -186,6 +187,20 @@ failed 0`. Overlapping runs are safe because the endpoint is idempotent and
 > was written about, and `search-metrics`/`analytics-rollup` remain PAUSED.
 > **None of those were changed:** each needs its own decision about whether its
 > migrations and routes are actually deployed first.
+
+⚠ **`storemink-theme-studio-runs` does NOT exist yet, and it is the one job
+here with a different deadline.** It executes one Theme Studio model run per
+call, and a run can take up to 20 minutes, so it needs an attempt deadline of
+**1,200 s** (Cloud Scheduler allows up to 1,800 s for HTTP targets), **no
+retries** (the next minute's call claims whatever is next, and retrying a
+20-minute request only stacks work), and a Cloud Run service request timeout of
+at least 1,200 s — without that, Cloud Run kills the request mid-generation, the
+lease expires 20 minutes later, and an attempt is spent for nothing. It is only
+needed once an environment sets `THEME_STUDIO_PROVIDER=vertex-gemini`: the
+offline provider runs in `after()` and on `mink-workflows`. Until then, model
+runs queue and wait; nothing is lost. The path is under `/api/internal/`, not
+`/api/cron/`, because it is a worker rather than a heartbeat. Full rollout list:
+`docs/mink-ai-theme-studio-phase3.md` §6.
 
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole
@@ -455,6 +470,18 @@ gcloud scheduler jobs create http storemink-seo-refresh \
   --uri="https://storemink.com/api/cron/seo-refresh" \
   --http-method=GET --headers="Authorization=Bearer ${CRON_SECRET_VALUE}" \
   --attempt-deadline=300s --max-retry-attempts=3
+```
+
+Only after the Cloud Run request timeout is at least 1,200 s, create the
+Theme Studio model worker (long deadline, no retries — see above):
+
+```bash
+gcloud scheduler jobs create http storemink-theme-studio-runs \
+  --project=storemink-prod --location=asia-south1 \
+  --schedule="* * * * *" --time-zone="Etc/UTC" \
+  --uri="https://storemink.com/api/internal/theme-studio/runs" \
+  --http-method=POST --headers="Authorization=Bearer ${CRON_SECRET_VALUE}" \
+  --attempt-deadline=1200s --max-retry-attempts=0
 ```
 
 After the pgvector migration and route deploy are verified, create the Help

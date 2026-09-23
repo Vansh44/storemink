@@ -124,7 +124,7 @@ future in-app publication invalidates the tag immediately.
 
 - Phase 2 adds the superadmin Studio routes, projects, secure intake, messages,
   runs, versions, and audit events.
-- Phase 3 adds the dedicated Vertex/Anthropic generation pipeline.
+- Phase 3 adds the dedicated Gemini-on-Vertex generation pipeline.
 - Phase 4 adds full-fidelity responsive candidate previews and revision UI.
 - Phase 6 adds the reviewed publication orchestration and publication-event
   audit trail.

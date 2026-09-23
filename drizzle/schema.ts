@@ -2373,6 +2373,7 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
   finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
   errorCode: text("error_code"),
   usage: jsonb().default({}).notNull(),
+  outcomeDetail: jsonb("outcome_detail").default({}).notNull(),
   retryOfRunId: uuid("retry_of_run_id"),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
