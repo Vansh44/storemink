@@ -17,7 +17,7 @@ import { resolveStorefrontAppearance } from "@/lib/chrome/types";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
 import { isStoreSearchIndexable } from "@/lib/store/launch";
 import { getStoreUrl } from "@/lib/site";
-import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
+import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
 import { designOverrideCssVars } from "@/lib/chrome/design";
@@ -143,10 +143,9 @@ export default async function StorefrontLayout({
   // only --brand-primary — the globals.css defaults ARE the WholeSip look, so
   // it stays exactly as today.
   const themeSelection = readThemeSelection(store.settings);
-  const design = themeSelection
-    ? (await resolveThemeDefinition(themeSelection.id, themeSelection.version))
-        .preset.design
-    : null;
+  const design =
+    (await resolveInstalledThemeDefinition(themeSelection))?.preset.design ??
+    null;
   // ★★ THE PRESET'S OWN MAP, KEPT SEPARATE FROM THE MERGED ONE. The inline
   // style below wants the merchant's overrides ON TOP; ChromeProvider wants
   // the map WITHOUT them, because its job when an override is CLEARED in the

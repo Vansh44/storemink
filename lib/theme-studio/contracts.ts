@@ -262,6 +262,33 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
+/** Key-order-independent JSON serialization. PostgreSQL `jsonb` stores object
+ * keys sorted by length then bytes, so a package read back from the registry
+ * never has the key order it was written with. Every structural comparison in
+ * this module — and the registry's content digest — must go through this, or a
+ * valid stored package is rejected purely for having been stored. Undefined
+ * members are dropped exactly as JSON.stringify drops them. */
+export function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") {
+    return JSON.stringify(value) ?? "null";
+  }
+  if (Array.isArray(value)) {
+    return `[${value
+      .map((item) => (item === undefined ? "null" : canonicalJson(item)))
+      .join(",")}]`;
+  }
+  const record = value as Record<string, unknown>;
+  return `{${Object.keys(record)
+    .filter((key) => record[key] !== undefined)
+    .sort()
+    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
+    .join(",")}}`;
+}
+
+function sameJson(a: unknown, b: unknown): boolean {
+  return canonicalJson(a) === canonicalJson(b);
+}
+
 function rejectUnknownKeys(
   value: Record<string, unknown>,
   allowed: readonly string[],
@@ -988,7 +1015,7 @@ function validateThemeDefinition(
   validateDefinitionPages(preset.pages, issues);
 
   const normalizedMenus = sanitizeMenusForSave(preset.menus);
-  if (JSON.stringify(normalizedMenus) !== JSON.stringify(preset.menus)) {
+  if (!sameJson(normalizedMenus, preset.menus)) {
     issues.push(
       "definition.preset.menus contains invalid, truncated, or unsupported values.",
     );
@@ -1332,10 +1359,7 @@ export function validateThemePackageV2(
   ) {
     issues.push("renderer.minVersion must be a positive integer.");
   }
-  if (
-    JSON.stringify(renderer.viewports) !==
-    JSON.stringify(THEME_STUDIO_VIEWPORTS)
-  ) {
+  if (!sameJson(renderer.viewports, THEME_STUDIO_VIEWPORTS)) {
     issues.push(
       "renderer.viewports must use the StoreMink acceptance viewports.",
     );

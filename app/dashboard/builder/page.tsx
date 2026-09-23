@@ -7,7 +7,7 @@ import { getStoreBrand } from "@/lib/store/brand";
 import { getDraftChromeForEditor } from "@/lib/chrome/queries";
 import { DEFAULT_CHROME } from "@/lib/chrome/types";
 import { themeDesignDefaults } from "@/lib/chrome/design";
-import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
+import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { BuilderClient } from "./builder-client";
 import type { BlogOption, CategoryOption, ProductOption } from "./section-form";
@@ -76,9 +76,7 @@ export default async function BuilderPage() {
       .limit(1),
   );
   const themeSelection = readThemeSelection(storeRow?.settings);
-  const themeDefinition = themeSelection
-    ? await resolveThemeDefinition(themeSelection.id, themeSelection.version)
-    : null;
+  const themeDefinition = await resolveInstalledThemeDefinition(themeSelection);
   const themeDefaults = themeDesignDefaults(
     themeDefinition?.preset.design ?? null,
   );

@@ -6,22 +6,32 @@ import { revalidateTag, unstable_cache } from "next/cache";
 import { themeCatalogEntries, themeReleases } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import {
+  canonicalJson,
   themeDefinitionToPackageV2,
   validateThemePackageV2,
   type ThemePackageV2,
 } from "@/lib/theme-studio/contracts";
-import { getThemeDefinition, THEME_DEFINITIONS } from "./index";
+import {
+  getThemeDefinition,
+  isBundledThemeId,
+  THEME_DEFINITIONS,
+} from "./index";
 import {
   THEME_META,
   isThemeId,
   type ThemeCatalogVisibility,
   type ThemeMeta,
+  type ThemeSelection,
 } from "./meta";
 import type { ThemeDefinition } from "./types";
 
 export const THEME_REGISTRY_TAG = "theme-runtime-registry";
 const THEME_REGISTRY_REVALIDATE_SECONDS = 300;
+/** Same ceiling as theme_releases_package_size_check, measured the same way. */
+const THEME_PACKAGE_MAX_BYTES = 2 * 1024 * 1024;
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const STORED_RELEASE_STATUSES = new Set([
   "candidate",
   "approved",
@@ -58,25 +68,59 @@ export interface BundledThemeImportResult {
 
 export type ThemeReleaseSource = "bundled-import" | "theme-studio";
 
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== "object") {
-    return JSON.stringify(value);
-  }
-  if (Array.isArray(value)) {
-    return `[${value.map((item) => canonicalJson(item)).join(",")}]`;
-  }
-  const record = value as Record<string, unknown>;
-  return `{${Object.keys(record)
-    .sort()
-    .filter((key) => record[key] !== undefined)
-    .map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`)
-    .join(",")}}`;
+/** Content address for the exact JSON value persisted in package_json. Keys
+ * are sorted, so jsonb's own key reordering cannot change the digest. */
+export function digestThemePackage(pkg: ThemePackageV2): string {
+  return createHash("sha256").update(canonicalJson(pkg)).digest("hex");
 }
 
-/** Content address for the exact JSON value persisted in package_json. */
-export function digestThemePackage(pkg: ThemePackageV2): string {
-  const jsonValue = JSON.parse(JSON.stringify(pkg)) as unknown;
-  return createHash("sha256").update(canonicalJson(jsonValue)).digest("hex");
+/** Byte length of `package_json::text`, which is what the database CHECK
+ * measures. jsonb's text output writes `": "` and `", "` separators, so it is
+ * larger than compact JSON.stringify output; measuring the compact form lets
+ * a package just under the limit through here and into a raw constraint
+ * violation at INSERT. */
+export function jsonbTextBytes(value: unknown): number {
+  if (value === null || typeof value !== "object") {
+    return Buffer.byteLength(JSON.stringify(value) ?? "null", "utf8");
+  }
+  if (Array.isArray(value)) {
+    if (value.length === 0) return 2;
+    return (
+      2 +
+      2 * (value.length - 1) +
+      value.reduce<number>(
+        (total, item) =>
+          total + jsonbTextBytes(item === undefined ? null : item),
+        0,
+      )
+    );
+  }
+  const entries = Object.entries(value).filter(
+    ([, nested]) => nested !== undefined,
+  );
+  if (entries.length === 0) return 2;
+  return (
+    2 +
+    2 * (entries.length - 1) +
+    entries.reduce(
+      (total, [key, nested]) =>
+        total +
+        Buffer.byteLength(JSON.stringify(key), "utf8") +
+        2 +
+        jsonbTextBytes(nested),
+      0,
+    )
+  );
+}
+
+function assertActorId(actorId: string | null | undefined): string | null {
+  if (actorId === undefined || actorId === null) return null;
+  // created_by / updated_by record a platform_admins.id (uuid). A Firebase
+  // session uid is text and would fail the uuid cast mid-transaction.
+  if (!UUID_RE.test(actorId)) {
+    throw new Error("actorId must be a platform_admins.id (uuid).");
+  }
+  return actorId;
 }
 
 function parseRelease(row: StoredReleaseRow): RuntimeThemeRelease | null {
@@ -112,17 +156,36 @@ function isCatalogVisibility(value: string): value is ThemeCatalogVisibility {
   return value === "hidden" || value === "legacy" || value === "public";
 }
 
-async function queryCatalogRowsWithDb(db: Db): Promise<StoredCatalogRow[]> {
+/** The client-safe projection. Spreading a ThemeDefinition into a ThemeMeta
+ * type-checks but carries `preset` (pages, menus, sample catalog) with it,
+ * straight into the signup client's RSC payload. */
+function toThemeMeta(
+  definition: ThemeDefinition,
+  visibility: ThemeCatalogVisibility,
+): ThemeMeta {
+  return {
+    id: definition.id,
+    name: definition.name,
+    description: definition.description,
+    engine: definition.engine,
+    release: definition.release,
+    catalog: { ...definition.catalog, visibility },
+    demo: definition.demo,
+  };
+}
+
+const RELEASE_COLUMNS = {
+  id: themeReleases.id,
+  themeId: themeReleases.themeId,
+  version: themeReleases.version,
+  releaseStatus: themeReleases.releaseStatus,
+  packageJson: themeReleases.packageJson,
+  manifestDigest: themeReleases.manifestDigest,
+};
+
+function catalogJoin(db: Db) {
   return db
-    .select({
-      id: themeReleases.id,
-      themeId: themeReleases.themeId,
-      version: themeReleases.version,
-      releaseStatus: themeReleases.releaseStatus,
-      packageJson: themeReleases.packageJson,
-      manifestDigest: themeReleases.manifestDigest,
-      visibility: themeCatalogEntries.visibility,
-    })
+    .select({ ...RELEASE_COLUMNS, visibility: themeCatalogEntries.visibility })
     .from(themeCatalogEntries)
     .innerJoin(
       themeReleases,
@@ -133,57 +196,13 @@ async function queryCatalogRowsWithDb(db: Db): Promise<StoredCatalogRow[]> {
     );
 }
 
-async function queryCatalogRows(): Promise<StoredCatalogRow[]> {
-  return withService(queryCatalogRowsWithDb);
-}
-
-const queryCatalogRowsCached = unstable_cache(
-  queryCatalogRows,
-  ["theme-runtime-catalog"],
-  {
-    tags: [THEME_REGISTRY_TAG],
-    revalidate: THEME_REGISTRY_REVALIDATE_SECONDS,
-  },
-);
-
-async function catalogRows(): Promise<StoredCatalogRow[]> {
-  try {
-    return await queryCatalogRowsCached();
-  } catch {
-    // Server actions, scripts and some tests have no incremental-cache scope.
-    // Read straight through there; the cache is an optimization, not a source
-    // of correctness. During the additive rollout the old revision can also
-    // run before migration 0127 exists, in which case bundled themes remain
-    // the deliberate safe fallback.
-    try {
-      return await queryCatalogRows();
-    } catch {
-      return [];
-    }
-  }
-}
-
-async function queryExactRelease(
-  themeId: string,
-  version: string,
-): Promise<StoredReleaseRow | null> {
-  return withService((db) => queryExactReleaseWithDb(db, themeId, version));
-}
-
-async function queryExactReleaseWithDb(
+async function queryExactReleaseRowWithDb(
   db: Db,
   themeId: string,
   version: string,
 ): Promise<StoredReleaseRow | null> {
   const rows = await db
-    .select({
-      id: themeReleases.id,
-      themeId: themeReleases.themeId,
-      version: themeReleases.version,
-      releaseStatus: themeReleases.releaseStatus,
-      packageJson: themeReleases.packageJson,
-      manifestDigest: themeReleases.manifestDigest,
-    })
+    .select(RELEASE_COLUMNS)
     .from(themeReleases)
     .where(
       and(
@@ -195,96 +214,204 @@ async function queryExactReleaseWithDb(
   return rows[0] ?? null;
 }
 
-const queryExactReleaseCached = unstable_cache(
-  queryExactRelease,
-  ["theme-runtime-release"],
-  {
-    tags: [THEME_REGISTRY_TAG],
-    revalidate: THEME_REGISTRY_REVALIDATE_SECONDS,
-  },
-);
+// Loaders return PARSED values. Validation and the content-digest check run
+// once, when a cache entry is filled, instead of on every storefront render;
+// and a cache entry is a definition, not a whole catalog of raw packages.
 
-async function exactRelease(
+async function loadExactReleaseWithDb(
+  db: Db,
   themeId: string,
   version: string,
 ): Promise<RuntimeThemeRelease | null> {
-  try {
-    const row = await queryExactReleaseCached(themeId, version);
-    return row ? parseRelease(row) : null;
-  } catch {
-    try {
-      const row = await queryExactRelease(themeId, version);
-      return row ? parseRelease(row) : null;
-    } catch {
-      return null;
+  const row = await queryExactReleaseRowWithDb(db, themeId, version);
+  return row ? parseRelease(row) : null;
+}
+
+async function loadCurrentReleaseWithDb(
+  db: Db,
+  themeId: string,
+): Promise<RuntimeThemeRelease | null> {
+  const rows = await catalogJoin(db)
+    .where(eq(themeCatalogEntries.themeId, themeId))
+    .limit(1);
+  return rows[0] ? parseRelease(rows[0]) : null;
+}
+
+async function loadCatalogProjectionWithDb(db: Db): Promise<ThemeMeta[]> {
+  const rows: StoredCatalogRow[] = await catalogJoin(db);
+  const projected: ThemeMeta[] = [];
+  for (const row of rows) {
+    const release = parseRelease(row);
+    if (
+      release?.status === "published" &&
+      isCatalogVisibility(row.visibility)
+    ) {
+      projected.push(toThemeMeta(release.definition, row.visibility));
     }
   }
+  return projected;
+}
+
+const CACHE_OPTIONS = {
+  tags: [THEME_REGISTRY_TAG],
+  revalidate: THEME_REGISTRY_REVALIDATE_SECONDS,
+};
+
+const exactReleaseCached = unstable_cache(
+  (themeId: string, version: string) =>
+    withService((db) => loadExactReleaseWithDb(db, themeId, version)),
+  ["theme-runtime-release-parsed-v2"],
+  CACHE_OPTIONS,
+);
+
+const currentReleaseCached = unstable_cache(
+  (themeId: string) =>
+    withService((db) => loadCurrentReleaseWithDb(db, themeId)),
+  ["theme-runtime-current-parsed-v2"],
+  CACHE_OPTIONS,
+);
+
+const catalogProjectionCached = unstable_cache(
+  () => withService(loadCatalogProjectionWithDb),
+  ["theme-runtime-catalog-meta-v2"],
+  CACHE_OPTIONS,
+);
+
+/** Server actions, scripts and some tests have no incremental-cache scope, so
+ * the cached read throws there; read straight through instead. The cache is an
+ * optimization, not a source of correctness. During the additive rollout the
+ * previous revision can also run before migration 0127 exists, in which case
+ * the bundled themes remain the deliberate safe fallback. */
+async function readThrough<T>(
+  cached: () => Promise<T>,
+  direct: () => Promise<T>,
+  fallback: T,
+): Promise<T> {
+  try {
+    return await cached();
+  } catch {
+    try {
+      return await direct();
+    } catch {
+      return fallback;
+    }
+  }
+}
+
+interface ReleaseLoaders {
+  exact(themeId: string, version: string): Promise<RuntimeThemeRelease | null>;
+  current(themeId: string): Promise<RuntimeThemeRelease | null>;
+}
+
+const cachedLoaders: ReleaseLoaders = {
+  exact: (themeId, version) =>
+    readThrough(
+      () => exactReleaseCached(themeId, version),
+      () => withService((db) => loadExactReleaseWithDb(db, themeId, version)),
+      null,
+    ),
+  current: (themeId) =>
+    readThrough(
+      () => currentReleaseCached(themeId),
+      () => withService((db) => loadCurrentReleaseWithDb(db, themeId)),
+      null,
+    ),
+};
+
+function transactionLoaders(db: Db): ReleaseLoaders {
+  return {
+    exact: (themeId, version) => loadExactReleaseWithDb(db, themeId, version),
+    current: (themeId) => loadCurrentReleaseWithDb(db, themeId),
+  };
+}
+
+/** The one precedence rule: a pinned exact release, else the catalog pointer.
+ * Only a published release is ever served from here. */
+async function resolveRuntimeDefinition(
+  loaders: ReleaseLoaders,
+  id: unknown,
+  version: unknown,
+): Promise<ThemeDefinition | null> {
+  if (!isThemeId(id)) return null;
+  const release =
+    typeof version === "string" && SEMVER_RE.test(version)
+      ? await loaders.exact(id, version)
+      : await loaders.current(id);
+  return release?.status === "published" ? release.definition : null;
+}
+
+async function resolveInstalled(
+  loaders: ReleaseLoaders,
+  selection: ThemeSelection | null,
+): Promise<ThemeDefinition | null> {
+  if (!selection) return null;
+  const runtime = await resolveRuntimeDefinition(
+    loaders,
+    selection.id,
+    selection.version,
+  );
+  if (runtime) return runtime;
+  return isBundledThemeId(selection.id)
+    ? getThemeDefinition(selection.id, selection.version)
+    : null;
 }
 
 /** Public/client-safe catalog projection. A valid runtime pointer replaces the
  * bundled release with the same id; unimported bundled themes remain present. */
 export async function getThemeCatalog(): Promise<ThemeMeta[]> {
   const resolved = new Map(THEME_META.map((theme) => [theme.id, theme]));
-  for (const row of await catalogRows()) {
-    const release = parseRelease(row);
-    if (
-      !release ||
-      release.status !== "published" ||
-      !isCatalogVisibility(row.visibility)
-    ) {
-      continue;
-    }
-    resolved.set(release.definition.id, {
-      ...release.definition,
-      catalog: {
-        ...release.definition.catalog,
-        visibility: row.visibility,
-      },
-    });
-  }
+  const runtime = await readThrough(
+    catalogProjectionCached,
+    () => withService(loadCatalogProjectionWithDb),
+    [],
+  );
+  for (const meta of runtime) resolved.set(meta.id, meta);
   return [...resolved.values()];
 }
 
-/** Resolve storefront/install behavior from a pinned runtime release first,
- * then the runtime catalog pointer, then the immutable bundled fallback. */
+/** Resolve a theme to INSTALL (signup, demo seeding, applyTheme): a pinned
+ * runtime release, then the runtime catalog pointer, then the bundled release,
+ * then the platform default. Rendering an already-installed store must use
+ * resolveInstalledThemeDefinition instead, which never substitutes the default. */
 export async function resolveThemeDefinition(
   id: unknown,
   version?: unknown,
 ): Promise<ThemeDefinition> {
-  if (isThemeId(id)) {
-    if (typeof version === "string" && SEMVER_RE.test(version)) {
-      const pinned = await exactRelease(id, version);
-      if (pinned?.status === "published") return pinned.definition;
-    } else {
-      const row = (await catalogRows()).find((entry) => entry.themeId === id);
-      const current = row ? parseRelease(row) : null;
-      if (current?.status === "published") return current.definition;
-    }
-  }
-  return getThemeDefinition(id, version);
+  return (
+    (await resolveRuntimeDefinition(cachedLoaders, id, version)) ??
+    getThemeDefinition(id, version)
+  );
 }
 
-/** Transaction-aware resolver for service repositories that already hold a
- * scoped database transaction. This avoids opening a nested pool connection. */
+/** Transaction-aware variant of resolveThemeDefinition for repositories that
+ * already hold a scoped database transaction (no nested pool connection). */
 export async function resolveThemeDefinitionWithDb(
   db: Db,
   id: unknown,
   version?: unknown,
 ): Promise<ThemeDefinition> {
-  if (isThemeId(id)) {
-    if (typeof version === "string" && SEMVER_RE.test(version)) {
-      const row = await queryExactReleaseWithDb(db, id, version);
-      const pinned = row ? parseRelease(row) : null;
-      if (pinned?.status === "published") return pinned.definition;
-    } else {
-      const row = (await queryCatalogRowsWithDb(db)).find(
-        (entry) => entry.themeId === id,
-      );
-      const current = row ? parseRelease(row) : null;
-      if (current?.status === "published") return current.definition;
-    }
-  }
-  return getThemeDefinition(id, version);
+  return (
+    (await resolveRuntimeDefinition(transactionLoaders(db), id, version)) ??
+    getThemeDefinition(id, version)
+  );
+}
+
+/** Resolve the theme a store has INSTALLED, for rendering and design reads.
+ * Returns null — the store renders un-themed, exactly as it did before the
+ * runtime registry — when the selected id is neither a runtime release nor a
+ * bundled preset. Falling back to the platform default here would silently
+ * re-skin every store carrying a retired or stray `template` value. */
+export async function resolveInstalledThemeDefinition(
+  selection: ThemeSelection | null,
+): Promise<ThemeDefinition | null> {
+  return resolveInstalled(cachedLoaders, selection);
+}
+
+export async function resolveInstalledThemeDefinitionWithDb(
+  db: Db,
+  selection: ThemeSelection | null,
+): Promise<ThemeDefinition | null> {
+  return resolveInstalled(transactionLoaders(db), selection);
 }
 
 /** Exact operator-preview lookup. It never substitutes the current release or
@@ -300,7 +427,7 @@ export async function resolveThemeCandidateDefinition(
   ) {
     return null;
   }
-  return exactRelease(themeId, version);
+  return cachedLoaders.exact(themeId, version);
 }
 
 export function revalidateThemeRegistry(): void {
@@ -331,12 +458,10 @@ async function insertThemeReleaseWithDb(
   ) {
     throw new Error("Theme package provenance does not match its source.");
   }
-  if (
-    Buffer.byteLength(JSON.stringify(parsed.value), "utf8") >
-    2 * 1024 * 1024
-  ) {
+  if (jsonbTextBytes(parsed.value) > THEME_PACKAGE_MAX_BYTES) {
     throw new Error("Theme package exceeds the 2 MiB registry limit.");
   }
+  const createdBy = assertActorId(input.actorId);
 
   const manifestDigest = digestThemePackage(parsed.value);
   const [created] = await db
@@ -348,7 +473,7 @@ async function insertThemeReleaseWithDb(
       packageJson: parsed.value,
       manifestDigest,
       source: input.source,
-      createdBy: input.actorId ?? null,
+      createdBy,
     })
     .onConflictDoNothing({
       target: [themeReleases.themeId, themeReleases.version],
@@ -364,7 +489,7 @@ async function insertThemeReleaseWithDb(
         packageJson: parsed.value,
         manifestDigest,
       }
-    : await queryExactReleaseWithDb(
+    : await queryExactReleaseRowWithDb(
         db,
         definition.id,
         definition.release.version,
@@ -458,23 +583,26 @@ export async function selectThemeCatalogRelease(input: {
   if (!isThemeId(input.themeId) || !SEMVER_RE.test(input.version)) {
     throw new Error("A valid theme id and semantic version are required.");
   }
+  if (!isCatalogVisibility(input.visibility)) {
+    throw new Error("Visibility must be hidden, legacy, or public.");
+  }
+  const updatedBy = assertActorId(input.actorId);
   const result = await withService(async (db) => {
-    const rows = await db
-      .select({
-        id: themeReleases.id,
-        status: themeReleases.releaseStatus,
-        digest: themeReleases.manifestDigest,
-      })
-      .from(themeReleases)
-      .where(
-        and(
-          eq(themeReleases.themeId, input.themeId),
-          eq(themeReleases.version, input.version),
-        ),
-      )
-      .limit(1);
-    const release = rows[0];
-    if (!release || release.status !== "published") {
+    // Parse the package with the SAME check the readers apply. A status-only
+    // check would report "activated" for a row every reader then rejects,
+    // leaving the bundled release live while the operator believes the
+    // publish or rollback happened.
+    const release = await loadExactReleaseWithDb(
+      db,
+      input.themeId,
+      input.version,
+    );
+    if (!release) {
+      throw new Error(
+        "The selected runtime theme release does not exist or failed validation.",
+      );
+    }
+    if (release.status !== "published") {
       throw new Error("The selected runtime theme release is not published.");
     }
     await db
@@ -483,17 +611,17 @@ export async function selectThemeCatalogRelease(input: {
         themeId: input.themeId,
         currentReleaseId: release.id,
         visibility: input.visibility,
-        updatedBy: input.actorId ?? null,
+        updatedBy,
       })
       .onConflictDoUpdate({
         target: themeCatalogEntries.themeId,
         set: {
           currentReleaseId: release.id,
           visibility: input.visibility,
-          updatedBy: input.actorId ?? null,
+          updatedBy,
         },
       });
-    return { releaseId: release.id, manifestDigest: release.digest };
+    return { releaseId: release.id, manifestDigest: release.manifestDigest };
   });
   revalidateThemeRegistry();
   return result;

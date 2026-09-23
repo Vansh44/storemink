@@ -31,21 +31,28 @@ only through the service role from server-only repository code.
 ## Resolution order
 
 `lib/themes/runtime-registry.ts` validates database JSON with the Phase 0
-contract and verifies its content digest before returning it.
+contract and verifies its content digest before returning it. Every structural
+comparison in that contract, and the digest itself, is key-order independent
+(`canonicalJson`): PostgreSQL `jsonb` returns object keys sorted by length then
+bytes, so an order-sensitive check rejects every package merely for having been
+stored.
 
-For an exact installed pin, resolution is:
+There are two resolvers, and the difference is the last step.
 
-1. the matching published database release;
-2. the matching bundled immutable release;
-3. that bundled theme's current release; and
-4. the platform default bundled theme.
+`resolveInstalledThemeDefinition(selection)` renders a store that already has a
+theme — the storefront, Website Builder defaults, publish-time contrast checks
+and Mink's design readers. For an exact pin it tries the matching published
+database release, then the bundled immutable release, then that bundled theme's
+current release; for an unversioned selection, the database catalog pointer
+(including a hidden pointer an installed store still needs), then the bundled
+current release. **If the id is in neither the registry nor this build, it
+returns null and the store renders un-themed.** It never substitutes the
+platform default: a retired or stray `template` value would otherwise silently
+re-skin a live store as Basket.
 
-For an unversioned selection, resolution is:
-
-1. the database catalog pointer, including a hidden pointer needed by an
-   already-installed legacy store;
-2. the bundled current release; and
-3. the platform default.
+`resolveThemeDefinition(id, version)` chooses a theme to INSTALL — signup,
+`applyTheme`, demo seeding — and keeps the platform default as its final
+fallback, since those paths need some definition to write.
 
 The public catalog overlays valid runtime pointers onto bundled metadata and
 then applies visibility rules. Invalid packages, mismatched ids or versions,
@@ -53,8 +60,18 @@ non-published public pointers, and digest mismatches fail closed to bundled
 data. Candidate lookup is exact and never substitutes another release.
 
 Reads are cached for five minutes under `theme-runtime-registry` and can be
-invalidated after an import or pointer change. Server actions and standalone
-scripts fall back to an uncached read when no Next render-cache scope exists.
+invalidated after an import or pointer change. The caches hold PARSED values —
+one release per exact pin, one per unversioned theme id, and the catalog as
+metadata only — so validation and the digest check run when an entry is filled,
+not on every storefront render, and a cache entry never grows with the number
+of stored packages. Server actions and standalone scripts fall back to an
+uncached read when no Next render-cache scope exists.
+
+Package size is measured as PostgreSQL measures `package_json::text`
+(`jsonbTextBytes`, which counts jsonb's `": "` and `", "` separators), so a
+package the application accepts cannot then fail the table's size CHECK.
+`created_by` and `updated_by` record a `platform_admins.id`; a non-uuid actor id
+(such as a Firebase session uid) is refused before any write.
 
 ## Migrated consumers
 
@@ -69,7 +86,10 @@ Runtime-aware resolution now feeds:
 - Mink's existing storefront design readers and proposal checks.
 
 The signup client receives only the serializable `ThemeMeta` projection from a
-server layout. Full packages remain server-only.
+server layout. The projection is built field by field: spreading a
+`ThemeDefinition` into a `ThemeMeta` type-checks but carries `preset` (pages,
+menus, sample catalog) into the client payload. Full packages remain
+server-only.
 
 ## Import and restore command
 
@@ -93,7 +113,9 @@ npm run theme-registry:import -- --activate studio@0.1.0 --visibility public
 
 Production writes additionally require `--confirm-production storemink`. The
 command refuses immutable id/version collisions whose digests differ and never
-advances an existing catalog pointer during a routine import. Because a
+advances an existing catalog pointer during a routine import. `--activate`
+parses the target package with the same check the readers apply and refuses one
+they would reject, rather than reporting an activation that changes nothing. Because a
 standalone script has no access to a running Next cache, an activation made by
 the command can take up to the registry's five-minute cache window to appear;
 future in-app publication invalidates the tag immediately.

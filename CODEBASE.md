@@ -4661,15 +4661,26 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     Database triggers forbid release mutation and forbid a catalog pointer to
     a non-published row; `app_user` has no table privileges. Server-only
     `lib/themes/runtime-registry.ts` validates every JSON package and SHA-256
-    digest before use, resolves an exact installed database version first, and
-    falls back through bundled immutable releases to the default. The cached
-    catalog projection now feeds the storefront, public catalog, signup,
-    theme application, demos, Website Builder and existing Mink storefront
-    design readers; full packages never enter the signup client bundle.
+    digest before use and resolves an exact installed database version first.
+    ★★ Contract comparisons and the digest are KEY-ORDER INDEPENDENT
+    (`canonicalJson` in `lib/theme-studio/contracts.ts`): `jsonb` returns keys
+    sorted by length then bytes, so a `JSON.stringify` comparison rejected
+    every stored package and the registry silently served only bundled themes.
+    ★ Two resolvers: `resolveInstalledThemeDefinition` (render/design reads)
+    returns NULL for an id in neither the registry nor this build, so a retired
+    `template` value renders un-themed rather than as Basket;
+    `resolveThemeDefinition` (install paths) keeps the default fallback. Caches
+    hold PARSED values (per exact pin, per theme id, catalog as metadata only),
+    so validation runs on cache fill, not per render. The catalog projection
+    is built field by field so `preset` never reaches the signup client, and it
+    feeds the storefront, public catalog, signup, theme application, demos,
+    Website Builder and existing Mink storefront design readers.
     `npm run theme-registry:import` is dry-run by default, idempotently imports
     bundled releases with `--commit`, and can explicitly select/restore a
-    published pointer with `--activate id@version`; it never advances an
-    existing pointer during routine import. Full contract and rollout record:
+    published pointer with `--activate id@version` (which refuses a package
+    the readers would reject); it never advances an existing pointer during
+    routine import. Size is measured as `package_json::text` (`jsonbTextBytes`)
+    and actor ids must be `platform_admins.id` uuids. Full contract and rollout record:
     `docs/mink-ai-theme-studio-phase1.md`. This is internal infrastructure, so
     there is no merchant-visible change and no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**

@@ -15,10 +15,16 @@ vi.mock("@/lib/db/client", () => ({
   ),
 }));
 vi.mock("@/lib/themes/runtime-registry", () => ({
-  resolveThemeDefinitionWithDb: vi.fn(
-    async (_db: unknown, id: unknown, version?: unknown) => {
-      const { getThemeDefinition } = await import("@/lib/themes");
-      return getThemeDefinition(id, version);
+  resolveInstalledThemeDefinitionWithDb: vi.fn(
+    async (
+      _db: unknown,
+      selection: { id: string; version?: string } | null,
+    ) => {
+      const { getThemeDefinition, isBundledThemeId } =
+        await import("@/lib/themes");
+      return selection && isBundledThemeId(selection.id)
+        ? getThemeDefinition(selection.id, selection.version)
+        : null;
     },
   ),
 }));

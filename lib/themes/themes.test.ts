@@ -10,7 +10,7 @@ import {
   isThemeSelectable,
   newestThemesFirst,
   readThemeSelection,
-  THEME_CATEGORIES,
+  themeCategoriesFor,
 } from "./meta";
 import { designToCssVars } from "./types";
 import type { ThemeDefinition } from "./types";
@@ -184,9 +184,10 @@ describe("theme registry", () => {
         expect(theme.catalog.visibility).not.toBe("public");
       }
     }
-    expect(THEME_CATEGORIES[0]).toEqual({ id: "all", label: "All" });
-    expect(new Set(THEME_CATEGORIES.map((filter) => filter.id)).size).toBe(
-      THEME_CATEGORIES.length,
+    const categories = themeCategoriesFor(THEME_META);
+    expect(categories[0]).toEqual({ id: "all", label: "All" });
+    expect(new Set(categories.map((filter) => filter.id)).size).toBe(
+      categories.length,
     );
     const newestFirst = newestThemesFirst(THEME_META.filter(isThemeSelectable));
     const releaseDates = newestFirst.map(

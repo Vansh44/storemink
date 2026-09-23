@@ -30,6 +30,14 @@ function currentRelease(id: string): ThemeDefinition | undefined {
   return meta ? BY_RELEASE.get(`${id}@${meta.release.version}`) : undefined;
 }
 
+/** True only for a preset this build ships. A format-valid id that is in
+ * neither this list nor the runtime registry (a retired preset such as the
+ * old Arcade/Fresko placeholders, or any stray `template` value) must render
+ * un-themed rather than be silently re-skinned as the platform default. */
+export function isBundledThemeId(id: unknown): id is string {
+  return typeof id === "string" && currentRelease(id) !== undefined;
+}
+
 /** Resolve an installed preset. A supplied version is honored when its
  * immutable definition remains registered. Missing/legacy versions fall back
  * to that preset's current release, then the platform default. */

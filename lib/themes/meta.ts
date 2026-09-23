@@ -365,11 +365,6 @@ export function themeCategoriesFor(
   ];
 }
 
-/** Bundled-only compatibility export. Runtime-aware server and client surfaces
- * receive their catalog from lib/themes/runtime-registry instead. */
-export const THEME_CATEGORIES: readonly ThemeCategory[] =
-  themeCategoriesFor(THEME_META);
-
 export interface StoredThemeInstallation {
   presetId: string;
   presetVersion: string;

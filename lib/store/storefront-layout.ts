@@ -1,5 +1,5 @@
 import { getCurrentStoreOrNull } from "./resolve";
-import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
+import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { getStoreChrome } from "@/lib/chrome/queries";
 import {
@@ -18,10 +18,8 @@ import {
 export async function getStorefrontLayout(): Promise<ResolvedStorefrontAppearance> {
   const store = await getCurrentStoreOrNull();
   const selection = readThemeSelection(store?.settings);
-  const themeLayout = selection
-    ? (await resolveThemeDefinition(selection.id, selection.version)).preset
-        .design.layout
-    : undefined;
+  const themeLayout = (await resolveInstalledThemeDefinition(selection))?.preset
+    .design.layout;
   const appearance = store
     ? (await getStoreChrome(store.id)).appearance
     : undefined;
