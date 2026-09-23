@@ -14,6 +14,10 @@ vi.mock("@/lib/mink/watches", () => ({
 vi.mock("@/lib/mink/workflows", () => ({
   runMinkWorkflowWorker: runWorker,
 }));
+const runStudio = vi.fn();
+vi.mock("@/lib/theme-studio/worker", () => ({
+  runThemeStudioWorker: runStudio,
+}));
 
 describe("Mink workflow cron", () => {
   const original = process.env.CRON_SECRET;
@@ -22,6 +26,14 @@ describe("Mink workflow cron", () => {
     process.env.CRON_SECRET = "cron-secret";
     schedule.mockReset().mockResolvedValue(0);
     reconcile.mockReset().mockResolvedValue(0);
+    runStudio.mockReset().mockResolvedValue({
+      claimed: 1,
+      succeeded: 1,
+      failed: 0,
+      cancelled: 0,
+      requeued: 0,
+      reaped: 0,
+    });
     runWorker.mockReset().mockResolvedValue({
       claims: 3,
       stepsCompleted: 3,
@@ -121,5 +133,22 @@ describe("Mink workflow cron", () => {
     expect(response.status).toBe(503);
     expect(runWorker).toHaveBeenCalledOnce();
     expect(reconcile).toHaveBeenCalledOnce();
+  });
+
+  it("drains Theme Studio runs, and a Studio failure never fails Mink", async () => {
+    const { GET } = await import("./route");
+    const request = () =>
+      new Request("https://storemink.com/api/cron/mink-workflows", {
+        headers: { authorization: "Bearer cron-secret" },
+      });
+    const ok = await GET(request());
+    expect(ok.status).toBe(200);
+    expect(runStudio).toHaveBeenCalledTimes(1);
+    expect((await ok.json()).themeStudio).toMatchObject({ succeeded: 1 });
+
+    runStudio.mockRejectedValueOnce(new Error("studio down"));
+    const isolated = await GET(request());
+    expect(isolated.status).toBe(200);
+    expect(runWorker).toHaveBeenCalledTimes(2);
   });
 });

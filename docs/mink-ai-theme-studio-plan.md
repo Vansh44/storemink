@@ -1,8 +1,9 @@
 # Mink AI Theme Studio — implementation plan
 
-> **Status:** Phase 0 is implemented. Phases 1–7 remain proposed; no production
-> Theme Studio route, worker, registry, preview, or publication capability is
-> available yet.
+> **Status:** Phases 0–2 are implemented: contracts, the runtime registry, and
+> the superadmin Studio shell with secure intake and a durable queue driven by
+> an offline test provider. Phases 3–7 remain proposed; no model generation,
+> preview, or publication capability is available yet.
 >
 > **Plan date:** 2026-09-23
 >
@@ -473,7 +474,7 @@ Implementation record: `docs/mink-ai-theme-studio-phase1.md`. The operator
 Studio shell remains Phase 2; Phase 1 exposes exact candidate resolution to
 that future preview path but adds no operator page of its own.
 
-### Phase 2 — Studio shell and secure intake
+### Phase 2 — Studio shell and secure intake ✅
 
 Deliver:
 
@@ -485,6 +486,11 @@ Deliver:
 
 Exit: an operator can create a project and queue a fake provider run; a member
 or forged request cannot read or mutate it.
+
+Implementation record: `docs/mink-ai-theme-studio-phase2.md`. References are
+stored sanitized in a service-only table rather than a private GCS prefix,
+because the media bucket is public; revisions, the retention sweep and draft
+brief editing remain later work.
 
 ### Phase 3 — Anthropic generation pipeline
 

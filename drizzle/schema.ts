@@ -19,6 +19,7 @@ import {
   pgSequence,
   date,
   vector,
+  customType,
 } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
 
@@ -2282,6 +2283,134 @@ export const themeCatalogEntries = pgTable(
     ),
   ],
 );
+
+// Theme Studio Phase 2: operator-only project intake. Platform data, not tenant
+// data: no store_id, no merchant grant, service scope behind a superadmin gate.
+// Migration 20260923_0128_theme_studio_intake owns the triggers that make
+// messages/assets immutable, versions/events append-only, and enforce the
+// Phase 0 project state machine.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+export const themeStudioProjects = pgTable("theme_studio_projects", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  themeId: text("theme_id").notNull(),
+  name: text().notNull(),
+  status: text().default("draft").notNull(),
+  industries: text().array().default([]).notNull(),
+  catalogSizes: text("catalog_sizes").array().default([]).notNull(),
+  requiredFeatures: text("required_features").array().default([]).notNull(),
+  baseThemeId: text("base_theme_id"),
+  modelKey: text("model_key").notNull(),
+  draftBrief: text("draft_brief").notNull(),
+  currentVersionId: uuid("current_version_id"),
+  revision: integer().default(0).notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true, mode: "string" }),
+});
+
+export const themeStudioAssets = pgTable("theme_studio_assets", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  purpose: text().default("reference").notNull(),
+  mediaType: text("media_type").notNull(),
+  bytes: bytea().notNull(),
+  byteSize: integer("byte_size").notNull(),
+  width: integer().notNull(),
+  height: integer().notNull(),
+  sha256: text().notNull(),
+  originalMediaType: text("original_media_type").notNull(),
+  originalByteSize: integer("original_byte_size").notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioMessages = pgTable("theme_studio_messages", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  kind: text().notNull(),
+  body: text().notNull(),
+  referenceAssetIds: uuid("reference_asset_ids").array().default([]).notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioRuns = pgTable("theme_studio_runs", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  messageId: uuid("message_id").notNull(),
+  kind: text().notNull(),
+  status: text().default("queued").notNull(),
+  provider: text().notNull(),
+  modelKey: text("model_key").notNull(),
+  providerModel: text("provider_model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  leaseOwner: uuid("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  cancelRequestedAt: timestamp("cancel_requested_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+  finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
+  errorCode: text("error_code"),
+  usage: jsonb().default({}).notNull(),
+  retryOfRunId: uuid("retry_of_run_id"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioVersions = pgTable("theme_studio_versions", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  runId: uuid("run_id").notNull(),
+  parentVersionId: uuid("parent_version_id"),
+  versionNumber: integer("version_number").notNull(),
+  intentJson: jsonb("intent_json").notNull(),
+  intentDigest: text("intent_digest").notNull(),
+  packageJson: jsonb("package_json"),
+  packageDigest: text("package_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioEvents = pgTable("theme_studio_events", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  runId: uuid("run_id"),
+  actorKind: text("actor_kind").notNull(),
+  actorId: uuid("actor_id"),
+  actorEmail: text("actor_email"),
+  eventType: text("event_type").notNull(),
+  detail: jsonb().default({}).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
 
 /**
  * StoreMink's OWN tax identity, edited by an operator (owner decision: GST is

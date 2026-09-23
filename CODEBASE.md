@@ -4683,6 +4683,41 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     and actor ids must be `platform_admins.id` uuids. Full contract and rollout record:
     `docs/mink-ai-theme-studio-phase1.md`. This is internal infrastructure, so
     there is no merchant-visible change and no Help Centre migration.
+    **Mink AI Theme Studio Phase 2 (2026-09-23; Studio shell and secure
+    intake):** superadmin-only routes `/dashboard/themes/studio`, `/new` and
+    `/[projectId]` (under `app/platform/dashboard/(console)/themes/studio`),
+    linked from the Themes page. ★ `lib/theme-studio/access.ts`
+    `getThemeStudioActor()` admits ONLY a superadmin and resolves the
+    `platform_admins` uuid from the session — a platform member cannot read
+    Studio data at all, and every page, action
+    (`app/actions/theme-studio-actions.ts`) and route re-derives it. ★★
+    References are NOT in GCS: the media bucket is public, so a "private
+    prefix" does not exist there. `lib/theme-studio/references.ts` sniffs magic
+    bytes, refuses SVG/HTML/animated/oversized/over-40MP input, re-encodes to a
+    ≤2048 px WebP (stripping EXIF) and only that re-encode is stored, in the
+    service-only `theme_studio_assets` table (the `data_job_payloads`
+    precedent). Upload is a raw-body route
+    (`/api/platform/theme-studio/projects/[projectId]/references`) because a
+    server action caps bodies at 6 MB; reads go through a gated `private,
+    no-store`, `nosniff`, `default-src 'none'` route. Migration
+    `20260923_0128_theme_studio_intake` adds six service-only tables and
+    ENFORCES in the database: the Phase 0 state machine, one active run per
+    project, lease/terminal/error-code consistency, immutable messages/assets,
+    append-only versions/events, one version per run, and cross-project
+    foreign keys. `lib/theme-studio/repository.ts` (not "use server") owns
+    writes under row + per-operator advisory locks with idempotency keys,
+    stale-revision refusal and the daily/concurrency caps.
+    `lib/theme-studio/worker.ts` leases runs with `FOR UPDATE SKIP LOCKED`,
+    reclaims expired leases, fails exhausted ones and CANCELS (never re-runs) an
+    expired run awaiting cancellation; it runs after queueing via `after()` and
+    as an isolated pass on the existing `/api/cron/mink-workflows` heartbeat.
+    Phase 2 executes only the offline `fake-provider.ts`, which returns a
+    validated `ThemeIntent` labelled as not model-generated.
+    `THEME_STUDIO_PROVIDER` (default `fake`) and
+    `THEME_STUDIO_GENERATION_ENABLED` (`false` = Studio emergency stop) are
+    independent of `MINK_AI_ENABLED`. Record:
+    `docs/mink-ai-theme-studio-phase2.md`. Operator-only: no Help Centre
+    migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -13086,6 +13121,10 @@ npm run theme-studio:model-check -- --dry-run # resolve the three task-scoped
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
   service account holds least-privilege **`roles/speech.client`** to call
   Speech-to-Text. Neither credential is exposed to the dashboard.
+  Theme Studio Phase 2 reads **`THEME_STUDIO_PROVIDER`** (default `fake`, the
+  offline test provider; `anthropic-vertex` is refused until Phase 3) and
+  **`THEME_STUDIO_GENERATION_ENABLED`** (`false` stops new Studio runs without
+  affecting merchant Mink).
   Theme Studio Phase 0 makes NO provider call from the application. Its manual
   `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
   (fallback `GCP_PROJECT_ID`) and **`THEME_STUDIO_VERTEX_LOCATION`** (default

@@ -239,6 +239,12 @@ cycle's work) and a 10-minute minimum age so it cannot race the live path.
 for ever. Settling those charges nothing — a failed run's band is 0 and
 `minkRunCreditCharge` returns only the untaken part — but records the fact,
 which is what stops the sweep re-reading them every minute.
+★ **IT ALSO DRAINS THEME STUDIO RUNS (2026-09-23)**, again as an independent
+pass rather than a new job. Queuing a Studio run kicks the worker in-process, so
+this is the backstop that reclaims expired leases and finishes work a recycled
+instance left behind. It is isolated in the other direction too: a Studio
+failure is logged and never fails the merchant Mink heartbeat. The response
+gained `themeStudio`. See `docs/mink-ai-theme-studio-phase2.md`.
 ⚠ Each execution logs TWO Cloud Scheduler entries — one carrying
 `httpRequest.status: 200` and one with the field absent — so a filter of
 `httpRequest.status!=200` looks like failures and is not. Judge by the job's

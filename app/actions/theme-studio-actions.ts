@@ -1,0 +1,192 @@
+"use server";
+
+// ---------------------------------------------------------------------------
+// Mink AI Theme Studio — operator mutations (Phase 2).
+//
+// ★ EVERY EXPORT HERE IS A PUBLIC POST ENDPOINT. A server action can be called
+// without the page that renders its button, so each one re-derives the actor
+// from the session (`getThemeStudioActor`, superadmin only) before touching
+// anything. The page gate is a courtesy; this is the boundary.
+//
+// ★ These are thin adapters. Validation, locking, caps and idempotency live in
+// lib/theme-studio/repository.ts, which is deliberately NOT a "use server"
+// module — its reads are platform-wide and must not be reachable directly.
+//
+// ★ Nothing here accepts an actor id, a provider model id, a file path or a
+// run's inputs. The browser names a project, a run, a model KEY and an
+// idempotency key; everything else is server-owned.
+// ---------------------------------------------------------------------------
+
+import { after } from "next/server";
+import { revalidatePath } from "next/cache";
+import { logError } from "@/lib/observability/logger";
+import { getThemeStudioActor } from "@/lib/theme-studio/access";
+import {
+  archiveThemeStudioProject,
+  cancelThemeStudioRun,
+  createThemeStudioProject,
+  queueThemeStudioGeneration,
+  removeThemeStudioReference,
+  retryThemeStudioRun,
+  ThemeStudioError,
+  validateProjectInput,
+  type CreateThemeStudioProjectInput,
+} from "@/lib/theme-studio/repository";
+import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
+
+export interface ThemeStudioActionResult {
+  ok: boolean;
+  error?: string;
+  id?: string;
+}
+
+const NOT_AUTHORIZED: ThemeStudioActionResult = {
+  ok: false,
+  error: "Only a platform superadmin can use Theme Studio.",
+};
+
+const STUDIO_PATH = "/dashboard/themes/studio";
+
+function failure(error: unknown, context: string): ThemeStudioActionResult {
+  if (error instanceof ThemeStudioError)
+    return { ok: false, error: error.message };
+  logError(`theme studio: ${context} failed`, error);
+  return { ok: false, error: "Something went wrong. Nothing was changed." };
+}
+
+/** Kick the in-process worker after the response. The per-minute heartbeat is
+ * the durable backstop if this instance is recycled first. */
+function kickWorker() {
+  after(async () => {
+    try {
+      await runThemeStudioWorker({ maxRuns: 2, budgetMs: 20_000 });
+    } catch (error) {
+      logError("theme studio: after-response worker failed", error);
+    }
+  });
+}
+
+export async function createThemeStudioProjectAction(
+  input: CreateThemeStudioProjectInput,
+): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const valid = validateProjectInput(input);
+    const { id } = await createThemeStudioProject(actor, valid);
+    revalidatePath(STUDIO_PATH);
+    return { ok: true, id };
+  } catch (error) {
+    return failure(error, "create project");
+  }
+}
+
+export async function queueThemeStudioGenerationAction(input: {
+  projectId: string;
+  expectedRevision: number;
+  idempotencyKey: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) {
+    return {
+      ok: false,
+      error: "The request is malformed. Reload and try again.",
+    };
+  }
+  try {
+    const { runId } = await queueThemeStudioGeneration(actor, {
+      projectId: String(input.projectId),
+      expectedRevision: input.expectedRevision,
+      idempotencyKey: String(input.idempotencyKey),
+    });
+    kickWorker();
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true, id: runId };
+  } catch (error) {
+    return failure(error, "queue generation");
+  }
+}
+
+export async function cancelThemeStudioRunAction(input: {
+  projectId: string;
+  runId: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    await cancelThemeStudioRun(actor, {
+      projectId: String(input.projectId),
+      runId: String(input.runId),
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true };
+  } catch (error) {
+    return failure(error, "cancel run");
+  }
+}
+
+export async function retryThemeStudioRunAction(input: {
+  projectId: string;
+  runId: string;
+  idempotencyKey: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const { runId } = await retryThemeStudioRun(actor, {
+      projectId: String(input.projectId),
+      runId: String(input.runId),
+      idempotencyKey: String(input.idempotencyKey),
+    });
+    kickWorker();
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true, id: runId };
+  } catch (error) {
+    return failure(error, "retry run");
+  }
+}
+
+export async function removeThemeStudioReferenceAction(input: {
+  projectId: string;
+  assetId: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    await removeThemeStudioReference(
+      actor,
+      String(input.projectId),
+      String(input.assetId),
+    );
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true };
+  } catch (error) {
+    return failure(error, "remove reference");
+  }
+}
+
+export async function archiveThemeStudioProjectAction(input: {
+  projectId: string;
+  expectedRevision: number;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) {
+    return {
+      ok: false,
+      error: "The request is malformed. Reload and try again.",
+    };
+  }
+  try {
+    await archiveThemeStudioProject(actor, {
+      projectId: String(input.projectId),
+      expectedRevision: input.expectedRevision,
+    });
+    revalidatePath(STUDIO_PATH);
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true };
+  } catch (error) {
+    return failure(error, "archive project");
+  }
+}

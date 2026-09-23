@@ -225,6 +225,12 @@ const SURFACES: readonly ThemeStudioSurface[] = [
   "not_found",
 ];
 
+/** Closed vocabularies shared with the Studio intake form and actions, so a
+ * project can only name what a package may later declare. */
+export const THEME_STUDIO_INDUSTRIES = INDUSTRIES;
+export const THEME_STUDIO_CATALOG_SIZES = CATALOG_SIZES;
+export const THEME_STUDIO_FEATURES = FEATURES;
+
 const GAP_CODES: readonly ThemeCapabilityGapCode[] = [
   "missing_section",
   "missing_layout_variant",

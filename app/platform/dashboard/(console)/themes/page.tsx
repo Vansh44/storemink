@@ -1,4 +1,6 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
+import { Sparkles } from "lucide-react";
 import { listAllStores } from "@/app/actions/platform";
 import { getThemeCatalog } from "@/lib/themes/runtime-registry";
 import { ThemesPanel } from "../themes-panel";
@@ -32,14 +34,22 @@ export default async function ThemesPage() {
 
   return (
     <div className="w-full max-w-6xl space-y-6">
-      <header>
-        <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
-          Themes
-        </h1>
-        <p className="mt-1 text-sm text-slate-500">
-          The catalog merchants pick from at signup, and the demo store behind
-          each one.
-        </p>
+      <header className="flex flex-wrap items-end justify-between gap-4">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
+            Themes
+          </h1>
+          <p className="mt-1 text-sm text-slate-500">
+            The catalog merchants pick from at signup, and the demo store behind
+            each one.
+          </p>
+        </div>
+        <Link
+          href="/dashboard/themes/studio"
+          className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-3.5 py-2 text-sm font-semibold text-white transition hover:bg-slate-800"
+        >
+          <Sparkles className="h-4 w-4" /> AI Theme Studio
+        </Link>
       </header>
 
       <ThemesPanel

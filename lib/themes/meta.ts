@@ -317,7 +317,7 @@ export const THEME_META: readonly ThemeMeta[] = [
 
 export const DEFAULT_THEME_ID = "basket";
 
-const INDUSTRY_LABELS: Record<ThemeIndustry, string> = {
+export const INDUSTRY_LABELS: Record<ThemeIndustry, string> = {
   general: "General",
   art: "Art",
   automotive: "Automotive",

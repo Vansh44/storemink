@@ -33,6 +33,7 @@ single scroll, under a metric row. Three consequences, all of them real:
 |                    | Mink AI        | `/dashboard/mink`          | Are agent runs reliable and affordable? |
 | **ADMINISTRATION** | Help Centre    | `/dashboard/help`          | Platform docs                           |
 |                    | Themes         | `/dashboard/themes`        | The catalog + demo stores               |
+|                    | ↳ Theme Studio | `/dashboard/themes/studio` | Draft new themes _(superadmin only)_    |
 |                    | Pricing        | `/dashboard/pricing`       | What StoreMink charges                  |
 |                    | Analytics      | `/dashboard/analytics`     | Platform Analytics availability         |
 |                    | Operators      | `/dashboard/operators`     | Who runs the platform                   |
@@ -140,6 +141,16 @@ capabilities; **Disable Mink AI** shuts those gates together. The actor is
 recorded in the access rows. Staff permissions, credits, plan limits and each
 exact human action approval still apply. This store switch is independent of
 `MINK_AI_ENABLED`, which remains the deployment-wide emergency shutdown.
+
+### ★ Theme Studio is superadmin data, not a superadmin write
+
+`/dashboard/themes/studio` (`lib/theme-studio/`) is the one console area a
+platform **member** cannot even read. Studio prompts, reference screenshots and
+generated drafts are superadmin-only, so every page shows a member a notice
+instead of data, and every action and route re-derives a superadmin actor from
+the session (`getThemeStudioActor`) before touching anything. Reference images
+are stored sanitized in Postgres and served only through a gated, no-store
+route. Full record: `docs/mink-ai-theme-studio-phase2.md`.
 
 ## Phases
 

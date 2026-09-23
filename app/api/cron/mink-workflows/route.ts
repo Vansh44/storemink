@@ -5,6 +5,7 @@ import { logError } from "@/lib/observability/logger";
 import { purgeExpiredMinkMemories } from "@/lib/mink/memories";
 import { reconcileMinkRunCredits } from "@/lib/mink/run-credit-reconcile";
 import { getMinkConfig } from "@/lib/mink/config";
+import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -62,6 +63,22 @@ async function handle(request: Request) {
     } catch (error) {
       passError ??= error;
     }
+    // ★ Theme Studio rides this heartbeat for the same reason the credit
+    //   reconciler does: it needs a per-minute authorised backstop, and a new
+    //   Scheduler entry is the kind that gets documented and never created.
+    //   It is a BACKSTOP — queueing kicks the worker in-process — and it is
+    //   isolated: a Studio failure must never fail merchant Mink workflows,
+    //   so its error is logged and deliberately not propagated.
+    let themeStudio: Awaited<ReturnType<typeof runThemeStudioWorker>> | null =
+      null;
+    try {
+      themeStudio = await runThemeStudioWorker({
+        maxRuns: 5,
+        budgetMs: 15_000,
+      });
+    } catch (error) {
+      logError("mink workflow cron: theme studio pass failed", error);
+    }
     if (passError) throw passError;
     if (!result) throw new Error("Workflow heartbeat returned no result.");
     return NextResponse.json({
@@ -70,6 +87,7 @@ async function handle(request: Request) {
       watchesQueued,
       watchAlerts,
       creditsSettled,
+      themeStudio,
     });
   } catch (error) {
     // 503, not an unhandled 500, so Cloud Scheduler's retries engage — the
