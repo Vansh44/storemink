@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import {
   Archive,
   ClipboardCheck,
+  Images,
   Eye,
   GitBranch,
   GitCompare,
@@ -693,7 +694,10 @@ export function ProjectWorkspace({
                     {v.id === project.currentVersionId ? " · current" : ""}
                     {v.parentVersionId ? (
                       <span className="ml-1 font-normal text-slate-500">
-                        · revised from version{" "}
+                        ·{" "}
+                        {v.origin === "asset_edit"
+                          ? `images replaced (${v.editedSlots.length}) on version`
+                          : "revised from version"}{" "}
                         {versionNumber.get(v.parentVersionId) ?? "?"}
                       </span>
                     ) : null}
@@ -727,6 +731,17 @@ export function ProjectWorkspace({
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
                       >
                         <ClipboardCheck className="h-3.5 w-3.5" /> Checks
+                      </Link>
+                      <Link
+                        href={`/dashboard/themes/studio/${project.id}/versions/${v.id}/images`}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                      >
+                        <Images className="h-3.5 w-3.5" /> Images
+                        {v.packageSummary?.placeholders ? (
+                          <span className="rounded-full bg-amber-50 px-1.5 text-amber-800">
+                            {v.packageSummary.placeholders}
+                          </span>
+                        ) : null}
                       </Link>
                       {v.parentVersionId ? (
                         <Link

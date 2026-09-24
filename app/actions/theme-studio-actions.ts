@@ -43,6 +43,7 @@ import {
   type OpenedPreview,
 } from "@/lib/theme-studio/preview";
 import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
+import { replaceThemeStudioSlotImages } from "@/lib/theme-studio/slot-images";
 import {
   startThemeStudioAcceptance,
   submitThemeStudioBrowserEvidence,
@@ -389,5 +390,38 @@ export async function submitThemeStudioBrowserEvidenceAction(input: {
     return { ok: true, id: input.runId, status: result.status };
   } catch (error) {
     return failure(error, "submit browser evidence");
+  }
+}
+
+/**
+ * Save staged slot images as ONE new version of the project, parented to the
+ * version edited. Uploads happen through the slot-image route; this names only
+ * asset ids the project already holds, and the server re-checks each one.
+ */
+export async function replaceThemeStudioSlotImagesAction(input: {
+  projectId: string;
+  versionId: string;
+  expectedRevision: number;
+  expectedPackageDigest: string;
+  replacements: unknown;
+}): Promise<ThemeStudioActionResult & { versionNumber?: number }> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const result = await replaceThemeStudioSlotImages(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      expectedRevision: Number(input.expectedRevision),
+      expectedPackageDigest: String(input.expectedPackageDigest),
+      replacements: input.replacements,
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    return {
+      ok: true,
+      id: result.versionId,
+      versionNumber: result.versionNumber,
+    };
+  } catch (error) {
+    return failure(error, "replace slot images");
   }
 }

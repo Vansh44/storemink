@@ -148,7 +148,11 @@ export interface ThemeStudioVersionView {
   id: string;
   versionNumber: number;
   parentVersionId: string | null;
-  runId: string;
+  /** Null for a version made by replacing images, which no run produced. */
+  runId: string | null;
+  origin: "run" | "asset_edit";
+  /** For an image edit: the slots whose images were replaced. */
+  editedSlots: string[];
   intentDigest: string;
   packageDigest: string | null;
   summary: string;
@@ -306,6 +310,16 @@ function runExtras(usage: unknown, detail: unknown) {
   };
 }
 
+function editedSlots(detail: unknown): string[] {
+  const slots =
+    detail && typeof detail === "object"
+      ? (detail as { slots?: unknown }).slots
+      : undefined;
+  return Array.isArray(slots)
+    ? slots.filter((s): s is string => typeof s === "string").slice(0, 40)
+    : [];
+}
+
 function packageSummary(pkg: unknown): ThemeStudioPackageSummary | null {
   if (!pkg || typeof pkg !== "object") return null;
   const p = pkg as {
@@ -392,6 +406,8 @@ export async function getThemeStudioProject(
         versionNumber: themeStudioVersions.versionNumber,
         parentVersionId: themeStudioVersions.parentVersionId,
         runId: themeStudioVersions.runId,
+        origin: themeStudioVersions.origin,
+        editDetail: themeStudioVersions.editDetail,
         intentDigest: themeStudioVersions.intentDigest,
         intentJson: themeStudioVersions.intentJson,
         packageJson: themeStudioVersions.packageJson,
@@ -470,6 +486,10 @@ export async function getThemeStudioProject(
           versionNumber: v.versionNumber,
           parentVersionId: v.parentVersionId,
           runId: v.runId,
+          origin: (v.origin === "asset_edit" ? "asset_edit" : "run") as
+            | "run"
+            | "asset_edit",
+          editedSlots: editedSlots(v.editDetail),
           intentDigest: v.intentDigest,
           packageDigest: v.packageDigest,
           summary: typeof summary === "string" ? summary : "",
@@ -551,7 +571,7 @@ export async function getThemeStudioVersionPackages(
 
 async function assetBytes(
   assetId: string,
-  purpose: "reference" | "placeholder",
+  purpose: "reference" | "placeholder" | "image",
 ): Promise<{ bytes: Buffer; mediaType: string } | null> {
   if (!isUuid(assetId)) return null;
   const rows = await withService((db) =>
@@ -582,6 +602,12 @@ export function getThemeStudioReferenceBytes(assetId: string) {
  * must find nothing, because references are someone else's website. */
 export function getThemeStudioPlaceholderBytes(assetId: string) {
   return assetBytes(assetId, "placeholder");
+}
+
+/** An operator-uploaded slot image, for the PUBLIC image route. Meant for
+ * publication by definition; the purpose filter still keeps references out. */
+export function getThemeStudioSlotImageBytes(assetId: string) {
+  return assetBytes(assetId, "image");
 }
 
 // ------------------------------------------------------------------- writes

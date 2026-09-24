@@ -3,12 +3,11 @@
 > **Status:** Phases 0–5 are implemented: contracts, the runtime registry, the
 > superadmin Studio shell with secure intake, the Gemini-on-Vertex generation
 > pipeline (moved from Anthropic models on 2026-09-23, owner's decision),
-> private previews with iterative revision, and automated acceptance. Phase 3
-> has not yet been run against a live model, and the offline provider stays the
-> default until it has. Every model-made version still carries placeholder
-> images, which acceptance refuses, so no generated version can become a
-> candidate until an image path exists. Phases 6–7 remain proposed; no
-> publication capability is available yet.
+> private previews with iterative revision, and automated acceptance.
+> Operators replace placeholder images per slot, which is what lets a
+> generated version pass acceptance. Phase 3 has not yet been run against a
+> live model, and the offline provider stays the default until it has.
+> Phases 6–7 remain proposed; no publication capability is available yet.
 >
 > **Plan date:** 2026-09-23
 >
@@ -561,6 +560,13 @@ built:
 
 - Playwright, screenshot diffs, interaction tests and a reduced-motion pass;
 - Lighthouse against a production build (performance is recorded as advisory).
+
+Operator images per slot followed Phase 5
+(`docs/mink-ai-theme-studio-slot-images.md`). An operator uploads an image for
+each slot; it is cropped to the slot's shape and compressed to storefront
+limits, and the staged images are saved as one new version. Revisions keep
+uploaded images for slots that keep their id and shape. Phase 6 must still
+promote these images to the public immutable prefix at publication.
 
 ### Phase 6 — approval, publication, and rollback
 

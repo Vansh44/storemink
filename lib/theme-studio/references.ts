@@ -103,12 +103,12 @@ const DECODED_FORMAT: Record<ReferenceMediaType, string> = {
   "image/avif": "heif",
 };
 
-type SharpWithOptions = (input: Buffer, options?: SharpOptions) => Sharp;
+export type SharpWithOptions = (input: Buffer, options?: SharpOptions) => Sharp;
 let sharpFactory: SharpWithOptions | null = null;
 
 // Lazy for lib/storage/process-image.ts's reason: a missing native library must
 // be a legible refusal, not a module-load failure no route can catch.
-async function loadSharp(): Promise<SharpWithOptions | null> {
+export async function loadSharp(): Promise<SharpWithOptions | null> {
   if (sharpFactory) return sharpFactory;
   try {
     const mod = await import("sharp");
@@ -119,14 +119,31 @@ async function loadSharp(): Promise<SharpWithOptions | null> {
   }
 }
 
-export async function sanitizeReferenceImage(
+export type OpenedImage =
+  | {
+      ok: true;
+      /** Decoded, NOT yet rotated or re-encoded. */
+      source: Sharp;
+      /** Dimensions as displayed, after EXIF orientation. */
+      width: number;
+      height: number;
+      originalMediaType: ReferenceMediaType;
+    }
+  | { ok: false; code: ReferenceRejection };
+
+/**
+ * Decode an untrusted upload safely: size cap, format by magic bytes checked
+ * against what the decoder decoded, one frame only, and a pixel ceiling. The
+ * caller decides how to re-encode it — nothing it returns is ever stored as
+ * sent. Shared by references and operator slot images.
+ */
+export async function openUntrustedImage(
   input: Uint8Array,
+  maxBytes: number,
   loader: () => Promise<SharpWithOptions | null> = loadSharp,
-): Promise<SanitizeReferenceResult> {
+): Promise<OpenedImage> {
   if (input.byteLength === 0) return { ok: false, code: "empty" };
-  if (input.byteLength > THEME_STUDIO_LIMITS.referenceImageBytes) {
-    return { ok: false, code: "too_large" };
-  }
+  if (input.byteLength > maxBytes) return { ok: false, code: "too_large" };
   const sniffed = sniffReferenceFormat(input);
   if (sniffed === "avif_sequence") return { ok: false, code: "animated" };
   if (!sniffed) return { ok: false, code: "unsupported_format" };
@@ -153,8 +170,40 @@ export async function sanitizeReferenceImage(
     ) {
       return { ok: false, code: "too_many_pixels" };
     }
+    // EXIF orientations 5–8 rotate a quarter turn, swapping the axes.
+    const swapped = (meta.orientation ?? 1) >= 5;
+    return {
+      ok: true,
+      source,
+      width: swapped ? meta.height : meta.width,
+      height: swapped ? meta.width : meta.height,
+      originalMediaType: sniffed,
+    };
+  } catch (error) {
+    return { ok: false, code: rejectionFor(error) };
+  }
+}
 
-    const { data, info } = await source
+/** Map a sharp failure to a refusal an operator can act on. */
+export function rejectionFor(error: unknown): ReferenceRejection {
+  const message = error instanceof Error ? error.message : "";
+  return /pixel limit|exceeds pixel/i.test(message)
+    ? "too_many_pixels"
+    : "decode_failed";
+}
+
+export async function sanitizeReferenceImage(
+  input: Uint8Array,
+  loader: () => Promise<SharpWithOptions | null> = loadSharp,
+): Promise<SanitizeReferenceResult> {
+  const opened = await openUntrustedImage(
+    input,
+    THEME_STUDIO_LIMITS.referenceImageBytes,
+    loader,
+  );
+  if (!opened.ok) return opened;
+  try {
+    const { data, info } = await opened.source
       .rotate()
       .resize(REFERENCE_OUTPUT_MAX_EDGE, REFERENCE_OUTPUT_MAX_EDGE, {
         fit: "inside",
@@ -171,15 +220,11 @@ export async function sanitizeReferenceImage(
         width: info.width,
         height: info.height,
         sha256: createHash("sha256").update(data).digest("hex"),
-        originalMediaType: sniffed,
+        originalMediaType: opened.originalMediaType,
         originalByteSize: input.byteLength,
       },
     };
   } catch (error) {
-    const message = error instanceof Error ? error.message : "";
-    if (/pixel limit|exceeds pixel/i.test(message)) {
-      return { ok: false, code: "too_many_pixels" };
-    }
-    return { ok: false, code: "decode_failed" };
+    return { ok: false, code: rejectionFor(error) };
   }
 }

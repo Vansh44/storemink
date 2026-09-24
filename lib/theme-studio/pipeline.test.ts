@@ -244,4 +244,41 @@ describe("theme generation pipeline", () => {
     expect(textB).toContain("<current_theme>");
     expect(textB).not.toContain('"provenance"');
   });
+
+  it("keeps an operator's uploaded image through a revision", async () => {
+    const first = await run();
+    if (first.kind !== "version") throw new Error("expected a version");
+    const preview = first.package.assets.find((a) => a.id === "preview")!;
+    const uploaded = {
+      ...preview,
+      sha256: "a".repeat(64),
+      source: "operator-owned" as const,
+      licenseNote: "Photographed by StoreMink",
+      alt: "Our shop front",
+    };
+    const basePackage = {
+      ...first.package,
+      assets: first.package.assets.map((a) =>
+        a.id === "preview" ? uploaded : a,
+      ),
+    };
+    const revised = await runThemeGeneration(
+      createFakeModelClient({ ...base, brief: "Warmer colours" }),
+      {
+        ...input(),
+        messages: [{ kind: "revision", body: "Warmer colours" }],
+        revision: { baseIntent: first.intent, basePackage },
+      },
+      new AbortController().signal,
+    );
+    if (revised.kind !== "version") throw new Error("expected a version");
+    expect(
+      revised.package.assets.find((a) => a.id === "preview"),
+    ).toMatchObject({
+      sha256: "a".repeat(64),
+      licenseNote: "Photographed by StoreMink",
+    });
+    // Its placeholder is not stored again.
+    expect(revised.placeholders.has("preview")).toBe(false);
+  });
 });

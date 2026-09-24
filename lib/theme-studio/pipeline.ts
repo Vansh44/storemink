@@ -19,6 +19,7 @@ import {
   renderPlaceholder,
   type PlaceholderImage,
 } from "./placeholders";
+import { carryOverSlotImages } from "./slot-images-core";
 import {
   currentThemeForRevision,
   referenceLabel,
@@ -372,10 +373,16 @@ export async function runThemeGeneration(
       prepared.issues,
     );
     if (compiled.package) {
+      // A revision keeps the operator's uploaded images for every slot that
+      // survived with the same shape (slot-images-core.ts).
+      const kept = input.revision
+        ? carryOverSlotImages(compiled.package, input.revision.basePackage)
+        : { value: compiled.package, carried: [] as string[] };
+      for (const slot of kept.carried) slotAssets.delete(slot);
       return {
         kind: "version",
         intent,
-        package: compiled.package,
+        package: kept.value,
         placeholders: slotAssets,
         telemetry: telemetry.snapshot(),
       };

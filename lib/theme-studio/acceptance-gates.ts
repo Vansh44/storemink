@@ -332,7 +332,7 @@ export function securityFindings(pkg: ThemePackageV2): GateFinding[] {
 const STOREFRONT_MEDIA_TYPES = new Set(["image/webp", "image/avif"]);
 /** Asset purposes whose bytes may render on a storefront. Reference images are
  * the operator's inspiration and are never licensed for publication. */
-const RENDERABLE_PURPOSES = new Set(["placeholder"]);
+const RENDERABLE_PURPOSES = new Set(["placeholder", "image"]);
 
 export function isPlaceholderAsset(
   asset: ThemePackageV2["assets"][number],

@@ -5538,6 +5538,43 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260924_0133_theme_studio_slot_images",
+      "description": "Theme Studio operator slot images: versions made by an image edit, the image asset purpose and their events",
+      "file": "sql/20260924_0133_theme_studio_slot_images.sql",
+      "transaction": true,
+      "requires": ["20260924_0132_theme_studio_operator_removal"],
+      "verify": {
+        "columns": [
+          "theme_studio_versions.origin",
+          "theme_studio_versions.edit_detail"
+        ],
+        "constraints": [
+          "theme_studio_versions_origin_check",
+          "theme_studio_assets_purpose_check",
+          "theme_studio_events_type_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "a version may carry no run",
+            "sql": "select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'theme_studio_versions' and column_name = 'run_id'",
+            "equals": "YES"
+          },
+          {
+            "name": "operator images are an asset purpose",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_assets_purpose_check' and pg_get_constraintdef(oid) like '%image%'",
+            "equals": "1"
+          },
+          {
+            "name": "slot image events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%slot_images_replaced%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

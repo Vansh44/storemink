@@ -75,6 +75,9 @@ export const PREVIEWS_PLATFORM_MAX = 50;
 export const PREVIEW_MISSING_PATH = "/theme-studio-preview-missing-page";
 
 export const PLACEHOLDER_ROUTE_PREFIX = "/api/theme-studio/placeholders/";
+/** Operator-uploaded slot images (slot-images.ts), served publicly for the
+ * same next/image reason as placeholders. */
+export const SLOT_IMAGE_ROUTE_PREFIX = "/api/theme-studio/images/";
 
 export type PreviewSurface =
   | "home"
@@ -174,7 +177,12 @@ async function deletePreviewStore(db: Db, storeId: string): Promise<number> {
   return rows.length;
 }
 
-async function slotUrls(
+/**
+ * Where each slot's stored bytes are served: a placeholder through the
+ * placeholder route, an operator image through the image route. Both are
+ * public and purpose-filtered, and neither ever serves a reference.
+ */
+export async function slotUrls(
   db: Db,
   projectId: string,
   pkg: ThemePackageV2,
@@ -184,21 +192,30 @@ async function slotUrls(
     .filter((sha): sha is string => typeof sha === "string");
   const rows = digests.length
     ? await db
-        .select({ id: themeStudioAssets.id, sha256: themeStudioAssets.sha256 })
+        .select({
+          id: themeStudioAssets.id,
+          purpose: themeStudioAssets.purpose,
+          sha256: themeStudioAssets.sha256,
+        })
         .from(themeStudioAssets)
         .where(
           and(
             eq(themeStudioAssets.projectId, projectId),
-            eq(themeStudioAssets.purpose, "placeholder"),
+            inArray(themeStudioAssets.purpose, ["placeholder", "image"]),
             inArray(themeStudioAssets.sha256, digests),
           ),
         )
     : [];
-  const bySha = new Map(rows.map((row) => [row.sha256, row.id]));
+  const bySha = new Map(rows.map((row) => [row.sha256, row]));
   const urls = new Map<string, string>();
   for (const asset of pkg.assets) {
-    const id = asset.sha256 ? bySha.get(asset.sha256) : undefined;
-    if (id) urls.set(asset.id, `${PLACEHOLDER_ROUTE_PREFIX}${id}`);
+    const row = asset.sha256 ? bySha.get(asset.sha256) : undefined;
+    if (!row) continue;
+    const prefix =
+      row.purpose === "image"
+        ? SLOT_IMAGE_ROUTE_PREFIX
+        : PLACEHOLDER_ROUTE_PREFIX;
+    urls.set(asset.id, `${prefix}${row.id}`);
   }
   return urls;
 }

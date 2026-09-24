@@ -27,6 +27,11 @@ export const THEME_STUDIO_LIMITS = {
   referenceImages: 10,
   referenceImageBytes: 10 * 1024 * 1024,
   referenceTotalBytes: 40 * 1024 * 1024,
+  /** Operator slot images: per upload before processing, and per project. */
+  slotImageBytes: 15 * 1024 * 1024,
+  slotImagesPerProject: 200,
+  /** Slots replaced in one saved image edit. */
+  slotReplacementsPerEdit: 40,
   projectsPerOperatorPerDay: 20,
   concurrentRunsPerOperator: 2,
   runWallTimeSeconds: 20 * 60,

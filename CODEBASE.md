@@ -2735,6 +2735,10 @@ wholesip/
 │       │                      # token for a 1h host-only grant cookie; relative redirect.
 │       ├── theme-studio/placeholders/[assetId]/ # ★ PUBLIC, placeholder-purpose-only
 │       │                      # images for previews (next/image sends no cookies).
+│       ├── theme-studio/images/[assetId]/ # ★ PUBLIC operator slot images
+│       │                      # (image purpose only, never a reference).
+│       ├── platform/theme-studio/projects/[projectId]/slot-images/ # superadmin
+│       │                      # raw-body upload of one slot image; changes no version.
 │       ├── cron/domain-reconcile/ # ★ HOURLY (§30): finishes every custom domain
 │       │                      # whose certificate issued after the merchant closed
 │       │                      # the tab. Without it a domain only ever goes live if
@@ -3330,6 +3334,10 @@ wholesip/
 │   │                          # verdict, candidate transitions, evidence re-check),
 │   │                          # acceptance-http.ts (loopback page fetch with the
 │   │                          # preview Host header).
+│   │                          # slot-images-core.ts (pure: describe slots, apply
+│   │                          # replacements, carry images into a revision) +
+│   │                          # slot-images.ts (crop/compress an upload, store it,
+│   │                          # save replacements as one asset_edit version).
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -4876,10 +4884,33 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     deleting any operator who had uploaded a reference fail; the triggers now
     admit exactly that change. Also fixed: the header "Deliver to" label used
     `--sm-ink-faint` on sand and failed WCAG AA in all four live themes at
-    phone/tablet widths; it now uses `--sm-ink-soft`. ⚠ Every model-made
-    version fails asset provenance until an image path exists. Record:
+    phone/tablet widths; it now uses `--sm-ink-soft`. Placeholder images fail
+    asset provenance until an operator replaces them (next paragraph). Record:
     `docs/mink-ai-theme-studio-phase5.md`. Operator-only: no Help Centre
     migration.
+    **Theme Studio operator images per slot (2026-09-24):** a version's
+    **Images** screen (`…/versions/[versionId]/images`) lists every
+    `theme-asset://` slot with its current image, shape and where it renders.
+    An upload (`POST /api/platform/theme-studio/projects/[projectId]/slot-images?versionId=&slot=`,
+    a route handler for the 6 MB server-action cap) is decoded by the shared
+    `openUntrustedImage` (references.ts), cropped to the slot's ratio, sized
+    to a 1600px long edge but never below 800px wide (★ never upscaled — too
+    small is refused), and compressed to TA-2.6's WebP limits (500 KiB; the
+    catalog card 250 KiB), then stored as an `image` asset without changing
+    any version. `replaceThemeStudioSlotImages` saves the staged images as ONE
+    new version (`origin = 'asset_edit'`, no run, parent = the version edited,
+    made current; a candidate returns to `ready`) through the pure
+    `applySlotReplacements` (slot-images-core.ts), which refuses a wrong
+    shape, a non-image asset or a short screenshot alt and re-runs the package
+    contract. ★ `carryOverSlotImages` makes a REVISION keep uploaded images
+    for slots that keep their id and shape. Operator images are served
+    publicly by `/api/theme-studio/images/[assetId]` (image purpose only,
+    never a reference) because next/image sends no cookies; `preview.ts`'s
+    `slotUrls` maps slots to either route. Migration
+    `20260924_0133_theme_studio_slot_images` makes `theme_studio_versions.run_id`
+    nullable with an `origin`/`edit_detail` CHECK, adds the `image` purpose and
+    two events. Record: `docs/mink-ai-theme-studio-slot-images.md`.
+    Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

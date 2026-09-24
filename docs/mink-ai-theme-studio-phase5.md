@@ -172,11 +172,9 @@ local drift baseline is refreshed.
 
 ## 9. Known limits
 
-- **★ Every model-made version fails asset provenance today.** Images are
-  placeholders until an image path exists, so no generated version can become
-  a candidate yet. The gate is right; what is missing is either operator image
-  upload per slot (a new version from the current one) or Phase 7's image
-  generation. That is the next blocker before Phase 6 can run end to end.
+- **Placeholder images** are refused by asset provenance. Operators now
+  replace them per slot (`docs/mink-ai-theme-studio-slot-images.md`), which is
+  what lets a generated version become a candidate.
 - **Not built:**
   - screenshot capture and screenshot-diffing;
   - the plan's interaction tests (search, variants, add-to-cart);

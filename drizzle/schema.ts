@@ -2392,7 +2392,12 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
 export const themeStudioVersions = pgTable("theme_studio_versions", {
   id: uuid().defaultRandom().primaryKey().notNull(),
   projectId: uuid("project_id").notNull(),
-  runId: uuid("run_id").notNull(),
+  /** Null only for an `asset_edit` version, which no model run produced. */
+  runId: uuid("run_id"),
+  /** `run` (a generation or revision) or `asset_edit` (operator images). */
+  origin: text().default("run").notNull(),
+  /** For an asset edit: which slots were replaced, from which version. */
+  editDetail: jsonb("edit_detail").default({}).notNull(),
   parentVersionId: uuid("parent_version_id"),
   versionNumber: integer("version_number").notNull(),
   intentJson: jsonb("intent_json").notNull(),

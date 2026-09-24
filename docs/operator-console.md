@@ -173,9 +173,15 @@ current version. The server checks the package and the preview's rendered
 pages; this browser then measures layout, accessibility and images at laptop,
 iPad and mobile sizes. Passing makes the project a **candidate**. A quality
 failure keeps it `ready`, a security failure blocks it, and a deploy makes a
-candidate's evidence stale until the checks run again. Generated versions
-still fail on placeholder images until an image path exists. Record:
+candidate's evidence stale until the checks run again. Placeholder images
+fail the checks until an operator replaces them under **Images**. Record:
 `docs/mink-ai-theme-studio-phase5.md`.
+
+Each version also has **Images**: every picture slot with its current image
+and where it appears. An operator uploads an image per slot (cropped to the
+slot's shape and compressed to storefront limits), says whether it is theirs
+or licensed, and saves the staged images as one new version. Revisions keep
+those images. Record: `docs/mink-ai-theme-studio-slot-images.md`.
 
 ## Phases
 
