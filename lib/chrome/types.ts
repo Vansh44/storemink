@@ -79,6 +79,11 @@ export interface ResolvedStorefrontAppearance {
   /** Theme-driven only: hover-swap is orthogonal to the merchant's card
    *  choice, so a `card` override neither enables nor cancels it. */
   cardHoverImage: boolean;
+  /** Theme-driven, like cardHoverImage: shopping chrome the merchant cannot
+   *  override yet. */
+  stickyAddToCart: boolean;
+  gridColumnsMobile: 1 | 2;
+  gridColumnsDesktop: 3 | 4 | 5;
   productDetail: ProductDetailVariant;
   cart: CartVariant;
   footer: FooterVariant;
@@ -400,6 +405,12 @@ export function resolveStorefrontAppearance(
     card,
     cardQuickAdd,
     cardHoverImage: theme?.cardHoverImage === true,
+    stickyAddToCart: theme?.stickyAddToCart === true,
+    gridColumnsMobile: theme?.gridColumnsMobile === 2 ? 2 : 1,
+    gridColumnsDesktop:
+      theme?.gridColumnsDesktop === 3 || theme?.gridColumnsDesktop === 5
+        ? theme.gridColumnsDesktop
+        : 4,
     productDetail:
       overrides.productDetail === "theme"
         ? (theme?.productDetail ?? (legacyGrocery ? "grocery" : "classic"))

@@ -196,6 +196,33 @@ describe("Theme Studio contracts", () => {
     }
   });
 
+  it("admits the shopping-chrome layout options and refuses other values", () => {
+    const ok = structuredClone(
+      themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
+    );
+    ok.definition.preset.design.layout = {
+      ...ok.definition.preset.design.layout,
+      stickyAddToCart: true,
+      gridColumnsMobile: 2,
+      gridColumnsDesktop: 5,
+    };
+    expect(validateThemePackageV2(ok).ok).toBe(true);
+
+    const bad = structuredClone(ok);
+    Object.assign(bad.definition.preset.design.layout!, {
+      stickyAddToCart: "yes",
+      gridColumnsMobile: 3,
+      gridColumnsDesktop: 2,
+    });
+    const result = validateThemePackageV2(bad);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const issues = result.issues.join(" ");
+    expect(issues).toContain("stickyAddToCart must be a boolean");
+    expect(issues).toContain("gridColumnsMobile is unsupported");
+    expect(issues).toContain("gridColumnsDesktop is unsupported");
+  });
+
   it("returns validation issues instead of throwing on a malformed definition", () => {
     expect(() =>
       validateThemePackageV2({

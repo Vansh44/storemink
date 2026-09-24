@@ -1172,6 +1172,9 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
         "headerForeground",
         "card",
         "cardHoverImage",
+        "stickyAddToCart",
+        "gridColumnsMobile",
+        "gridColumnsDesktop",
         "productDetail",
         "cart",
         "footer",
@@ -1206,13 +1209,27 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
         );
       }
     }
-    if (
-      value.layout.cardHoverImage !== undefined &&
-      typeof value.layout.cardHoverImage !== "boolean"
-    ) {
-      issues.push(
-        "definition.preset.design.layout.cardHoverImage must be a boolean.",
-      );
+    for (const key of ["cardHoverImage", "stickyAddToCart"] as const) {
+      if (
+        value.layout[key] !== undefined &&
+        typeof value.layout[key] !== "boolean"
+      ) {
+        issues.push(
+          `definition.preset.design.layout.${key} must be a boolean.`,
+        );
+      }
+    }
+    const columnChoices = [
+      ["gridColumnsMobile", [1, 2]],
+      ["gridColumnsDesktop", [3, 4, 5]],
+    ] as const;
+    for (const [key, allowed] of columnChoices) {
+      if (
+        value.layout[key] !== undefined &&
+        !allowed.includes(value.layout[key] as never)
+      ) {
+        issues.push(`definition.preset.design.layout.${key} is unsupported.`);
+      }
     }
   }
 }

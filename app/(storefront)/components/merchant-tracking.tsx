@@ -398,6 +398,7 @@ window.fbq('init', '${metaPixelId}');
       ) : hasOptionalTracking && consent ? (
         <button
           type="button"
+          data-sm-privacy-pill=""
           className="fixed bottom-3 right-3 z-[70] rounded-full border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-md"
           onClick={beginManaging}
         >

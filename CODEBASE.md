@@ -4871,7 +4871,11 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     a fresh connection per request and one retry for transport failures only);
     the BROWSER stage runs in the operator's page — the storefront layout
     renders `studio-acceptance-probe.tsx` ONLY on preview stores, it answers
-    only a platform-host parent, and it posts RAW measurements (overflow,
+    only a platform-host parent, and it posts RAW measurements (overflow —
+    ★★ measured from element rectangles as well as `scrollWidth`, because
+    `overflow-x: clip` on html/body makes `scrollWidth` report clipped
+    content as fitting; fixed-position and fitting scroll containers are
+    exempt,
     axe-core — now a runtime dependency, imported on demand — confirmed broken
     images, LCP/CLS). ★ The server applies every threshold; performance is the
     one advisory gate. ★ A probe that has measured stays silent and every
@@ -5107,6 +5111,28 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `applyTheme` seeds presets whose `images` repeats the primary first. A
     caller that indexes the column directly renders a broken `<img>` for an
     untouched store and cross-fades a themed product to itself.
+    **★ SHOPIFY-PARITY TRACK 1 (2026-09-25, `docs/theme-parity-plan.md`).**
+    `[slug]/product-gallery.tsx` is the one PDP gallery for all three layouts:
+    every photo is a slide in one track; desktop shows only the active slide
+    (thumbnails switch it, exactly the old look) and below 860px the track is a
+    native scroll-snap strip with a "2 / 5" counter, so phones SWIPE. Its
+    `ProductLightbox` replaced both copies of the single-image zoom: swipe,
+    prev/next, arrow keys, Escape, focus on Close, scroll lock, desktop
+    click-to-magnify, and native pinch on phones. Universal on purpose — at
+    rest it shows the same first photo. `[slug]/sticky-add-to-cart.tsx` is
+    the phone buy bar, shown once the page's own buttons scroll away ABOVE the
+    shopper; it calls the page's own handler. Opt-in theme layout keys
+    `stickyAddToCart`, `gridColumnsMobile` (1|2) and `gridColumnsDesktop`
+    (3|4|5) resolve through `resolveStorefrontAppearance` into root classes
+    `sm-atc-sticky` / `sm-grid-m2` / `sm-grid-d3|d5`, with a compact card for
+    the two-column phone grid; absent keys render as before. They are in the
+    package contract, the Stage B schema and prompt (`theme-studio-v3`).
+    ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
+    column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
+    child (the related-products carousel) made the grocery product page 734px
+    wide on a 390px phone, its right half silently cut off by `overflow-x:
+    clip`. The single-column PDP grids use `minmax(0, 1fr)` for the same
+    reason — a bare `1fr` never shrinks below its widest child.
     Header search is
     FUNCTIONAL on all variants — it submits to
     `/shop?q=`, and the shop grid filters by name/description/category

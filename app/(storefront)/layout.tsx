@@ -180,6 +180,11 @@ export default async function StorefrontLayout({
     `sm-card-${appearance.card}`,
     appearance.cardQuickAdd ? "sm-card-quickadd" : "",
     appearance.cardHoverImage ? "sm-card-hoverimg" : "",
+    appearance.stickyAddToCart ? "sm-atc-sticky" : "",
+    appearance.gridColumnsMobile === 2 ? "sm-grid-m2" : "",
+    appearance.gridColumnsDesktop !== 4
+      ? `sm-grid-d${appearance.gridColumnsDesktop}`
+      : "",
     // Only when a face is actually being imposed — see the `.sm-themed-type`
     // note in storefront-theme.css. ★ A FONT OVERRIDE COUNTS, not just a
     // theme: the class is what makes untokenised descendants inherit the

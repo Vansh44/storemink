@@ -149,6 +149,15 @@ export interface ThemeLayout {
    *  class), so a store on this theme looks nothing like the classic WholeSip
    *  storefront. "classic" (default) = today's shared layout, untouched. */
   storefront?: "classic" | "grocery";
+  /** A phone add-to-cart bar that slides up once the product page's own buy
+   *  buttons have scrolled out of view. Opt-in: it adds chrome to every
+   *  product page. Absent = off. */
+  stickyAddToCart?: boolean;
+  /** Shop grid columns on a phone (≤460px). Absent = 1, the long-standing
+   *  default; premium themes choose 2. */
+  gridColumnsMobile?: 1 | 2;
+  /** Shop grid columns on a wide desktop (>1100px). Absent = 4. */
+  gridColumnsDesktop?: 3 | 4 | 5;
 }
 
 export interface ThemeDesign {

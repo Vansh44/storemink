@@ -122,7 +122,7 @@ platform-host origin, and replies only to that origin. For each page it:
 
 - waits for load and fonts;
 - scrolls the page so lazy images load;
-- measures overflow and names the elements causing it;
+- measures overflow and names the elements causing it — from element rectangles as well as `scrollWidth`, because the storefront's `overflow-x: clip` on html/body makes `scrollWidth` report clipped content as fitting (fixed-position drawers and scroll containers that fit are exempt; changed 2026-09-25 after it missed a 734px-wide grocery product page on a 390px phone);
 - confirms broken images by requesting each one again;
 - runs axe-core, imported on demand (now a runtime dependency).
 

@@ -47,20 +47,74 @@ function describe(element: Element): string {
   return `${element.tagName.toLowerCase()}${id}${classes}`.slice(0, 120);
 }
 
-/** Elements that stick out past the right edge, outermost first. */
-function overflowOffenders(limit: number): string[] {
-  const edge = document.documentElement.clientWidth + 1;
-  const out: string[] = [];
+/**
+ * Whether content at this element is hidden from the page by something other
+ * than the viewport edge: a fixed-position ancestor (an off-canvas drawer is
+ * off-screen on purpose), or a scroll/clip container that itself fits (a
+ * carousel is MEANT to hold more than it shows). Cached per element, since a
+ * page has thousands and they share ancestors.
+ */
+function exemptFromOverflow(
+  element: Element,
+  edge: number,
+  cache: Map<Element, boolean>,
+): boolean {
+  const cached = cache.get(element);
+  if (cached !== undefined) return cached;
+  let exempt = false;
+  const parent = element.parentElement;
+  if (parent && parent !== document.body) {
+    const style = getComputedStyle(parent);
+    if (style.position === "fixed") {
+      exempt = true;
+    } else if (
+      style.overflowX !== "visible" &&
+      parent.getBoundingClientRect().right <= edge
+    ) {
+      exempt = true;
+    } else {
+      exempt = exemptFromOverflow(parent, edge, cache);
+    }
+  }
+  if (!exempt && getComputedStyle(element).position === "fixed") exempt = true;
+  cache.set(element, exempt);
+  return exempt;
+}
+
+/**
+ * How far laid-out content reaches past the right edge, measured from the
+ * boxes themselves.
+ *
+ * ★★ `scrollWidth` ALONE IS BLIND ON THIS STOREFRONT. `<html>` and `<body>`
+ * carry `overflow-x: clip`, so content wider than the phone is cut off rather
+ * than scrollable and `scrollWidth` reports it as fitting. That is how the
+ * grocery product page shipped 734px wide on a 390px screen — its right half
+ * simply missing — with this gate green. Measuring rectangles is what sees it.
+ */
+function clippedOverflow(limit: number): { px: number; offenders: string[] } {
+  const width = document.documentElement.clientWidth;
+  const edge = width + 1;
+  const cache = new Map<Element, boolean>();
+  const offenders: string[] = [];
+  let px = 0;
   const all = document.body ? document.body.querySelectorAll("*") : [];
-  for (let i = 0; i < all.length && i < 4000 && out.length < limit; i += 1) {
+  for (let i = 0; i < all.length && i < 6000; i += 1) {
     const element = all[i];
     const rect = element.getBoundingClientRect();
     if (rect.width === 0 || rect.right <= edge) continue;
+    if (exemptFromOverflow(element, edge, cache)) continue;
+    px = Math.max(px, Math.round(rect.right - width));
     const parent = element.parentElement;
-    if (parent && parent.getBoundingClientRect().right > edge) continue;
-    out.push(describe(element));
+    const parentSticksOut =
+      parent !== null &&
+      parent !== document.body &&
+      parent.getBoundingClientRect().right > edge &&
+      !exemptFromOverflow(parent, edge, cache);
+    if (!parentSticksOut && offenders.length < limit) {
+      offenders.push(describe(element));
+    }
   }
-  return out;
+  return { px, offenders };
 }
 
 async function settleImages(ms: number): Promise<void> {
@@ -152,7 +206,8 @@ async function measure(perf: { lcp: number | null; cls: number }) {
     root.scrollWidth,
     document.body?.scrollWidth ?? 0,
   );
-  const overflowPx = scrollWidth - root.clientWidth;
+  const clipped = clippedOverflow(5);
+  const overflowPx = Math.max(scrollWidth - root.clientWidth, clipped.px);
   const brokenImages = await confirmBrokenImages();
 
   const axe = (await import("axe-core")).default;
@@ -172,7 +227,7 @@ async function measure(perf: { lcp: number | null; cls: number }) {
     width: window.innerWidth,
     height: window.innerHeight,
     overflowPx,
-    overflowOffenders: overflowPx > 1 ? overflowOffenders(5) : [],
+    overflowOffenders: overflowPx > 1 ? clipped.offenders : [],
     brokenImages,
     violations: results.violations.slice(0, 100).map((violation) => ({
       id: violation.id,
