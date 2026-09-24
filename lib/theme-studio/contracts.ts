@@ -1,3 +1,4 @@
+import { THEME_RELEASE_OBJECT_ROOT } from "@/lib/storage/paths";
 import {
   HOMEPAGE_SECTION_TYPES,
   validatePageSlug,
@@ -265,6 +266,39 @@ const SHA256_RE = /^[a-f0-9]{64}$/;
 const ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const ASSET_ID_RE = /^[a-z][a-z0-9-]{0,79}$/;
 const SEMVER_RE = /^\d+\.\d+\.\d+$/;
+
+/**
+ * Where a PUBLISHED Studio theme's images live (Phase 6): the media bucket's
+ * immutable release prefix, one object per slot, named by the release and the
+ * image's own digest. A draft names `theme-asset://<slot>`; publication copies
+ * the bytes here and rewrites the paths, so the published package never points
+ * at a Studio route that an archived project could stop serving.
+ *
+ * ★ The only https path a package may declare, and it is pinned three ways
+ * below: the theme id must be this package's, the version this release's, and
+ * the digest prefix the asset's own. An arbitrary URL — or another theme's
+ * object — is refused by the contract, not by a caller remembering to check.
+ */
+export { THEME_RELEASE_OBJECT_ROOT };
+const PUBLISHED_ASSET_RE =
+  /^https:\/\/storage\.googleapis\.com\/[a-z0-9][a-z0-9._-]{1,220}\/theme-releases\/([a-z0-9]+(?:-[a-z0-9]+)*)\/(\d+\.\d+\.\d+)\/([a-z][a-z0-9-]{0,79})-([a-f0-9]{16})\.webp$/;
+
+/** The in-bucket object path for one published slot image. */
+export function publishedAssetObjectPath(input: {
+  themeId: string;
+  version: string;
+  assetId: string;
+  sha256: string;
+}): string {
+  return `${THEME_RELEASE_OBJECT_ROOT}${input.themeId}/${input.version}/${input.assetId}-${input.sha256.slice(0, 16)}.webp`;
+}
+
+function parsePublishedAssetPath(path: string) {
+  const match = PUBLISHED_ASSET_RE.exec(path);
+  return match
+    ? { themeId: match[1], version: match[2], assetId: match[3], sha: match[4] }
+    : null;
+}
 const HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
 const RGB_TRIPLE_RE = /^\d{1,3},\s*\d{1,3},\s*\d{1,3}$/;
 const CSS_LENGTH_RE = /^\d+(?:\.\d+)?(?:px|rem|em|%)$/;
@@ -1415,6 +1449,10 @@ export function validateThemePackageV2(
   const definitionId = isRecord(input.definition)
     ? String(input.definition.id ?? "")
     : "";
+  const releaseVersion =
+    isRecord(input.definition) && isRecord(input.definition.release)
+      ? String(input.definition.release.version ?? "")
+      : "";
   for (const [index, asset] of assets.entries()) {
     if (
       asset.path.startsWith("/themes/") &&
@@ -1423,6 +1461,19 @@ export function validateThemePackageV2(
     ) {
       issues.push(
         `assets[${index}].path must stay under /themes/${definitionId}/.`,
+      );
+    }
+    const published = parsePublishedAssetPath(asset.path);
+    if (
+      published &&
+      (published.themeId !== definitionId ||
+        published.version !== releaseVersion ||
+        published.assetId !== asset.id ||
+        !asset.sha256 ||
+        !asset.sha256.startsWith(published.sha))
+    ) {
+      issues.push(
+        `assets[${index}].path must be this release's own image for ${asset.id}.`,
       );
     }
   }
@@ -1547,9 +1598,13 @@ function parsePackageAssets(
     if (!ASSET_ID_RE.test(id))
       issues.push(`assets[${index}].id must be kebab-case.`);
     const path = requiredString(raw.path, `assets[${index}].path`, issues, 500);
-    if (!path.startsWith("/themes/") && !path.startsWith("theme-asset://")) {
+    if (
+      !path.startsWith("/themes/") &&
+      !path.startsWith("theme-asset://") &&
+      !parsePublishedAssetPath(path)
+    ) {
       issues.push(
-        `assets[${index}].path must be a theme path or theme-asset reference.`,
+        `assets[${index}].path must be a theme path, a theme-asset reference or a published release image.`,
       );
     }
     if (seenIds.has(id))

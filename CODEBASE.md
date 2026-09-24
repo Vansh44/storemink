@@ -3338,6 +3338,12 @@ wholesip/
 │   │                          # replacements, carry images into a revision) +
 │   │                          # slot-images.ts (crop/compress an upload, store it,
 │   │                          # save replacements as one asset_edit version).
+│   │                          # Phase 6: scorecard.ts (the §5 rows/chairs/bar; no
+│   │                          # imports, client-safe), publication-core.ts (pure:
+│   │                          # scorecard + approval rules, blockers, semver, the
+│   │                          # published-package builder, catalog changes),
+│   │                          # publication.ts (server-only: review, approve, publish,
+│   │                          # hide/show/restore, read model; I/O injectable).
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -4911,6 +4917,51 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     nullable with an `origin`/`edit_detail` CHECK, adds the `image` purpose and
     two events. Record: `docs/mink-ai-theme-studio-slot-images.md`.
     Operator-only: no Help Centre migration.
+    **Mink AI Theme Studio Phase 6 (2026-09-25; approval, publication and
+    rollback):** `…/studio/[projectId]/release` holds the review, approval,
+    publish and catalog controls. - **Reviews.** Two superadmins score the candidate on the
+    theme-acceptance §5 scorecard (`lib/theme-studio/scorecard.ts` — change
+    it with that doc), one per chair (design, commerce). ★ The eight scores
+    are COLUMNS of `theme_studio_reviews`, so an approving verdict below the
+    bar (every row ≥ 4, total ≥ 34, no rejection condition) cannot be stored.
+    A trigger binds each review to a PASSED run over the version's exact
+    package digest, and reviews are immutable. - **Approval** (`candidate → approved`) needs both chairs approving the
+    latest passing run and no rejection. ★ At least one approving reviewer
+    must not be an author, derived server-side from the project's events
+    (creator, runs, answers, revisions, image edits). It also needs
+    `publicationBlockers` clear: no placeholder, and every production
+    validator rule passing. The replaced project guard enforces the review
+    rule on entering `approved`, freezes an approved project's version, and
+    refuses `published` without a published publication. - **Publication** (`publishThemeStudioProject`, plan §8) needs the typed
+    theme id. It writes a `theme_studio_publications` attempt (semver 1.0.0,
+    then the next minor; a failed attempt's stored release is RESUMED,
+    because the row is immutable and its digest includes the release date).
+    It copies each slot image, re-hashed, to
+    `theme-releases/<theme>/<version>/<slot>-<sha16>.webp` in the media
+    bucket, stores the immutable release through `insertThemeReleaseWithDb`,
+    seeds `demo-<theme>` from it (zero errors), and renders `/`, `/shop`, a
+    product and `/cart` over loopback as themed 200s. Only then, in one
+    transaction, it points the catalog at the release (public), writes
+    `theme_catalog_audit`, marks the attempt and the project published, and
+    expires the registry, store and storefront tags immediately
+    (`revalidateTag(tag, { expire: 0 })`). ★ A failure after the attempt row
+    is recorded and returned. The theme stays hidden and the project
+    `approved`, so a retry is safe. - **Rollback** (`changeThemeStudioCatalog`): hide, show (only a published
+    release with a healthy demo) or restore another published release, each
+    audited. ★ Stores pin their exact release, so none of these changes an
+    installed store. - **Two platform-wide rules came with it.** (1) The package contract now
+    admits ONE https asset path: the release's own
+    `storage.googleapis.com/<bucket>/theme-releases/<theme>/<version>/…`
+    object, pinned to the package's theme id, version, slot and digest.
+    (2) `deleteStorageUrls` never deletes a `theme-releases/` path — not even
+    unscoped or in the platform store purge — because seeding copies those
+    URLs into every installing store's rows (`THEME_RELEASE_OBJECT_ROOT`,
+    `lib/storage/paths.ts`). - **The compiler** now fills a generated page's missing SEO description
+    from the page title, theme name and description, because the validator
+    requires 20+ characters and the draft schema allows null. - Migration `20260925_0134_theme_studio_publication`. Record:
+    `docs/mink-ai-theme-studio-phase6.md`, which includes the production
+    runbook and the staging canary still to run. Operator-only: no Help
+    Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

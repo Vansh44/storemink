@@ -9,6 +9,7 @@ import {
   boolean,
   timestamp,
   integer,
+  smallint,
   uniqueIndex,
   unique,
   numeric,
@@ -2468,6 +2469,83 @@ export const themeStudioAcceptanceRuns = pgTable(
     }),
   },
 );
+
+/** One reviewer's scorecard for one version, bound to the acceptance run
+ * whose evidence they reviewed (migration 0134). The eight scores are columns
+ * so the approval bar is a CHECK on the row. */
+export const themeStudioReviews = pgTable("theme_studio_reviews", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  acceptanceRunId: uuid("acceptance_run_id").notNull(),
+  packageDigest: text("package_digest").notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  reviewerRole: text("reviewer_role").notNull(),
+  reviewerIsAuthor: boolean("reviewer_is_author").notNull(),
+  artDirection: smallint("art_direction").notNull(),
+  distinctness: smallint().notNull(),
+  commerceClarity: smallint("commerce_clarity").notNull(),
+  typography: smallint().notNull(),
+  imagery: smallint().notNull(),
+  responsiveComposition: smallint("responsive_composition").notNull(),
+  detailQuality: smallint("detail_quality").notNull(),
+  brandAdaptability: smallint("brand_adaptability").notNull(),
+  rejections: text().array().default([]).notNull(),
+  verdict: text().notNull(),
+  notes: text().default("").notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+/** One publication attempt (migration 0134). Written before anything leaves
+ * the database, so a retry resumes the release it was building. */
+export const themeStudioPublications = pgTable("theme_studio_publications", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  acceptanceRunId: uuid("acceptance_run_id").notNull(),
+  themeId: text("theme_id").notNull(),
+  releaseVersion: text("release_version").notNull(),
+  releaseId: uuid("release_id"),
+  manifestDigest: text("manifest_digest"),
+  demoStoreId: uuid("demo_store_id"),
+  status: text().default("publishing").notNull(),
+  failure: jsonb().default([]).notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  completedAt: timestamp("completed_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+});
+
+/** Every change to what new stores may install (migration 0134). Append-only;
+ * a store's pinned release is never changed by any of these. */
+export const themeCatalogAudit = pgTable("theme_catalog_audit", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  themeId: text("theme_id").notNull(),
+  action: text().notNull(),
+  releaseId: uuid("release_id").notNull(),
+  visibility: text().notNull(),
+  previousReleaseId: uuid("previous_release_id"),
+  previousVisibility: text("previous_visibility"),
+  projectId: uuid("project_id"),
+  reason: text().default("").notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
 
 export const themeStudioEvents = pgTable("theme_studio_events", {
   id: uuid().defaultRandom().primaryKey().notNull(),

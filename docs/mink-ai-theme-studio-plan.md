@@ -565,10 +565,10 @@ Operator images per slot followed Phase 5
 (`docs/mink-ai-theme-studio-slot-images.md`). An operator uploads an image for
 each slot; it is cropped to the slot's shape and compressed to storefront
 limits, and the staged images are saved as one new version. Revisions keep
-uploaded images for slots that keep their id and shape. Phase 6 must still
-promote these images to the public immutable prefix at publication.
+uploaded images for slots that keep their id and shape. Phase 6 promotes
+them to the public immutable prefix at publication.
 
-### Phase 6 — approval, publication, and rollback
+### Phase 6 — approval, publication, and rollback ✅
 
 Deliver:
 
@@ -582,6 +582,27 @@ Deliver:
 Exit: a full staging theme goes from prompt to published catalog release, is
 installable on a fresh store, and can be hidden/restored without changing an
 existing store's pinned version.
+
+Implementation record: `docs/mink-ai-theme-studio-phase6.md`.
+
+- **Reviews.** The §5 scorecard is stored as columns, so the approval bar is
+  a database CHECK. Reviews bind to the latest passing acceptance run, and
+  the database refuses `approved` without an approving review from each
+  chair, one of them by a non-author.
+- **Publication** follows §8. The operator types the theme id to confirm.
+  Images are copied to `theme-releases/<theme>/<version>/` in the media
+  bucket, the one https path the package contract admits. The immutable
+  release is written, and `demo-<theme>` is seeded from it and rendered as a
+  themed 200 on four surfaces. Only then does one transaction point the
+  catalog at the release and mark the project published. A failure leaves
+  the theme hidden, and the retry resumes the same release.
+- **Rollback.** Hide, show, or restore a published release, each audited in
+  `theme_catalog_audit`. Stores pinned to a release are never touched.
+
+The flow was verified end to end against the local database and dev server,
+with storage injected. The **staging canary** — a real model run reviewed by
+two superadmins — has not been run; it is the remaining step of this exit
+criterion, and the runbook is in the implementation record §9.
 
 ### Phase 7 — quality expansion
 

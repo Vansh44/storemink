@@ -294,6 +294,22 @@ Automatic rejection conditions:
 - It needs custom code to render its core advertised design.
 - Placeholder copy or inaccessible text is visible in the demo.
 
+**Theme Studio themes record this gate in the product** (Studio → project →
+Review and release; `docs/mink-ai-theme-studio-phase6.md`). The rows, the bar
+and the rejection conditions above are `lib/theme-studio/scorecard.ts` — change
+them together. The database enforces what it can:
+
+- an approving scorecard below the bar, or with a condition ticked, cannot be
+  stored;
+- each chair is reviewed once per piece of acceptance evidence, and one person
+  cannot take both chairs;
+- a project cannot be approved without an approving review from each chair on
+  its latest passing evidence, one of them by a reviewer who did not author
+  the theme.
+
+"Author" is derived from the project's history: whoever created it, ran it,
+answered it, revised it or replaced its images.
+
 ---
 
 ## 6. Release evidence
@@ -315,6 +331,18 @@ Every Candidate keeps this evidence in its launch PR or linked release record:
 
 An exception cannot waive tenant isolation, broken purchasing, critical/serious
 accessibility violations, or a non-working demo.
+
+A **Theme Studio** release keeps its evidence in the database instead of a PR,
+bound by digest:
+
+- the acceptance run (package, asset bytes, build);
+- the two scorecards on that run;
+- the publication attempt;
+- the demo render check;
+- the catalog audit.
+
+Production-build Lighthouse and the browser matrix are still manual for Studio
+releases.
 
 ---
 

@@ -45,6 +45,12 @@ import {
 import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
 import { replaceThemeStudioSlotImages } from "@/lib/theme-studio/slot-images";
 import {
+  approveThemeStudioCandidate,
+  changeThemeStudioCatalog,
+  publishThemeStudioProject,
+  submitThemeStudioReview,
+} from "@/lib/theme-studio/publication";
+import {
   startThemeStudioAcceptance,
   submitThemeStudioBrowserEvidence,
   type AcceptanceBrowserPlan,
@@ -423,5 +429,116 @@ export async function replaceThemeStudioSlotImagesAction(input: {
     };
   } catch (error) {
     return failure(error, "replace slot images");
+  }
+}
+
+/**
+ * Submit one reviewer's scorecard for the current candidate. The reviewer is
+ * the session; whether they authored the theme is decided by the server from
+ * the project's history, never by the browser.
+ */
+export async function submitThemeStudioReviewAction(input: {
+  projectId: string;
+  versionId: string;
+  expectedPackageDigest: string;
+  scorecard: unknown;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const { reviewId } = await submitThemeStudioReview(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      expectedPackageDigest: String(input.expectedPackageDigest),
+      scorecard: input.scorecard,
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    return { ok: true, id: reviewId };
+  } catch (error) {
+    return failure(error, "submit review");
+  }
+}
+
+/** Approve the candidate once two qualifying reviews exist. */
+export async function approveThemeStudioCandidateAction(input: {
+  projectId: string;
+  expectedRevision: number;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    await approveThemeStudioCandidate(actor, {
+      projectId: String(input.projectId),
+      expectedRevision: Number(input.expectedRevision),
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    return { ok: true };
+  } catch (error) {
+    return failure(error, "approve candidate");
+  }
+}
+
+/**
+ * Publish an approved project: store the release, seed and render its demo,
+ * then expose it in the catalog. A failure after the attempt starts is
+ * recorded and returned with its reasons; nothing becomes public.
+ */
+export async function publishThemeStudioProjectAction(input: {
+  projectId: string;
+  expectedRevision: number;
+  confirmThemeId: string;
+}): Promise<
+  ThemeStudioActionResult & {
+    releaseVersion?: string;
+    demoSlug?: string;
+    problems?: string[];
+  }
+> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const result = await publishThemeStudioProject(actor, {
+      projectId: String(input.projectId),
+      expectedRevision: Number(input.expectedRevision),
+      confirmThemeId: String(input.confirmThemeId ?? ""),
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    revalidatePath("/dashboard/themes");
+    if (!result.ok) {
+      return {
+        ok: false,
+        id: result.publicationId,
+        error: result.problems[0],
+        problems: result.problems,
+      };
+    }
+    return {
+      ok: true,
+      id: result.publicationId,
+      releaseVersion: result.releaseVersion,
+      demoSlug: result.demoSlug,
+    };
+  } catch (error) {
+    return failure(error, "publish theme");
+  }
+}
+
+/** Hide from new installs, show again, or restore an earlier release. */
+export async function changeThemeStudioCatalogAction(input: {
+  projectId: string;
+  change: unknown;
+}): Promise<ThemeStudioActionResult & { changed?: boolean }> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const { changed } = await changeThemeStudioCatalog(actor, {
+      projectId: String(input.projectId),
+      change: input.change,
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    revalidatePath("/dashboard/themes");
+    return { ok: true, changed };
+  } catch (error) {
+    return failure(error, "change catalog");
   }
 }

@@ -183,6 +183,23 @@ slot's shape and compressed to storefront limits), says whether it is theirs
 or licensed, and saves the staged images as one new version. Revisions keep
 those images. Record: `docs/mink-ai-theme-studio-slot-images.md`.
 
+A candidate has **Review and release** (Phase 6). Two superadmins score it on
+the theme-acceptance scorecard — one for design, one for commerce — and at
+least one of them must not have worked on the theme. Once both approve, a
+superadmin approves it for publication and publishes it by typing its id.
+Publishing:
+
+1. copies its images to permanent public storage;
+2. stores an immutable release;
+3. seeds and renders its demo store;
+4. only then adds it to the public catalog and signup.
+
+A failed publication stays hidden and can be retried. Afterwards the same
+screen hides it from new stores, shows it again, or restores an earlier
+release. Each change is written to an audit, and a store that already
+installed the theme keeps its exact version. Record:
+`docs/mink-ai-theme-studio-phase6.md`.
+
 ## Phases
 
 - **Phase 1 — IA, stores, themes, pricing ✅**

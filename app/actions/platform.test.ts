@@ -354,6 +354,7 @@ describe("deleteStore", () => {
       failed: 1,
       unmanaged: 0,
       foreign: 0,
+      shared: 0,
     });
     vi.mocked(gcsDeletePrefix).mockResolvedValueOnce({
       deleted: 0,

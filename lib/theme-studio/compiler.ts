@@ -265,6 +265,39 @@ function buildPages(
   });
 }
 
+/** Shortest SEO description the production validator accepts (TA-2.3). */
+const SEO_DESCRIPTION_MIN = 20;
+const SEO_DESCRIPTION_MAX = 160;
+
+/**
+ * Give every page a usable SEO description. The draft schema lets a model
+ * leave one null, and the production validator requires 20+ characters on
+ * every page, so without this a generated theme could pass acceptance and
+ * then be refused at publication for a sentence it was never asked for. The
+ * fallback is drawn only from text the draft already contains — the page
+ * title and the theme's own description — never invented copy.
+ */
+function withSeoDescriptions(
+  pages: ThemePageSeed[],
+  themeDescription: string,
+  themeName: string,
+): ThemePageSeed[] {
+  return pages.map((page) => {
+    if ((page.seo_description?.trim().length ?? 0) >= SEO_DESCRIPTION_MIN) {
+      return page;
+    }
+    const lead = page.slug === "" ? themeName : `${page.title} · ${themeName}`;
+    const body = themeDescription || `${themeName} storefront`;
+    let description = `${lead} — ${body}`.replace(/\s+/g, " ").trim();
+    if (description.length > SEO_DESCRIPTION_MAX) {
+      description = `${description.slice(0, SEO_DESCRIPTION_MAX - 1).trimEnd()}…`;
+    }
+    return description.length >= SEO_DESCRIPTION_MIN
+      ? { ...page, seo_description: description }
+      : page;
+  });
+}
+
 function buildCatalogue(
   draft: Rec,
   known: Set<string>,
@@ -526,7 +559,7 @@ export function assemblePackage(
         ...(text(brand.blurb) ? { blurb: text(brand.blurb) } : {}),
       },
       design,
-      pages,
+      pages: withSeoDescriptions(pages, text(draft.description), facts.name),
       menus,
       sampleData: catalogue,
     },

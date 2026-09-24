@@ -80,6 +80,20 @@ describe("theme generation pipeline", () => {
     }
   });
 
+  it("gives every page an SEO description the production validator accepts", async () => {
+    // The offline draft leaves every seoDescription null, as a model may.
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    const pages = outcome.package.definition.preset.pages;
+    expect(pages.length).toBeGreaterThan(0);
+    for (const page of pages) {
+      expect(page.seo_description?.length ?? 0).toBeGreaterThanOrEqual(20);
+      expect(page.seo_description!.length).toBeLessThanOrEqual(160);
+      expect(page.seo_description).toContain(base.name);
+    }
+  });
+
   it("passes a clarifying question through without a version", async () => {
     const outcome = await run("A shop. [[fake:clarify]]");
     expect(outcome).toMatchObject({

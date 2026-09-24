@@ -21,6 +21,17 @@ const repo = vi.hoisted(() => ({
   })),
   removeThemeStudioReference: vi.fn(async () => undefined),
   archiveThemeStudioProject: vi.fn(async () => undefined),
+  // Phase 6 (lib/theme-studio/publication), mocked below.
+  submitThemeStudioReview: vi.fn(async () => ({ reviewId: "rv1" })),
+  approveThemeStudioCandidate: vi.fn(async () => undefined),
+  publishThemeStudioProject: vi.fn(async () => ({
+    ok: true as const,
+    publicationId: "pub1",
+    themeId: "clay-co",
+    releaseVersion: "1.0.0",
+    demoSlug: "demo-clay-co",
+  })),
+  changeThemeStudioCatalog: vi.fn(async () => ({ changed: true })),
 }));
 const actorState = vi.hoisted(() => ({
   actor: null as null | { id: string; email: string },
@@ -34,6 +45,12 @@ vi.mock("@/lib/theme-studio/repository", async (importOriginal) => {
     await importOriginal<typeof import("@/lib/theme-studio/repository")>();
   return { ...actual, ...repo };
 });
+vi.mock("@/lib/theme-studio/publication", () => ({
+  submitThemeStudioReview: repo.submitThemeStudioReview,
+  approveThemeStudioCandidate: repo.approveThemeStudioCandidate,
+  publishThemeStudioProject: repo.publishThemeStudioProject,
+  changeThemeStudioCatalog: repo.changeThemeStudioCatalog,
+}));
 vi.mock("@/lib/theme-studio/worker", () => ({
   runThemeStudioWorker: vi.fn(async () => ({})),
 }));
@@ -123,6 +140,45 @@ const calls: [
       }),
     "archiveThemeStudioProject",
   ],
+  [
+    "submit review",
+    () =>
+      actions.submitThemeStudioReviewAction({
+        projectId,
+        versionId: runId,
+        expectedPackageDigest: "d".repeat(64),
+        scorecard: {},
+      }),
+    "submitThemeStudioReview",
+  ],
+  [
+    "approve",
+    () =>
+      actions.approveThemeStudioCandidateAction({
+        projectId,
+        expectedRevision: 0,
+      }),
+    "approveThemeStudioCandidate",
+  ],
+  [
+    "publish",
+    () =>
+      actions.publishThemeStudioProjectAction({
+        projectId,
+        expectedRevision: 0,
+        confirmThemeId: "clay-co",
+      }),
+    "publishThemeStudioProject",
+  ],
+  [
+    "change catalog",
+    () =>
+      actions.changeThemeStudioCatalogAction({
+        projectId,
+        change: { action: "hide", reason: "Broken cart" },
+      }),
+    "changeThemeStudioCatalog",
+  ],
 ];
 
 describe("Theme Studio actions", () => {
@@ -174,6 +230,30 @@ describe("Theme Studio actions", () => {
     ).resolves.toEqual({
       ok: false,
       error: "This project changed in another tab.",
+    });
+  });
+
+  it("returns a failed publication's reasons without calling it a crash", async () => {
+    actorState.actor = {
+      id: "11111111-1111-4111-8111-111111111111",
+      email: "owner@storemink.com",
+    };
+    repo.publishThemeStudioProject.mockResolvedValueOnce({
+      ok: false,
+      publicationId: "pub2",
+      problems: ["Demo: /shop answered 500."],
+    } as never);
+    await expect(
+      actions.publishThemeStudioProjectAction({
+        projectId,
+        expectedRevision: 0,
+        confirmThemeId: "clay-co",
+      }),
+    ).resolves.toEqual({
+      ok: false,
+      id: "pub2",
+      error: "Demo: /shop answered 500.",
+      problems: ["Demo: /shop answered 500."],
     });
   });
 });

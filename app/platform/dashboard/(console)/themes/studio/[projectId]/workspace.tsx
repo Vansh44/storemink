@@ -676,8 +676,33 @@ export function ProjectWorkspace({
                 on the current version to make it a candidate for review.
               </>
             ) : (
-              "The current version passed its acceptance checks and is a candidate for review."
+              <>
+                The current version passed its acceptance checks and is a
+                candidate.{" "}
+                <Link
+                  href={`/dashboard/themes/studio/${project.id}/release`}
+                  className="font-medium text-slate-700 underline underline-offset-2"
+                >
+                  Review and release
+                </Link>
+                .
+              </>
             )}
+          </p>
+        ) : null}
+        {project.status === "approved" || project.status === "published" ? (
+          <p className="mt-1 text-xs text-slate-500">
+            {project.status === "approved"
+              ? "The current version is approved for publication. "
+              : "This theme is published. "}
+            <Link
+              href={`/dashboard/themes/studio/${project.id}/release`}
+              className="font-medium text-slate-700 underline underline-offset-2"
+            >
+              {project.status === "approved"
+                ? "Publish it"
+                : "Catalog and rollback"}
+            </Link>
           </p>
         ) : null}
         {project.versions.length === 0 ? (

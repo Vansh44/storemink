@@ -134,7 +134,7 @@ export interface AcceptanceStartResult {
 
 type RunRow = typeof themeStudioAcceptanceRuns.$inferSelect;
 
-async function assetRowsFor(
+export async function assetRowsFor(
   db: Db,
   projectId: string,
   packageJson: unknown,
@@ -847,58 +847,90 @@ export async function verifyThemeStudioCandidateEvidence(
       .from(themeStudioProjects)
       .where(eq(themeStudioProjects.id, projectId))
       .limit(1);
-    if (!project?.currentVersionId) {
-      return { ok: false, reason: "The project has no current version." };
-    }
-    if (project.status !== "candidate") {
-      return { ok: false, reason: "The project is not a candidate." };
-    }
-    const [version] = await db
-      .select()
-      .from(themeStudioVersions)
-      .where(eq(themeStudioVersions.id, project.currentVersionId))
-      .limit(1);
-    const [run] = await db
-      .select()
-      .from(themeStudioAcceptanceRuns)
-      .where(
-        and(
-          eq(themeStudioAcceptanceRuns.versionId, project.currentVersionId),
-          eq(themeStudioAcceptanceRuns.status, "passed"),
-        ),
-      )
-      .orderBy(desc(themeStudioAcceptanceRuns.completedAt))
-      .limit(1);
-    if (!version?.packageDigest || !run?.evidenceDigest) {
-      return {
-        ok: false,
-        reason: "No passing acceptance run covers this version.",
-      };
-    }
-    if (run.packageDigest !== version.packageDigest) {
-      return { ok: false, reason: "The evidence judged a different package." };
-    }
-    if (run.buildId !== currentAcceptanceBuildId()) {
-      return {
-        ok: false,
-        reason:
-          "The evidence was rendered by an earlier build. Run the checks again.",
-      };
-    }
-    const parsed = validateThemePackageV2(version.packageJson);
-    if (!parsed.ok) {
-      return {
-        ok: false,
-        reason: "The version no longer passes its contract.",
-      };
-    }
-    const rows = await assetRowsFor(db, project.id, version.packageJson);
-    if (acceptanceAssetsDigest(parsed.value, rows) !== run.assetsDigest) {
-      return {
-        ok: false,
-        reason: "The version's assets changed since it was checked.",
-      };
-    }
-    return { ok: true, runId: run.id, evidenceDigest: run.evidenceDigest };
+    if (!project) return { ok: false, reason: "Unknown project." };
+    return verifyCandidateEvidenceWithDb(db, project);
   });
+}
+
+/**
+ * The same check inside a caller's transaction, over a project row it has
+ * already read (usually locked). Phase 6 approval runs it with the candidate
+ * row it holds; publication runs it for an APPROVED project and skips the
+ * build binding — a deploy between approval and publication must not strand
+ * an approved theme, and the published demo is rendered and checked again.
+ */
+export async function verifyCandidateEvidenceWithDb(
+  db: Db,
+  project: { id: string; status: string; currentVersionId: string | null },
+  options: {
+    status?: "candidate" | "approved";
+    requireCurrentBuild?: boolean;
+  } = {},
+): Promise<CandidateEvidence> {
+  const status = options.status ?? "candidate";
+  const requireCurrentBuild = options.requireCurrentBuild ?? true;
+  if (!project.currentVersionId) {
+    return { ok: false, reason: "The project has no current version." };
+  }
+  if (project.status !== status) {
+    return {
+      ok: false,
+      reason:
+        status === "candidate"
+          ? "The project is not a candidate."
+          : "The project is not approved.",
+    };
+  }
+  const [version] = await db
+    .select()
+    .from(themeStudioVersions)
+    .where(eq(themeStudioVersions.id, project.currentVersionId))
+    .limit(1);
+  const [run] = await db
+    .select()
+    .from(themeStudioAcceptanceRuns)
+    .where(
+      and(
+        eq(themeStudioAcceptanceRuns.versionId, project.currentVersionId),
+        eq(themeStudioAcceptanceRuns.status, "passed"),
+      ),
+    )
+    // The same order the project guard reads (migration 0134): the latest
+    // passing run is the evidence reviews must bind to.
+    .orderBy(
+      desc(themeStudioAcceptanceRuns.completedAt),
+      desc(themeStudioAcceptanceRuns.createdAt),
+    )
+    .limit(1);
+  if (!version?.packageDigest || !run?.evidenceDigest) {
+    return {
+      ok: false,
+      reason: "No passing acceptance run covers this version.",
+    };
+  }
+  if (run.packageDigest !== version.packageDigest) {
+    return { ok: false, reason: "The evidence judged a different package." };
+  }
+  if (requireCurrentBuild && run.buildId !== currentAcceptanceBuildId()) {
+    return {
+      ok: false,
+      reason:
+        "The evidence was rendered by an earlier build. Run the checks again.",
+    };
+  }
+  const parsed = validateThemePackageV2(version.packageJson);
+  if (!parsed.ok) {
+    return {
+      ok: false,
+      reason: "The version no longer passes its contract.",
+    };
+  }
+  const rows = await assetRowsFor(db, project.id, version.packageJson);
+  if (acceptanceAssetsDigest(parsed.value, rows) !== run.assetsDigest) {
+    return {
+      ok: false,
+      reason: "The version's assets changed since it was checked.",
+    };
+  }
+  return { ok: true, runId: run.id, evidenceDigest: run.evidenceDigest };
 }

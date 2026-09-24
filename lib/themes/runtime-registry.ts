@@ -222,7 +222,7 @@ async function queryExactReleaseRowWithDb(
 // once, when a cache entry is filled, instead of on every storefront render;
 // and a cache entry is a definition, not a whole catalog of raw packages.
 
-async function loadExactReleaseWithDb(
+export async function loadExactReleaseWithDb(
   db: Db,
   themeId: string,
   version: string,
@@ -488,7 +488,7 @@ export function revalidateThemeRegistry(): void {
   revalidateTag(THEME_REGISTRY_TAG, "max");
 }
 
-async function insertThemeReleaseWithDb(
+export async function insertThemeReleaseWithDb(
   db: Db,
   input: {
     package: unknown;

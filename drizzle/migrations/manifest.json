@@ -5575,6 +5575,69 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260925_0134_theme_studio_publication",
+      "description": "Theme Studio approval and publication: bound two-reviewer scorecards, publication attempts, the catalog audit and database-enforced approval and publication preconditions",
+      "file": "sql/20260925_0134_theme_studio_publication.sql",
+      "transaction": true,
+      "requires": ["20260924_0133_theme_studio_slot_images"],
+      "verify": {
+        "tables": [
+          "theme_studio_reviews",
+          "theme_studio_publications",
+          "theme_catalog_audit"
+        ],
+        "columns": [
+          "theme_studio_reviews.acceptance_run_id",
+          "theme_studio_reviews.reviewer_is_author",
+          "theme_studio_publications.release_id",
+          "theme_catalog_audit.visibility"
+        ],
+        "constraints": [
+          "theme_studio_reviews_version_fkey",
+          "theme_studio_reviews_role_unique",
+          "theme_studio_reviews_reviewer_unique",
+          "theme_studio_reviews_approve_bar_check",
+          "theme_studio_reviews_reject_reason_check",
+          "theme_studio_publications_lifecycle_check",
+          "theme_catalog_audit_action_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": [
+          "theme_studio_publications_one_active",
+          "theme_studio_publications_one_published",
+          "theme_catalog_audit_theme_idx"
+        ],
+        "functions": [
+          "theme_studio_review_binding()",
+          "theme_studio_publication_guard()"
+        ],
+        "rlsTables": [
+          "theme_studio_reviews",
+          "theme_studio_publications",
+          "theme_catalog_audit"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio publication privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name in ('theme_studio_reviews','theme_studio_publications','theme_catalog_audit')",
+            "equals": "0"
+          },
+          {
+            "name": "the project guard requires two qualifying reviews for approval",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_project_guard' and prosrc like '%needs two qualifying reviews%'",
+            "equals": "1"
+          },
+          {
+            "name": "publication events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%catalog_release_selected%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }
