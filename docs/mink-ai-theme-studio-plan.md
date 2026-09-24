@@ -1,12 +1,14 @@
 # Mink AI Theme Studio — implementation plan
 
-> **Status:** Phases 0–4 are implemented: contracts, the runtime registry, the
+> **Status:** Phases 0–5 are implemented: contracts, the runtime registry, the
 > superadmin Studio shell with secure intake, the Gemini-on-Vertex generation
-> pipeline (moved from Anthropic models on 2026-09-23, owner's decision), and
-> private previews with iterative revision. Phase 3 has not yet been run
-> against a live model, and the offline provider stays the default until it
-> has. Phases 5–7 remain proposed; no automated acceptance or publication
-> capability is available yet.
+> pipeline (moved from Anthropic models on 2026-09-23, owner's decision),
+> private previews with iterative revision, and automated acceptance. Phase 3
+> has not yet been run against a live model, and the offline provider stays the
+> default until it has. Every model-made version still carries placeholder
+> images, which acceptance refuses, so no generated version can become a
+> candidate until an image path exists. Phases 6–7 remain proposed; no
+> publication capability is available yet.
 >
 > **Plan date:** 2026-09-23
 >
@@ -535,7 +537,7 @@ the session itself. Compare is a structured diff with a preview link for each
 side, not two synchronised frames. Placeholder images are served publicly,
 because next/image cannot forward a session.
 
-### Phase 5 — automated acceptance
+### Phase 5 — automated acceptance ✅
 
 Deliver:
 
@@ -547,6 +549,18 @@ Deliver:
 
 Exit: a candidate cannot reach human approval with a failed required gate, and
 changing its manifest or assets invalidates prior evidence.
+
+Implementation record: `docs/mink-ai-theme-studio-phase5.md`. The theme
+package rules are production functions in `lib/themes/validation.ts`. The
+server stage fetches the preview's rendered pages through the server itself.
+The browser stage measures overflow, axe and media in the operator's own
+browser at the three viewports; the server applies every threshold. The
+database refuses `candidate` without a passed run over the exact package
+digest, and evidence is bound to the package, asset bytes and build. Not
+built:
+
+- Playwright, screenshot diffs, interaction tests and a reduced-motion pass;
+- Lighthouse against a production build (performance is recorded as advisory).
 
 ### Phase 6 — approval, publication, and rollback
 

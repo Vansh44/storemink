@@ -7,7 +7,9 @@ human-review gates below all pass for the release being published.
 
 - **Theme implementation plan:** `docs/vertical-templates-plan.md`
 - **Theme packages:** `lib/themes/`
-- **Automated package checks:** `lib/themes/themes.test.ts`
+- **Automated package checks:** `lib/themes/validation.ts` (production
+  functions), asserted for every bundled theme by `lib/themes/themes.test.ts`
+  and run over Theme Studio candidates by `lib/theme-studio/acceptance-gates.ts`
 - **Asset provenance:** `docs/theme-assets.md`
 - **★ marks a non-obvious invariant** that deserves explicit regression
   coverage.
@@ -36,8 +38,9 @@ affected theme back to Candidate until the impacted gates are rerun.
 
 ## 2. Automated package gate
 
-These checks run in Vitest for every definition registered in
-`THEME_DEFINITIONS`. They are necessary, but they do not approve a theme on
+These checks are production functions in `lib/themes/validation.ts`. Vitest
+runs them for every definition registered in `THEME_DEFINITIONS`, and Theme
+Studio runs the same functions over every generated candidate. They are necessary, but they do not approve a theme on
 their own.
 
 **TA-2.1 ★ — Catalog metadata and definitions agree**
@@ -79,6 +82,15 @@ preview is at least 800 × 600, uses a 4:3 aspect ratio, and is no larger than
 
 Every palette, typography, shape, and selected layout value is valid and can be
 flattened into the storefront CSS-variable contract.
+
+**TA-2.9 ★ — Links and colours hold up as rendered**
+
+Every link that names a category, product or page reaches something the store
+seeds, or a storefront route. Menus are read as the storefront renders them, so
+an empty legal row's default links count; merchant-written policy pages
+(terms, refund, shipping, privacy, cookie) are exempt. Six colour pairs meet
+WCAG AA as rendered: body, card, muted and ink-surface text, header text, and
+muted labels on sand. Button labels on the accent need 3:1.
 
 **TA-2.8 ★ — Shared capability contracts are enforceable**
 

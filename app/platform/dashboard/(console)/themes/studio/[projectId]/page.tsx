@@ -6,9 +6,10 @@ import { getThemeStudioConfig } from "@/lib/theme-studio/config";
 import { THEME_STUDIO_LIMITS } from "@/lib/theme-studio/contracts";
 import { THEME_STUDIO_MODELS } from "@/lib/theme-studio/models";
 import { getThemeStudioProject } from "@/lib/theme-studio/repository";
+import { listThemeStudioAcceptanceRuns } from "@/lib/theme-studio/acceptance";
 import { requireOperator } from "../../../require-operator";
 import { SuperadminOnly } from "../studio-ui";
-import { ProjectWorkspace } from "./workspace";
+import { ProjectWorkspace, type VersionAcceptance } from "./workspace";
 
 export const metadata = { title: "Studio project — StoreMink Admin" };
 
@@ -38,6 +39,14 @@ export default async function ThemeStudioProjectPage({
   const { projectId } = await params;
   const project = await getThemeStudioProject(projectId);
   if (!project) notFound();
+  // The latest verdict per version (runs arrive newest first).
+  const acceptance: Record<string, VersionAcceptance> = {};
+  for (const run of await listThemeStudioAcceptanceRuns(project.id)) {
+    acceptance[run.versionId] ??= {
+      status: run.status,
+      currentBuild: run.currentBuild,
+    };
+  }
   const config = getThemeStudioConfig();
   const modelLabel =
     THEME_STUDIO_MODELS.find((m) => m.key === project.modelKey)?.label ??
@@ -52,6 +61,7 @@ export default async function ThemeStudioProjectPage({
         generationEnabled={config.generationEnabled}
         testProvider={config.provider === "fake"}
         referenceLimit={THEME_STUDIO_LIMITS.referenceImages}
+        acceptance={acceptance}
       />
     </div>
   );

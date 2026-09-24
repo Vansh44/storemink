@@ -5466,6 +5466,78 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260924_0131_theme_studio_acceptance",
+      "description": "Theme Studio automated acceptance: digest-bound acceptance runs and a database-enforced candidate precondition",
+      "file": "sql/20260924_0131_theme_studio_acceptance.sql",
+      "transaction": true,
+      "requires": ["20260924_0130_theme_studio_preview_revision"],
+      "verify": {
+        "tables": ["theme_studio_acceptance_runs"],
+        "columns": [
+          "theme_studio_acceptance_runs.package_digest",
+          "theme_studio_acceptance_runs.assets_digest",
+          "theme_studio_acceptance_runs.build_id",
+          "theme_studio_acceptance_runs.evidence_digest"
+        ],
+        "constraints": [
+          "theme_studio_acceptance_version_fkey",
+          "theme_studio_acceptance_status_check",
+          "theme_studio_acceptance_digest_check",
+          "theme_studio_acceptance_lifecycle_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": [
+          "theme_studio_acceptance_one_active",
+          "theme_studio_acceptance_project_idx",
+          "theme_studio_acceptance_version_idx"
+        ],
+        "rlsTables": ["theme_studio_acceptance_runs"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio acceptance privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name = 'theme_studio_acceptance_runs'",
+            "equals": "0"
+          },
+          {
+            "name": "the project guard requires passing evidence for candidate",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_project_guard' and prosrc like '%needs passing acceptance evidence%'",
+            "equals": "1"
+          },
+          {
+            "name": "acceptance events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%acceptance_blocked%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260924_0132_theme_studio_operator_removal",
+      "description": "Theme Studio immutable rows admit the foreign key's created_by SET NULL, so a platform operator can be removed",
+      "file": "sql/20260924_0132_theme_studio_operator_removal.sql",
+      "transaction": true,
+      "requires": ["20260924_0131_theme_studio_acceptance"],
+      "verify": {
+        "tables": ["theme_studio_assets", "theme_studio_acceptance_runs"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "immutable Studio rows admit the operator-removal SET NULL",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_forbid_mutation' and prosrc like '%created_by%'",
+            "equals": "1"
+          },
+          {
+            "name": "finished acceptance runs admit the operator-removal SET NULL",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_acceptance_guard' and prosrc like '%operator''s removal%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

@@ -2430,6 +2430,40 @@ export const themeStudioPreviews = pgTable("theme_studio_previews", {
   }).notNull(),
 });
 
+/** One automated acceptance run over one version, bound to its inputs. */
+export const themeStudioAcceptanceRuns = pgTable(
+  "theme_studio_acceptance_runs",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    projectId: uuid("project_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    packageDigest: text("package_digest").notNull(),
+    assetsDigest: text("assets_digest").notNull(),
+    buildId: text("build_id").notNull(),
+    status: text().default("running").notNull(),
+    serverReport: jsonb("server_report").default({}).notNull(),
+    browserReport: jsonb("browser_report").default({}).notNull(),
+    evidenceDigest: text("evidence_digest"),
+    browserNonceHash: text("browser_nonce_hash"),
+    browserExpiresAt: timestamp("browser_expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    createdBy: uuid("created_by"),
+    createdByEmail: text("created_by_email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+  },
+);
+
 export const themeStudioEvents = pgTable("theme_studio_events", {
   id: uuid().defaultRandom().primaryKey().notNull(),
   projectId: uuid("project_id").notNull(),

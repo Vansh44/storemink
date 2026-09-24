@@ -19,6 +19,8 @@
 
 import { after } from "next/server";
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
+import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { logError } from "@/lib/observability/logger";
 import { getThemeStudioActor } from "@/lib/theme-studio/access";
 import {
@@ -41,6 +43,11 @@ import {
   type OpenedPreview,
 } from "@/lib/theme-studio/preview";
 import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
+import {
+  startThemeStudioAcceptance,
+  submitThemeStudioBrowserEvidence,
+  type AcceptanceBrowserPlan,
+} from "@/lib/theme-studio/acceptance";
 
 export interface ThemeStudioActionResult {
   ok: boolean;
@@ -319,5 +326,68 @@ export async function openThemeStudioPreviewAction(input: {
     return { ok: true, id: preview.previewId, preview };
   } catch (error) {
     return failure(error, "open preview");
+  }
+}
+
+/**
+ * Run the automated acceptance gates on the project's current version. The
+ * server stage runs inside this request; when it returns a plan, the browser
+ * stage runs in the operator's page and reports back through the next action.
+ * The operator's own session cookie travels with the server's page fetches,
+ * because the preview gate requires it wherever the session is shared.
+ */
+export async function startThemeStudioAcceptanceAction(input: {
+  projectId: string;
+  versionId: string;
+}): Promise<
+  ThemeStudioActionResult & {
+    status?: "awaiting_browser" | "failed" | "blocked";
+    plan?: AcceptanceBrowserPlan | null;
+  }
+> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const jar = await cookies();
+    const result = await startThemeStudioAcceptance(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      sessionCookie: jar.get(SESSION_COOKIE)?.value ?? null,
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    return {
+      ok: true,
+      id: result.runId,
+      status: result.status,
+      plan: result.plan,
+    };
+  } catch (error) {
+    return failure(error, "start acceptance");
+  }
+}
+
+/** Submit the browser stage's raw measurements. The verdict is computed on
+ * the server; nothing the browser claims about passing is read. */
+export async function submitThemeStudioBrowserEvidenceAction(input: {
+  projectId: string;
+  runId: string;
+  nonce: string;
+  evidence: unknown;
+}): Promise<
+  ThemeStudioActionResult & { status?: "passed" | "failed" | "blocked" }
+> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const result = await submitThemeStudioBrowserEvidence(actor, {
+      projectId: String(input.projectId),
+      runId: String(input.runId),
+      nonce: input.nonce,
+      evidence: input.evidence,
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
+    return { ok: true, id: input.runId, status: result.status };
+  } catch (error) {
+    return failure(error, "submit browser evidence");
   }
 }

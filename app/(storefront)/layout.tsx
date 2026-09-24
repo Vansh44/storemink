@@ -23,6 +23,8 @@ import { designToCssVars } from "@/lib/themes/types";
 import { designOverrideCssVars } from "@/lib/chrome/design";
 import { Toaster } from "@/components/ui/sonner";
 import { MerchantTracking } from "@/app/(storefront)/components/merchant-tracking";
+import { StudioAcceptanceProbe } from "@/app/(storefront)/components/studio-acceptance-probe";
+import { studioPreviewMarker } from "@/lib/theme-studio/preview-store";
 import { getPlatformAnalyticsFeatures } from "@/lib/analytics/platform-feature-store";
 import { analyticsFeatureAllowed } from "@/lib/analytics/features";
 import { resolveMerchantPixelSettings } from "@/lib/analytics/merchant-pixels";
@@ -220,6 +222,10 @@ export default async function StorefrontLayout({
                   {children}
                   <Footer />
                 </div>
+                {/* Theme Studio acceptance measures only preview stores. */}
+                {studioPreviewMarker(store.settings) ? (
+                  <StudioAcceptanceProbe />
+                ) : null}
               </ChromeProvider>
             </BrandProvider>
             <AuthModalLoader />

@@ -168,6 +168,15 @@ A version can be **revised** (revising an older one starts a branch),
 **compared** with its parent or the current version, and **made current**
 again. Record: `docs/mink-ai-theme-studio-phase4.md`.
 
+Since Phase 5 each version has **Checks**: automated acceptance gates for the
+current version. The server checks the package and the preview's rendered
+pages; this browser then measures layout, accessibility and images at laptop,
+iPad and mobile sizes. Passing makes the project a **candidate**. A quality
+failure keeps it `ready`, a security failure blocks it, and a deploy makes a
+candidate's evidence stale until the checks run again. Generated versions
+still fail on placeholder images until an image path exists. Record:
+`docs/mink-ai-theme-studio-phase5.md`.
+
 ## Phases
 
 - **Phase 1 — IA, stores, themes, pricing ✅**

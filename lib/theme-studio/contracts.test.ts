@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { THEME_DEFINITIONS } from "@/lib/themes";
 import {
   THEME_INTENT_SCHEMA_VERSION,
+  THEME_STUDIO_PROJECT_STATES,
   THEME_PACKAGE_SCHEMA_VERSION,
   THEME_STUDIO_VIEWPORTS,
   canAdvanceThemePackageToCandidate,
@@ -228,6 +231,44 @@ describe("Theme Studio contracts", () => {
       false,
     );
     expect(canTransitionThemeStudioProject("archived", "draft")).toBe(false);
+    expect(canTransitionThemeStudioProject("candidate", "ready")).toBe(true);
+  });
+
+  it("matches the database project guard exactly (migration 0131)", () => {
+    // The guard is the enforcement; this contract is the copy the actions
+    // read for friendly refusals. Parse the newest guard and compare every
+    // pair, so the two cannot drift apart silently.
+    const sql = readFileSync(
+      join(
+        process.cwd(),
+        "drizzle/migrations/sql/20260924_0131_theme_studio_acceptance.sql",
+      ),
+      "utf8",
+    );
+    const body = sql.slice(
+      sql.indexOf(
+        "CREATE OR REPLACE FUNCTION public.theme_studio_project_guard",
+      ),
+    );
+    const allowed = new Map<string, string[]>();
+    for (const match of body.matchAll(
+      /\(OLD\.status = '([a-z]+)' AND NEW\.status (?:IN \(([^)]*)\)|= '([a-z]+)')\)/g,
+    )) {
+      const targets = match[2]
+        ? [...match[2].matchAll(/'([a-z]+)'/g)].map((m) => m[1])
+        : [match[3]];
+      allowed.set(match[1], targets);
+    }
+    expect(allowed.size).toBeGreaterThan(5);
+    for (const from of THEME_STUDIO_PROJECT_STATES) {
+      for (const to of THEME_STUDIO_PROJECT_STATES) {
+        if (from === to) continue;
+        expect(
+          canTransitionThemeStudioProject(from, to),
+          `${from} -> ${to}`,
+        ).toBe((allowed.get(from) ?? []).includes(to));
+      }
+    }
   });
 
   it("keeps a blocking capability gap out of Candidate state", () => {

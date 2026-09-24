@@ -1684,7 +1684,13 @@ export async function restoreThemeStudioVersion(
         "This project changed in another tab. Reload to see it.",
       );
     }
-    if (project.status !== "ready" && project.status !== "blocked") {
+    // A candidate may be restored too: changing the current version drops it
+    // back to ready, because its acceptance evidence covered another version.
+    if (
+      project.status !== "ready" &&
+      project.status !== "blocked" &&
+      project.status !== "candidate"
+    ) {
       throw new ThemeStudioError(
         "illegal_state",
         project.status === "generating"
@@ -1715,7 +1721,10 @@ export async function restoreThemeStudioVersion(
         "That version has no theme to restore.",
       );
     }
-    if (version.id === project.currentVersionId && project.status === "ready") {
+    if (
+      version.id === project.currentVersionId &&
+      (project.status === "ready" || project.status === "candidate")
+    ) {
       return { changed: false };
     }
     await db

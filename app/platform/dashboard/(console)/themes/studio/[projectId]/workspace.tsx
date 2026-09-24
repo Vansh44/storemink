@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Archive,
+  ClipboardCheck,
   Eye,
   GitBranch,
   GitCompare,
@@ -80,18 +81,46 @@ function formatBytes(n: number): string {
     : `${Math.max(1, Math.round(n / 1024))} KB`;
 }
 
+/** The latest automated acceptance verdict for one version. */
+export interface VersionAcceptance {
+  status:
+    | "running"
+    | "awaiting_browser"
+    | "passed"
+    | "failed"
+    | "blocked"
+    | "error"
+    | "expired";
+  currentBuild: boolean;
+}
+
+const ACCEPTANCE_CHIP: Record<
+  VersionAcceptance["status"],
+  { label: string; tone: string }
+> = {
+  running: { label: "checking", tone: "bg-sky-50 text-sky-700" },
+  awaiting_browser: { label: "checking", tone: "bg-sky-50 text-sky-700" },
+  passed: { label: "checks passed", tone: "bg-emerald-50 text-emerald-700" },
+  failed: { label: "checks failed", tone: "bg-red-50 text-red-700" },
+  blocked: { label: "security block", tone: "bg-amber-50 text-amber-800" },
+  error: { label: "check incomplete", tone: "bg-slate-100 text-slate-600" },
+  expired: { label: "check incomplete", tone: "bg-slate-100 text-slate-600" },
+};
+
 export function ProjectWorkspace({
   project,
   modelLabel,
   generationEnabled,
   testProvider,
   referenceLimit,
+  acceptance = {},
 }: {
   project: ThemeStudioProjectDetail;
   modelLabel: string;
   generationEnabled: boolean;
   testProvider: boolean;
   referenceLimit: number;
+  acceptance?: Record<string, VersionAcceptance>;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -129,7 +158,10 @@ export function ProjectWorkspace({
     packagedVersions[0] ??
     null;
   const canRestore =
-    !activeRun && (project.status === "ready" || project.status === "blocked");
+    !activeRun &&
+    (project.status === "ready" ||
+      project.status === "blocked" ||
+      project.status === "candidate");
   const versionNumber = new Map(
     project.versions.map((v) => [v.id, v.versionNumber]),
   );
@@ -628,6 +660,25 @@ export function ProjectWorkspace({
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Versions</h2>
+        {project.currentVersionId &&
+        (project.status === "ready" || project.status === "candidate") ? (
+          <p className="mt-1 text-xs text-slate-500">
+            {project.status === "ready" ? (
+              <>
+                Run the{" "}
+                <Link
+                  href={`/dashboard/themes/studio/${project.id}/versions/${project.currentVersionId}/acceptance`}
+                  className="font-medium text-slate-700 underline underline-offset-2"
+                >
+                  acceptance checks
+                </Link>{" "}
+                on the current version to make it a candidate for review.
+              </>
+            ) : (
+              "The current version passed its acceptance checks and is a candidate for review."
+            )}
+          </p>
+        ) : null}
         {project.versions.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">
             No version yet. A successful run creates an immutable version.
@@ -651,6 +702,17 @@ export function ProjectWorkspace({
                         preview open
                       </span>
                     ) : null}
+                    {acceptance[v.id] ? (
+                      <span
+                        className={`ml-2 rounded-full px-2 py-0.5 text-xs font-normal ${ACCEPTANCE_CHIP[acceptance[v.id].status].tone}`}
+                      >
+                        {ACCEPTANCE_CHIP[acceptance[v.id].status].label}
+                        {acceptance[v.id].status === "passed" &&
+                        !acceptance[v.id].currentBuild
+                          ? " · earlier build"
+                          : ""}
+                      </span>
+                    ) : null}
                   </p>
                   {v.hasPackage ? (
                     <div className="flex flex-wrap gap-1.5">
@@ -659,6 +721,12 @@ export function ProjectWorkspace({
                         className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
                       >
                         <Eye className="h-3.5 w-3.5" /> Preview
+                      </Link>
+                      <Link
+                        href={`/dashboard/themes/studio/${project.id}/versions/${v.id}/acceptance`}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                      >
+                        <ClipboardCheck className="h-3.5 w-3.5" /> Checks
                       </Link>
                       {v.parentVersionId ? (
                         <Link

@@ -2302,6 +2302,9 @@ wholesip/
 │   │       ├── json-ld.tsx          # generic <JsonLd> renderer (builders: lib/seo)
 │   │       ├── quick-add-button.tsx # "+ Add" on product cards (theme layout.card
 │   │       │                        # = "quick_add"; hidden by CSS otherwise)
+│   │       ├── studio-acceptance-probe.tsx # Theme Studio acceptance
+│   │       │                        # measurements; rendered ONLY on preview
+│   │       │                        # stores, answers only a platform-host parent
 │   │
 │   ├── dashboard/             # ★ STORE ADMIN DASHBOARD (per-store, auth-gated)
 │   │   ├── layout.tsx         # Sidebar + topbar shell (dashboard.css); independent
@@ -3322,6 +3325,11 @@ wholesip/
 │   │                          # (entry + grant HMAC), preview-store.ts (pure marker +
 │   │                          # safe-path check), preview-access.ts (the resolver gate),
 │   │                          # diff.ts (pure version compare).
+│   │                          # Phase 5: acceptance-gates.ts (pure gates + evidence
+│   │                          # digests), acceptance.ts (server stage, browser-stage
+│   │                          # verdict, candidate transitions, evidence re-check),
+│   │                          # acceptance-http.ts (loopback page fetch with the
+│   │                          # preview Host header).
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -4630,7 +4638,9 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     the pin first and falls back to legacy `template`, so existing stores need
     no migration; old immutable releases stay in `THEME_DEFINITIONS` when a
     preset advances. `createStore` (signup) calls it with the picked template
-    (published immediately; brand NAME preserved). v1 constraints CI-tested in
+    (published immediately; brand NAME preserved). v1 constraints are
+    production functions in `lib/themes/validation.ts` (Theme Studio's
+    acceptance gates run them too), asserted for every bundled theme by
     `lib/themes/themes.test.ts`:
     non-id sources only, no latest_blogs, homepage present, strict publish
     validation, every referenced asset exists, catalog metadata is unique and
@@ -4833,6 +4843,43 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     types. Also fixed: `applyTheme`'s product conflict branch published draft
     samples unconditionally. Record: `docs/mink-ai-theme-studio-phase4.md`.
     Operator-only: no Help Centre migration.
+    **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
+    version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
+    gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`
+    is the pure decision layer: package contract, the extracted
+    `lib/themes/validation.ts` floors (which gained rendered-pair WCAG AA
+    contrast and dead-link rules — policy pages exempt, menus read through
+    `normalizeMenus`), a security scan, asset integrity and provenance
+    (placeholders FAIL), rendered routes/links/markup, and the browser gates.
+    `acceptance.ts` orchestrates: the SERVER stage builds the preview and
+    fetches its pages through this same process over loopback with the preview
+    Host header (`acceptance-http.ts`, `node:http` because fetch forbids Host;
+    a fresh connection per request and one retry for transport failures only);
+    the BROWSER stage runs in the operator's page — the storefront layout
+    renders `studio-acceptance-probe.tsx` ONLY on preview stores, it answers
+    only a platform-host parent, and it posts RAW measurements (overflow,
+    axe-core — now a runtime dependency, imported on demand — confirmed broken
+    images, LCP/CLS). ★ The server applies every threshold; performance is the
+    one advisory gate. ★ A probe that has measured stays silent and every
+    message carries a per-page sample number, or the previous page acks the
+    next page's request. Migration `20260924_0131_theme_studio_acceptance`
+    adds append-only `theme_studio_acceptance_runs` bound to package digest,
+    an assets digest over the stored rows and the build id (`K_REVISION` /
+    `THEME_STUDIO_BUILD_ID`), one active run per version, and a project guard
+    that REFUSES `candidate` without a passed run over the exact package digest
+    (plus the one new transition `candidate → ready`, mirrored in contracts and
+    pinned by a SQL-parsing parity test). A pass makes a candidate, a quality
+    failure keeps/demotes to `ready`, a security failure blocks, and a deploy
+    makes evidence stale: `verifyThemeStudioCandidateEvidence` is what Phase 6
+    approval must call. `…_0132_theme_studio_operator_removal` fixes a Phase 2
+    bug — `created_by ON DELETE SET NULL` beside immutability triggers made
+    deleting any operator who had uploaded a reference fail; the triggers now
+    admit exactly that change. Also fixed: the header "Deliver to" label used
+    `--sm-ink-faint` on sand and failed WCAG AA in all four live themes at
+    phone/tablet widths; it now uses `--sm-ink-soft`. ⚠ Every model-made
+    version fails asset provenance until an image path exists. Record:
+    `docs/mink-ai-theme-studio-phase5.md`. Operator-only: no Help Centre
+    migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -13249,6 +13296,10 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   estimated-spend ceiling, default 25). Preview tokens are signed with
   **`THEME_STUDIO_PREVIEW_SECRET`** when set, otherwise with a key derived
   from `CRON_SECRET` under a purpose label; with neither, previews refuse.
+  Acceptance evidence is bound to **`THEME_STUDIO_BUILD_ID`** when set,
+  otherwise Cloud Run's `K_REVISION` (so each deploy makes evidence stale);
+  the server stage fetches preview pages from **`THEME_STUDIO_ACCEPTANCE_ORIGIN`**
+  when set, otherwise `http://127.0.0.1:$PORT`.
   Theme Studio's manual `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
   (fallback `GCP_PROJECT_ID`) and **`THEME_STUDIO_VERTEX_LOCATION`** (default
   `global`). Exact provider ids can be overridden only to a dated/versioned id

@@ -61,7 +61,9 @@ const STATE_TRANSITIONS: Record<
   draft: ["generating", "archived"],
   generating: ["ready", "failed", "blocked"],
   ready: ["generating", "candidate", "blocked", "archived"],
-  candidate: ["generating", "approved", "blocked", "archived"],
+  // candidate -> ready: failed or superseded acceptance evidence demotes a
+  // candidate without calling it blocked (migration 0131).
+  candidate: ["generating", "ready", "approved", "blocked", "archived"],
   approved: ["generating", "published", "blocked", "archived"],
   published: ["archived"],
   failed: ["generating", "archived"],

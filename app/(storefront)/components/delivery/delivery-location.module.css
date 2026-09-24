@@ -37,9 +37,12 @@
   line-height: 1.1;
 }
 
+/* ink-soft, not ink-faint: this is a label people read, and the faint token
+   (meant for struck prices) failed WCAG AA on the sand drawer trigger in all
+   four live themes (2.25–4.22:1). ink-soft clears 4.5:1 on sand in each. */
 .triggerCopy small {
   margin-bottom: 3px;
-  color: var(--sm-ink-faint);
+  color: var(--sm-ink-soft);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
