@@ -1,10 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   Archive,
+  Eye,
+  GitBranch,
+  GitCompare,
+  History,
   Loader2,
   RotateCcw,
   Sparkles,
@@ -17,7 +22,9 @@ import {
   cancelThemeStudioRunAction,
   queueThemeStudioGenerationAction,
   removeThemeStudioReferenceAction,
+  restoreThemeStudioVersionAction,
   retryThemeStudioRunAction,
+  reviseThemeStudioVersionAction,
   submitThemeStudioDetailsAction,
 } from "@/app/actions/theme-studio-actions";
 import type { ThemeStudioProjectDetail } from "@/lib/theme-studio/repository";
@@ -49,7 +56,13 @@ const ERROR_TEXT: Record<string, string> = {
   input_missing: "The run's brief could not be found.",
   worker_error: "The worker failed while running this request.",
   project_state_changed: "The project changed while the run was working.",
+  base_missing: "The version being revised could not be found.",
+  base_changed:
+    "The version being revised is not the one the run was queued against.",
+  base_invalid: "The version being revised no longer passes validation.",
 };
+
+const REVISABLE = ["ready", "candidate", "approved"];
 
 const REFERENCE_ACCEPT = "image/jpeg,image/png,image/webp,image/avif";
 
@@ -89,6 +102,12 @@ export function ProjectWorkspace({
   const queueKey = useRef<string>(newKey());
   const detailsKey = useRef<string>(newKey());
   const [details, setDetails] = useState("");
+  const reviseKey = useRef<string>(newKey());
+  const [revision, setRevision] = useState("");
+  const [reviseFrom, setReviseFrom] = useState<string | null>(
+    project.currentVersionId,
+  );
+  const reviseBox = useRef<HTMLTextAreaElement>(null);
 
   const activeRun = project.runs.find(
     (r) => r.status === "queued" || r.status === "running",
@@ -99,6 +118,22 @@ export function ProjectWorkspace({
   const referencesEditable = ["draft", "ready", "failed", "blocked"].includes(
     project.status,
   );
+  const packagedVersions = project.versions.filter((v) => v.hasPackage);
+  const canRevise =
+    !activeRun &&
+    REVISABLE.includes(project.status) &&
+    packagedVersions.length > 0;
+  const reviseTarget =
+    packagedVersions.find((v) => v.id === reviseFrom) ??
+    packagedVersions.find((v) => v.id === project.currentVersionId) ??
+    packagedVersions[0] ??
+    null;
+  const canRestore =
+    !activeRun && (project.status === "ready" || project.status === "blocked");
+  const versionNumber = new Map(
+    project.versions.map((v) => [v.id, v.versionNumber]),
+  );
+  const previewFor = new Map(project.previews.map((p) => [p.versionId, p]));
 
   // Poll only while something is running, and only while the tab is visible:
   // a Studio tab left open overnight must not refresh all night.
@@ -309,6 +344,81 @@ export function ProjectWorkspace({
                 <Sparkles className="h-4 w-4" />
               )}
               Answer and regenerate
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {canRevise && reviseTarget ? (
+        <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-slate-900">
+              Revise version {reviseTarget.versionNumber}
+              {reviseTarget.id !== project.currentVersionId ? (
+                <span className="ml-2 rounded-full bg-amber-50 px-2 py-0.5 text-xs font-normal text-amber-800">
+                  starts a branch
+                </span>
+              ) : null}
+            </h2>
+            {packagedVersions.length > 1 ? (
+              <label className="flex items-center gap-2 text-xs text-slate-600">
+                Revise from
+                <select
+                  value={reviseTarget.id}
+                  onChange={(e) => setReviseFrom(e.target.value)}
+                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs"
+                >
+                  {packagedVersions.map((v) => (
+                    <option key={v.id} value={v.id}>
+                      Version {v.versionNumber}
+                      {v.id === project.currentVersionId ? " (current)" : ""}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+          </div>
+          <textarea
+            ref={reviseBox}
+            className="mt-3 block min-h-28 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-slate-600 focus:outline-none"
+            value={revision}
+            maxLength={12_000}
+            onChange={(e) => setRevision(e.target.value)}
+            placeholder="Say what to change — for example: warmer palette, a bolder hero, move testimonials above the product grid. Everything you don't mention is kept."
+          />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
+            <p className="text-xs text-slate-500">
+              A revision creates a new version. The one it revises stays as it
+              is, and any version can be made current again.
+            </p>
+            <button
+              type="button"
+              disabled={pending || !generationEnabled || !revision.trim()}
+              onClick={() =>
+                run(async () => {
+                  const result = await reviseThemeStudioVersionAction({
+                    projectId: project.id,
+                    versionId: reviseTarget.id,
+                    expectedRevision: project.revision,
+                    expectedPackageDigest: reviseTarget.packageDigest ?? "",
+                    body: revision,
+                    idempotencyKey: reviseKey.current,
+                  });
+                  if (result.ok) {
+                    setRevision("");
+                    reviseKey.current = newKey();
+                  }
+                  return result;
+                }, "Revision queued.")
+              }
+              className="inline-flex items-center gap-1.5 rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white transition hover:bg-slate-800 disabled:opacity-60"
+            >
+              {pending ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Sparkles className="h-4 w-4" />
+              )}
+              Queue revision
             </button>
           </div>
         </section>
@@ -526,10 +636,82 @@ export function ProjectWorkspace({
           <ul className="mt-3 space-y-3">
             {project.versions.map((v) => (
               <li key={v.id} className="rounded-lg border border-slate-200 p-3">
-                <p className="text-sm font-medium text-slate-900">
-                  Version {v.versionNumber}
-                  {v.id === project.currentVersionId ? " · current" : ""}
-                </p>
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <p className="text-sm font-medium text-slate-900">
+                    Version {v.versionNumber}
+                    {v.id === project.currentVersionId ? " · current" : ""}
+                    {v.parentVersionId ? (
+                      <span className="ml-1 font-normal text-slate-500">
+                        · revised from version{" "}
+                        {versionNumber.get(v.parentVersionId) ?? "?"}
+                      </span>
+                    ) : null}
+                    {previewFor.get(v.id)?.status === "ready" ? (
+                      <span className="ml-2 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-normal text-emerald-700">
+                        preview open
+                      </span>
+                    ) : null}
+                  </p>
+                  {v.hasPackage ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      <Link
+                        href={`/dashboard/themes/studio/${project.id}/versions/${v.id}`}
+                        className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                      >
+                        <Eye className="h-3.5 w-3.5" /> Preview
+                      </Link>
+                      {v.parentVersionId ? (
+                        <Link
+                          href={`/dashboard/themes/studio/${project.id}/compare?from=${v.parentVersionId}&to=${v.id}`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <GitCompare className="h-3.5 w-3.5" /> Changes
+                        </Link>
+                      ) : null}
+                      {project.currentVersionId &&
+                      v.id !== project.currentVersionId ? (
+                        <Link
+                          href={`/dashboard/themes/studio/${project.id}/compare?from=${project.currentVersionId}&to=${v.id}`}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <GitCompare className="h-3.5 w-3.5" /> vs current
+                        </Link>
+                      ) : null}
+                      {canRevise ? (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setReviseFrom(v.id);
+                            reviseBox.current?.focus();
+                          }}
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50"
+                        >
+                          <GitBranch className="h-3.5 w-3.5" /> Revise from here
+                        </button>
+                      ) : null}
+                      {canRestore && v.id !== project.currentVersionId ? (
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() =>
+                            run(
+                              () =>
+                                restoreThemeStudioVersionAction({
+                                  projectId: project.id,
+                                  versionId: v.id,
+                                  expectedRevision: project.revision,
+                                }),
+                              `Version ${v.versionNumber} is current again.`,
+                            )
+                          }
+                          className="inline-flex items-center gap-1 rounded-lg border border-slate-300 px-2.5 py-1 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+                        >
+                          <History className="h-3.5 w-3.5" /> Make current
+                        </button>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
                 <p className="mt-1 text-sm text-slate-700">{v.summary}</p>
                 {v.packageSummary ? (
                   <div className="mt-2 space-y-1 text-xs text-slate-600">

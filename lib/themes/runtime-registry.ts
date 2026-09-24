@@ -3,7 +3,11 @@ import "server-only";
 import { createHash } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { revalidateTag, unstable_cache } from "next/cache";
-import { themeCatalogEntries, themeReleases } from "@/drizzle/schema";
+import {
+  themeCatalogEntries,
+  themeReleases,
+  themeStudioVersions,
+} from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import {
   canonicalJson,
@@ -252,6 +256,34 @@ async function loadCatalogProjectionWithDb(db: Db): Promise<ThemeMeta[]> {
   return projected;
 }
 
+/** A Theme Studio version's theme, for its private preview store only. Draft
+ * packages never enter theme_releases, so the registry reads the immutable
+ * version row itself. Cacheable forever in principle — a version cannot change
+ * — and validated exactly like a stored release on the way out. */
+async function loadStudioVersionDefinitionWithDb(
+  db: Db,
+  versionId: string,
+): Promise<ThemeDefinition | null> {
+  if (!UUID_RE.test(versionId)) return null;
+  const rows = await db
+    .select({
+      packageJson: themeStudioVersions.packageJson,
+      packageDigest: themeStudioVersions.packageDigest,
+    })
+    .from(themeStudioVersions)
+    .where(eq(themeStudioVersions.id, versionId))
+    .limit(1);
+  const row = rows[0];
+  if (!row?.packageJson || !row.packageDigest) return null;
+  if (
+    digestThemePackage(row.packageJson as ThemePackageV2) !== row.packageDigest
+  ) {
+    return null;
+  }
+  const parsed = validateThemePackageV2(row.packageJson);
+  return parsed.ok ? parsed.value.definition : null;
+}
+
 const CACHE_OPTIONS = {
   tags: [THEME_REGISTRY_TAG],
   revalidate: THEME_REGISTRY_REVALIDATE_SECONDS,
@@ -268,6 +300,13 @@ const currentReleaseCached = unstable_cache(
   (themeId: string) =>
     withService((db) => loadCurrentReleaseWithDb(db, themeId)),
   ["theme-runtime-current-parsed-v2"],
+  CACHE_OPTIONS,
+);
+
+const studioVersionCached = unstable_cache(
+  (versionId: string) =>
+    withService((db) => loadStudioVersionDefinitionWithDb(db, versionId)),
+  ["theme-studio-version-definition-v1"],
   CACHE_OPTIONS,
 );
 
@@ -301,6 +340,7 @@ async function readThrough<T>(
 interface ReleaseLoaders {
   exact(themeId: string, version: string): Promise<RuntimeThemeRelease | null>;
   current(themeId: string): Promise<RuntimeThemeRelease | null>;
+  studio(versionId: string): Promise<ThemeDefinition | null>;
 }
 
 const cachedLoaders: ReleaseLoaders = {
@@ -316,12 +356,20 @@ const cachedLoaders: ReleaseLoaders = {
       () => withService((db) => loadCurrentReleaseWithDb(db, themeId)),
       null,
     ),
+  studio: (versionId) =>
+    readThrough(
+      () => studioVersionCached(versionId),
+      () =>
+        withService((db) => loadStudioVersionDefinitionWithDb(db, versionId)),
+      null,
+    ),
 };
 
 function transactionLoaders(db: Db): ReleaseLoaders {
   return {
     exact: (themeId, version) => loadExactReleaseWithDb(db, themeId, version),
     current: (themeId) => loadCurrentReleaseWithDb(db, themeId),
+    studio: (versionId) => loadStudioVersionDefinitionWithDb(db, versionId),
   };
 }
 
@@ -345,6 +393,12 @@ async function resolveInstalled(
   selection: ThemeSelection | null,
 ): Promise<ThemeDefinition | null> {
   if (!selection) return null;
+  // A Theme Studio preview store renders the version it was materialized
+  // from, and nothing else: no fallback to a release or a bundled theme, so a
+  // missing version renders un-themed rather than as some other theme.
+  if (selection.studioVersionId) {
+    return loaders.studio(selection.studioVersionId);
+  }
   const runtime = await resolveRuntimeDefinition(
     loaders,
     selection.id,

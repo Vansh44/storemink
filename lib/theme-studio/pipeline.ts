@@ -20,8 +20,10 @@ import {
   type PlaceholderImage,
 } from "./placeholders";
 import {
+  currentThemeForRevision,
   referenceLabel,
   repairUserText,
+  stageARevisionUserText,
   stageASystemPrompt,
   stageAUserText,
   stageBSystemPrompt,
@@ -64,6 +66,10 @@ export interface GenerationInput {
   promptVersion: string;
   messages: BriefMessage[];
   references: { base64: string; sha256: string }[];
+  /** A revision: the validated version being revised. Stage A starts from its
+   * intent and Stage B from its theme, and `messages` holds the revision
+   * request followed by any answers to questions it raised. */
+  revision?: { baseIntent: ThemeIntent; basePackage: ThemePackageV2 };
 }
 
 export interface StageUsage {
@@ -188,11 +194,14 @@ export async function runThemeGeneration(
   });
 
   // ------------------------------------------------------------- Stage A
-  const baseA = stageAUserText(
-    input.facts,
-    input.messages,
-    input.references.length,
-  );
+  const baseA = input.revision
+    ? stageARevisionUserText(
+        input.facts,
+        input.revision.baseIntent,
+        input.messages,
+        input.references.length,
+      )
+    : stageAUserText(input.facts, input.messages, input.references.length);
   const images: ThemeStudioContentBlock[] = input.references.flatMap(
     (ref, index) => [
       {
@@ -285,7 +294,13 @@ export async function runThemeGeneration(
     ...input.compile,
     promptVersion: input.promptVersion,
   };
-  const baseB = stageBUserText(input.facts, intent);
+  const baseB = stageBUserText(
+    input.facts,
+    intent,
+    input.revision
+      ? currentThemeForRevision(input.revision.basePackage)
+      : undefined,
+  );
   const placeholders = new Map<string, PlaceholderImage>();
   let previousB: unknown = null;
   let issuesB: string[] = [];

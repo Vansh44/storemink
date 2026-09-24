@@ -19,7 +19,13 @@ import type {
 } from "@/lib/themes/meta";
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
-import { THEME_STUDIO_LIMITS } from "./contracts";
+import {
+  THEME_STUDIO_LIMITS,
+  validateThemeIntent,
+  validateThemePackageV2,
+  type ThemeIntent,
+  type ThemePackageV2,
+} from "./contracts";
 import { createFakeModelClient } from "./fake-provider";
 import { THEME_STUDIO_MODELS, type ThemeStudioModelKey } from "./models";
 import { runThemeGeneration, type GenerationOutcome } from "./pipeline";
@@ -61,6 +67,10 @@ type ClaimedRun = {
   id: string;
   projectId: string;
   messageId: string;
+  kind: "generate" | "revise";
+  baseVersionId: string | null;
+  basePackageDigest: string | null;
+  contextMessageIds: string[];
   provider: string;
   modelKey: string;
   providerModel: string;
@@ -138,6 +148,9 @@ async function claimRun(
         updated_at = now()
     FROM candidate WHERE r.id = candidate.id
     RETURNING r.id AS "id", r.project_id AS "projectId", r.message_id AS "messageId",
+              r.kind AS "kind", r.base_version_id AS "baseVersionId",
+              r.base_package_digest AS "basePackageDigest",
+              r.context_message_ids AS "contextMessageIds",
               r.provider AS "provider", r.model_key AS "modelKey",
               r.provider_model AS "providerModel", r.prompt_version AS "promptVersion",
               r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts"
@@ -162,7 +175,17 @@ async function settleProjectWithoutVersion(db: Db, projectId: string) {
     );
 }
 
-async function loadRunInput(run: ClaimedRun) {
+type RunInput = {
+  project: typeof themeStudioProjects.$inferSelect;
+  messages: { kind: "brief" | "revision"; body: string }[];
+  references: { bytes: Buffer; sha256: string; createdAt: string }[];
+  versionNumber: number;
+  revision: { baseIntent: ThemeIntent; basePackage: ThemePackageV2 } | null;
+};
+
+async function loadRunInput(
+  run: ClaimedRun,
+): Promise<RunInput | { errorCode: string } | null> {
   return withService(async (db) => {
     const [project] = await db
       .select()
@@ -183,23 +206,89 @@ async function loadRunInput(run: ClaimedRun) {
       )
       .limit(1);
     if (!project || !message) return null;
-    // Every message up to and including the run's own: the brief plus any
-    // answers to earlier clarifying questions, in order.
-    const messages = await db
-      .select({
-        kind: themeStudioMessages.kind,
-        body: themeStudioMessages.body,
-      })
-      .from(themeStudioMessages)
-      .where(
-        and(
-          eq(themeStudioMessages.projectId, run.projectId),
-          lte(themeStudioMessages.createdAt, message.createdAt),
-        ),
-      )
-      .orderBy(asc(themeStudioMessages.createdAt));
+
+    let messages: { kind: "brief" | "revision"; body: string }[];
+    let citedReferenceIds = message.referenceAssetIds;
+    let revision: RunInput["revision"] = null;
+    if (run.kind === "revise") {
+      // ★ Exactly the messages the run was queued with, in that order. A
+      // revision never reads the original brief (its intent already carries
+      // it) or a sibling branch's requests.
+      const rows = run.contextMessageIds.length
+        ? await db
+            .select({
+              id: themeStudioMessages.id,
+              kind: themeStudioMessages.kind,
+              body: themeStudioMessages.body,
+              referenceAssetIds: themeStudioMessages.referenceAssetIds,
+            })
+            .from(themeStudioMessages)
+            .where(
+              and(
+                eq(themeStudioMessages.projectId, run.projectId),
+                inArray(themeStudioMessages.id, run.contextMessageIds),
+              ),
+            )
+        : [];
+      const byId = new Map(rows.map((r) => [r.id, r]));
+      const ordered = run.contextMessageIds.map((id) => byId.get(id));
+      if (ordered.length === 0 || ordered.some((m) => !m)) return null;
+      messages = ordered.map((m) => ({
+        kind: m!.kind as "brief" | "revision",
+        body: m!.body,
+      }));
+      citedReferenceIds = ordered[0]!.referenceAssetIds;
+
+      if (!run.baseVersionId || !run.basePackageDigest) return null;
+      const [base] = await db
+        .select({
+          intentJson: themeStudioVersions.intentJson,
+          packageJson: themeStudioVersions.packageJson,
+          packageDigest: themeStudioVersions.packageDigest,
+        })
+        .from(themeStudioVersions)
+        .where(
+          and(
+            eq(themeStudioVersions.id, run.baseVersionId),
+            eq(themeStudioVersions.projectId, run.projectId),
+          ),
+        )
+        .limit(1);
+      if (!base || !base.packageJson) return { errorCode: "base_missing" };
+      // ★ The content address is recomputed, not only compared as stored: a
+      // run revises exactly the package the operator was shown.
+      if (
+        base.packageDigest !== run.basePackageDigest ||
+        digestThemeStudioJson(base.packageJson) !== run.basePackageDigest
+      ) {
+        return { errorCode: "base_changed" };
+      }
+      const intent = validateThemeIntent(base.intentJson);
+      const pkg = validateThemePackageV2(base.packageJson);
+      if (!intent.ok || !pkg.ok) return { errorCode: "base_invalid" };
+      revision = { baseIntent: intent.value, basePackage: pkg.value };
+    } else {
+      // Every message up to and including the run's own: the brief plus any
+      // answers to earlier clarifying questions, in order.
+      messages = (await db
+        .select({
+          kind: themeStudioMessages.kind,
+          body: themeStudioMessages.body,
+        })
+        .from(themeStudioMessages)
+        .where(
+          and(
+            eq(themeStudioMessages.projectId, run.projectId),
+            lte(themeStudioMessages.createdAt, message.createdAt),
+          ),
+        )
+        .orderBy(asc(themeStudioMessages.createdAt))) as {
+        kind: "brief" | "revision";
+        body: string;
+      }[];
+    }
     const references =
-      message.referenceAssetIds.length > 0
+      citedReferenceIds.length > 0
         ? await db
             .select({
               bytes: themeStudioAssets.bytes,
@@ -211,7 +300,7 @@ async function loadRunInput(run: ClaimedRun) {
               and(
                 eq(themeStudioAssets.projectId, run.projectId),
                 eq(themeStudioAssets.purpose, "reference"),
-                inArray(themeStudioAssets.id, message.referenceAssetIds),
+                inArray(themeStudioAssets.id, citedReferenceIds),
               ),
             )
             .orderBy(asc(themeStudioAssets.createdAt))
@@ -222,9 +311,10 @@ async function loadRunInput(run: ClaimedRun) {
       .where(eq(themeStudioVersions.projectId, run.projectId));
     return {
       project,
-      messages: messages as { kind: "brief" | "revision"; body: string }[],
+      messages,
       references,
       versionNumber: (latest ?? 0) + 1,
+      revision,
     };
   });
 }
@@ -240,7 +330,7 @@ const CANCEL_POLL_MS = 10_000;
 
 function clientFor(
   provider: string,
-  input: NonNullable<Awaited<ReturnType<typeof loadRunInput>>>,
+  input: RunInput,
 ): ThemeStudioModelClient | null {
   if (provider === "fake") {
     return createFakeModelClient({
@@ -250,7 +340,9 @@ function clientFor(
       catalogSizes: input.project.catalogSizes as ThemeCatalogSize[],
       requiredFeatures: input.project.requiredFeatures as ThemeFeature[],
       referenceCount: input.references.length,
-      answered: input.messages.some((m) => m.kind === "revision"),
+      answered: input.revision
+        ? input.messages.length > 1
+        : input.messages.some((m) => m.kind === "revision"),
     });
   }
   if (provider === "vertex-gemini") {
@@ -283,6 +375,8 @@ async function execute(run: ClaimedRun): Promise<Outcome> {
   }
   const input = await loadRunInput(run);
   if (!input) return { kind: "failed", errorCode: "input_missing" };
+  if ("errorCode" in input)
+    return { kind: "failed", errorCode: input.errorCode };
   const client = clientFor(run.provider, input);
   if (!client) return { kind: "failed", errorCode: "provider_unavailable" };
 
@@ -344,6 +438,7 @@ async function execute(run: ClaimedRun): Promise<Outcome> {
           base64: r.bytes.toString("base64"),
           sha256: r.sha256,
         })),
+        ...(input.revision ? { revision: input.revision } : {}),
       },
       controller.signal,
     );
@@ -532,7 +627,9 @@ async function finish(
       .values({
         projectId: run.projectId,
         runId: run.id,
-        parentVersionId: project.currentVersionId,
+        // A revision's parent is the version it revised — which is how a
+        // revision of an older version becomes a branch.
+        parentVersionId: run.baseVersionId ?? project.currentVersionId,
         versionNumber: outcome.versionNumber,
         intentJson: result.intent,
         intentDigest,
@@ -562,6 +659,7 @@ async function finish(
       intentDigest,
       packageDigest,
       placeholders: result.placeholders.size,
+      parentVersionId: run.baseVersionId ?? project.currentVersionId,
     });
     return "succeeded";
   });

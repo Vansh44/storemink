@@ -5419,6 +5419,53 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260924_0130_theme_studio_preview_revision",
+      "description": "Theme Studio previews and revisions: base-version-bound revision runs, private preview stores and their audit events",
+      "file": "sql/20260924_0130_theme_studio_preview_revision.sql",
+      "transaction": true,
+      "requires": ["20260923_0129_theme_studio_generation"],
+      "verify": {
+        "tables": ["theme_studio_previews"],
+        "columns": [
+          "theme_studio_runs.base_version_id",
+          "theme_studio_runs.base_package_digest",
+          "theme_studio_runs.context_message_ids"
+        ],
+        "constraints": [
+          "theme_studio_runs_base_version_fkey",
+          "theme_studio_runs_base_check",
+          "theme_studio_previews_version_key",
+          "theme_studio_previews_store_key",
+          "theme_studio_previews_status_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": [
+          "theme_studio_previews_expiry_idx",
+          "theme_studio_previews_project_idx"
+        ],
+        "rlsTables": ["theme_studio_previews"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio preview privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name = 'theme_studio_previews'",
+            "equals": "0"
+          },
+          {
+            "name": "a preview store deletion cascades to its preview row",
+            "sql": "select count(*)::text from pg_constraint where conrelid = 'public.theme_studio_previews'::regclass and contype = 'f' and confrelid = 'public.stores'::regclass and confdeltype = 'c'",
+            "equals": "1"
+          },
+          {
+            "name": "revision events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%preview_expired%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

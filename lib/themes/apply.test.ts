@@ -30,7 +30,8 @@ import {
   storePages,
   stores,
 } from "@/drizzle/schema";
-import { applyTheme } from "./apply";
+import { applyTheme, applyThemeDefinition } from "./apply";
+import { getThemeDefinition } from "./index";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -223,6 +224,41 @@ describe("applyTheme", () => {
     expect(productUpserts.length).toBeGreaterThan(0);
     for (const p of productUpserts) expect(p.status).toBe("published");
     expect(productUpserts[0].publishedAt).toBeTruthy();
+  });
+
+  // A re-apply hits the conflict branch. It used to write "published"
+  // unconditionally there, so re-seeding a merchant store put its draft
+  // sample products live.
+  it("keeps the same publish rule when a re-apply updates existing products", async () => {
+    await applyTheme("store-1", "basket", { publish: true });
+    const drafts = dbHolder.current.calls.onConflict.products.map(
+      (c: any) => c.set,
+    );
+    expect(drafts.length).toBeGreaterThan(0);
+    for (const set of drafts) {
+      expect(set.status).toBe("draft");
+      expect(set.publishedAt).toBeNull();
+    }
+    dbHolder.current = makeApplyDb({
+      storeSettings: { brand: { name: "My Shop" } },
+    });
+    await applyTheme("store-1", "basket", {
+      publish: true,
+      publishSampleProducts: true,
+    });
+    for (const c of dbHolder.current.calls.onConflict.products) {
+      expect(c.set.status).toBe("published");
+    }
+  });
+
+  it("seeds from a definition the caller already holds", async () => {
+    const theme = getThemeDefinition("basket");
+    await applyThemeDefinition("store-1", theme, { publish: true });
+    const settings = dbHolder.current.calls.update.stores[0].settings;
+    expect(settings.theme.presetId).toBe(theme.id);
+    expect(dbHolder.current.calls.insert.store_pages.length).toBe(
+      theme.preset.pages.length,
+    );
   });
 
   it("refuses reset on a non-demo store", async () => {

@@ -2727,6 +2727,11 @@ wholesip/
 │       │                      # ≥1200s Cloud Run timeout — docs/cron-jobs.md. Takes no input.
 │       ├── cron/mink-workflows/ # ★ Every minute: CRON_SECRET-gated Phase 6A lease worker;
 │       │                      # bounded deterministic steps, retries, cancellation and completion.
+│       │                      # Also sweeps idle Theme Studio preview stores (isolated).
+│       ├── theme-studio/preview/enter/ # ★ On a PREVIEW STORE's host: swaps a 10-min entry
+│       │                      # token for a 1h host-only grant cookie; relative redirect.
+│       ├── theme-studio/placeholders/[assetId]/ # ★ PUBLIC, placeholder-purpose-only
+│       │                      # images for previews (next/image sends no cookies).
 │       ├── cron/domain-reconcile/ # ★ HOURLY (§30): finishes every custom domain
 │       │                      # whose certificate issued after the merchant closed
 │       │                      # the tab. Without it a domain only ever goes live if
@@ -3312,6 +3317,11 @@ wholesip/
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
+│   │                          # Phase 4: preview.ts (materialize/evict/sweep hidden demo
+│   │                          # preview stores; theme-asset rewrite), preview-token.ts
+│   │                          # (entry + grant HMAC), preview-store.ts (pure marker +
+│   │                          # safe-path check), preview-access.ts (the resolver gate),
+│   │                          # diff.ts (pure version compare).
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -4778,6 +4788,50 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     checked at queue/retry/answer; the fake is exempt), and the Phase 2
     emergency stop. `npm run theme-studio:eval` runs the Phase 0 golden set.
     Record and rollout steps: `docs/mink-ai-theme-studio-phase3.md`.
+    Operator-only: no Help Centre migration.
+    **Mink AI Theme Studio Phase 4 (2026-09-24; previews and iterative
+    revision):** `reviseThemeStudioVersion` queues a `kind = 'revise'` run
+    bound to the TARGET version, its package digest as shown on screen and the
+    project revision; `context_message_ids` is the explicit ordered list of
+    messages it reads (the request, then any answers), so two branches from one
+    version never read each other's text. The worker recomputes the base
+    digest and re-validates intent + package (`base_changed`/`base_invalid`
+    otherwise); Stage A gets the base intent as trusted data plus an
+    `<operator_revision>` block, Stage B the base theme in `<current_theme>`
+    (prompt version `theme-studio-v2`). The new version's parent is the version
+    revised, which is how branching works. Answering a revision's questions
+    CONTINUES that revision; `restoreThemeStudioVersion` only moves
+    `current_version_id`. **★★ A PREVIEW IS A REAL STORE, NOT A SECOND
+    RENDERER** (`lib/theme-studio/preview.ts`): one hidden store per version
+    (`studio-preview-<hex>`, prefix reserved at signup) with `settings.demo`
+    (checkout refuses, noindex, no sitemap) AND `settings.studioPreview`,
+    seeded by `applyThemeDefinition` — `applyTheme` now delegates to it — and
+    rendered with its design read from the version row
+    (`readThemeSelection` → `studioVersionId` → `resolveInstalled`, digest-
+    checked, never falling back). ★★ The GATE is in `getCurrentStoreOrNull`,
+    not the layout (a layout notFound() does not stop child pages): a preview
+    store resolves only with a store- and version-bound HMAC grant cookie whose
+    actor is re-checked as a superadmin on every request, plus the session
+    itself where it is shared with the preview host; everywhere else it is an
+    unclaimed subdomain. `preview-store.ts` is the pure marker check and
+    `preview-access.ts` is dynamically imported, so other stores pay nothing.
+    `/api/theme-studio/preview/enter` swaps a 10-minute entry token for the
+    one-hour host-only grant (Partitioned `SameSite=None` when framed) with a
+    RELATIVE redirect. `theme-asset://` slots become
+    `/api/theme-studio/placeholders/<id>`, a PUBLIC placeholder-only route
+    (next/image fetches without cookies); the reference route now filters to
+    references. Retention: 3 per project (LRU eviction), 50 platform-wide,
+    removed 24h after last open by `sweepThemeStudioPreviews` on the
+    `mink-workflows` heartbeat, and on archive; the delete requires both
+    markers. Preview stores are excluded from the operator store list and
+    overview counts. Screens: `…/studio/[projectId]/versions/[versionId]`
+    (laptop/iPad/mobile frame, six surfaces, pop-out) and `…/compare?from=&to=`
+    (`lib/theme-studio/diff.ts`: tokens, pages by slug ignoring section ids,
+    catalogue, navigation, gaps). Migration
+    `20260924_0130_theme_studio_preview_revision` adds the run base columns +
+    CHECK, `theme_studio_previews` (store FK ON DELETE CASCADE) and five event
+    types. Also fixed: `applyTheme`'s product conflict branch published draft
+    samples unconditionally. Record: `docs/mink-ai-theme-studio-phase4.md`.
     Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
@@ -13192,7 +13246,9 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   (`false` stops new Studio runs without affecting merchant Mink),
   **`THEME_STUDIO_DISABLED_MODELS`** (comma-separated model KEYS to switch
   off) and **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
-  estimated-spend ceiling, default 25).
+  estimated-spend ceiling, default 25). Preview tokens are signed with
+  **`THEME_STUDIO_PREVIEW_SECRET`** when set, otherwise with a key derived
+  from `CRON_SECRET` under a purpose label; with neither, previews refuse.
   Theme Studio's manual `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
   (fallback `GCP_PROJECT_ID`) and **`THEME_STUDIO_VERTEX_LOCATION`** (default
   `global`). Exact provider ids can be overridden only to a dated/versioned id

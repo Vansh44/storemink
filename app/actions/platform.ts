@@ -195,14 +195,18 @@ export async function listAllStores(q?: string): Promise<PlatformStoreRow[]> {
   const term = sanitize(q ?? "");
   try {
     return await withService(async (db) => {
-      const conds = term
-        ? [
-            or(
-              ilike(stores.name, `%${term}%`),
-              ilike(stores.slug, `%${term}%`),
-            )!,
-          ]
-        : [];
+      // Theme Studio preview stores are operator plumbing, not merchants.
+      const conds = [
+        sql`not (${stores.settings} ? 'studioPreview')`,
+        ...(term
+          ? [
+              or(
+                ilike(stores.name, `%${term}%`),
+                ilike(stores.slug, `%${term}%`),
+              )!,
+            ]
+          : []),
+      ];
       const rows = await db
         .select({
           id: stores.id,

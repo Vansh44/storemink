@@ -27,12 +27,19 @@ import {
   createThemeStudioProject,
   queueThemeStudioGeneration,
   removeThemeStudioReference,
+  restoreThemeStudioVersion,
   retryThemeStudioRun,
+  reviseThemeStudioVersion,
   submitThemeStudioDetails,
   ThemeStudioError,
   validateProjectInput,
   type CreateThemeStudioProjectInput,
 } from "@/lib/theme-studio/repository";
+import {
+  discardProjectPreviews,
+  openThemeStudioPreview,
+  type OpenedPreview,
+} from "@/lib/theme-studio/preview";
 import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
 
 export interface ThemeStudioActionResult {
@@ -220,10 +227,97 @@ export async function archiveThemeStudioProjectAction(input: {
       projectId: String(input.projectId),
       expectedRevision: input.expectedRevision,
     });
+    // An archived project keeps no previews. The heartbeat sweep is the
+    // backstop if this instance is recycled before the discard runs.
+    const projectId = String(input.projectId);
+    after(async () => {
+      try {
+        await discardProjectPreviews(projectId);
+      } catch (error) {
+        logError("theme studio: preview discard failed", error);
+      }
+    });
     revalidatePath(STUDIO_PATH);
     revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
     return { ok: true };
   } catch (error) {
     return failure(error, "archive project");
+  }
+}
+
+const MALFORMED: ThemeStudioActionResult = {
+  ok: false,
+  error: "The request is malformed. Reload and try again.",
+};
+
+/** Ask for a revision of one version (the current one, or an older one to
+ * branch from). Bound to the version's content address on screen. */
+export async function reviseThemeStudioVersionAction(input: {
+  projectId: string;
+  versionId: string;
+  expectedRevision: number;
+  expectedPackageDigest: string;
+  body: string;
+  idempotencyKey: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) return MALFORMED;
+  try {
+    const { runId } = await reviseThemeStudioVersion(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      expectedRevision: input.expectedRevision,
+      expectedPackageDigest: String(input.expectedPackageDigest ?? ""),
+      body: String(input.body ?? ""),
+      idempotencyKey: String(input.idempotencyKey),
+    });
+    kickWorker();
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true, id: runId };
+  } catch (error) {
+    return failure(error, "revise version");
+  }
+}
+
+/** Make an earlier version current again. */
+export async function restoreThemeStudioVersionAction(input: {
+  projectId: string;
+  versionId: string;
+  expectedRevision: number;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) return MALFORMED;
+  try {
+    await restoreThemeStudioVersion(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      expectedRevision: input.expectedRevision,
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true };
+  } catch (error) {
+    return failure(error, "restore version");
+  }
+}
+
+/** Open a version's private preview, building it first if needed. Returns a
+ * ten-minute token to enter it — never the grant itself, which is issued on
+ * the preview host so it can be host-only. */
+export async function openThemeStudioPreviewAction(input: {
+  projectId: string;
+  versionId: string;
+}): Promise<ThemeStudioActionResult & { preview?: OpenedPreview }> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  try {
+    const preview = await openThemeStudioPreview(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+    });
+    return { ok: true, id: preview.previewId, preview };
+  } catch (error) {
+    return failure(error, "open preview");
   }
 }

@@ -252,6 +252,36 @@ describe("runtime theme registry", () => {
     });
   });
 
+  it("renders a Theme Studio preview store from its exact version, and nothing else", async () => {
+    const pkg = themeDefinitionToPackageV2(getThemeDefinition("studio"));
+    state.exactRows = [
+      { packageJson: pkg, packageDigest: digestThemePackage(pkg) },
+    ];
+    await expect(
+      resolveInstalledThemeDefinition({
+        id: "whatever",
+        studioVersionId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ).resolves.toMatchObject({ id: "studio" });
+
+    // A digest that does not match the stored package is not rendered, and
+    // there is no fallback to a release or bundled theme with the same id.
+    state.exactRows = [{ packageJson: pkg, packageDigest: "0".repeat(64) }];
+    await expect(
+      resolveInstalledThemeDefinition({
+        id: "studio",
+        studioVersionId: "22222222-2222-4222-8222-222222222222",
+      }),
+    ).resolves.toBeNull();
+    state.exactRows = [];
+    await expect(
+      resolveInstalledThemeDefinition({
+        id: "studio",
+        studioVersionId: "not-a-uuid",
+      }),
+    ).resolves.toBeNull();
+  });
+
   it("refuses to activate a release the readers would reject", async () => {
     state.exactRows = [
       releaseRow(basketRelease("2.0.0"), { manifestDigest: "0".repeat(64) }),

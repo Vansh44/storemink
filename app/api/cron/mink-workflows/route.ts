@@ -5,6 +5,7 @@ import { logError } from "@/lib/observability/logger";
 import { purgeExpiredMinkMemories } from "@/lib/mink/memories";
 import { reconcileMinkRunCredits } from "@/lib/mink/run-credit-reconcile";
 import { getMinkConfig } from "@/lib/mink/config";
+import { sweepThemeStudioPreviews } from "@/lib/theme-studio/preview";
 import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
 
 export const runtime = "nodejs";
@@ -82,6 +83,15 @@ async function handle(request: Request) {
     } catch (error) {
       logError("mink workflow cron: theme studio pass failed", error);
     }
+    // Theme Studio preview retention, isolated the same way: an idle or
+    // abandoned preview store is removed; a failure waits for the next pass.
+    let themeStudioPreviewsRemoved = 0;
+    try {
+      ({ removed: themeStudioPreviewsRemoved } =
+        await sweepThemeStudioPreviews());
+    } catch (error) {
+      logError("mink workflow cron: theme studio preview sweep failed", error);
+    }
     if (passError) throw passError;
     if (!result) throw new Error("Workflow heartbeat returned no result.");
     return NextResponse.json({
@@ -91,6 +101,7 @@ async function handle(request: Request) {
       watchAlerts,
       creditsSettled,
       themeStudio,
+      themeStudioPreviewsRemoved,
     });
   } catch (error) {
     // 503, not an unhandled 500, so Cloud Scheduler's retries engage — the

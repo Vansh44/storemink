@@ -8,6 +8,7 @@ import {
   themeStudioAssets,
   themeStudioEvents,
   themeStudioMessages,
+  themeStudioPreviews,
   themeStudioProjects,
   themeStudioRuns,
   themeStudioVersions,
@@ -27,6 +28,8 @@ import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
   THEME_STUDIO_LIMITS,
+  validateThemePackageV2,
+  type ThemePackageV2,
   type ThemeStudioProjectState,
 } from "./contracts";
 import { getVertexConfig } from "./gemini-vertex";
@@ -125,6 +128,8 @@ export interface ThemeStudioRunView {
   errorCode: string | null;
   cancelRequested: boolean;
   retryOfRunId: string | null;
+  /** Revise runs: the version being revised. */
+  baseVersionId: string | null;
   createdAt: string;
   startedAt: string | null;
   finishedAt: string | null;
@@ -145,6 +150,7 @@ export interface ThemeStudioVersionView {
   parentVersionId: string | null;
   runId: string;
   intentDigest: string;
+  packageDigest: string | null;
   summary: string;
   assumptions: string[];
   hasPackage: boolean;
@@ -189,7 +195,16 @@ export interface ThemeStudioProjectDetail {
   messages: ThemeStudioMessageView[];
   runs: ThemeStudioRunView[];
   versions: ThemeStudioVersionView[];
+  previews: ThemeStudioPreviewView[];
   events: ThemeStudioEventView[];
+}
+
+export interface ThemeStudioPreviewView {
+  id: string;
+  versionId: string;
+  status: "materializing" | "ready" | "failed";
+  lastOpenedAt: string;
+  expiresAt: string;
 }
 
 export async function listThemeStudioProjects(): Promise<
@@ -386,6 +401,17 @@ export async function getThemeStudioProject(
       .from(themeStudioVersions)
       .where(eq(themeStudioVersions.projectId, projectId))
       .orderBy(desc(themeStudioVersions.versionNumber));
+    const previews = await db
+      .select({
+        id: themeStudioPreviews.id,
+        versionId: themeStudioPreviews.versionId,
+        status: themeStudioPreviews.status,
+        lastOpenedAt: themeStudioPreviews.lastOpenedAt,
+        expiresAt: themeStudioPreviews.expiresAt,
+      })
+      .from(themeStudioPreviews)
+      .where(eq(themeStudioPreviews.projectId, projectId))
+      .orderBy(desc(themeStudioPreviews.lastOpenedAt));
     const events = await db
       .select()
       .from(themeStudioEvents)
@@ -430,6 +456,7 @@ export async function getThemeStudioProject(
         errorCode: r.errorCode,
         cancelRequested: r.cancelRequestedAt !== null,
         retryOfRunId: r.retryOfRunId,
+        baseVersionId: r.baseVersionId,
         createdAt: r.createdAt,
         startedAt: r.startedAt,
         finishedAt: r.finishedAt,
@@ -444,6 +471,7 @@ export async function getThemeStudioProject(
           parentVersionId: v.parentVersionId,
           runId: v.runId,
           intentDigest: v.intentDigest,
+          packageDigest: v.packageDigest,
           summary: typeof summary === "string" ? summary : "",
           assumptions: Array.isArray(assumptions)
             ? assumptions.filter((a): a is string => typeof a === "string")
@@ -452,6 +480,10 @@ export async function getThemeStudioProject(
           createdAt: v.createdAt,
         };
       }),
+      previews: previews.map((p) => ({
+        ...p,
+        status: p.status as ThemeStudioPreviewView["status"],
+      })),
       events: events.map((e) => ({
         id: e.id,
         eventType: e.eventType,
@@ -465,8 +497,61 @@ export async function getThemeStudioProject(
   });
 }
 
-export async function getThemeStudioReferenceBytes(
+export interface ThemeStudioVersionPackage {
+  id: string;
+  versionNumber: number;
+  parentVersionId: string | null;
+  summary: string;
+  packageDigest: string | null;
+  /** Null when the version is intent-only or its package no longer
+   * validates; a caller must not render a package it cannot trust. */
+  package: ThemePackageV2 | null;
+}
+
+/** One project's versions with their validated packages, for compare. */
+export async function getThemeStudioVersionPackages(
+  projectId: string,
+  versionIds: string[],
+): Promise<ThemeStudioVersionPackage[]> {
+  const ids = [...new Set(versionIds)].filter(isUuid).slice(0, 4);
+  if (!isUuid(projectId) || ids.length === 0) return [];
+  const rows = await withService((db) =>
+    db
+      .select({
+        id: themeStudioVersions.id,
+        versionNumber: themeStudioVersions.versionNumber,
+        parentVersionId: themeStudioVersions.parentVersionId,
+        intentJson: themeStudioVersions.intentJson,
+        packageJson: themeStudioVersions.packageJson,
+        packageDigest: themeStudioVersions.packageDigest,
+      })
+      .from(themeStudioVersions)
+      .where(
+        and(
+          eq(themeStudioVersions.projectId, projectId),
+          inArray(themeStudioVersions.id, ids),
+        ),
+      ),
+  );
+  return rows.map((row) => {
+    const summary = intentField(row.intentJson, "summary");
+    const parsed = row.packageJson
+      ? validateThemePackageV2(row.packageJson)
+      : null;
+    return {
+      id: row.id,
+      versionNumber: row.versionNumber,
+      parentVersionId: row.parentVersionId,
+      summary: typeof summary === "string" ? summary : "",
+      packageDigest: row.packageDigest,
+      package: parsed?.ok ? parsed.value : null,
+    };
+  });
+}
+
+async function assetBytes(
   assetId: string,
+  purpose: "reference" | "placeholder",
 ): Promise<{ bytes: Buffer; mediaType: string } | null> {
   if (!isUuid(assetId)) return null;
   const rows = await withService((db) =>
@@ -476,10 +561,27 @@ export async function getThemeStudioReferenceBytes(
         mediaType: themeStudioAssets.mediaType,
       })
       .from(themeStudioAssets)
-      .where(eq(themeStudioAssets.id, assetId))
+      .where(
+        and(
+          eq(themeStudioAssets.id, assetId),
+          eq(themeStudioAssets.purpose, purpose),
+        ),
+      )
       .limit(1),
   );
   return rows[0] ?? null;
+}
+
+/** A sanitized reference, for the superadmin-gated reference route. */
+export function getThemeStudioReferenceBytes(assetId: string) {
+  return assetBytes(assetId, "reference");
+}
+
+/** A server-rendered placeholder, for the PUBLIC placeholder route. ★ The
+ * purpose filter is the whole boundary: a reference id sent to that route
+ * must find nothing, because references are someone else's website. */
+export function getThemeStudioPlaceholderBytes(assetId: string) {
+  return assetBytes(assetId, "placeholder");
 }
 
 // ------------------------------------------------------------------- writes
@@ -1232,6 +1334,10 @@ export async function retryThemeStudioRun(
         idempotencyKey: input.idempotencyKey,
         maxAttempts: 1 + THEME_STUDIO_LIMITS.modelRetries,
         retryOfRunId: run.id,
+        // A retried revision revises the same version with the same messages.
+        baseVersionId: run.baseVersionId,
+        basePackageDigest: run.basePackageDigest,
+        contextMessageIds: run.contextMessageIds,
         createdBy: actor.id,
       })
       .returning({ id: themeStudioRuns.id });
@@ -1310,6 +1416,30 @@ export async function submitThemeStudioDetails(
     const resolved = resolveProviderForQueue(
       project.modelKey as ThemeStudioModelKey,
     );
+    // ★ The questions may have come from a REVISION. Answering them continues
+    // that revision — same base version, its messages plus this answer — not a
+    // fresh generation that would discard the version being revised.
+    const [asked] = await db
+      .select({
+        kind: themeStudioRuns.kind,
+        baseVersionId: themeStudioRuns.baseVersionId,
+        basePackageDigest: themeStudioRuns.basePackageDigest,
+        contextMessageIds: themeStudioRuns.contextMessageIds,
+      })
+      .from(themeStudioRuns)
+      .where(eq(themeStudioRuns.projectId, project.id))
+      .orderBy(desc(themeStudioRuns.createdAt))
+      .limit(1);
+    const continuing = asked?.kind === "revise" ? asked : null;
+    if (
+      continuing &&
+      continuing.contextMessageIds.length >= MAX_REVISION_MESSAGES
+    ) {
+      throw new ThemeStudioError(
+        "limit",
+        "This revision has had too many rounds of questions. Start a new revision instead.",
+      );
+    }
     await assertRunCapacity(db, actor);
     await assertSpendHeadroom(db, actor, resolved);
     const refs = await db
@@ -1337,7 +1467,12 @@ export async function submitThemeStudioDetails(
       .values({
         projectId: project.id,
         messageId: message.id,
-        kind: "generate",
+        kind: continuing ? "revise" : "generate",
+        baseVersionId: continuing?.baseVersionId ?? null,
+        basePackageDigest: continuing?.basePackageDigest ?? null,
+        contextMessageIds: continuing
+          ? [...continuing.contextMessageIds, message.id]
+          : [],
         provider: resolved.provider,
         modelKey: project.modelKey,
         providerModel: resolved.providerModel,
@@ -1359,6 +1494,249 @@ export async function submitThemeStudioDetails(
       detail: { messageId: message.id, references: refs.length },
     });
     return { runId: run.id, duplicate: false };
+  });
+}
+
+/** A revision reads at most this many messages: the request plus answers.
+ * Mirrors the cardinality bound in theme_studio_runs_base_check. */
+const MAX_REVISION_MESSAGES = 20;
+
+/** States a version can be revised from. Each may move to `generating`. */
+const REVISABLE_STATES: readonly ThemeStudioProjectState[] = [
+  "ready",
+  "candidate",
+  "approved",
+];
+
+/**
+ * Ask for a revision of one version. Bound to that version and to the content
+ * address the operator was looking at; revising a version that is not the
+ * current one is how a branch starts, and the new version's parent is the
+ * version revised. Idempotent on the key; refused if the project moved on.
+ */
+export async function reviseThemeStudioVersion(
+  actor: ThemeStudioActor,
+  input: {
+    projectId: string;
+    versionId: string;
+    expectedRevision: number;
+    expectedPackageDigest: string;
+    body: string;
+    idempotencyKey: string;
+  },
+): Promise<{ runId: string; duplicate: boolean }> {
+  if (!isUuid(input.projectId) || !isUuid(input.versionId)) {
+    throw new ThemeStudioError("not_found", "That version no longer exists.");
+  }
+  if (!IDEMPOTENCY_RE.test(input.idempotencyKey)) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      "The request is malformed. Reload and try again.",
+    );
+  }
+  const body = typeof input.body === "string" ? input.body.trim() : "";
+  if (!body || body.length > THEME_STUDIO_LIMITS.promptChars) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      `Describe the change in up to ${THEME_STUDIO_LIMITS.promptChars.toLocaleString("en-IN")} characters.`,
+    );
+  }
+  return withService(async (db) => {
+    const project = await lockProject(db, input.projectId);
+    const [prior] = await db
+      .select({ id: themeStudioRuns.id, projectId: themeStudioRuns.projectId })
+      .from(themeStudioRuns)
+      .where(eq(themeStudioRuns.idempotencyKey, input.idempotencyKey))
+      .limit(1);
+    if (prior) {
+      if (prior.projectId !== project.id) {
+        throw new ThemeStudioError(
+          "invalid_input",
+          "The request is malformed. Reload and try again.",
+        );
+      }
+      return { runId: prior.id, duplicate: true };
+    }
+    if (project.revision !== input.expectedRevision) {
+      throw new ThemeStudioError(
+        "stale",
+        "This project changed in another tab. Reload to see it.",
+      );
+    }
+    if (!REVISABLE_STATES.includes(project.status as ThemeStudioProjectState)) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "This project can't start a revision right now.",
+      );
+    }
+    const [version] = await db
+      .select({
+        id: themeStudioVersions.id,
+        packageDigest: themeStudioVersions.packageDigest,
+      })
+      .from(themeStudioVersions)
+      .where(
+        and(
+          eq(themeStudioVersions.id, input.versionId),
+          eq(themeStudioVersions.projectId, project.id),
+        ),
+      )
+      .limit(1);
+    if (!version) {
+      throw new ThemeStudioError("not_found", "That version no longer exists.");
+    }
+    if (!version.packageDigest) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "That version has no theme to revise.",
+      );
+    }
+    // Versions are immutable, so this only fails when the browser's copy of
+    // the version is not the one on the server — which is exactly the case in
+    // which the operator would be revising something they have not seen.
+    if (version.packageDigest !== input.expectedPackageDigest) {
+      throw new ThemeStudioError(
+        "stale",
+        "That version is not the one on your screen. Reload to see it.",
+      );
+    }
+    const resolved = resolveProviderForQueue(
+      project.modelKey as ThemeStudioModelKey,
+    );
+    await assertRunCapacity(db, actor);
+    await assertSpendHeadroom(db, actor, resolved);
+    const refs = await db
+      .select({ id: themeStudioAssets.id })
+      .from(themeStudioAssets)
+      .where(
+        and(
+          eq(themeStudioAssets.projectId, project.id),
+          eq(themeStudioAssets.purpose, "reference"),
+        ),
+      )
+      .orderBy(asc(themeStudioAssets.createdAt));
+    const [message] = await db
+      .insert(themeStudioMessages)
+      .values({
+        projectId: project.id,
+        kind: "revision",
+        body,
+        referenceAssetIds: refs.map((r) => r.id),
+        createdBy: actor.id,
+      })
+      .returning({ id: themeStudioMessages.id });
+    const [run] = await db
+      .insert(themeStudioRuns)
+      .values({
+        projectId: project.id,
+        messageId: message.id,
+        kind: "revise",
+        baseVersionId: version.id,
+        basePackageDigest: version.packageDigest,
+        contextMessageIds: [message.id],
+        provider: resolved.provider,
+        modelKey: project.modelKey,
+        providerModel: resolved.providerModel,
+        promptVersion: resolved.promptVersion,
+        idempotencyKey: input.idempotencyKey,
+        maxAttempts: 1 + THEME_STUDIO_LIMITS.modelRetries,
+        createdBy: actor.id,
+      })
+      .returning({ id: themeStudioRuns.id });
+    await db
+      .update(themeStudioProjects)
+      .set({ status: "generating", revision: project.revision + 1 })
+      .where(eq(themeStudioProjects.id, project.id));
+    await recordEvent(db, {
+      projectId: project.id,
+      runId: run.id,
+      actor,
+      eventType: "revision_requested",
+      detail: {
+        versionId: version.id,
+        messageId: message.id,
+        references: refs.length,
+        branch: version.id !== project.currentVersionId,
+      },
+    });
+    return { runId: run.id, duplicate: false };
+  });
+}
+
+/**
+ * Make an earlier version current again. Nothing is copied or deleted —
+ * versions are immutable — so restoring is only a pointer move, and the
+ * version that was current stays one click away. From `blocked` (a revision
+ * waiting on answers) it also sets those questions aside.
+ */
+export async function restoreThemeStudioVersion(
+  actor: ThemeStudioActor,
+  input: { projectId: string; versionId: string; expectedRevision: number },
+): Promise<{ changed: boolean }> {
+  if (!isUuid(input.projectId) || !isUuid(input.versionId)) {
+    throw new ThemeStudioError("not_found", "That version no longer exists.");
+  }
+  return withService(async (db) => {
+    const project = await lockProject(db, input.projectId);
+    if (project.revision !== input.expectedRevision) {
+      throw new ThemeStudioError(
+        "stale",
+        "This project changed in another tab. Reload to see it.",
+      );
+    }
+    if (project.status !== "ready" && project.status !== "blocked") {
+      throw new ThemeStudioError(
+        "illegal_state",
+        project.status === "generating"
+          ? "Wait for the active run to finish, or cancel it, before restoring."
+          : "This project can't change its current version right now.",
+      );
+    }
+    const [version] = await db
+      .select({
+        id: themeStudioVersions.id,
+        versionNumber: themeStudioVersions.versionNumber,
+        packageDigest: themeStudioVersions.packageDigest,
+      })
+      .from(themeStudioVersions)
+      .where(
+        and(
+          eq(themeStudioVersions.id, input.versionId),
+          eq(themeStudioVersions.projectId, project.id),
+        ),
+      )
+      .limit(1);
+    if (!version) {
+      throw new ThemeStudioError("not_found", "That version no longer exists.");
+    }
+    if (!version.packageDigest) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "That version has no theme to restore.",
+      );
+    }
+    if (version.id === project.currentVersionId && project.status === "ready") {
+      return { changed: false };
+    }
+    await db
+      .update(themeStudioProjects)
+      .set({
+        status: "ready",
+        currentVersionId: version.id,
+        revision: project.revision + 1,
+      })
+      .where(eq(themeStudioProjects.id, project.id));
+    await recordEvent(db, {
+      projectId: project.id,
+      actor,
+      eventType: "version_restored",
+      detail: {
+        versionId: version.id,
+        versionNumber: version.versionNumber,
+        previousVersionId: project.currentVersionId,
+      },
+    });
+    return { changed: true };
   });
 }
 

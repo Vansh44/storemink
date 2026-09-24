@@ -160,6 +160,14 @@ Every image in a generated version is a marked placeholder, so a version is a
 draft to review, never something to publish. Record:
 `docs/mink-ai-theme-studio-phase3.md`.
 
+Since Phase 4 each version has a **Preview**: a private store built from that
+version and rendered by the live storefront, in laptop, iPad and mobile
+frames, with a pop-out. It takes no orders, is hidden from search and from the
+Stores list and overview counts, and is removed a day after it was last opened.
+A version can be **revised** (revising an older one starts a branch),
+**compared** with its parent or the current version, and **made current**
+again. Record: `docs/mink-ai-theme-studio-phase4.md`.
+
 ## Phases
 
 - **Phase 1 — IA, stores, themes, pricing ✅**

@@ -6,6 +6,8 @@
 // merchant theme catalog later) import only this manifest.
 // ---------------------------------------------------------------------------
 
+import { studioPreviewMarker } from "@/lib/theme-studio/preview-store";
+
 export type ThemeIndustry =
   | "general"
   | "art"
@@ -376,6 +378,8 @@ export interface StoredThemeInstallation {
 export interface ThemeSelection {
   id: string;
   version?: string;
+  /** Set only for a Theme Studio preview store: render this exact version. */
+  studioVersionId?: string;
 }
 
 /** Read the new pinned installation first, then the legacy `template` id.
@@ -385,6 +389,7 @@ export function readThemeSelection(settings: unknown): ThemeSelection | null {
     return null;
   }
   const record = settings as Record<string, unknown>;
+  const preview = studioPreviewMarker(settings);
   const installed = record.theme;
   if (installed && typeof installed === "object" && !Array.isArray(installed)) {
     const value = installed as Record<string, unknown>;
@@ -394,6 +399,7 @@ export function readThemeSelection(settings: unknown): ThemeSelection | null {
         ...(typeof value.presetVersion === "string" && value.presetVersion
           ? { version: value.presetVersion }
           : {}),
+        ...(preview ? { studioVersionId: preview.versionId } : {}),
       };
     }
   }

@@ -2375,6 +2375,11 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
   usage: jsonb().default({}).notNull(),
   outcomeDetail: jsonb("outcome_detail").default({}).notNull(),
   retryOfRunId: uuid("retry_of_run_id"),
+  /** Revise runs only: the version revised and its content address. */
+  baseVersionId: uuid("base_version_id"),
+  basePackageDigest: text("base_package_digest"),
+  /** Revise runs only: the ordered messages the run reads. */
+  contextMessageIds: uuid("context_message_ids").array().default([]).notNull(),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
     .defaultNow()
@@ -2397,6 +2402,32 @@ export const themeStudioVersions = pgTable("theme_studio_versions", {
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
     .defaultNow()
     .notNull(),
+});
+
+/** A private, demo-flagged store materialized from one Studio version. */
+export const themeStudioPreviews = pgTable("theme_studio_previews", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  storeId: uuid("store_id").notNull(),
+  status: text().default("materializing").notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  lastOpenedAt: timestamp("last_opened_at", {
+    withTimezone: true,
+    mode: "string",
+  })
+    .defaultNow()
+    .notNull(),
+  expiresAt: timestamp("expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
 });
 
 export const themeStudioEvents = pgTable("theme_studio_events", {

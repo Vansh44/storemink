@@ -232,6 +232,15 @@ is live and did need a worker. Verified after creation by three consecutive
 firings a minute apart (13:49:09, 13:50:05, 13:51:05), all HTTP 200, the job's
 own status code empty, no app-side errors, tables still clean.
 
+★ **It also carries the Theme Studio preview retention sweep (2026-09-24),**
+for the same reason as the reconciler below: it needs a per-minute authorised
+backstop, and a new Scheduler entry is the kind that gets documented and never
+created. `sweepThemeStudioPreviews` removes up to ten preview stores a pass —
+idle past 24 hours, abandoned mid-build, or belonging to an archived project —
+and is isolated: its failure is logged, never propagated, so it cannot fail
+merchant Mink workflows. The response carries `themeStudioPreviewsRemoved`.
+Nothing about the job itself changes.
+
 ★★ **IT ALSO CARRIES THE MINK CREDIT RECONCILER (2026-09-21), and that is
 deliberately not a job of its own.** `settleMinkRunCredits` runs after the run
 row commits and never throws, because a billing failure must not roll back a

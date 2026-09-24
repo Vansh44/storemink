@@ -80,8 +80,9 @@ export async function checkStoreSlugAvailability(
   if (RESERVED.has(slug)) {
     return { slug, available: false, reason: "This name is reserved." };
   }
-  // The demo- namespace belongs to theme demo stores (seedDemoStore).
-  if (/^demo(-|$)/.test(slug)) {
+  // The demo- namespace belongs to theme demo stores (seedDemoStore), and
+  // studio-preview- to Theme Studio's private preview stores.
+  if (/^demo(-|$)/.test(slug) || /^studio-preview(-|$)/.test(slug)) {
     return { slug, available: false, reason: "This name is reserved." };
   }
 

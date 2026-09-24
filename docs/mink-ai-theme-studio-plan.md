@@ -1,11 +1,12 @@
 # Mink AI Theme Studio — implementation plan
 
-> **Status:** Phases 0–3 are implemented: contracts, the runtime registry, the
-> superadmin Studio shell with secure intake, and the Gemini-on-Vertex
-> generation pipeline (moved from Anthropic models on 2026-09-23, owner's
-> decision). Phase 3 has not yet been run against a live model, and
-> the offline provider stays the default until it has. Phases 4–7 remain
-> proposed; no preview or publication capability is available yet.
+> **Status:** Phases 0–4 are implemented: contracts, the runtime registry, the
+> superadmin Studio shell with secure intake, the Gemini-on-Vertex generation
+> pipeline (moved from Anthropic models on 2026-09-23, owner's decision), and
+> private previews with iterative revision. Phase 3 has not yet been run
+> against a live model, and the offline provider stays the default until it
+> has. Phases 5–7 remain proposed; no automated acceptance or publication
+> capability is available yet.
 >
 > **Plan date:** 2026-09-23
 >
@@ -513,7 +514,7 @@ own Scheduler job and a longer Cloud Run timeout before `vertex-gemini` is
 enabled. The live evaluation per model is the remaining gate: until it passes,
 the exit criterion is met only up to the provider boundary.
 
-### Phase 4 — preview and iterative revision
+### Phase 4 — preview and iterative revision ✅
 
 Deliver:
 
@@ -525,6 +526,14 @@ Deliver:
 
 Exit: an operator can complete the requested create-review-revise loop without
 touching source code or public catalog state.
+
+Implementation record: `docs/mink-ai-theme-studio-phase4.md`. A preview is a
+hidden, demo-flagged store per version, gated in the store resolver. Where the
+platform session is host-only (local development) the gate is the signed grant
+plus a per-request re-check that its actor is still a superadmin, rather than
+the session itself. Compare is a structured diff with a preview link for each
+side, not two synchronised frames. Placeholder images are served publicly,
+because next/image cannot forward a session.
 
 ### Phase 5 — automated acceptance
 
