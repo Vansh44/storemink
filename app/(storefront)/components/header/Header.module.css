@@ -53,6 +53,9 @@
 }
 
 .navLinks a {
+  /* One line each: a link that wraps ("New / Objects") hides a header that
+     no longer fits, so the fit check could not see it. */
+  white-space: nowrap;
   font-family: var(--font-outfit), sans-serif;
   font-weight: 600;
   font-size: 15px;
@@ -85,6 +88,7 @@
 
 .navTrigger {
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 4px;
   padding: 0;
@@ -956,6 +960,38 @@
       transform: translateY(0);
     }
   }
+}
+
+/* Fold into the drawer whatever does not fit on one row (use-header-fit.ts
+   writes data-header-compact after measuring). Above phone width this
+   replaces guessing a breakpoint: the menu goes first, behind the
+   hamburger; then the delivery control (delivery-location.module.css);
+   then the search box, which a search icon opens instead. */
+/* A floor between the two halves. `space-between` alone leaves none once the
+   right half grows (the market header's search pill fills every free pixel,
+   which put its delivery control flush against the last menu link). Phones
+   keep their tight row. */
+@media (min-width: 769px) {
+  .header {
+    column-gap: 24px;
+  }
+}
+
+.header[data-header-measuring],
+.header[data-header-measuring] * {
+  transition: none !important;
+}
+.header[data-header-compact~="nav"] .navLinks {
+  display: none;
+}
+.header[data-header-compact~="nav"] .hamburgerBtn {
+  display: flex;
+}
+.header[data-header-compact~="search"] .searchWrap:not(.searchWrapSheet) {
+  display: none;
+}
+.header[data-header-compact~="search"] .phoneSearchBtn {
+  display: flex;
 }
 
 /* Added query for very small phones to prevent horizontal scrolling */

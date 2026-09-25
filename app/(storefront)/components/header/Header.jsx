@@ -14,6 +14,7 @@ import { DesktopNav } from "./desktop-nav";
 import { DrawerNav } from "./drawer-nav";
 import { PredictiveSearch } from "./predictive-search";
 import { PhoneSearch } from "./phone-search";
+import { useHeaderFit } from "./use-header-fit";
 import {
   User,
   Package,
@@ -45,6 +46,27 @@ export default function Header() {
   const navLinks = headerCfg.links;
 
   const isLoggedIn = !!user && !!customer;
+
+  // Fold the menu, delivery control and search box into the drawer when the
+  // header would not fit on one row (see lib/storefront/header-fit.ts).
+  const headerRef = useRef(null);
+  useHeaderFit(
+    headerRef,
+    {
+      logo: styles.logo,
+      navLinks: styles.navLinks,
+      headerRight: styles.headerRight,
+      searchWrap: styles.searchWrap,
+    },
+    [
+      navLinks,
+      headerCfg.showSearch,
+      headerCfg.showCart,
+      brand.name,
+      brand.logoUrl,
+      isLoggedIn,
+    ],
+  );
 
   // Unread badge for the shopper's notification centre. Polls only while
   // signed in AND the tab is visible — the same shape as the dashboard bell
@@ -124,6 +146,7 @@ export default function Header() {
 
   return (
     <header
+      ref={headerRef}
       className={`${styles.header} ${isScrolled ? styles.headerScrolled : ""}`}
     >
       <div className={styles.headerLeft}>

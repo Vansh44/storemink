@@ -189,14 +189,23 @@
   box-shadow: none;
 }
 
-@media (max-width: 900px) {
+/* Where the header's copy is folded away the drawer's copy takes over, so
+   the control is always one tap away. Phones fold it in plain CSS; wider
+   screens fold it only when the header does not fit (use-header-fit.ts),
+   because that depends on the theme and the menu, not on a width. It used
+   to vanish from the header below 900px while the drawer copy only appeared
+   below 768px, leaving tablets with no way to set a delivery location. */
+@media (max-width: 768px) {
   .root:not(.drawerRoot) {
     display: none;
   }
-}
-
-@media (max-width: 768px) {
   .drawerRoot {
     display: block;
   }
+}
+:global([data-header-compact~="delivery"]) .root:not(.drawerRoot) {
+  display: none;
+}
+:global([data-header-compact~="delivery"]) .drawerRoot {
+  display: block;
 }

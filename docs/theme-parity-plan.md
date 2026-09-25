@@ -137,8 +137,14 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
   touch phones, where swipe and the dots remain.
 - Full-width media + text bands keep the page margin; only the carousel, hero,
   ticker, trust bar and newsletter run edge to edge.
-- ⚠ Open: at about 800px wide the header search box overlaps the last menu
-  links (Vitrine, Studio, Ritual).
+- The header no longer overlaps at tablet widths. It measures itself and
+  folds what does not fit into the drawer, one step at a time: the menu
+  (behind the hamburger), then the delivery control, then the search box (a
+  search icon opens it instead). A fixed breakpoint cannot do this, because
+  whether a header fits depends on the theme's font and the merchant's menu.
+  Checked on all four themes from 769px to 1440px. Delivery was also
+  unreachable between 769px and 900px; it now always lives in one place or
+  the other.
 
 ### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
 

@@ -5346,6 +5346,47 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     the root carries the theme tokens. The drawer's own search was removed;
     the merchant's `showSearch` switch now governs phone search as well
     (it used to show in the drawer regardless).
+    **★★ THE HEADER FOLDS BY FIT, NOT BY BREAKPOINT (2026-09-26).** Between
+    769px and ~1100px the menu ran into the delivery control and search box
+    on Vitrine, Studio and Ritual (at 800px Vitrine's header was 817px wide
+    and its links wrapped onto two lines). A breakpoint cannot fix that:
+    whether a header fits depends on the theme's font, the merchant's links
+    and their length, the logo, and whether search and cart are on.
+    `header/use-header-fit.ts` measures the live header and writes
+    `data-header-compact` on it; `lib/storefront/header-fit.ts` (pure) picks
+    the fewest steps from `COMPACT_STEPS`, in order: `nav` (menu hidden,
+    hamburger shown), `delivery` (header control hidden, the drawer's copy
+    shown), `search` (box hidden, the phone search icon shown). The CSS for
+    each step is in `Header.module.css` and `delivery-location.module.css`,
+    and a test fails if a step has none. Fits means: no horizontal overflow,
+    ≥12px between neighbouring items sorted by position (so the centred
+    variant, whose menu sits left of the logo, is judged correctly), and
+    search/delivery not squeezed below 140/120px. They can shrink to a
+    sliver without overlapping anything.
+    ★ Every check starts from the full header, so a tablet rotated to
+    landscape unfolds again.
+    ★ Transitions are switched off while measuring
+    (`data-header-measuring`). The search box animates its width and the
+    header its padding, and a mid-animation reading once passed a fit that
+    then closed to a 4px gap.
+    ★ A `ResizeObserver` on the header triggers it, not the window `resize`
+    event, which can fire before the new width is laid out. So do
+    `document.fonts.ready` and the header's content deps.
+    ★ The attribute is written to the DOM, never rendered, so React never
+    writes it back, and the fold lands before paint rather than after a
+    state round trip.
+    ★ Phones (≤768px) stay plain CSS and are not measured: their row
+    overlaps hit areas on purpose.
+    ★ Nav links are `white-space: nowrap`, so a wrapped link shows up as
+    overlap instead of hiding it.
+    ★ The header has a 24px `column-gap` above 768px. The market header's
+    growing search pill had put its delivery control flush against the last
+    menu link.
+    ★★ The delivery control was unreachable between 769px and 900px: the
+    header's copy hid below 900px while the drawer's only appeared below
+    768px. It is now always in exactly one of the two.
+    ⚠ The server cannot measure, so on a tablet the first paint before
+    hydration can still show the unfolded header for a moment.
     **Shop page and collection pages (1.8).** Every active category has its
     own page, `(pages)/collections/[slug]/page.tsx`: self-canonical, the
     category's name as title and h1, its description as meta description
