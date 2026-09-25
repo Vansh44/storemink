@@ -1,8 +1,8 @@
 import Link from "next/link";
-import Image from "next/image";
 import type { HeroConfig, SectionStyle } from "@/lib/homepage/section-types";
 import { videoEmbedUrl } from "@/lib/homepage/video-embed";
 import { SectionShell } from "./section-shell";
+import { HeroImage, HeroOverlay, heroClasses } from "./hero-media";
 
 // First-class hero block. Three variants:
 //   banner  — inset rounded card on a solid colour field, copy left / image
@@ -71,25 +71,39 @@ export function HeroSection({
       preload="metadata"
     />
   ) : config.image_url ? (
-    <Image
+    <HeroImage
       src={config.image_url}
       alt={config.heading || "Hero"}
-      fill
-      preload
+      eager
       sizes={asBackground ? "100vw" : "(max-width: 860px) 100vw, 50vw"}
       className="home-hero-img"
+      options={config}
     />
   ) : null;
+  const extra = heroClasses({
+    height: config.height,
+    content_position: config.content_position,
+    // A tuned overlay only means something where copy sits on the media.
+    overlay_opacity: asBackground ? config.overlay_opacity : undefined,
+  });
 
   return (
     <SectionShell sectionId={sectionId} style={style}>
       <div
-        className={`home-hero variant-${config.variant} theme-${config.theme} align-${config.alignment}`}
+        className={`home-hero variant-${config.variant} theme-${config.theme} align-${config.alignment}${extra ? ` ${extra}` : ""}`}
         style={
           config.background ? { background: config.background } : undefined
         }
       >
-        {asBackground && <div className="home-hero-bgmedia">{media}</div>}
+        {asBackground && (
+          <div className="home-hero-bgmedia">
+            {media}
+            <HeroOverlay
+              opacity={config.overlay_opacity}
+              theme={config.theme}
+            />
+          </div>
+        )}
         <div className="home-hero-copy">
           {config.badge_text && (
             <span className="home-hero-badge">{config.badge_text}</span>

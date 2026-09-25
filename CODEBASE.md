@@ -5127,6 +5127,30 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `sm-atc-sticky` / `sm-grid-m2` / `sm-grid-d3|d5`, with a compact card for
     the two-column phone grid; absent keys render as before. They are in the
     package contract, the Stage B schema and prompt (`theme-studio-v3`).
+    **Hero controls (1.4).** `hero`, `hero_carousel` and each slide gain
+    optional `height` (`small|medium|large|screen`; screen is
+    `100svh − --sm-header-h`), `focal_x`/`focal_y` (0–100),
+    `mobile_image_url`, `overlay_opacity` (0–80) and `content_position`
+    (`top|bottom`). `heroImageOptions` (section-types.ts) EMITS NOTHING AT A
+    DEFAULT, so an untouched hero stores and renders byte-for-byte as before;
+    `null`/`""` read as absent, never 0 (the `Number(null)` trap), while a real
+    0 overlay survives. `sections/hero-media.tsx` renders the image for both
+    renderers: ★ a phone image is ART DIRECTION through one `<picture>` +
+    `getImageProps`, never a second CSS-toggled `<Image>` — the first hero is
+    eager, so two images would preload both on every visit (verified: a phone
+    fetches only the phone file). The focal point applies to the main image
+    only, since a phone image is composed for the phone. A tuned overlay
+    replaces the built-in `::after` scrim (`has-overlay`) and only applies
+    where copy sits ON the media (minimal-with-image hero, every slide). The
+    carousel SWIPES on touch/pen pointers (40px horizontal, `touch-action:
+    pan-y` keeps page scroll), pauses while focus is inside, and never
+    autoplays under `prefers-reduced-motion` (read when the timer would start,
+    not held in state). Builder: `HeroImageFields` (click-to-set focal preview,
+    phone upload, overlay slider, text position — each with a default that
+    stores nothing) and a Height select. Stage B learns the fields in
+    `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
+    compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
+    guide's section-type paragraph in place.
     ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
     column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
     child (the related-products carousel) made the grocery product page 734px

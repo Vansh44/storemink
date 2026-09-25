@@ -34,7 +34,7 @@ Studio use them.
 | 1.1  | Product gallery: phone swipe with counter, lightbox with prev/next, swipe, keys and pinch (universal)  | ✅      |
 | 1.2  | Sticky add-to-cart bar on phones (`layout.stickyAddToCart`)                                            | ✅      |
 | 1.3  | Shop grid columns per breakpoint, 2 on phones (`layout.gridColumnsMobile/Desktop`)                     | ✅      |
-| 1.4  | Hero: focal point, separate mobile image, height and overlay controls; swipe on the hero carousel      | planned |
+| 1.4  | Hero: focal point, separate mobile image, height and overlay controls; swipe on the hero carousel      | ✅      |
 | 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | planned |
 | 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | planned |
 | 1.7  | Predictive search dropdown; search visible in the phone header                                         | planned |
@@ -58,6 +58,17 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
 - After the fix, a sweep of home, shop, a product, cart and two content pages
   at 360, 390, 768 and 1024px found 0px overflow on all four bundled demo
   stores.
+
+### Found and fixed while building 1.4
+
+- **A phone image must not be a second image.** Toggling two `<Image>`s with
+  CSS preloads both, because the first hero is eager. The phone image is art
+  direction in one `<picture>`, so a phone downloads only the phone file and a
+  desktop only the banner (verified in the browser at 375, 768 and 1280px).
+- **Every control defaults to storing nothing**, so no existing hero changes.
+  The carousel's swipe and reduced-motion pause are universal: at rest nothing
+  looks different, and a banner that moves by itself is exactly what reduced
+  motion asks to stop.
 
 ## Track 2 — design engine
 

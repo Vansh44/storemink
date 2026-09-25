@@ -189,6 +189,8 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
             ...EMPTY_CONFIG.hero,
             heading: name,
             image_url: `theme-asset://${slot}`,
+            height: "large",
+            focal_y: 40,
           }),
           section("featured_products", EMPTY_CONFIG.featured_products),
           section("newsletter", EMPTY_CONFIG.newsletter),

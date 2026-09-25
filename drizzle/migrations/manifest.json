@@ -5638,6 +5638,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260925_0135_hero_image_controls_help",
+      "description": "Describe hero height, focal point, phone image, overlay and text position controls, and carousel swipe",
+      "file": "sql/20260925_0135_hero_image_controls_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0134_theme_studio_publication"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the section guide describes the hero image controls",
+            "sql": "select count(*)::text from help_articles where slug='add-and-arrange-storefront-sections' and status='published' and body like '%click the subject in the <strong>Focal point</strong> preview%' and body like '%phones download only that one%'",
+            "equals": "1"
+          },
+          {
+            "name": "the section guide describes carousel swipe and reduced motion",
+            "sql": "select count(*)::text from help_articles where slug='add-and-arrange-storefront-sections' and status='published' and body like '%swipe between carousel slides%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }
