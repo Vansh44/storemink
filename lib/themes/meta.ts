@@ -6,6 +6,8 @@
 // merchant theme catalog later) import only this manifest.
 // ---------------------------------------------------------------------------
 
+import { studioPreviewMarker } from "@/lib/theme-studio/preview-store";
+
 export type ThemeIndustry =
   | "general"
   | "art"
@@ -317,7 +319,7 @@ export const THEME_META: readonly ThemeMeta[] = [
 
 export const DEFAULT_THEME_ID = "basket";
 
-const INDUSTRY_LABELS: Record<ThemeIndustry, string> = {
+export const INDUSTRY_LABELS: Record<ThemeIndustry, string> = {
   general: "General",
   art: "Art",
   automotive: "Automotive",
@@ -342,20 +344,28 @@ const INDUSTRY_LABELS: Record<ThemeIndustry, string> = {
 };
 
 /** Only render filters backed by at least one visible catalog entry. */
-export const THEME_CATEGORIES: readonly {
+export type ThemeCategory = {
   id: ThemeIndustry | "all";
   label: string;
-}[] = [
-  { id: "all", label: "All" },
-  ...Array.from(
-    new Set(
-      THEME_META.filter(
-        (theme) => theme.catalog.visibility !== "hidden",
-      ).flatMap((theme) => theme.catalog.industries),
+};
+
+/** Build filters from the resolved catalog, not the source-controlled fallback.
+ * Runtime releases can add an industry without requiring an app deploy. */
+export function themeCategoriesFor(
+  themes: readonly ThemeMeta[],
+): ThemeCategory[] {
+  return [
+    { id: "all", label: "All" },
+    ...Array.from(
+      new Set(
+        themes
+          .filter((theme) => theme.catalog.visibility !== "hidden")
+          .flatMap((theme) => theme.catalog.industries),
+      ),
+      (id) => ({ id, label: INDUSTRY_LABELS[id] }),
     ),
-    (id) => ({ id, label: INDUSTRY_LABELS[id] }),
-  ),
-];
+  ];
+}
 
 export interface StoredThemeInstallation {
   presetId: string;
@@ -368,6 +378,8 @@ export interface StoredThemeInstallation {
 export interface ThemeSelection {
   id: string;
   version?: string;
+  /** Set only for a Theme Studio preview store: render this exact version. */
+  studioVersionId?: string;
 }
 
 /** Read the new pinned installation first, then the legacy `template` id.
@@ -377,6 +389,7 @@ export function readThemeSelection(settings: unknown): ThemeSelection | null {
     return null;
   }
   const record = settings as Record<string, unknown>;
+  const preview = studioPreviewMarker(settings);
   const installed = record.theme;
   if (installed && typeof installed === "object" && !Array.isArray(installed)) {
     const value = installed as Record<string, unknown>;
@@ -386,6 +399,7 @@ export function readThemeSelection(settings: unknown): ThemeSelection | null {
         ...(typeof value.presetVersion === "string" && value.presetVersion
           ? { version: value.presetVersion }
           : {}),
+        ...(preview ? { studioVersionId: preview.versionId } : {}),
       };
     }
   }
@@ -395,7 +409,11 @@ export function readThemeSelection(settings: unknown): ThemeSelection | null {
 }
 
 export function isThemeId(id: unknown): id is string {
-  return typeof id === "string" && THEME_META.some((theme) => theme.id === id);
+  return (
+    typeof id === "string" &&
+    id.length <= 80 &&
+    /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(id)
+  );
 }
 
 export function isThemeSelectable(theme: ThemeMeta): boolean {

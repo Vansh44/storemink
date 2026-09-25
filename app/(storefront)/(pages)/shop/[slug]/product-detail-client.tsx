@@ -1,9 +1,7 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
-import { ImageIcon } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
@@ -23,6 +21,14 @@ import { ProductDeliveryEstimator } from "@/app/(storefront)/components/delivery
 import { RelatedProducts, type RelatedProduct } from "./related-products";
 import { productGallery } from "@/lib/products/gallery";
 import { GroceryProductDetail } from "./grocery-product-detail";
+import { ProductGallery, ProductLightbox } from "./product-gallery";
+import { StickyAddToCart } from "./sticky-add-to-cart";
+import { OptionPicker } from "@/app/(storefront)/components/option-picker";
+import {
+  initialVariant,
+  usesOptionPickers,
+  type ProductOption,
+} from "@/lib/products/options";
 import ReviewsSection, {
   RatingStars,
   type ProductReview,
@@ -43,6 +49,9 @@ export interface DetailVariant {
   stock: number;
   low_stock_threshold: number | null;
   allow_backorder: boolean;
+  /** Positional values for the product's option axes ("M", "Black"); empty
+   *  for a variant with none. */
+  option_values?: string[];
 }
 
 export interface DetailProduct {
@@ -65,6 +74,8 @@ export interface DetailProduct {
   /** FALSE = final sale. Said BEFORE the sale — discovering it afterwards is
    *  how a return policy becomes an argument. */
   returnable?: boolean;
+  /** Option axes (size, colour). Empty for a product with plain variants. */
+  options?: ProductOption[];
   variants: DetailVariant[];
 }
 
@@ -92,6 +103,7 @@ export default function ProductDetailClient({
   grocery = false,
   storeLowStockThreshold = 0,
   offerMarker = null,
+  requestedVariantId = null,
 }: {
   product: DetailProduct;
   related: RelatedProduct[];
@@ -110,15 +122,41 @@ export default function ProductDetailClient({
    * cannot reach. The page renders what it is given.
    */
   offerMarker?: string | null;
+  /** `?variant=<id>` from the URL; ignored when it names no variant here. */
+  requestedVariantId?: string | null;
 }) {
   const router = useRouter();
   const { addItem } = useCart();
   const hasVariants = product.variants.length > 0;
+  const options = useMemo(() => product.options ?? [], [product.options]);
+  // Every variant with the two facts a picker needs. `available` is the same
+  // isSoldOut rule the buy button uses, so a chip and the button can never
+  // disagree about whether something can be bought.
+  const pickable = useMemo(
+    () =>
+      product.variants.map((v) => ({
+        ...v,
+        option_values: v.option_values ?? [],
+        available: !isSoldOut(v),
+      })),
+    [product.variants],
+  );
+  const showPickers = usesOptionPickers(options, pickable);
+  // ★ The page opens on the requested variant, else the first one that can be
+  //   BOUGHT. Opening on a sold-out first variant greyed the buy button on
+  //   arrival for a product with plenty of other stock.
+  const openingVariant = hasVariants
+    ? (initialVariant(pickable, requestedVariantId) ?? null)
+    : null;
   const [variantId, setVariantId] = useState<string | null>(
-    hasVariants ? product.variants[0].id : null,
+    openingVariant?.id ?? null,
   );
   const [quantity, setQuantity] = useState(1);
-  const [zoomOpen, setZoomOpen] = useState(false);
+  // The photo the full-screen viewer is open on, or null when it is closed.
+  const [zoomIndex, setZoomIndex] = useState<number | null>(null);
+  // The page's own buy buttons: the phone sticky bar appears once these scroll
+  // out of view above the shopper.
+  const actionsRef = useRef<HTMLDivElement>(null);
 
   const selectedVariant = hasVariants
     ? (product.variants.find((v) => v.id === variantId) ?? product.variants[0])
@@ -140,11 +178,9 @@ export default function ProductDetailClient({
       ? Array.from(new Set(variantImages))
       : productImages;
 
-  // Default image: the first variant's first photo if it has one, else the
+  // Default image: the opening variant's first photo if it has one, else the
   // product gallery lead.
-  const firstVariantImages = hasVariants
-    ? (product.variants[0].images ?? []).filter(Boolean)
-    : [];
+  const firstVariantImages = (openingVariant?.images ?? []).filter(Boolean);
   const [activeImg, setActiveImg] = useState<string | null>(
     firstVariantImages[0] ?? productImages[0] ?? null,
   );
@@ -155,7 +191,26 @@ export default function ProductDetailClient({
     setVariantId(v.id);
     const imgs = (v.images ?? []).filter(Boolean);
     setActiveImg(imgs[0] ?? productImages[0] ?? null);
+    // The URL names the variant on screen, so a shared or refreshed link
+    // opens on it. replaceState, not the router: nothing on the server
+    // depends on it, and a navigation would refetch the whole page.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("variant", v.id);
+      window.history.replaceState(window.history.state, "", url);
+    } catch {
+      // A URL we cannot rewrite costs a shareable link, never the selection.
+    }
   };
+
+  const optionPicker = showPickers ? (
+    <OptionPicker
+      options={options}
+      variants={pickable}
+      selectedId={variantId}
+      onSelect={selectVariant}
+    />
+  ) : null;
 
   const base = selectedVariant
     ? selectedVariant.base_price
@@ -175,15 +230,11 @@ export default function ProductDetailClient({
     : lowStockLeft(sellableSku, storeLowStockThreshold);
   const isLowStock = lowStockAmount !== null;
 
-  // Close the zoom overlay with Escape.
-  useEffect(() => {
-    if (!zoomOpen) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setZoomOpen(false);
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [zoomOpen]);
+  // The gallery tracks the active photo by URL (a variant switch swaps the
+  // whole set); the gallery components speak in indexes.
+  const activeIndex = Math.max(0, activeImg ? gallery.indexOf(activeImg) : 0);
+  const setActiveIndex = (index: number) =>
+    setActiveImg(gallery[index] ?? null);
 
   // Cap quantity at what the shopper can actually buy — the sellable SKU's
   // stock when it's tracked and non-backorderable, else a UI ceiling. Covers
@@ -240,14 +291,16 @@ export default function ProductDetailClient({
         <GroceryProductDetail
           product={product}
           gallery={gallery}
-          activeImg={activeImg}
-          setActiveImg={setActiveImg}
-          onZoom={() => setZoomOpen(true)}
+          activeIndex={activeIndex}
+          setActiveIndex={setActiveIndex}
+          onZoom={setZoomIndex}
+          actionsRef={actionsRef}
           averageRating={averageRating}
           reviewCount={reviewCount}
           hasVariants={hasVariants}
           variantId={variantId}
           selectVariant={selectVariant}
+          optionPicker={optionPicker}
           offerMarker={offerMarker}
           base={base}
           selling={selling}
@@ -279,35 +332,29 @@ export default function ProductDetailClient({
           grocery
           storeLowStockThreshold={storeLowStockThreshold}
         />
-
-        {zoomOpen && activeImg && (
-          <div
-            className="pdp-lightbox"
-            onClick={() => setZoomOpen(false)}
-            role="dialog"
-            aria-label="Zoomed product image"
-          >
-            <button
-              className="pdp-lightbox-close"
-              onClick={() => setZoomOpen(false)}
-              aria-label="Close"
-            >
-              ✕
-            </button>
-            <div
-              className="pdp-lightbox-img-wrap"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <Image
-                src={activeImg}
-                alt={product.name}
-                fill
-                sizes="90vw"
-                className="pdp-lightbox-img"
-              />
-            </div>
-          </div>
+        {zoomIndex !== null && gallery.length > 0 && (
+          <ProductLightbox
+            images={gallery}
+            alt={product.name}
+            index={zoomIndex}
+            onIndexChange={(index) => {
+              setZoomIndex(index);
+              setActiveIndex(index);
+            }}
+            onClose={() => setZoomIndex(null)}
+          />
         )}
+
+        <StickyAddToCart
+          target={actionsRef}
+          name={product.name}
+          variantName={selectedVariant?.name ?? null}
+          image={activeImg ?? gallery[0] ?? null}
+          price={selling}
+          compareAt={discount > 0 ? base : null}
+          disabled={outOfStock}
+          onAdd={handleAddToCart}
+        />
       </main>
     );
   }
@@ -328,52 +375,15 @@ export default function ProductDetailClient({
 
       <div className="pdp-grid">
         {/* Gallery */}
-        <div className="pdp-gallery">
-          <button
-            type="button"
-            className="pdp-main-img"
-            onClick={() => activeImg && setZoomOpen(true)}
-            aria-label="Zoom image"
-          >
-            {activeImg ? (
-              <>
-                <Image
-                  src={activeImg}
-                  alt={product.name}
-                  fill
-                  sizes="(max-width: 768px) 100vw, 520px"
-                  className="pdp-main-img-el"
-                  priority
-                />
-                <span className="pdp-zoom-hint">🔍 Click to zoom</span>
-              </>
-            ) : (
-              <div className="pdp-img-placeholder">
-                <ImageIcon size={40} strokeWidth={1.5} aria-hidden />
-              </div>
-            )}
-          </button>
-          {gallery.length > 1 && (
-            <div className="pdp-thumbs">
-              {gallery.map((url) => (
-                <button
-                  key={url}
-                  className={`pdp-thumb${activeImg === url ? " active" : ""}`}
-                  onClick={() => setActiveImg(url)}
-                  aria-label="View image"
-                >
-                  <Image
-                    src={url}
-                    alt=""
-                    fill
-                    sizes="72px"
-                    className="pdp-thumb-el"
-                  />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProductGallery
+          images={gallery}
+          alt={product.name}
+          activeIndex={activeIndex}
+          onActiveIndexChange={setActiveIndex}
+          onZoom={setZoomIndex}
+          classPrefix="pdp"
+          sizes="(max-width: 860px) 100vw, 560px"
+        />
 
         {/* Info */}
         <div className="pdp-info">
@@ -434,7 +444,9 @@ export default function ProductDetailClient({
             <ShareButtons title={product.name} />
           </div>
 
-          {hasVariants && (
+          {optionPicker}
+
+          {hasVariants && !optionPicker && (
             <div className="pdp-variants">
               <label className="pdp-variants-label">Options</label>
               <div className="pdp-variant-options">
@@ -514,7 +526,7 @@ export default function ProductDetailClient({
             </div>
           </div>
 
-          <div className="pdp-actions">
+          <div className="pdp-actions" ref={actionsRef}>
             <button
               className="pdp-btn pdp-btn-cart"
               onClick={handleAddToCart}
@@ -554,34 +566,29 @@ export default function ProductDetailClient({
       />
 
       {/* Zoom lightbox */}
-      {zoomOpen && activeImg && (
-        <div
-          className="pdp-lightbox"
-          onClick={() => setZoomOpen(false)}
-          role="dialog"
-          aria-label="Zoomed product image"
-        >
-          <button
-            className="pdp-lightbox-close"
-            onClick={() => setZoomOpen(false)}
-            aria-label="Close"
-          >
-            ✕
-          </button>
-          <div
-            className="pdp-lightbox-img-wrap"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <Image
-              src={activeImg}
-              alt={product.name}
-              fill
-              sizes="90vw"
-              className="pdp-lightbox-img"
-            />
-          </div>
-        </div>
+      {zoomIndex !== null && gallery.length > 0 && (
+        <ProductLightbox
+          images={gallery}
+          alt={product.name}
+          index={zoomIndex}
+          onIndexChange={(index) => {
+            setZoomIndex(index);
+            setActiveIndex(index);
+          }}
+          onClose={() => setZoomIndex(null)}
+        />
       )}
+
+      <StickyAddToCart
+        target={actionsRef}
+        name={product.name}
+        variantName={selectedVariant?.name ?? null}
+        image={activeImg ?? gallery[0] ?? null}
+        price={selling}
+        compareAt={discount > 0 ? base : null}
+        disabled={outOfStock}
+        onAdd={handleAddToCart}
+      />
     </main>
   );
 }

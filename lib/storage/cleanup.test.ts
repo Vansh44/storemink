@@ -63,6 +63,7 @@ describe("deleteStorageUrls", () => {
       failed: 0,
       unmanaged: 0,
       foreign: 0,
+      shared: 0,
     });
     expect(gcsDeletePaths).not.toHaveBeenCalled();
   });
@@ -74,7 +75,13 @@ describe("deleteStorageUrls", () => {
         "https://cdn.other.com/x.png",
         "https://x.example.com/storage/v1/object/public/media/s.png",
       ]),
-    ).resolves.toEqual({ attempted: 0, failed: 0, unmanaged: 2, foreign: 0 });
+    ).resolves.toEqual({
+      attempted: 0,
+      failed: 0,
+      unmanaged: 2,
+      foreign: 0,
+      shared: 0,
+    });
     expect(gcsDeletePaths).not.toHaveBeenCalled();
   });
 
@@ -86,6 +93,7 @@ describe("deleteStorageUrls", () => {
       failed: 0,
       unmanaged: 0,
       foreign: 0,
+      shared: 0,
     });
     expect(gcsDeletePaths).toHaveBeenCalledWith(["dup.webp"]);
   });
@@ -96,7 +104,13 @@ describe("deleteStorageUrls", () => {
     vi.mocked(gcsDeletePaths).mockRejectedValueOnce(new Error("network"));
     await expect(
       deleteStorageUrls(["https://storage.googleapis.com/bkt/x.webp"]),
-    ).resolves.toEqual({ attempted: 1, failed: 1, unmanaged: 0, foreign: 0 });
+    ).resolves.toEqual({
+      attempted: 1,
+      failed: 1,
+      unmanaged: 0,
+      foreign: 0,
+      shared: 0,
+    });
   });
 });
 
@@ -159,5 +173,34 @@ describe("deleteStorageUrls tenant scope", () => {
       { ownedByStoreId: STORE },
     );
     expect(result).toMatchObject({ attempted: 1, foreign: 1, unmanaged: 1 });
+  });
+});
+
+// ★★ A published theme's images are shared by every store it seeded, so no
+//    clean-up — scoped or not — may delete one as its own orphan.
+describe("deleteStorageUrls and published theme images", () => {
+  const url = (p: string) => `https://storage.googleapis.com/bkt/${p}`;
+  const shared = "theme-releases/linen/1.0.0/hero-0123456789abcdef.webp";
+
+  beforeEach(() => {
+    vi.mocked(gcsDeletePaths).mockClear();
+  });
+
+  it("never deletes one, even with no tenant scope", async () => {
+    const result = await deleteStorageUrls([url(shared)]);
+    expect(gcsDeletePaths).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ attempted: 0, shared: 1 });
+  });
+
+  it("still deletes the store's own objects beside it", async () => {
+    const store = "a0000000-0000-4000-8000-000000000001";
+    const result = await deleteStorageUrls(
+      [url(shared), url(`stores/${store}/uploads/mine.webp`)],
+      { ownedByStoreId: store },
+    );
+    expect(gcsDeletePaths).toHaveBeenCalledWith([
+      `stores/${store}/uploads/mine.webp`,
+    ]);
+    expect(result).toMatchObject({ attempted: 1, shared: 1 });
   });
 });

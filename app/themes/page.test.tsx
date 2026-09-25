@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@/lib/themes/runtime-registry", async () => {
+  const { THEME_META } = await import("@/lib/themes/meta");
+  return { getThemeCatalog: vi.fn(async () => [...THEME_META]) };
+});
+
 import ThemesPage from "./page";
 import {
   THEME_META,

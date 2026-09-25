@@ -1770,3 +1770,76 @@ a.home-gallery-card:hover .home-gallery-image {
   line-height: 1.7;
   font-size: 0.98rem;
 }
+
+/* ---- Hero image controls (hero-media.tsx) -------------------------------
+   Focal point, phone image, height presets, content position and a tuned
+   overlay — shared by the hero and every carousel slide. Every class here is
+   emitted only when a merchant (or a theme) chose something other than the
+   default, so an untouched hero renders exactly as before. */
+.home-hero-picture {
+  display: contents;
+}
+/* The focal point steers the MAIN image. With a separate phone image it
+   applies only where the main image is showing. */
+@media (min-width: 768px) {
+  .home-hero-img.has-focal,
+  .home-carousel-media.has-focal {
+    object-position: var(--sm-focal);
+  }
+}
+.home-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+/* A tuned overlay replaces the built-in scrim rather than stacking on it. */
+.home-hero.has-overlay .home-hero-bgmedia::after,
+.home-carousel-slide.has-overlay::after {
+  display: none;
+}
+
+/* Height presets. Later than each variant's own min-height, same
+   specificity, so the preset wins; "screen" fills the phone below the
+   header on every browser that has small-viewport units. */
+.home-hero.height-small,
+.home-carousel.height-small {
+  min-height: clamp(240px, 28vw, 360px);
+}
+.home-hero.height-medium,
+.home-carousel.height-medium {
+  min-height: clamp(360px, 42vw, 560px);
+}
+.home-hero.height-large,
+.home-carousel.height-large {
+  min-height: clamp(460px, 58vw, 760px);
+}
+.home-hero.height-screen,
+.home-carousel.height-screen {
+  min-height: calc(100vh - var(--sm-header-h, 72px));
+  min-height: calc(100svh - var(--sm-header-h, 72px));
+}
+
+/* Vertical placement of copy over media. */
+.home-hero.content-top .home-hero-copy {
+  justify-content: flex-start;
+}
+.home-hero.content-bottom .home-hero-copy {
+  justify-content: flex-end;
+}
+.home-carousel-slide.content-top {
+  align-items: flex-start;
+}
+.home-carousel-slide.content-bottom {
+  align-items: flex-end;
+}
+/* Clear the dots when the copy sits at the bottom. */
+.home-carousel-slide.content-bottom .home-carousel-copy {
+  padding-bottom: clamp(44px, 6vw, 72px);
+}
+
+/* Swipe between slides on touch; vertical scrolling and pinch stay with the
+   browser. */
+.home-carousel {
+  touch-action: pan-y pinch-zoom;
+}

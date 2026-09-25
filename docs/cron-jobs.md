@@ -129,6 +129,7 @@ gcloud builds submit --project storemink-prod --region global --config=cloudbuil
 | `storemink-help-embeddings`         | `50 * * * *`   | `https://storemink.com/api/cron/help-embeddings`         |
 | `storemink-mink-publications`       | `* * * * *`    | `https://storemink.com/api/cron/mink-publications`       |
 | `storemink-mink-workflows`          | `* * * * *`    | `https://storemink.com/api/cron/mink-workflows`          |
+| `storemink-theme-studio-runs`       | `* * * * *`    | `https://storemink.com/api/internal/theme-studio/runs`   |
 
 > ⚠ **The table above is the INTENDED state. Measured live 2026-09-08 with
 > `gcloud scheduler jobs list --project storemink-prod --location asia-south1`,
@@ -187,6 +188,20 @@ failed 0`. Overlapping runs are safe because the endpoint is idempotent and
 > **None of those were changed:** each needs its own decision about whether its
 > migrations and routes are actually deployed first.
 
+⚠ **`storemink-theme-studio-runs` does NOT exist yet, and it is the one job
+here with a different deadline.** It executes one Theme Studio model run per
+call, and a run can take up to 20 minutes, so it needs an attempt deadline of
+**1,200 s** (Cloud Scheduler allows up to 1,800 s for HTTP targets), **no
+retries** (the next minute's call claims whatever is next, and retrying a
+20-minute request only stacks work), and a Cloud Run service request timeout of
+at least 1,200 s — without that, Cloud Run kills the request mid-generation, the
+lease expires 20 minutes later, and an attempt is spent for nothing. It is only
+needed once an environment sets `THEME_STUDIO_PROVIDER=vertex-gemini`: the
+offline provider runs in `after()` and on `mink-workflows`. Until then, model
+runs queue and wait; nothing is lost. The path is under `/api/internal/`, not
+`/api/cron/`, because it is a worker rather than a heartbeat. Full rollout list:
+`docs/mink-ai-theme-studio-phase3.md` §6.
+
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole
 system: on a daily schedule some merchants would get nearly a day of unearned
@@ -217,6 +232,15 @@ is live and did need a worker. Verified after creation by three consecutive
 firings a minute apart (13:49:09, 13:50:05, 13:51:05), all HTTP 200, the job's
 own status code empty, no app-side errors, tables still clean.
 
+★ **It also carries the Theme Studio preview retention sweep (2026-09-24),**
+for the same reason as the reconciler below: it needs a per-minute authorised
+backstop, and a new Scheduler entry is the kind that gets documented and never
+created. `sweepThemeStudioPreviews` removes up to ten preview stores a pass —
+idle past 24 hours, abandoned mid-build, or belonging to an archived project —
+and is isolated: its failure is logged, never propagated, so it cannot fail
+merchant Mink workflows. The response carries `themeStudioPreviewsRemoved`.
+Nothing about the job itself changes.
+
 ★★ **IT ALSO CARRIES THE MINK CREDIT RECONCILER (2026-09-21), and that is
 deliberately not a job of its own.** `settleMinkRunCredits` runs after the run
 row commits and never throws, because a billing failure must not roll back a
@@ -239,6 +263,12 @@ cycle's work) and a 10-minute minimum age so it cannot race the live path.
 for ever. Settling those charges nothing — a failed run's band is 0 and
 `minkRunCreditCharge` returns only the untaken part — but records the fact,
 which is what stops the sweep re-reading them every minute.
+★ **IT ALSO DRAINS THEME STUDIO RUNS (2026-09-23)**, again as an independent
+pass rather than a new job. Queuing a Studio run kicks the worker in-process, so
+this is the backstop that reclaims expired leases and finishes work a recycled
+instance left behind. It is isolated in the other direction too: a Studio
+failure is logged and never fails the merchant Mink heartbeat. The response
+gained `themeStudio`. See `docs/mink-ai-theme-studio-phase2.md`.
 ⚠ Each execution logs TWO Cloud Scheduler entries — one carrying
 `httpRequest.status: 200` and one with the field absent — so a filter of
 `httpRequest.status!=200` looks like failures and is not. Judge by the job's
@@ -449,6 +479,18 @@ gcloud scheduler jobs create http storemink-seo-refresh \
   --uri="https://storemink.com/api/cron/seo-refresh" \
   --http-method=GET --headers="Authorization=Bearer ${CRON_SECRET_VALUE}" \
   --attempt-deadline=300s --max-retry-attempts=3
+```
+
+Only after the Cloud Run request timeout is at least 1,200 s, create the
+Theme Studio model worker (long deadline, no retries — see above):
+
+```bash
+gcloud scheduler jobs create http storemink-theme-studio-runs \
+  --project=storemink-prod --location=asia-south1 \
+  --schedule="* * * * *" --time-zone="Etc/UTC" \
+  --uri="https://storemink.com/api/internal/theme-studio/runs" \
+  --http-method=POST --headers="Authorization=Bearer ${CRON_SECRET_VALUE}" \
+  --attempt-deadline=1200s --max-retry-attempts=0
 ```
 
 After the pgvector migration and route deploy are verified, create the Help

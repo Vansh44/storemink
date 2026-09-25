@@ -22,6 +22,7 @@ import {
   getActingStoreId,
 } from "@/app/dashboard/lib/access";
 import { emitEvent } from "@/lib/notifications/record";
+import { resolveOptionRows, type ProductOption } from "@/lib/products/options";
 import { deleteStorageUrls } from "@/lib/storage/cleanup";
 import {
   FOREIGN_IMAGE_ERROR,
@@ -65,6 +66,8 @@ export interface VariantFormData {
   width_cm?: number | null;
   height_cm?: number | null;
   images: string[]; // this variant's own gallery (empty = uses product gallery)
+  /** Positional values on the product's `options`; empty without options. */
+  option_values?: string[];
 }
 
 export interface ProductFormData {
@@ -84,6 +87,8 @@ export interface ProductFormData {
   seo_title: string;
   seo_description: string;
   variants: VariantFormData[];
+  /** Option axes (Size, Colour). Absent/empty = plain named variants. */
+  options?: ProductOption[];
   track_inventory?: boolean;
   allow_backorder?: boolean;
   low_stock_threshold?: number | null;
@@ -234,6 +239,7 @@ function sanitizeVariants(variants: VariantFormData[], costsEnabled: boolean) {
         heightCm: positiveOrNull(v.height_cm, 10_000),
         images,
         imageUrl: images[0] ?? null, // keep the legacy single image in sync
+        optionValues: v.option_values ?? [],
         sortOrder: i,
       };
     });
@@ -502,6 +508,21 @@ async function fetchProductImageUrls(
  * still reaches products saved before the change. 0 is MEANINGFUL (same-day
  * only), so it must survive rather than being coerced to null.
  */
+/**
+ * Normalise the product's option axes and give every variant its canonical
+ * values and composed name ("M / Black"). Runs BEFORE any write, so an
+ * incomplete or duplicate combination refuses the save rather than leaving a
+ * product with half its variants. The browser's names are never trusted when
+ * options exist: the name is derived here from the values.
+ */
+function resolveVariantOptions(
+  formData: ProductFormData,
+):
+  | { options: ProductOption[]; variants: VariantFormData[] }
+  | { error: string } {
+  return resolveOptionRows(formData.options, formData.variants ?? []);
+}
+
 function normalizeReturnWindow(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
   const n = Number(value);
@@ -531,6 +552,9 @@ export async function createProduct(
   );
   if (foreignImage) return { error: FOREIGN_IMAGE_ERROR };
 
+  const resolved = resolveVariantOptions(formData);
+  if ("error" in resolved) return { error: resolved.error };
+
   const base = formData.slug ? slugify(formData.slug) : slugify(formData.name);
   const { slug: firstSlug, bump } = await resolveSlug(admin, base, storeId);
   let slug = firstSlug;
@@ -548,6 +572,7 @@ export async function createProduct(
     featured: formData.featured,
     sortOrder: formData.sort_order ?? 0,
     cardColor: formData.card_color?.trim() || null,
+    options: resolved.options,
     seoTitle: formData.seo_title.trim() || null,
     seoDescription: formData.seo_description.trim() || null,
     publishedAt:
@@ -611,7 +636,7 @@ export async function createProduct(
     const variantError = await replaceVariants(
       admin,
       inserted.id as string,
-      formData.variants,
+      resolved.variants,
       storeId,
       costsEnabled,
     );
@@ -659,6 +684,9 @@ export async function updateProduct(
   if (!formData.seo_title.trim() || !formData.seo_description.trim())
     return { error: "SEO title and description are required." };
 
+  const resolved = resolveVariantOptions(formData);
+  if ("error" in resolved) return { error: resolved.error };
+
   const base = formData.slug ? slugify(formData.slug) : slugify(formData.name);
   const { slug: firstSlug, bump } = await resolveSlug(admin, base, storeId, id);
   let slug = firstSlug;
@@ -691,6 +719,7 @@ export async function updateProduct(
     featured: formData.featured,
     sortOrder: formData.sort_order ?? 0,
     cardColor: formData.card_color?.trim() || null,
+    options: resolved.options,
     seoTitle: formData.seo_title.trim() || null,
     seoDescription: formData.seo_description.trim() || null,
     publishedAt,
@@ -754,7 +783,7 @@ export async function updateProduct(
     const variantError = await replaceVariants(
       admin,
       id,
-      formData.variants,
+      resolved.variants,
       storeId,
       costsEnabled,
     );

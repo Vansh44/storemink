@@ -15,6 +15,12 @@ const dbHolder = vi.hoisted(() => ({ current: null as any }));
 vi.mock("@/lib/db/client", () => ({
   withService: vi.fn((fn: any) => Promise.resolve(fn(dbHolder.current.db))),
 }));
+vi.mock("./runtime-registry", () => ({
+  resolveThemeDefinition: vi.fn(async (id: unknown, version?: unknown) => {
+    const { getThemeDefinition } = await import("./index");
+    return getThemeDefinition(id, version);
+  }),
+}));
 
 import {
   categories,
@@ -24,7 +30,8 @@ import {
   storePages,
   stores,
 } from "@/drizzle/schema";
-import { applyTheme } from "./apply";
+import { applyTheme, applyThemeDefinition } from "./apply";
+import { getThemeDefinition } from "./index";
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -217,6 +224,125 @@ describe("applyTheme", () => {
     expect(productUpserts.length).toBeGreaterThan(0);
     for (const p of productUpserts) expect(p.status).toBe("published");
     expect(productUpserts[0].publishedAt).toBeTruthy();
+  });
+
+  // A re-apply hits the conflict branch. It used to write "published"
+  // unconditionally there, so re-seeding a merchant store put its draft
+  // sample products live.
+  it("keeps the same publish rule when a re-apply updates existing products", async () => {
+    await applyTheme("store-1", "basket", { publish: true });
+    const drafts = dbHolder.current.calls.onConflict.products.map(
+      (c: any) => c.set,
+    );
+    expect(drafts.length).toBeGreaterThan(0);
+    for (const set of drafts) {
+      expect(set.status).toBe("draft");
+      expect(set.publishedAt).toBeNull();
+    }
+    dbHolder.current = makeApplyDb({
+      storeSettings: { brand: { name: "My Shop" } },
+    });
+    await applyTheme("store-1", "basket", {
+      publish: true,
+      publishSampleProducts: true,
+    });
+    for (const c of dbHolder.current.calls.onConflict.products) {
+      expect(c.set.status).toBe("published");
+    }
+  });
+
+  it("seeds from a definition the caller already holds", async () => {
+    const theme = getThemeDefinition("basket");
+    await applyThemeDefinition("store-1", theme, { publish: true });
+    const settings = dbHolder.current.calls.update.stores[0].settings;
+    expect(settings.theme.presetId).toBe(theme.id);
+    expect(dbHolder.current.calls.insert.store_pages.length).toBe(
+      theme.preset.pages.length,
+    );
+  });
+
+  // Option axes seed exactly as the product editor saves them: the options on
+  // the product row, positional values and a composed name on each variant.
+  it("seeds a product's option axes and each variant's combination", async () => {
+    const base = getThemeDefinition("basket");
+    const product = base.preset.sampleData!.products[0];
+    const theme = structuredClone(base);
+    theme.preset.sampleData!.products = [
+      {
+        ...product,
+        options: [
+          { name: "Size", values: ["S", "M"] },
+          { name: "Colour", values: ["Black"], swatches: { Black: "#111111" } },
+        ],
+        variants: [
+          {
+            name: "x",
+            option_values: ["m", "black"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+          {
+            name: "y",
+            option_values: ["S", "Black"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+        ],
+      },
+    ];
+    const result = await applyThemeDefinition("store-1", theme, {
+      publish: true,
+    });
+    expect(result.errors).toEqual([]);
+    expect(dbHolder.current.calls.insert.products[0].options).toEqual([
+      { name: "Size", values: ["S", "M"] },
+      { name: "Colour", values: ["Black"], swatches: { Black: "#111111" } },
+    ]);
+    const [variants] = dbHolder.current.calls.insert.product_variants;
+    expect(variants.map((v: any) => [v.name, v.optionValues])).toEqual([
+      ["M / Black", ["M", "Black"]],
+      ["S / Black", ["S", "Black"]],
+    ]);
+  });
+
+  it("seeds inconsistent options as a flat list and says so", async () => {
+    const base = getThemeDefinition("basket");
+    const product = base.preset.sampleData!.products[0];
+    const theme = structuredClone(base);
+    theme.preset.sampleData!.products = [
+      {
+        ...product,
+        options: [{ name: "Size", values: ["S", "M"] }],
+        variants: [
+          {
+            name: "Small",
+            option_values: ["S"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+          {
+            name: "Also small",
+            option_values: ["S"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+        ],
+      },
+    ];
+    const result = await applyThemeDefinition("store-1", theme, {
+      publish: true,
+    });
+    expect(result.errors.join(" ")).toMatch(/options .*Two variants/);
+    expect(dbHolder.current.calls.insert.products[0].options).toEqual([]);
+    const [variants] = dbHolder.current.calls.insert.product_variants;
+    expect(variants.map((v: any) => [v.name, v.optionValues])).toEqual([
+      ["Small", []],
+      ["Also small", []],
+    ]);
   });
 
   it("refuses reset on a non-demo store", async () => {

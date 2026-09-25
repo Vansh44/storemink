@@ -25,6 +25,8 @@ import {
   type GalleryItem,
   type HeroCarouselConfig,
   type HeroConfig,
+  type HeroHeight,
+  type HeroImageOptions,
   type HeroSlide,
   type HomepageSectionType,
   type LatestBlogsConfig,
@@ -412,6 +414,10 @@ function HeroFields({
               <option value="center">Center</option>
             </select>
           </div>
+          <HeightSelect
+            value={config.height}
+            onChange={(height) => setConfig(withHeight(config, height))}
+          />
         </div>
       </FieldGroup>
 
@@ -484,6 +490,13 @@ function HeroFields({
           </p>
         </div>
 
+        <HeroImageFields
+          image={config.image_url}
+          value={config}
+          overlay={config.variant === "minimal"}
+          onChange={(patch) => setConfig(withImageOptions(config, patch))}
+        />
+
         <div>
           <label className={labelClass}>Video (optional)</label>
           <VideoField
@@ -520,6 +533,204 @@ function HeroFields({
       </FieldGroup>
     </>
   );
+}
+
+const HEIGHT_OPTIONS: { value: HeroHeight; label: string }[] = [
+  { value: "auto", label: "Default" },
+  { value: "small", label: "Small" },
+  { value: "medium", label: "Medium" },
+  { value: "large", label: "Large" },
+  { value: "screen", label: "Full screen" },
+];
+
+function HeightSelect({
+  value,
+  onChange,
+}: {
+  value: HeroHeight | undefined;
+  onChange: (v: HeroHeight | undefined) => void;
+}) {
+  return (
+    <div>
+      <label className={labelClass}>Height</label>
+      <select
+        className={fieldClass}
+        value={value ?? "auto"}
+        onChange={(e) => {
+          const v = e.target.value as HeroHeight;
+          onChange(v === "auto" ? undefined : v);
+        }}
+      >
+        {HEIGHT_OPTIONS.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
+/**
+ * The image controls a paid Shopify theme gives a banner: where the subject
+ * is (so every crop keeps it), a separate photograph for phones, how strong
+ * the overlay behind the copy is, and whether the copy sits high or low.
+ * Every control has an explicit "default" that stores nothing.
+ */
+export function HeroImageFields({
+  image,
+  value,
+  onChange,
+  overlay,
+}: {
+  image: string;
+  value: HeroImageOptions;
+  onChange: (patch: HeroImageOptions) => void;
+  /** Overlay + position only mean something where copy sits on the media. */
+  overlay: boolean;
+}) {
+  const x = value.focal_x ?? 50;
+  const y = value.focal_y ?? 50;
+  const setFocal = (fx: number, fy: number) => {
+    const rx = Math.round(Math.min(100, Math.max(0, fx)));
+    const ry = Math.round(Math.min(100, Math.max(0, fy)));
+    onChange(
+      rx === 50 && ry === 50
+        ? { focal_x: undefined, focal_y: undefined }
+        : { focal_x: rx, focal_y: ry },
+    );
+  };
+  return (
+    <div className="space-y-3">
+      {image && (
+        <div>
+          <label className={labelClass}>Focal point</label>
+          <button
+            type="button"
+            className="relative block w-full overflow-hidden rounded-md border"
+            onClick={(e) => {
+              const box = e.currentTarget.getBoundingClientRect();
+              setFocal(
+                ((e.clientX - box.left) / box.width) * 100,
+                ((e.clientY - box.top) / box.height) * 100,
+              );
+            }}
+            aria-label={`Set the focal point (now ${x}% across, ${y}% down)`}
+          >
+            {/* eslint-disable-next-line @next/next/no-img-element -- editor preview of an uploaded URL. */}
+            <img src={image} alt="" className="block h-auto w-full" />
+            <span
+              aria-hidden
+              className="pointer-events-none absolute top-1/2 left-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-[0_0_0_1px_rgba(0,0,0,0.6)]"
+              style={{ left: `${x}%`, top: `${y}%` }}
+            />
+          </button>
+          <p className="text-muted-foreground mt-1 text-[11px]">
+            Click the subject. Every crop — wide desktop, tall phone — keeps
+            this point in view.{" "}
+            {value.focal_x !== undefined && (
+              <button
+                type="button"
+                className="underline"
+                onClick={() => setFocal(50, 50)}
+              >
+                Reset to centre
+              </button>
+            )}
+          </p>
+        </div>
+      )}
+
+      <div>
+        <label className={labelClass}>Phone image (optional)</label>
+        <ImageUpload
+          folder="homepage"
+          defaultImage={value.mobile_image_url || undefined}
+          onUploadSuccess={(url) =>
+            onChange({ mobile_image_url: url || undefined })
+          }
+        />
+        <p className="text-muted-foreground mt-1 text-[11px]">
+          A taller photo composed for phones. Phones download only this one.
+        </p>
+      </div>
+
+      {overlay && (
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className={labelClass}>
+              Overlay{" "}
+              {value.overlay_opacity !== undefined
+                ? `${value.overlay_opacity}%`
+                : "(default)"}
+            </label>
+            <input
+              type="range"
+              min={0}
+              max={80}
+              step={5}
+              className="w-full"
+              value={value.overlay_opacity ?? 0}
+              onChange={(e) =>
+                onChange({ overlay_opacity: Number(e.target.value) })
+              }
+            />
+            {value.overlay_opacity !== undefined && (
+              <button
+                type="button"
+                className="text-muted-foreground text-[11px] underline"
+                onClick={() => onChange({ overlay_opacity: undefined })}
+              >
+                Use default
+              </button>
+            )}
+          </div>
+          <div>
+            <label className={labelClass}>Text position</label>
+            <select
+              className={fieldClass}
+              value={value.content_position ?? "middle"}
+              onChange={(e) => {
+                const v = e.target.value;
+                onChange({
+                  content_position:
+                    v === "top" || v === "bottom" ? v : undefined,
+                });
+              }}
+            >
+              <option value="top">Top</option>
+              <option value="middle">Middle</option>
+              <option value="bottom">Bottom</option>
+            </select>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Merge a patch, dropping keys set back to their default (undefined) so
+ *  the stored config stays exactly what an untouched hero always stored. */
+function withImageOptions<T extends HeroImageOptions>(
+  base: T,
+  patch: HeroImageOptions,
+): T {
+  const next = { ...base, ...patch } as T & Record<string, unknown>;
+  for (const key of Object.keys(patch)) {
+    if ((patch as Record<string, unknown>)[key] === undefined) delete next[key];
+  }
+  return next;
+}
+
+/** Set or clear (back to the default) a hero/carousel height preset. */
+function withHeight<T extends { height?: HeroHeight }>(
+  base: T,
+  height: HeroHeight | undefined,
+): T {
+  const next = { ...base };
+  if (height) next.height = height;
+  else delete next.height;
+  return next;
 }
 
 const EMPTY_SLIDE: HeroSlide = {
@@ -583,6 +794,10 @@ function CarouselFields({
             ))}
           </select>
         </div>
+        <HeightSelect
+          value={config.height}
+          onChange={(height) => setConfig(withHeight(config, height))}
+        />
       </FieldGroup>
 
       <div className="space-y-2">
@@ -676,6 +891,19 @@ function CarouselFields({
               folder="homepage"
               defaultImage={slide.image_url || undefined}
               onUploadSuccess={(url) => setSlide(i, { image_url: url })}
+            />
+            <HeroImageFields
+              image={slide.image_url}
+              value={slide}
+              overlay
+              onChange={(patch) =>
+                set(
+                  "slides",
+                  config.slides.map((s, j) =>
+                    j === i ? withImageOptions(s, patch) : s,
+                  ),
+                )
+              }
             />
             <VideoField
               value={slide.video_url}

@@ -2302,6 +2302,9 @@ wholesip/
 │   │       ├── json-ld.tsx          # generic <JsonLd> renderer (builders: lib/seo)
 │   │       ├── quick-add-button.tsx # "+ Add" on product cards (theme layout.card
 │   │       │                        # = "quick_add"; hidden by CSS otherwise)
+│   │       ├── studio-acceptance-probe.tsx # Theme Studio acceptance
+│   │       │                        # measurements; rendered ONLY on preview
+│   │       │                        # stores, answers only a platform-host parent
 │   │
 │   ├── dashboard/             # ★ STORE ADMIN DASHBOARD (per-store, auth-gated)
 │   │   ├── layout.tsx         # Sidebar + topbar shell (dashboard.css); independent
@@ -2721,8 +2724,21 @@ wholesip/
 │       │                      # work remains, and returns 503 on provider failure
 │       ├── cron/mink-publications/ # ★ Every minute: CRON_SECRET-gated bounded Phase 5D
 │       │                      # due-blog publisher; exact-version conflict detection + SKIP LOCKED.
+│       ├── internal/theme-studio/runs/ # ★ Theme Studio Phase 3 MODEL worker: CRON_SECRET
+│       │                      # bearer, maxDuration 1200, ONE run of any provider per call.
+│       │                      # Needs its own Scheduler job (1200s deadline, no retries) and a
+│       │                      # ≥1200s Cloud Run timeout — docs/cron-jobs.md. Takes no input.
 │       ├── cron/mink-workflows/ # ★ Every minute: CRON_SECRET-gated Phase 6A lease worker;
 │       │                      # bounded deterministic steps, retries, cancellation and completion.
+│       │                      # Also sweeps idle Theme Studio preview stores (isolated).
+│       ├── theme-studio/preview/enter/ # ★ On a PREVIEW STORE's host: swaps a 10-min entry
+│       │                      # token for a 1h host-only grant cookie; relative redirect.
+│       ├── theme-studio/placeholders/[assetId]/ # ★ PUBLIC, placeholder-purpose-only
+│       │                      # images for previews (next/image sends no cookies).
+│       ├── theme-studio/images/[assetId]/ # ★ PUBLIC operator slot images
+│       │                      # (image purpose only, never a reference).
+│       ├── platform/theme-studio/projects/[projectId]/slot-images/ # superadmin
+│       │                      # raw-body upload of one slot image; changes no version.
 │       ├── cron/domain-reconcile/ # ★ HOURLY (§30): finishes every custom domain
 │       │                      # whose certificate issued after the merchant closed
 │       │                      # the tab. Without it a domain only ever goes live if
@@ -3283,6 +3299,51 @@ wholesip/
 │   │                          # Phase 7D publication remains an authenticated human-only action.
 │   │                          # `evals/mink/read-alpha.json` + `npm run mink:eval` are the
 │   │                          # 81-case live tool/safety/latency gate.
+│   ├── theme-studio/          # ★ OPERATOR-ONLY AI Theme Studio Phase 0 contracts
+│   │                          # (docs/mink-ai-theme-studio-phase0.md; no routes or provider
+│   │                          # runtime yet). contracts.ts owns the bounded ThemeIntent and
+│   │                          # ThemePackageV2 parsers, fixed responsive review viewports,
+│   │                          # project state machine, run/intake ceilings and explicit
+│   │                          # capability-gap vocabulary. It refuses unknown/instruction-
+│   │                          # shaped fields, invented sections, custom_code, undeclared
+│   │                          # assets and unknown models; every bundled theme round-trips
+│   │                          # through V2 without loss. models.json is the ONE task-scoped
+│   │                          # Gemini 3.8 Flash / 3.1 Pro registry shared by TypeScript and
+│   │                          # the operational probe; models.ts exposes stable UI keys only
+│   │                          # and resolves provider ids server-side. These models are NOT
+│   │                          # registered with merchant Mink.
+│   │                          # Phase 3: gemini-vertex.ts (the ONLY Studio model client —
+│   │                          # @google/genai Vertex mode, ADC, responseJsonSchema, no
+│   │                          # tools, HIGH thinking, thought parts discarded),
+│   │                          # schemas.ts (closed Stage A/B JSON schemas), prompts.ts
+│   │                          # (deterministic, versioned, untrusted input fenced),
+│   │                          # compiler.ts (draft → ThemePackageV2; the server owns id,
+│   │                          # engine, release, assets; URLs/hrefs/sources refused),
+│   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
+│   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
+│   │                          # cost.ts (versioned ESTIMATE, priced per call because
+│   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
+│   │                          # grading + independent package safety checks).
+│   │                          # Phase 4: preview.ts (materialize/evict/sweep hidden demo
+│   │                          # preview stores; theme-asset rewrite), preview-token.ts
+│   │                          # (entry + grant HMAC), preview-store.ts (pure marker +
+│   │                          # safe-path check), preview-access.ts (the resolver gate),
+│   │                          # diff.ts (pure version compare).
+│   │                          # Phase 5: acceptance-gates.ts (pure gates + evidence
+│   │                          # digests), acceptance.ts (server stage, browser-stage
+│   │                          # verdict, candidate transitions, evidence re-check),
+│   │                          # acceptance-http.ts (loopback page fetch with the
+│   │                          # preview Host header).
+│   │                          # slot-images-core.ts (pure: describe slots, apply
+│   │                          # replacements, carry images into a revision) +
+│   │                          # slot-images.ts (crop/compress an upload, store it,
+│   │                          # save replacements as one asset_edit version).
+│   │                          # Phase 6: scorecard.ts (the §5 rows/chairs/bar; no
+│   │                          # imports, client-safe), publication-core.ts (pure:
+│   │                          # scorecard + approval rules, blockers, semver, the
+│   │                          # published-package builder, catalog changes),
+│   │                          # publication.ts (server-only: review, approve, publish,
+│   │                          # hide/show/restore, read model; I/O injectable).
 │   ├── help/                   # ★ Public Help reads/types plus Mink AI retrieval (§21):
 │   │                          # assistant-input.ts rejects low-signal turns; chunks.ts
 │   │                          # creates heading-aware plain-text sections; embeddings.ts
@@ -3917,6 +3978,16 @@ wholesip/
 │                              # missing/draft/empty guide drift is repaired before publication.
 │                              # It follows the 0049/0050 UX migrations.
 ├── scripts/
+│   ├── theme-studio-eval.ts   # ★ Phase 0 golden set through the Phase 3 pipeline, no DB.
+│   │                          # Offline (fake) by default and grades nothing; --live needs
+│   │                          # --max-usd AND --yes, because GCP_PROJECT_ID in a dev .env
+│   │                          # would otherwise be all it takes to spend money. Exits 1 on
+│   │                          # any package safety violation.
+│   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
+│   │                          # the two Theme Studio Gemini models. --dry-run makes no
+│   │                          # request; a live probe sends one FREE countTokens call per
+│   │                          # model, reports only status/latency/safe code and never falls
+│   │                          # back to another model. Not a CI job: needs ADC + a project.
 │   ├── help-content-lint.mjs  # ★★ THE HELP CENTRE GATE (docs/help-centre.md).
 │   │                          # AGENTS.md used to require a Help update for EVERY
 │   │                          # change, so the cheapest way to comply was to append
@@ -4581,7 +4652,9 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     the pin first and falls back to legacy `template`, so existing stores need
     no migration; old immutable releases stay in `THEME_DEFINITIONS` when a
     preset advances. `createStore` (signup) calls it with the picked template
-    (published immediately; brand NAME preserved). v1 constraints CI-tested in
+    (published immediately; brand NAME preserved). v1 constraints are
+    production functions in `lib/themes/validation.ts` (Theme Studio's
+    acceptance gates run them too), asserted for every bundled theme by
     `lib/themes/themes.test.ts`:
     non-id sources only, no latest_blogs, homepage present, strict publish
     validation, every referenced asset exists, catalog metadata is unique and
@@ -4603,7 +4676,8 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     **Public theme catalog (Phase 4, in progress)**:
     `themes.{ROOT_DOMAIN}` is a reserved platform host (`isThemesHost`) rewritten
     by `proxy.ts` to `app/themes/`, never resolved as merchant tenancy. The
-    server-rendered catalog imports only client-safe `THEME_META`, so its
+    server-rendered catalog receives only client-safe `ThemeMeta` from the
+    runtime registry (with bundled `THEME_META` as fallback), so its
     industry filters, plan badges, release labels, preview image, demo health,
     and signup CTA share the exact source used by onboarding. The hero and
     closing galleries receive a small serializable projection of every
@@ -4620,6 +4694,278 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     one-entry sitemap; the platform nav/footer links to it. Blocked or unhealthy
     demos render an honest unavailable state rather than a broken live link.
     `themes` is also rejected by store-signup slug validation.
+    **Mink AI Theme Studio Phase 0 (2026-09-23; contracts only):**
+    `lib/theme-studio/contracts.ts` defines the strict two-stage model boundary:
+    a bounded, structure-only `ThemeIntent`, then a declarative
+    `ThemePackageV2` wrapping today's `ThemeDefinition` with renderer,
+    capabilities, immutable asset manifest, provenance and explicit capability
+    gaps. The parser reuses publish-mode section validation and refuses
+    invented sections, custom code, undeclared assets, unknown models and
+    instruction-shaped fields. A compatibility test converts, validates and
+    deep-equality round-trips all four bundled themes. `models.json` /
+    `models.ts` form a separate two-model allowlist (Gemini 3.8 Flash and
+    Gemini 3.1 Pro preview), deliberately absent from merchant Mink. The 32-case golden set is
+    `evals/theme-studio/phase0.json`; the role/state/retention/threat/ADR record
+    is `docs/mink-ai-theme-studio-phase0.md`. No route, DB row, worker, preview,
+    provider call or publish path exists in Phase 0, so this changes no
+    merchant or shopper flow and requires no Help Centre migration.
+    **Mink AI Theme Studio Phase 1 (2026-09-23; runtime registry):** migration
+    `20260923_0127_theme_runtime_registry` adds service-only
+    `theme_releases` (immutable, content-addressed `ThemePackageV2` rows) and
+    `theme_catalog_entries` (the mutable current-release/visibility pointer).
+    Database triggers forbid release mutation and forbid a catalog pointer to
+    a non-published row; `app_user` has no table privileges. Server-only
+    `lib/themes/runtime-registry.ts` validates every JSON package and SHA-256
+    digest before use and resolves an exact installed database version first.
+    ★★ Contract comparisons and the digest are KEY-ORDER INDEPENDENT
+    (`canonicalJson` in `lib/theme-studio/contracts.ts`): `jsonb` returns keys
+    sorted by length then bytes, so a `JSON.stringify` comparison rejected
+    every stored package and the registry silently served only bundled themes.
+    ★ Two resolvers: `resolveInstalledThemeDefinition` (render/design reads)
+    returns NULL for an id in neither the registry nor this build, so a retired
+    `template` value renders un-themed rather than as Basket;
+    `resolveThemeDefinition` (install paths) keeps the default fallback. Caches
+    hold PARSED values (per exact pin, per theme id, catalog as metadata only),
+    so validation runs on cache fill, not per render. The catalog projection
+    is built field by field so `preset` never reaches the signup client, and it
+    feeds the storefront, public catalog, signup, theme application, demos,
+    Website Builder and existing Mink storefront design readers.
+    `npm run theme-registry:import` is dry-run by default, idempotently imports
+    bundled releases with `--commit`, and can explicitly select/restore a
+    published pointer with `--activate id@version` (which refuses a package
+    the readers would reject); it never advances an existing pointer during
+    routine import. Size is measured as `package_json::text` (`jsonbTextBytes`)
+    and actor ids must be `platform_admins.id` uuids. Full contract and rollout record:
+    `docs/mink-ai-theme-studio-phase1.md`. This is internal infrastructure, so
+    there is no merchant-visible change and no Help Centre migration.
+    **Mink AI Theme Studio Phase 2 (2026-09-23; Studio shell and secure
+    intake):** superadmin-only routes `/dashboard/themes/studio`, `/new` and
+    `/[projectId]` (under `app/platform/dashboard/(console)/themes/studio`),
+    linked from the Themes page. ★ `lib/theme-studio/access.ts`
+    `getThemeStudioActor()` admits ONLY a superadmin and resolves the
+    `platform_admins` uuid from the session — a platform member cannot read
+    Studio data at all, and every page, action
+    (`app/actions/theme-studio-actions.ts`) and route re-derives it. ★★
+    References are NOT in GCS: the media bucket is public, so a "private
+    prefix" does not exist there. `lib/theme-studio/references.ts` sniffs magic
+    bytes, refuses SVG/HTML/animated/oversized/over-40MP input, re-encodes to a
+    ≤2048 px WebP (stripping EXIF) and only that re-encode is stored, in the
+    service-only `theme_studio_assets` table (the `data_job_payloads`
+    precedent). Upload is a raw-body route
+    (`/api/platform/theme-studio/projects/[projectId]/references`) because a
+    server action caps bodies at 6 MB; reads go through a gated `private,
+    no-store`, `nosniff`, `default-src 'none'` route. Migration
+    `20260923_0128_theme_studio_intake` adds six service-only tables and
+    ENFORCES in the database: the Phase 0 state machine, one active run per
+    project, lease/terminal/error-code consistency, immutable messages/assets,
+    append-only versions/events, one version per run, and cross-project
+    foreign keys. `lib/theme-studio/repository.ts` (not "use server") owns
+    writes under row + per-operator advisory locks with idempotency keys,
+    stale-revision refusal and the daily/concurrency caps.
+    `lib/theme-studio/worker.ts` leases runs with `FOR UPDATE SKIP LOCKED`,
+    reclaims expired leases, fails exhausted ones and CANCELS (never re-runs) an
+    expired run awaiting cancellation; it runs after queueing via `after()` and
+    as an isolated pass on the existing `/api/cron/mink-workflows` heartbeat.
+    Phase 2 executes only the offline `fake-provider.ts`, which returns a
+    validated `ThemeIntent` labelled as not model-generated.
+    `THEME_STUDIO_PROVIDER` (default `fake`) and
+    `THEME_STUDIO_GENERATION_ENABLED` (`false` = Studio emergency stop) are
+    independent of `MINK_AI_ENABLED`. Record:
+    `docs/mink-ai-theme-studio-phase2.md`. Operator-only: no Help Centre
+    migration.
+    **Mink AI Theme Studio Phase 3 (2026-09-23; Gemini generation
+    pipeline, NOT yet run against a live model):** `pipeline.ts` runs Stage A
+    (brief + references → intent, or ≤5 clarifying questions, or a decline) and
+    Stage B (intent → a closed DRAFT) against the project's allowlisted model
+    through `gemini-vertex.ts` (`gemini-3.8-flash` default,
+    `gemini-3.1-pro-preview` for hard briefs). ★ Overrides may only pin a dated version of
+    the SAME model (`-001`, `-09-2026`); `-lite` or another family throws, so an
+    env var cannot silently substitute a model. ⚠ Gemini's schema subset has no
+    length/pattern keywords and may reject a very large schema outright — the
+    Stage B draft schema is the one at risk, and only a live call settles it.
+    ★★ The model never writes a package:
+    `compiler.ts` builds the `ThemePackageV2`, owning id, engine, release
+    (`0.0.N` draft, hidden, demo unavailable), provenance and every asset, and
+    refuses any non-slot `*_url`, off-site `*_href`, non-empty `video_url` or
+    id-based product source; custom_code/latest_blogs/video cannot be
+    expressed. Section configs pass the registry's publish-mode
+    `validateConfig`, then `validateThemePackageV2`. Invalid output gets ≤2
+    fresh single-turn repairs per stage and then FAILS the run
+    (`invalid_output`); refusal, truncation and provider errors are terminal
+    with closed codes, and there is no model fallback. ★ Because the package
+    demands a digest for every image and there is no image model yet, images
+    are server-rendered solid-colour placeholders stored as
+    `theme_studio_assets` purpose `placeholder` and marked in the package —
+    publication (Phase 6) must refuse them. A clarify leaves the project
+    `blocked`; `submitThemeStudioDetails` records the answer as a message and
+    queues a new run. ★★ Model runs execute ONLY on the dedicated
+    `/api/internal/theme-studio/runs` worker; `after()` and the Mink heartbeat
+    run the offline provider only, because a model run can outlive both.
+    Migration `20260923_0129_theme_studio_generation` adds
+    `runs.outcome_detail` and widens the asset-purpose and event vocabularies;
+    the model/provider CHECKs (0128) admit only the Gemini keys and
+    `vertex-gemini`. Usage records input (incl. cached), cached, output and
+    thinking tokens; the estimate uses Gemini API list prices
+    (`gemini-api-list-2026-09`) — Vertex billing is authoritative.
+    Controls: per-model `THEME_STUDIO_DISABLED_MODELS`, a per-operator
+    rolling-24h ESTIMATED spend cap `THEME_STUDIO_DAILY_SPEND_USD` (default 25,
+    checked at queue/retry/answer; the fake is exempt), and the Phase 2
+    emergency stop. `npm run theme-studio:eval` runs the Phase 0 golden set.
+    Record and rollout steps: `docs/mink-ai-theme-studio-phase3.md`.
+    Operator-only: no Help Centre migration.
+    **Mink AI Theme Studio Phase 4 (2026-09-24; previews and iterative
+    revision):** `reviseThemeStudioVersion` queues a `kind = 'revise'` run
+    bound to the TARGET version, its package digest as shown on screen and the
+    project revision; `context_message_ids` is the explicit ordered list of
+    messages it reads (the request, then any answers), so two branches from one
+    version never read each other's text. The worker recomputes the base
+    digest and re-validates intent + package (`base_changed`/`base_invalid`
+    otherwise); Stage A gets the base intent as trusted data plus an
+    `<operator_revision>` block, Stage B the base theme in `<current_theme>`
+    (prompt version `theme-studio-v2`). The new version's parent is the version
+    revised, which is how branching works. Answering a revision's questions
+    CONTINUES that revision; `restoreThemeStudioVersion` only moves
+    `current_version_id`. **★★ A PREVIEW IS A REAL STORE, NOT A SECOND
+    RENDERER** (`lib/theme-studio/preview.ts`): one hidden store per version
+    (`studio-preview-<hex>`, prefix reserved at signup) with `settings.demo`
+    (checkout refuses, noindex, no sitemap) AND `settings.studioPreview`,
+    seeded by `applyThemeDefinition` — `applyTheme` now delegates to it — and
+    rendered with its design read from the version row
+    (`readThemeSelection` → `studioVersionId` → `resolveInstalled`, digest-
+    checked, never falling back). ★★ The GATE is in `getCurrentStoreOrNull`,
+    not the layout (a layout notFound() does not stop child pages): a preview
+    store resolves only with a store- and version-bound HMAC grant cookie whose
+    actor is re-checked as a superadmin on every request, plus the session
+    itself where it is shared with the preview host; everywhere else it is an
+    unclaimed subdomain. `preview-store.ts` is the pure marker check and
+    `preview-access.ts` is dynamically imported, so other stores pay nothing.
+    `/api/theme-studio/preview/enter` swaps a 10-minute entry token for the
+    one-hour host-only grant (Partitioned `SameSite=None` when framed) with a
+    RELATIVE redirect. `theme-asset://` slots become
+    `/api/theme-studio/placeholders/<id>`, a PUBLIC placeholder-only route
+    (next/image fetches without cookies); the reference route now filters to
+    references. Retention: 3 per project (LRU eviction), 50 platform-wide,
+    removed 24h after last open by `sweepThemeStudioPreviews` on the
+    `mink-workflows` heartbeat, and on archive; the delete requires both
+    markers. Preview stores are excluded from the operator store list and
+    overview counts. Screens: `…/studio/[projectId]/versions/[versionId]`
+    (laptop/iPad/mobile frame, six surfaces, pop-out) and `…/compare?from=&to=`
+    (`lib/theme-studio/diff.ts`: tokens, pages by slug ignoring section ids,
+    catalogue, navigation, gaps). Migration
+    `20260924_0130_theme_studio_preview_revision` adds the run base columns +
+    CHECK, `theme_studio_previews` (store FK ON DELETE CASCADE) and five event
+    types. Also fixed: `applyTheme`'s product conflict branch published draft
+    samples unconditionally. Record: `docs/mink-ai-theme-studio-phase4.md`.
+    Operator-only: no Help Centre migration.
+    **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
+    version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
+    gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`
+    is the pure decision layer: package contract, the extracted
+    `lib/themes/validation.ts` floors (which gained rendered-pair WCAG AA
+    contrast and dead-link rules — policy pages exempt, menus read through
+    `normalizeMenus`), a security scan, asset integrity and provenance
+    (placeholders FAIL), rendered routes/links/markup, and the browser gates.
+    `acceptance.ts` orchestrates: the SERVER stage builds the preview and
+    fetches its pages through this same process over loopback with the preview
+    Host header (`acceptance-http.ts`, `node:http` because fetch forbids Host;
+    a fresh connection per request and one retry for transport failures only);
+    the BROWSER stage runs in the operator's page — the storefront layout
+    renders `studio-acceptance-probe.tsx` ONLY on preview stores, it answers
+    only a platform-host parent, and it posts RAW measurements (overflow —
+    ★★ measured from element rectangles as well as `scrollWidth`, because
+    `overflow-x: clip` on html/body makes `scrollWidth` report clipped
+    content as fitting; fixed-position and fitting scroll containers are
+    exempt,
+    axe-core — now a runtime dependency, imported on demand — confirmed broken
+    images, LCP/CLS). ★ The server applies every threshold; performance is the
+    one advisory gate. ★ A probe that has measured stays silent and every
+    message carries a per-page sample number, or the previous page acks the
+    next page's request. Migration `20260924_0131_theme_studio_acceptance`
+    adds append-only `theme_studio_acceptance_runs` bound to package digest,
+    an assets digest over the stored rows and the build id (`K_REVISION` /
+    `THEME_STUDIO_BUILD_ID`), one active run per version, and a project guard
+    that REFUSES `candidate` without a passed run over the exact package digest
+    (plus the one new transition `candidate → ready`, mirrored in contracts and
+    pinned by a SQL-parsing parity test). A pass makes a candidate, a quality
+    failure keeps/demotes to `ready`, a security failure blocks, and a deploy
+    makes evidence stale: `verifyThemeStudioCandidateEvidence` is what Phase 6
+    approval must call. `…_0132_theme_studio_operator_removal` fixes a Phase 2
+    bug — `created_by ON DELETE SET NULL` beside immutability triggers made
+    deleting any operator who had uploaded a reference fail; the triggers now
+    admit exactly that change. Also fixed: the header "Deliver to" label used
+    `--sm-ink-faint` on sand and failed WCAG AA in all four live themes at
+    phone/tablet widths; it now uses `--sm-ink-soft`. Placeholder images fail
+    asset provenance until an operator replaces them (next paragraph). Record:
+    `docs/mink-ai-theme-studio-phase5.md`. Operator-only: no Help Centre
+    migration.
+    **Theme Studio operator images per slot (2026-09-24):** a version's
+    **Images** screen (`…/versions/[versionId]/images`) lists every
+    `theme-asset://` slot with its current image, shape and where it renders.
+    An upload (`POST /api/platform/theme-studio/projects/[projectId]/slot-images?versionId=&slot=`,
+    a route handler for the 6 MB server-action cap) is decoded by the shared
+    `openUntrustedImage` (references.ts), cropped to the slot's ratio, sized
+    to a 1600px long edge but never below 800px wide (★ never upscaled — too
+    small is refused), and compressed to TA-2.6's WebP limits (500 KiB; the
+    catalog card 250 KiB), then stored as an `image` asset without changing
+    any version. `replaceThemeStudioSlotImages` saves the staged images as ONE
+    new version (`origin = 'asset_edit'`, no run, parent = the version edited,
+    made current; a candidate returns to `ready`) through the pure
+    `applySlotReplacements` (slot-images-core.ts), which refuses a wrong
+    shape, a non-image asset or a short screenshot alt and re-runs the package
+    contract. ★ `carryOverSlotImages` makes a REVISION keep uploaded images
+    for slots that keep their id and shape. Operator images are served
+    publicly by `/api/theme-studio/images/[assetId]` (image purpose only,
+    never a reference) because next/image sends no cookies; `preview.ts`'s
+    `slotUrls` maps slots to either route. Migration
+    `20260924_0133_theme_studio_slot_images` makes `theme_studio_versions.run_id`
+    nullable with an `origin`/`edit_detail` CHECK, adds the `image` purpose and
+    two events. Record: `docs/mink-ai-theme-studio-slot-images.md`.
+    Operator-only: no Help Centre migration.
+    **Mink AI Theme Studio Phase 6 (2026-09-25; approval, publication and
+    rollback):** `…/studio/[projectId]/release` holds the review, approval,
+    publish and catalog controls. - **Reviews.** Two superadmins score the candidate on the
+    theme-acceptance §5 scorecard (`lib/theme-studio/scorecard.ts` — change
+    it with that doc), one per chair (design, commerce). ★ The eight scores
+    are COLUMNS of `theme_studio_reviews`, so an approving verdict below the
+    bar (every row ≥ 4, total ≥ 34, no rejection condition) cannot be stored.
+    A trigger binds each review to a PASSED run over the version's exact
+    package digest, and reviews are immutable. - **Approval** (`candidate → approved`) needs both chairs approving the
+    latest passing run and no rejection. ★ At least one approving reviewer
+    must not be an author, derived server-side from the project's events
+    (creator, runs, answers, revisions, image edits). It also needs
+    `publicationBlockers` clear: no placeholder, and every production
+    validator rule passing. The replaced project guard enforces the review
+    rule on entering `approved`, freezes an approved project's version, and
+    refuses `published` without a published publication. - **Publication** (`publishThemeStudioProject`, plan §8) needs the typed
+    theme id. It writes a `theme_studio_publications` attempt (semver 1.0.0,
+    then the next minor; a failed attempt's stored release is RESUMED,
+    because the row is immutable and its digest includes the release date).
+    It copies each slot image, re-hashed, to
+    `theme-releases/<theme>/<version>/<slot>-<sha16>.webp` in the media
+    bucket, stores the immutable release through `insertThemeReleaseWithDb`,
+    seeds `demo-<theme>` from it (zero errors), and renders `/`, `/shop`, a
+    product and `/cart` over loopback as themed 200s. Only then, in one
+    transaction, it points the catalog at the release (public), writes
+    `theme_catalog_audit`, marks the attempt and the project published, and
+    expires the registry, store and storefront tags immediately
+    (`revalidateTag(tag, { expire: 0 })`). ★ A failure after the attempt row
+    is recorded and returned. The theme stays hidden and the project
+    `approved`, so a retry is safe. - **Rollback** (`changeThemeStudioCatalog`): hide, show (only a published
+    release with a healthy demo) or restore another published release, each
+    audited. ★ Stores pin their exact release, so none of these changes an
+    installed store. - **Two platform-wide rules came with it.** (1) The package contract now
+    admits ONE https asset path: the release's own
+    `storage.googleapis.com/<bucket>/theme-releases/<theme>/<version>/…`
+    object, pinned to the package's theme id, version, slot and digest.
+    (2) `deleteStorageUrls` never deletes a `theme-releases/` path — not even
+    unscoped or in the platform store purge — because seeding copies those
+    URLs into every installing store's rows (`THEME_RELEASE_OBJECT_ROOT`,
+    `lib/storage/paths.ts`). - **The compiler** now fills a generated page's missing SEO description
+    from the page title, theme name and description, because the validator
+    requires 20+ characters and the draft schema allows null. - Migration `20260925_0134_theme_studio_publication`. Record:
+    `docs/mink-ai-theme-studio-phase6.md`, which includes the production
+    runbook and the staging canary still to run. Operator-only: no Help
+    Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -4765,6 +5111,107 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `applyTheme` seeds presets whose `images` repeats the primary first. A
     caller that indexes the column directly renders a broken `<img>` for an
     untouched store and cross-fades a themed product to itself.
+    **★ SHOPIFY-PARITY TRACK 1 (2026-09-25, `docs/theme-parity-plan.md`).**
+    `[slug]/product-gallery.tsx` is the one PDP gallery for all three layouts:
+    every photo is a slide in one track; desktop shows only the active slide
+    (thumbnails switch it, exactly the old look) and below 860px the track is a
+    native scroll-snap strip with a "2 / 5" counter, so phones SWIPE. Its
+    `ProductLightbox` replaced both copies of the single-image zoom: swipe,
+    prev/next, arrow keys, Escape, focus on Close, scroll lock, desktop
+    click-to-magnify, and native pinch on phones. Universal on purpose — at
+    rest it shows the same first photo. `[slug]/sticky-add-to-cart.tsx` is
+    the phone buy bar, shown once the page's own buttons scroll away ABOVE the
+    shopper; it calls the page's own handler. Opt-in theme layout keys
+    `stickyAddToCart`, `gridColumnsMobile` (1|2) and `gridColumnsDesktop`
+    (3|4|5) resolve through `resolveStorefrontAppearance` into root classes
+    `sm-atc-sticky` / `sm-grid-m2` / `sm-grid-d3|d5`, with a compact card for
+    the two-column phone grid; absent keys render as before. They are in the
+    package contract, the Stage B schema and prompt (`theme-studio-v3`).
+    **Hero controls (1.4).** `hero`, `hero_carousel` and each slide gain
+    optional `height` (`small|medium|large|screen`; screen is
+    `100svh − --sm-header-h`), `focal_x`/`focal_y` (0–100),
+    `mobile_image_url`, `overlay_opacity` (0–80) and `content_position`
+    (`top|bottom`). `heroImageOptions` (section-types.ts) EMITS NOTHING AT A
+    DEFAULT, so an untouched hero stores and renders byte-for-byte as before;
+    `null`/`""` read as absent, never 0 (the `Number(null)` trap), while a real
+    0 overlay survives. `sections/hero-media.tsx` renders the image for both
+    renderers: ★ a phone image is ART DIRECTION through one `<picture>` +
+    `getImageProps`, never a second CSS-toggled `<Image>` — the first hero is
+    eager, so two images would preload both on every visit (verified: a phone
+    fetches only the phone file). The focal point applies to the main image
+    only, since a phone image is composed for the phone. A tuned overlay
+    replaces the built-in `::after` scrim (`has-overlay`) and only applies
+    where copy sits ON the media (minimal-with-image hero, every slide). The
+    carousel SWIPES on touch/pen pointers (40px horizontal, `touch-action:
+    pan-y` keeps page scroll), pauses while focus is inside, and never
+    autoplays under `prefers-reduced-motion` (read when the timer would start,
+    not held in state). Builder: `HeroImageFields` (click-to-set focal preview,
+    phone upload, overlay slider, text position — each with a default that
+    stores nothing) and a Height select. Stage B learns the fields in
+    `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
+    compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
+    guide's section-type paragraph in place.
+    **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
+    `{name, values, swatches?}`) and `product_variants.option_values` (text[],
+    positional) — migration `20260925_0136_product_options`, both CHECK-bounded
+    and defaulting empty, so every existing product is unchanged.
+    `lib/products/options.ts` (pure, client-safe) owns the whole vocabulary:
+    `normalizeOptions` (trims, drops blank rows, refuses duplicate values or
+    names, a value containing " / ", >3 axes, >100 combinations; keeps only
+    valid hex swatches for real values), `resolveOptionRows` (THE one writer
+    step — the editor's save, `applyTheme`'s seed and the Theme Studio compiler
+    all call it), `generateVariantRows` (editor matrix; keeps an existing row by
+    COMBINATION so its id, prices, stock and order history survive, pads a newly
+    added axis with its first value, and maps a legacy free-text name onto the
+    first option), and the storefront helpers `usesOptionPickers`,
+    `valueStates`, `selectValue`, `initialVariant`.
+    ★★ THE VARIANT NAME IS COMPOSED ("M / Black") AND STORED. The cart line,
+    `order_items.variant_name`, invoices, the till, CSV and Mink all read
+    `variants.name`, so composing it at save means none of them needed a
+    change; `option_values` is what the pickers read.
+    ★ The storefront renders pickers only when `usesOptionPickers` says every
+    variant holds a valid unique combination; anything else falls back to the
+    flat list, so inconsistent data can never hide a variant. `OptionPicker`
+    (`components/option-picker.tsx`) is shared by both PDP layouts and quick
+    add. ★ `selectValue` takes the exact combination whenever it EXISTS, sold
+    out included (the page says "Sold out" about what was asked for); only a
+    combination that does not exist moves to the nearest available variant with
+    that value. Values that do not exist or are sold out are struck through,
+    never hidden. The PDP opens on `?variant=` when it names a variant, else the
+    first IN-STOCK variant (universal: it used to open on a sold-out first
+    variant with a greyed buy button), and writes the choice back with
+    `history.replaceState` (no refetch). The grocery flat list now uses
+    `isSoldOut` like the classic one — it greyed out untracked/backorderable
+    variants at stock 0.
+    ★★ QUICK ADD WORKS FOR VARIANT PRODUCTS. "+ Add" on a card with variants
+    used to fall through to the PDP; it opens `quick-add-dialog.tsx`, which
+    loads one product through the public `getQuickAddProduct` action
+    (`app/actions/quick-add-actions.ts`: host store from
+    `getCurrentStoreOrNull`, `withAnon`, published only — the same data the PDP
+    shows, never a store argument). The dialog is PORTALLED INTO
+    `.storefront-root` (the theme tokens are inline there; `document.body` would
+    render WholeSip defaults) and stops propagation at its root, because React
+    bubbles portal events to the card's `<Link>`. Bottom sheet on phones,
+    centred from 640px; Escape, backdrop and focus return.
+    Theme seeds (`ThemeProductSeed.options`, `ThemeVariantSeed.option_values`)
+    and Theme Studio Stage B (`options[]` with `swatches` as `{value,hex}[]`,
+    `variants[].optionValues`, prompt `theme-studio-v5`) carry the same shape;
+    the package contract refuses options `resolveOptionRows` refuses, and the
+    fake provider seeds one Size × Colour product. Help:
+    `20260925_0137_product_options_help` replaces the variants guide's steps.
+    ★ A CSV import still matches variants by name; a NEW variant on a product
+    with options must be named as one value per option ("M / Black",
+    `optionValuesForName`) and is refused and named otherwise, so an import
+    cannot leave a product the editor refuses to save.
+    ⚠ Not built: Option1/2/3 CSV columns, a per-axis picker at the POS (the
+    till lists composed names), card swatches, and ProductGroup structured
+    data.
+    ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
+    column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
+    child (the related-products carousel) made the grocery product page 734px
+    wide on a 390px phone, its right half silently cut off by `overflow-x:
+    clip`. The single-column PDP grids use `minmax(0, 1fr)` for the same
+    reason — a bare `1fr` never shrinks below its widest child.
     Header search is
     FUNCTIONAL on all variants — it submits to
     `/shop?q=`, and the shop grid filters by name/description/category
@@ -12880,6 +13327,12 @@ npm run test:shuffle # ★ the SAME suite in a different (fixed-seed) order — 
                     #   thing that catches order-dependent tests. CI runs it.
 npm run test:watch  # vitest watch
 npm run format      # prettier --write
+npm run theme-studio:model-check -- --dry-run # resolve the two task-scoped
+                    #   Gemini model ids without network; without --dry-run it calls the
+                    #   FREE countTokens endpoint per model (needs ADC + a project id)
+npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, offline
+                    #   (fake provider, grades nothing). A paid live run needs
+                    #   `-- --live --model=gemini-3.8-flash --max-usd=5 --yes`
 ```
 
 ## 7. Environments / external services
@@ -13020,6 +13473,28 @@ npm run format      # prettier --write
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
   service account holds least-privilege **`roles/speech.client`** to call
   Speech-to-Text. Neither credential is exposed to the dashboard.
+  Theme Studio reads **`THEME_STUDIO_PROVIDER`** (default `fake`, the offline
+  test provider; `vertex-gemini` sends new runs to the allowlisted models
+  and must not be set until the dedicated worker job exists — §4
+  `api/internal/theme-studio/runs`), **`THEME_STUDIO_GENERATION_ENABLED`**
+  (`false` stops new Studio runs without affecting merchant Mink),
+  **`THEME_STUDIO_DISABLED_MODELS`** (comma-separated model KEYS to switch
+  off) and **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
+  estimated-spend ceiling, default 25). Preview tokens are signed with
+  **`THEME_STUDIO_PREVIEW_SECRET`** when set, otherwise with a key derived
+  from `CRON_SECRET` under a purpose label; with neither, previews refuse.
+  Acceptance evidence is bound to **`THEME_STUDIO_BUILD_ID`** when set,
+  otherwise Cloud Run's `K_REVISION` (so each deploy makes evidence stale);
+  the server stage fetches preview pages from **`THEME_STUDIO_ACCEPTANCE_ORIGIN`**
+  when set, otherwise `http://127.0.0.1:$PORT`.
+  Theme Studio's manual `theme-studio:model-check` uses ADC plus **`THEME_STUDIO_GCP_PROJECT_ID`**
+  (fallback `GCP_PROJECT_ID`) and **`THEME_STUDIO_VERTEX_LOCATION`** (default
+  `global`). Exact provider ids can be overridden only to a dated/versioned id
+  in the SAME model family with the model-specific
+  **`THEME_STUDIO_GEMINI_38_FLASH_MODEL`** and
+  **`THEME_STUDIO_GEMINI_31_PRO_MODEL`** variables after verification in the
+  target project. These do not configure merchant Mink; since Phase 3 the
+  same project/location variables configure the Studio model worker.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with

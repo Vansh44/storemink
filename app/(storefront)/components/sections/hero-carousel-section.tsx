@@ -1,8 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import type {
   HeroCarouselConfig,
@@ -11,12 +10,28 @@ import type {
 } from "@/lib/homepage/section-types";
 import { videoEmbedUrl } from "@/lib/homepage/video-embed";
 import { SectionShell } from "./section-shell";
+import { HeroImage, HeroOverlay, heroClasses } from "./hero-media";
+
+/** Horizontal travel, in px, that counts as a swipe rather than a tap. */
+const SWIPE_PX = 40;
+
+function prefersReducedMotion(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true
+  );
+}
 
 // Auto-playing hero slideshow. Each slide is a full-width media banner —
 // a photo or a muted looping video — with copy overlaid on top. Slides are
 // stacked and cross-faded (opacity), so media keeps playing/decoding without
 // layout shift. Autoplay pauses on hover and while the tab is hidden
 // (browsers throttle intervals anyway; the guard keeps timing honest).
+// ★ Phones SWIPE between slides (a horizontal pointer drag; vertical page
+//   scrolling is left to the browser by `touch-action: pan-y`). Autoplay also
+//   pauses while a control inside has keyboard focus, and never runs for a
+//   visitor who asked the OS for reduced motion — an auto-advancing banner is
+//   exactly the movement that setting exists to stop.
 export function HeroCarouselSection({
   sectionId,
   style,
@@ -31,6 +46,7 @@ export function HeroCarouselSection({
   );
   const [index, setIndex] = useState(0);
   const [paused, setPaused] = useState(false);
+  const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const count = slides.length;
 
   const step = useCallback(
@@ -41,8 +57,12 @@ export function HeroCarouselSection({
     [count],
   );
 
+  // Reduced motion is read when the timer would start rather than held in
+  // state: it is a browser-only fact, so reading it here keeps the server and
+  // first client render identical without a setState-in-effect round trip.
   useEffect(() => {
-    if (!config.autoplay || paused || count < 2) return;
+    if (!config.autoplay || paused || count < 2 || prefersReducedMotion())
+      return;
     const ms = Math.min(15, Math.max(2, config.interval_seconds || 5)) * 1000;
     const timer = setInterval(() => {
       if (document.visibilityState === "visible")
@@ -56,9 +76,30 @@ export function HeroCarouselSection({
   return (
     <SectionShell sectionId={sectionId} style={style}>
       <div
-        className="home-carousel"
+        className={`home-carousel${config.height && config.height !== "auto" ? ` height-${config.height}` : ""}`}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
+        onFocus={() => setPaused(true)}
+        onBlur={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null))
+            setPaused(false);
+        }}
+        onPointerDown={(e) => {
+          if (count < 2 || e.pointerType === "mouse") return;
+          swipeStart.current = { x: e.clientX, y: e.clientY };
+        }}
+        onPointerUp={(e) => {
+          const start = swipeStart.current;
+          swipeStart.current = null;
+          if (!start) return;
+          const dx = e.clientX - start.x;
+          const dy = e.clientY - start.y;
+          if (Math.abs(dx) >= SWIPE_PX && Math.abs(dx) > Math.abs(dy))
+            step(dx < 0 ? 1 : -1);
+        }}
+        onPointerCancel={() => {
+          swipeStart.current = null;
+        }}
         aria-roledescription="carousel"
       >
         {slides.map((slide, i) => (
@@ -115,7 +156,7 @@ function Slide({
 
   return (
     <div
-      className={`home-carousel-slide theme-${slide.theme} ${active ? "is-active" : ""}`}
+      className={`home-carousel-slide theme-${slide.theme} ${active ? "is-active" : ""} ${heroClasses(slide)}`}
       style={slide.background ? { background: slide.background } : undefined}
       aria-hidden={!active}
     >
@@ -142,15 +183,16 @@ function Slide({
           preload="metadata"
         />
       ) : slide.image_url ? (
-        <Image
+        <HeroImage
           src={slide.image_url}
           alt={slide.heading || "Slide"}
-          fill
-          preload={first}
+          eager={first}
           sizes="100vw"
           className="home-carousel-media"
+          options={slide}
         />
       ) : null}
+      <HeroOverlay opacity={slide.overlay_opacity} theme={slide.theme} />
 
       {(slide.heading || slide.subheading || hasCta) && (
         <div className="home-carousel-copy">

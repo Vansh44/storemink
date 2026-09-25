@@ -481,6 +481,60 @@
   }
 }
 
+/* ── Theme-chosen grid columns (layout.gridColumnsDesktop/Mobile) ──
+   Opt-in root classes, so a store whose theme sets neither keeps the fixed
+   4 → 3 → 2 → 1 ladder above. Premium themes keep TWO columns on a phone:
+   one card per screen makes a catalogue feel empty and costs a scroll per
+   product. The compact card rules below are what make a ~170px card read
+   cleanly — smaller type, tighter padding, and badges under the name rather
+   than squeezing it into a sliver beside them. */
+@media (min-width: 1101px) {
+  .sm-grid-d3 .shop-listing .shop-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .sm-grid-d5 .shop-listing .shop-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+@media (max-width: 460px) {
+  .sm-grid-m2 .shop-listing .shop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-body {
+    padding: 8px 10px 12px;
+    gap: 4px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-head > .shrink-0 {
+    margin-left: 0;
+    align-items: flex-start;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-name {
+    font-size: 0.95rem;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-cat {
+    margin-bottom: 6px;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-price {
+    gap: 4px 6px;
+    padding-top: 4px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-sell {
+    font-size: 0.95rem;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-base,
+  .sm-grid-m2 .shop-listing .shop-card-off {
+    font-size: 0.75rem;
+  }
+}
+
 /* Soft pastel colour tile. A product may set --card-bg; otherwise fall back
    to the brand default tile token (defined in globals.css). */
 .shop-listing .shop-card {
@@ -583,7 +637,10 @@
 
 .pdp-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, …) not 1fr: a bare 1fr track never shrinks below its widest
+     child's min-content, so one long word or form row pushed the column past
+     the page padding on a phone. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 40px;
   max-width: 1100px;
   margin: 0 auto;
@@ -1151,17 +1208,80 @@
   text-align: center;
 }
 
-/* Zoom lightbox */
-.pdp-lightbox {
+/* ── Product gallery (product-gallery.tsx) ──────────────────────────
+   One track of slides. Desktop shows only the active slide (thumbnails
+   switch it); below the two-column breakpoint the track becomes a native
+   scroll-snap strip the shopper swipes. The `[data-active]` selectors are
+   deliberately specific: each layout styles its slide through its own class
+   (.pdp-main-img, .sm-storefront-grocery .gpdp-main-img) and those rules set
+   `display: block`, so a plain selector here would lose to them. */
+.sm-gallery-frame {
+  position: relative;
+}
+.sm-gallery-track > .sm-gallery-slide[data-active="false"] {
+  display: none;
+}
+.sm-gallery-count {
+  display: none;
+}
+
+@media (max-width: 859.98px) {
+  .sm-gallery-track.is-multi {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sm-gallery-track.is-multi::-webkit-scrollbar {
+    display: none;
+  }
+  .sm-gallery-track.is-multi > .sm-gallery-slide[data-active] {
+    display: block;
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .sm-gallery-count {
+    display: inline-flex;
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(var(--sm-shadow-rgb), 0.62);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  /* Thumbnails stay (nothing a merchant saw disappears) but scroll in one
+     row instead of wrapping into several under a swipeable photo. */
+  .sm-gallery .pdp-thumbs,
+  .sm-storefront-grocery .sm-gallery .gpdp-thumbs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sm-gallery .pdp-thumb,
+  .sm-storefront-grocery .sm-gallery .gpdp-thumb {
+    flex: 0 0 auto;
+  }
+  /* A touch screen has no hover; the hint only ever flashed on tap. */
+  .sm-gallery .pdp-zoom-hint {
+    display: none;
+  }
+}
+
+/* ── Full-screen photo viewer ──────────────────────────────────────── */
+.sm-lightbox {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: var(--shop-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  cursor: zoom-out;
+  background: rgba(12, 12, 12, 0.94);
+  color: #ffffff;
   animation: pdp-fade 0.15s ease;
 }
 
@@ -1174,34 +1294,121 @@
   }
 }
 
-.pdp-lightbox-img-wrap {
-  position: relative;
-  width: min(90vw, 760px);
-  height: min(90vh, 760px);
-  cursor: default;
+.sm-lightbox-bar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+  pointer-events: none;
+}
+.sm-lightbox-bar > * {
+  pointer-events: auto;
+}
+.sm-lightbox-count {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sm-lightbox-close {
+  margin-left: auto;
 }
 
-.pdp-lightbox-img {
+/* Swipe is native scrolling here too, so pinch-to-zoom (the browser's own)
+   keeps working on phones. */
+.sm-lightbox-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: hidden;
+}
+.sm-lightbox-track.is-multi {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.sm-lightbox-track::-webkit-scrollbar {
+  display: none;
+}
+.sm-lightbox-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 64px 16px calc(24px + env(safe-area-inset-bottom));
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.sm-lightbox-stage {
+  position: relative;
+  width: min(100%, 1200px);
+  height: 100%;
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+}
+.sm-lightbox-stage.is-magnified {
+  cursor: zoom-out;
+  transition: none;
+}
+.sm-lightbox-img {
   object-fit: contain;
 }
 
-.pdp-lightbox-close {
-  position: absolute;
-  top: 20px;
-  right: 24px;
+.sm-lightbox-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 44px;
   height: 44px;
   border-radius: 999px;
   border: none;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
-  font-size: 20px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
-
-.pdp-lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.3);
+.sm-lightbox-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.sm-lightbox-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+.sm-lightbox-prev,
+.sm-lightbox-next {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+}
+.sm-lightbox-prev {
+  left: 16px;
+}
+.sm-lightbox-next {
+  right: 16px;
+}
+/* Phones swipe; arrows over a phone-sized photo only get in the way. */
+@media (pointer: coarse) {
+  .sm-lightbox-prev,
+  .sm-lightbox-next {
+    display: none;
+  }
+  .sm-lightbox-stage {
+    cursor: default;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sm-lightbox,
+  .sm-lightbox-stage {
+    animation: none;
+    transition: none;
+  }
 }
 
 .pdp-description {
@@ -1488,7 +1695,7 @@
 
 .sm-storefront-grocery .gpdp-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: clamp(24px, 4vw, 56px);
   align-items: start;
 }
@@ -1854,7 +2061,7 @@
 }
 @media (max-width: 860px) {
   .sm-pdp-editorial .pdp-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .sm-pdp-editorial .pdp-main-img {
     min-height: 0;
