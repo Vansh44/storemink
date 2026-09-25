@@ -99,7 +99,13 @@ finish, with the blocked safety category), truncation (`output_truncated`,
 provider errors
 (`rate_limited`, `provider_unavailable`, `provider_rejected`, `provider_auth`,
 `provider_timeout`). The SDK retries transient HTTP failures itself, twice
-(`THEME_STUDIO_LIMITS.modelRetries`). There is no fallback to another model:
+(`THEME_STUDIO_LIMITS.modelRetries`) and about a second apart. A rate limit
+(429) is taken away from the SDK and waited out by the client instead
+(`rate-limit-backoff.ts`): up to five retries at 15s, 30s, 60s, 120s and 120s
+with jitter, at most six minutes of waiting, and never past the run's own
+abort signal. That is safe because Vertex refuses a 429 before running the
+model, so a retry cannot be a second bill. Only a rate limit that outlasts all
+of that reaches the pipeline as `rate_limited`. There is no fallback to another model:
 the Phase 0 registry forbids substitution, and a provider-id override may only
 pin a dated version of the SAME model (`-001`, `-09-2026`), never switch to
 `-lite` or another family.
@@ -235,11 +241,13 @@ intent and package in the immutable version row with their canonical digests.
 
 - Unit tests: pipeline (valid package, clarify, decline, invalid output after
   the repair budget, successful repair, a smuggled external URL or link
-  refused, refusal and rate limiting not retried, brief confined to the
+  refused, refusal and rate limiting not retried by the pipeline, brief confined to the
   untrusted block, deterministic prompts); closed schemas; the Vertex client's
   request shape (no tools, HIGH thinking, the response schema), usage with
   cached tokens clamped to the prompt count, prompt blocks, safety finishes,
   truncation, invalid JSON, discarded thought parts and error classification;
+  the rate-limit backoff (429 excluded from the SDK's retry, waits and retry
+  count, stopping on abort, nothing but a 429 waited on);
   the model registry refusing a cross-family override; config; the worker route's auth, one-run execution and
   503; the heartbeat running only the offline provider; evaluation grading
   and safety checks; the details action's gate.

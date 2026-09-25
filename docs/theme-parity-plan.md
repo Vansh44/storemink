@@ -145,9 +145,16 @@ so it was project or shared capacity, not request pacing. They are unrun.
   floors (pages, homepage, sample data, links, design) as repair issues, and
   the prompt (`theme-studio-v7`) states them — including that a section
   example's placeholder link (`/our-story`) must be replaced.
-- ⚠ The pipeline never retries a 429, by design. A merchant run during a
-  capacity shortfall fails outright; a bounded backoff is worth adding before
-  production traffic.
+- **The 17 rate-limited cases were rerun** (2026-09-25, about $1.06, no spend
+  cap): 8 passed — including all three capability-gap briefs and both
+  clarify briefs — 0 unsafe, and 9 were refused again by Vertex capacity (8
+  `rate_limited`, 1 `provider_unavailable`). 23 of 32 cases have now run.
+- **A rate limit is now waited out.** The SDK's own
+  retry was one to two seconds apart, too short for this shortage. The model
+  client now waits 15s, 30s, 60s, then 120s twice, with jitter, for at most
+  six minutes and never past the run's deadline, before reporting
+  `rate_limited`. A 429 is refused before the model runs, so waiting cannot
+  bill twice.
 
 ## Track 2 — design engine
 

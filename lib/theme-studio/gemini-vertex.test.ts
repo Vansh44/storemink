@@ -30,6 +30,11 @@ import {
   getVertexConfig,
 } from "./gemini-vertex";
 import type { StructuredRequest } from "./provider";
+import {
+  RATE_LIMIT_BACKOFF,
+  rateLimitDelayMs,
+  sleepUnlessAborted,
+} from "./rate-limit-backoff";
 
 const request: StructuredRequest = {
   stage: "intent",
@@ -256,14 +261,134 @@ describe("Gemini on Vertex client", () => {
       "cancelled",
     );
 
-    state.next = () => Promise.reject(withStatus(429));
+    state.next = () => Promise.reject(withStatus(403));
     const client = createVertexModelClient({
       projectId: "p",
       region: "global",
     });
     expect(await client.generate(request, signal())).toMatchObject({
       kind: "error",
+      code: "provider_auth",
+    });
+  });
+});
+
+describe("waiting out a rate limit", () => {
+  const rateLimited = () =>
+    Promise.reject(
+      Object.assign(new Error("RESOURCE_EXHAUSTED"), { status: 429 }),
+    );
+
+  const sleeper = (result: boolean) =>
+    vi.fn(async (ms: number, abort?: AbortSignal) => {
+      void ms;
+      void abort;
+      return result;
+    });
+
+  function clientWith(sleep = sleeper(true)) {
+    return {
+      sleep,
+      client: createVertexModelClient(
+        { projectId: "p", region: "global" },
+        { sleep, random: () => 1 },
+      ),
+    };
+  }
+
+  it("hands 429 to its own backoff, not the SDK's fast retry", () => {
+    clientWith();
+    const retry = (
+      state.constructed[0] as {
+        httpOptions: { retryOptions: { httpStatusCodes: number[] } };
+      }
+    ).httpOptions.retryOptions;
+    expect(retry.httpStatusCodes).not.toContain(429);
+    expect(retry.httpStatusCodes).toEqual(
+      expect.arrayContaining([500, 503, 504]),
+    );
+  });
+
+  it("waits and tries again, and a later success is an ordinary answer", async () => {
+    let calls = 0;
+    state.next = () =>
+      ++calls < 3 ? rateLimited() : Promise.resolve(response());
+    const { client, sleep } = clientWith();
+    expect(await client.generate(request, signal())).toMatchObject({
+      kind: "ok",
+      value: { decision: "proceed" },
+    });
+    expect(state.requests).toHaveLength(3);
+    expect(sleep.mock.calls.map((c) => c[0])).toEqual([15_000, 30_000]);
+  });
+
+  it("gives up after five retries and says it was rate limited", async () => {
+    state.next = rateLimited;
+    const { client, sleep } = clientWith();
+    expect(await client.generate(request, signal())).toMatchObject({
+      kind: "error",
       code: "rate_limited",
     });
+    expect(state.requests).toHaveLength(6);
+    const waits = sleep.mock.calls.map((c) => c[0]);
+    expect(waits).toEqual([15_000, 30_000, 60_000, 120_000, 120_000]);
+    expect(waits.reduce((a, b) => a + b, 0)).toBeLessThanOrEqual(
+      RATE_LIMIT_BACKOFF.totalMs,
+    );
+  });
+
+  it("counts retries, not just waiting time, so short jittered waits still stop", async () => {
+    state.next = rateLimited;
+    const sleep = sleeper(true);
+    const client = createVertexModelClient(
+      { projectId: "p", region: "global" },
+      { sleep, random: () => 0 },
+    );
+    await client.generate(request, signal());
+    // Half-length waits total 172.5s, well inside the time budget, so only
+    // the retry count can be what stopped it.
+    expect(state.requests).toHaveLength(6);
+  });
+
+  it("stops at once when the run is aborted mid-wait", async () => {
+    state.next = rateLimited;
+    const { client } = clientWith(sleeper(false));
+    expect(await client.generate(request, signal())).toMatchObject({
+      kind: "error",
+      code: "cancelled",
+    });
+    expect(state.requests).toHaveLength(1);
+  });
+
+  it("never waits on anything but a rate limit", async () => {
+    state.next = () =>
+      Promise.reject(Object.assign(new Error("x"), { status: 503 }));
+    const { client, sleep } = clientWith();
+    expect(await client.generate(request, signal())).toMatchObject({
+      code: "provider_unavailable",
+    });
+    expect(sleep).not.toHaveBeenCalled();
+    expect(state.requests).toHaveLength(1);
+  });
+});
+
+describe("rateLimitDelayMs", () => {
+  it("doubles from 15s, caps at two minutes, and jitters down to half", () => {
+    expect([0, 1, 2, 3, 4, 9].map((n) => rateLimitDelayMs(n, () => 1))).toEqual(
+      [15_000, 30_000, 60_000, 120_000, 120_000, 120_000],
+    );
+    expect(rateLimitDelayMs(0, () => 0)).toBe(7_500);
+    expect(rateLimitDelayMs(3, () => 0)).toBe(60_000);
+  });
+});
+
+describe("sleepUnlessAborted", () => {
+  it("resolves false as soon as the run is aborted", async () => {
+    const controller = new AbortController();
+    const waiting = sleepUnlessAborted(60_000, controller.signal);
+    controller.abort();
+    expect(await waiting).toBe(false);
+    expect(await sleepUnlessAborted(1, controller.signal)).toBe(false);
+    expect(await sleepUnlessAborted(1)).toBe(true);
   });
 });

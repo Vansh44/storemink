@@ -3325,6 +3325,8 @@ wholesip/
 │   │                          # engine, release, assets; URLs/hrefs/sources refused),
 │   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
 │   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
+│   │                          # rate-limit-backoff.ts (the 429 wait: bounded, jittered,
+│   │                          # abortable; SDK keeps the fast 5xx retry),
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
@@ -4796,7 +4798,11 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `validateConfig`, then `validateThemePackageV2`. Invalid output gets ≤2
     fresh single-turn repairs per stage and then FAILS the run
     (`invalid_output`); refusal, truncation and provider errors are terminal
-    with closed codes, and there is no model fallback. ★ Because the package
+    with closed codes, and there is no model fallback. ★ A 429 is the one
+    exception to "terminal": `rate-limit-backoff.ts` takes it away from the
+    SDK's one-second retry and waits 15s/30s/60s/120s/120s (jittered, ≤6 min,
+    never past the run's abort signal) — safe because Vertex refuses a 429
+    before the model runs, so no retry is a second bill. ★ Because the package
     demands a digest for every image and there is no image model yet, images
     are server-rendered solid-colour placeholders stored as
     `theme_studio_assets` purpose `placeholder` and marked in the package —
