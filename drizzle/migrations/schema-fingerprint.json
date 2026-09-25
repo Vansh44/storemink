@@ -4,8 +4,8 @@
     "local": {
       "fingerprint": "22dcfe98071476b887a0d36a63507664ad168d5f3488b6aa2fb80af06517a2e2",
       "ledger": {
-        "count": 147,
-        "digest": "d00069d394dc4f5702bdcec7671c5bd92878b2f22d5bc0ed4b6e305ab75e6df8"
+        "count": 148,
+        "digest": "94d53502509d78c6bcc16fbc083c13baa0e02aed06e6a9278cfc4593b4daa592"
       }
     },
     "production": {

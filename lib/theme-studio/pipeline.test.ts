@@ -179,6 +179,50 @@ describe("theme generation pipeline", () => {
     ]);
   });
 
+  it("compiles a nested header menu, dropping the closed schema's empties", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    const [shop, about] = outcome.package.definition.preset.menus.header;
+    expect(shop.children?.[0].children?.[0]).toEqual({
+      label: "Sample one",
+      href: "/shop/sample-one",
+    });
+    expect(shop.image_url).toMatch(/^theme-asset:\/\//);
+    // A plain item comes out exactly as a plain link: no [] children, no "".
+    expect(about).toEqual({ label: "About", href: "/about" });
+    // The menu image is a declared asset like every other.
+    expect(outcome.package.assets.map((a) => a.path)).toContain(shop.image_url);
+  });
+
+  it("refuses a menu image that is not one of the theme's slots", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    const external: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        const draft = result.value as {
+          menus: { header: { image_url: string }[] };
+        };
+        draft.menus.header[0].image_url = "https://evil.example/x.png";
+        return result;
+      },
+    };
+    const outcome = await run(undefined, external);
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      errorCode: "invalid_output",
+    });
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toMatch(/menus\.header\[0\]\.image_url must be ""/);
+  });
+
   it("refuses a combination that repeats, then fails if never fixed", async () => {
     const seen: StructuredRequest[] = [];
     const fake = createFakeModelClient(base);
@@ -205,6 +249,43 @@ describe("theme generation pipeline", () => {
       .content.map((b) => (b.type === "text" ? b.text : ""))
       .join("");
     expect(repairText).toMatch(/Two variants are both "S \/ Black"/);
+  });
+
+  it("hands a production content floor back as a repair, then accepts the fix", async () => {
+    // A real run seeded 3 categories where production needs 4 and the package
+    // still passed, failing only later at acceptance. The floor is now a
+    // repair turn: the first draft is short, the repair is the full one.
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    let drafts = 0;
+    const short: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        drafts += 1;
+        if (drafts > 1) return result;
+        const draft = result.value as {
+          categories: { slug: string }[];
+          products: { categorySlug: string }[];
+        };
+        const dropped = draft.categories.pop()!.slug;
+        for (const product of draft.products) {
+          if (product.categorySlug === dropped)
+            product.categorySlug = "everyday";
+        }
+        return result;
+      },
+    };
+    const outcome = await run(undefined, short);
+    expect(outcome.kind).toBe("version");
+    expect(outcome.telemetry.repairs.draft).toBe(1);
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toMatch(/Seed at least 4 categories \(has 3\)/);
   });
 
   it("maps a refusal and a provider error to safe codes without retrying", async () => {

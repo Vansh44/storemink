@@ -36,9 +36,9 @@ Studio use them.
 | 1.3  | Shop grid columns per breakpoint, 2 on phones (`layout.gridColumnsMobile/Desktop`)                     | ✅      |
 | 1.4  | Hero: focal point, separate mobile image, height and overlay controls; swipe on the hero carousel      | ✅      |
 | 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | ✅      |
-| 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | planned |
-| 1.7  | Predictive search dropdown; search visible in the phone header                                         | planned |
-| 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | planned |
+| 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | ✅      |
+| 1.7  | Predictive search dropdown; search visible in the phone header                                         | ✅      |
+| 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | ✅      |
 | 1.9  | Cart drawer: free-delivery progress bar, upsell row                                                    | planned |
 | 1.10 | Product page: shipping/returns/size accordions, theme-tokened badges and trust row, rich description   | planned |
 | 1.11 | Announcement bar in the header (static/rotating, dismissible); dedicated logo strip; countdown section | planned |
@@ -82,6 +82,79 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
   fell through to the product page. It opens a chooser with the same pickers.
 - Deferred: CSV Option1/2/3 columns, per-axis choice at the POS, swatches on
   product cards, and ProductGroup structured data.
+
+### Found and fixed while building 1.6
+
+- **The phone drawer could not scroll.** It was a fixed 100vh column with no
+  overflow, so a long menu was cut off below the fold with nothing to say so.
+  It scrolls now, at `100dvh`.
+- **An image-only menu tile would have been an unnamed link.** The tile is a
+  link whose accessible name comes from its caption, not an `alt=""` image.
+- Deferred: a merchant-chosen promo block in the panel other than one image,
+  per-link icons, and a nested footer.
+
+### Found and fixed while building 1.7
+
+- **The phone header had no search.** The header box is hidden below 768px and
+  search lived only inside the menu drawer — a tap, a scroll, and shown even
+  when the merchant had switched search off. A search icon in the phone header
+  opens a full-width sheet; the drawer copy is gone, and the merchant's
+  "Show search" switch now governs phone search too.
+- **The dropdown and the results page share one matching rule**
+  (`lib/storefront/product-search.ts`), so a suggestion is always something
+  "See all results" will show. Ranking only orders matches.
+- **The box now reads the cached catalogue through a GET route**, not a server
+  action — actions run one at a time per client, so a keystroke's lookup would
+  have queued in front of the shopper's next Add to cart.
+- Deferred: matching blog posts and pages, typo tolerance, and recent searches.
+
+### Found and fixed while building 1.8
+
+- **A category had no address of its own.** `/shop?category=` rendered one
+  shop for every category, with one canonical, so no category page could be
+  indexed or shared. `/collections/<slug>` is a real page with its own title,
+  description, image and breadcrumb; the old links 308 there, keeping their
+  search and filters.
+- **The category chips were buttons**, so a shopper could not open a category
+  in a new tab and a crawler could not follow one. They are links now.
+- **A product's breadcrumb could link a hidden category**, which then showed
+  the whole shop. It links only an active one.
+- **Sort, filters and load more are opt-in** (`shopFilters`), and a store
+  without them ignores those URL parameters, so no existing shop changes.
+  Filter edits are a draft until "Show N products".
+- Deferred: filtering by option value (size, colour) and by tag, server-side
+  pagination for catalogues too large to load at once, and a price slider.
+
+### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
+
+The golden set was run against the real model for about $1.12. 15 of 32 cases
+returned: 12 passed, 3 acceptable (injection or remote-fetch briefs came back
+as a clarifying question instead of a refusal), 0 unsafe. The other 17 were
+`rate_limited` — Vertex returned `RESOURCE_EXHAUSTED` even for a 5-token call,
+so it was project or shared capacity, not request pacing. They are unrun.
+
+- **Gemini accepts the large Stage B schema** with no repair rounds.
+- **The generated themes use the new controls.** Of 9 saved packages, 7 had a
+  mega menu, and all used nested menus with an image, product options (mostly
+  with swatches), hero height and overlay, the phone buy bar and a
+  two-column phone grid.
+- **The prompt contradicted a production floor.** It asked for "three to six
+  categories" while `validateThemeSampleData` requires four, and the compiler
+  never ran the content floors, so a three-category theme passed the pipeline
+  and failed only at acceptance. The compiler now runs the model-controlled
+  floors (pages, homepage, sample data, links, design) as repair issues, and
+  the prompt (`theme-studio-v7`) states them — including that a section
+  example's placeholder link (`/our-story`) must be replaced.
+- **The 17 rate-limited cases were rerun** (2026-09-25, about $1.06, no spend
+  cap): 8 passed — including all three capability-gap briefs and both
+  clarify briefs — 0 unsafe, and 9 were refused again by Vertex capacity (8
+  `rate_limited`, 1 `provider_unavailable`). 23 of 32 cases have now run.
+- **A rate limit is now waited out.** The SDK's own
+  retry was one to two seconds apart, too short for this shortage. The model
+  client now waits 15s, 30s, 60s, then 120s twice, with jitter, for at most
+  six minutes and never past the run's deadline, before reporting
+  `rate_limited`. A 429 is refused before the model runs, so waiting cannot
+  bill twice.
 
 ## Track 2 — design engine
 

@@ -1320,7 +1320,7 @@ function TileGridFields({
                 className={fieldClass}
                 value={tile.href}
                 onChange={(e) => setTile(i, { href: e.target.value })}
-                placeholder="/shop?category=fruits"
+                placeholder="/collections/fruits"
               />
               <select
                 className={fieldClass}

@@ -5714,6 +5714,44 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260925_0138_nested_menu_help",
+      "description": "Explain header sub-links, menu columns and the menu image in the header and navigation guide",
+      "file": "sql/20260925_0138_nested_menu_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0137_product_options_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the navigation guide explains sub-links and the menu image",
+            "sql": "select count(*)::text from help_articles where slug='edit-your-header-footer-and-navigation' and status='published' and body like '%select <strong>Add sub-link</strong> under it%' and body like '%one level at a time with a Back button%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0139_collection_pages_help",
+      "description": "Explain that a category's handle is the address of its own collection page",
+      "file": "sql/20260925_0139_collection_pages_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0138_nested_menu_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the categories guide names the collection page address",
+            "sql": "select count(*)::text from help_articles where slug='organize-products-with-categories-and-card-colours' and status='published' and body like '%<code>/collections/your-handle</code>%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

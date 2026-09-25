@@ -1,6 +1,7 @@
 import { validatePageSlug, validateSections } from "@/lib/sections/registry";
 import { contrastRatio } from "@/lib/chrome/design";
 import { normalizeMenus } from "@/lib/menus";
+import { flattenNav } from "@/lib/chrome/nav";
 import { STORE_POLICY_SLUGS } from "@/lib/legal/store-policies";
 import type { ThemeMeta } from "./meta";
 import type { ThemeDefinition } from "./types";
@@ -124,6 +125,10 @@ export function collectThemeImageUrls(theme: ThemeDefinition): Set<string> {
   for (const category of theme.preset.sampleData?.categories ?? []) {
     if (category.image_url) urls.add(category.image_url);
   }
+  // A mega-menu tile is an image the header renders on every page.
+  for (const link of flattenNav(theme.preset.menus.header)) {
+    if (link.image_url) urls.add(link.image_url);
+  }
   const visit = (value: unknown): void => {
     if (Array.isArray(value)) {
       for (const item of value) visit(item);
@@ -148,7 +153,9 @@ export function collectThemeImageUrls(theme: ThemeDefinition): Set<string> {
 export function collectThemeHrefs(theme: ThemeDefinition): string[] {
   const hrefs: string[] = [];
   const { header, footerGroups, footerLegal } = theme.preset.menus;
-  for (const link of header) hrefs.push(link.href);
+  // A nested header item is a link like any other; a heading with no
+  // destination of its own (href "") is not.
+  for (const link of flattenNav(header)) if (link.href) hrefs.push(link.href);
   for (const group of footerGroups) {
     for (const link of group.links) hrefs.push(link.href);
   }
@@ -437,6 +444,8 @@ export const STOREFRONT_CODE_ROUTES: ReadonlySet<string> = new Set([
   "blogs",
   "cart",
   "checkout",
+  // Only /collections/<slug> is a page; a bare /collections is refused below.
+  "collections",
   "enquiries",
   "notifications",
   "orders",
@@ -481,18 +490,35 @@ export function validateThemeLinks(theme: ThemeDefinition): ThemeFinding[] {
   const rendered = normalizeMenus(theme.preset.menus);
   const hrefs = new Set([
     ...collectThemeHrefs(theme),
-    ...rendered.header.map((link) => link.href),
+    ...flattenNav(rendered.header)
+      .map((link) => link.href)
+      .filter(Boolean),
     ...rendered.footerGroups.flatMap((group) => group.links.map((l) => l.href)),
     ...rendered.footerLegal.map((link) => link.href),
   ]);
   for (const href of hrefs) {
-    const category = href.match(/^\/shop\?category=([^&]+)$/);
+    // A category is linked by its own page (/collections/<slug>) or by the
+    // older query form, which now redirects there. Either must name a
+    // seeded category.
+    const category =
+      href.match(/^\/collections\/([^/?#]+)\/?$/) ??
+      href.match(/^\/shop\?category=([^&]+)$/);
     if (category) {
       if (!categories.has(category[1])) {
         out.push(
           finding("links", "category", `${href} names no seeded category.`),
         );
       }
+      continue;
+    }
+    if (/^\/collections\/?(?:[?#].*)?$/.test(href)) {
+      out.push(
+        finding(
+          "links",
+          "category",
+          `${href} names no category; link /collections/<category slug>.`,
+        ),
+      );
       continue;
     }
     const product = href.match(/^\/shop\/([^/?#]+)$/);

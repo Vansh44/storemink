@@ -27,6 +27,13 @@ import {
 import type { ThemeStudioModelKey } from "./models";
 import { PALETTE_KEYS, THEME_STUDIO_SECTION_TYPES } from "./schemas";
 import { resolveOptionRows, type ProductOption } from "@/lib/products/options";
+import {
+  validateThemeDesign,
+  validateThemeHomepage,
+  validateThemeLinks,
+  validateThemePages,
+  validateThemeSampleData,
+} from "@/lib/themes/validation";
 
 // ---------------------------------------------------------------------------
 // Stage B compiler: model draft → ThemePackageV2.
@@ -476,8 +483,31 @@ export function prepareDraft(
   const catalogue = buildCatalogue(draftInput, known, used, issues);
 
   const menus = isRec(draftInput.menus) ? draftInput.menus : {};
+  // Header items nest (children, grandchildren) and a top-level item may name
+  // a mega-menu image slot, checked by the same rule as a section's *_url.
+  const headerTree = (value: unknown): unknown[] =>
+    list(value).flatMap((item) =>
+      isRec(item) ? [item, ...headerTree(item.children)] : [],
+    );
+  checkConfigUrls(
+    list(menus.header).map((item) =>
+      // Only an item with children renders its image, so only that one spends
+      // a slot; the cleaner drops the rest.
+      isRec(item) && list(item.children).length
+        ? { image_url: item.image_url }
+        : {},
+    ),
+    "menus.header",
+    known,
+    used,
+    issues,
+  );
   const links = [
-    ...list(menus.header),
+    ...headerTree(menus.header).filter(
+      // A heading that only opens a submenu has no destination to check.
+      (item) =>
+        !(isRec(item) && text(item.href) === "" && list(item.children).length),
+    ),
     ...list(menus.footerLegal),
     ...list(menus.footerGroups).flatMap((g) => (isRec(g) ? list(g.links) : [])),
   ];
@@ -615,11 +645,30 @@ export function assemblePackage(
 
   const validated = validateThemePackageV2(candidate);
   if (!validated.ok) issues.push(...validated.issues);
+  // ★ The production content floors run HERE, not only at acceptance. Every
+  // one of them is something the model controls (catalogue size, homepage
+  // variety, contrast, links), so a shortfall caught now becomes a repair
+  // turn; caught at acceptance it becomes a failed candidate the operator
+  // has to revise by hand — one more prompt for a fix the model could make.
+  // Asset rules stay at acceptance: images are placeholders until then.
+  if (validated.ok) issues.push(...contentFloorIssues(validated.value));
   return {
     package: issues.length === 0 && validated.ok ? validated.value : null,
     slots: [...slotAssets.keys()],
     issues,
   };
+}
+
+/** The model-controlled production floors, as repair sentences. */
+export function contentFloorIssues(pkg: ThemePackageV2): string[] {
+  const theme = pkg.definition;
+  return [
+    ...validateThemePages(theme),
+    ...validateThemeHomepage(theme),
+    ...validateThemeSampleData(theme),
+    ...validateThemeLinks(theme),
+    ...validateThemeDesign(theme),
+  ].map((finding) => finding.message);
 }
 
 /** Normalize a Stage A intent: the schema's explicit nulls become omissions,

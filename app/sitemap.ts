@@ -18,11 +18,16 @@ import {
 } from "@/lib/store/host";
 import { isStoreSearchIndexable } from "@/lib/store/launch";
 import {
+  getActiveCategories,
   getPublishedProducts,
   getPublishedBlogCards,
   getPublishedPageSlugs,
 } from "@/lib/storefront/queries";
 import { getPublishedHelpArticleParams } from "@/lib/help/queries";
+import {
+  collectionPath,
+  populatedCollections,
+} from "@/lib/storefront/collection-links";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
 
 // NOTE: no `export const revalidate` here — it would be dead config. This route
@@ -205,10 +210,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   // Dynamic product + blog detail pages, plus merchant-built custom pages, for
   // THIS store. A failed DB read must never break the sitemap, so each falls
   // back to empty.
-  const [products, blogs, customPages] = await Promise.all([
+  const [products, blogs, customPages, activeCategories] = await Promise.all([
     getPublishedProducts(storeId).catch(() => []),
     getPublishedBlogCards(storeId).catch(() => []),
     getPublishedPageSlugs(storeId).catch(() => []),
+    getActiveCategories(storeId).catch(() => []),
   ]);
 
   const blogRows = blogs as {
@@ -281,6 +287,24 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       ...imageEntry(siteUrl, p.image_url),
     }));
 
+  // Each category's own page, listed only when it has a product on it — an
+  // empty collection is thin content, the /shop rule above.
+  const collectionEntries: MetadataRoute.Sitemap = populatedCollections(
+    activeCategories,
+    products as {
+      category_id: string | null;
+      content_updated_at: string | null;
+    }[],
+  )
+    .filter(({ category }) => !matchesDisallow(collectionPath(category.slug)))
+    .map(({ category, lastModified }) => ({
+      url: `${siteUrl}${collectionPath(category.slug)}`,
+      ...(lastModified ? { lastModified } : {}),
+      changeFrequency: "weekly" as const,
+      priority: 0.7,
+      ...imageEntry(siteUrl, category.image_url),
+    }));
+
   const blogEntries: MetadataRoute.Sitemap = blogRows
     .filter((b) => b.slug)
     .map((b) => ({
@@ -307,5 +331,11 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.6,
     }));
 
-  return [...staticEntries, ...productEntries, ...blogEntries, ...pageEntries];
+  return [
+    ...staticEntries,
+    ...collectionEntries,
+    ...productEntries,
+    ...blogEntries,
+    ...pageEntries,
+  ];
 }

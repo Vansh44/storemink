@@ -2222,7 +2222,9 @@ wholesip/
 │   │   │                      # just like [pageSlug]. Edited in /dashboard/builder (§11)
 │   │   ├── storefront-theme.css
 │   │   ├── (pages)/           # Customer-facing pages:
-│   │   │   ├── shop/          #   product listing + [slug] product detail (reviews, related)
+│   │   │   ├── shop/          #   product listing + [slug] product detail (reviews, related);
+│   │   │   │                  #   shop-view.ts (shared loader) + shop-filter-panel.tsx
+│   │   │   ├── collections/[slug]/ # ★ a category's own page (1.8); /shop?category= 308s here
 │   │   │   ├── cart/          #   cart page (CartProvider-driven)
 │   │   │   ├── checkout/      #   COD checkout (auth-gated client page → placeOrder) +
 │   │   │   │                  #   success/ order-confirmation page. RESERVED slug.
@@ -2773,6 +2775,8 @@ wholesip/
 │       ├── dashboard/analytics/reports/[report]/ # ★ §20 formula-safe CSV for
 │       │                      # the four analytics drill-downs. Re-derives tenant,
 │       │                      # analytics.view and location scope; rate-limited
+│       ├── storefront/search/ # ★ Predictive header search (§11, 1.7): GET, store
+│       │                      # from the Host, cached catalogue, shared matching rule
 │       ├── og-image/          # OG image proxy (compresses Supabase images only)
 │       ├── og/                # Dynamic branded OG card (ImageResponse; ?d=JSON
 │       │                      # {title,subtitle,color}) — default share image for
@@ -3321,6 +3325,8 @@ wholesip/
 │   │                          # engine, release, assets; URLs/hrefs/sources refused),
 │   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
 │   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
+│   │                          # rate-limit-backoff.ts (the 429 wait: bounded, jittered,
+│   │                          # abortable; SDK keeps the fast 5xx retry),
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
@@ -4792,7 +4798,11 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `validateConfig`, then `validateThemePackageV2`. Invalid output gets ≤2
     fresh single-turn repairs per stage and then FAILS the run
     (`invalid_output`); refusal, truncation and provider errors are terminal
-    with closed codes, and there is no model fallback. ★ Because the package
+    with closed codes, and there is no model fallback. ★ A 429 is the one
+    exception to "terminal": `rate-limit-backoff.ts` takes it away from the
+    SDK's one-second retry and waits 15s/30s/60s/120s/120s (jittered, ≤6 min,
+    never past the run's abort signal) — safe because Vertex refuses a 429
+    before the model runs, so no retry is a second bill. ★ Because the package
     demands a digest for every image and there is no image model yet, images
     are server-rendered solid-colour placeholders stored as
     `theme_studio_assets` purpose `placeholder` and marked in the package —
@@ -5206,16 +5216,149 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     ⚠ Not built: Option1/2/3 CSV columns, a per-axis picker at the POS (the
     till lists composed names), card swatches, and ProductGroup structured
     data.
+    **Nested menus: desktop mega menu + phone drill-down (1.6).** A HEADER
+    link may carry `children`, those their own (three levels, Shopify's
+    ceiling), and a top-level item with children an `image_url`.
+    `lib/chrome/nav.ts` (pure) is the ONE shape and cleaner, used by
+    `lib/chrome/types.ts` (store_chrome), `lib/menus.ts` (store_menus and theme
+    presets) and the Theme Studio contract alike: `cleanNavTree` (per-level
+    caps 12/10/10 PLUS a 150-item budget for the whole tree, counted in
+    document order, because per-level caps multiply), `cleanNavLinks` (footer —
+    stays FLAT, children dropped), `flattenNav`, `navPanelKind`,
+    `isSafeNavImage` (site path, https, or a package `theme-asset://` slot;
+    never http, `//`, `javascript:` or `data:` — it is an `<img src>` on every
+    page). ★★ EMPTY `children`/`image_url` ARE OMITTED, NEVER WRITTEN AS
+    []/"", so every stored flat menu cleans byte-identical — the at-rest
+    guarantee, and what keeps the contract's sanitised-equals-stored check
+    passing for every bundled theme. No migration: both columns are jsonb.
+    An item with children may leave `href` empty (a heading that only opens a
+    menu); an image survives only on a top-level item that has children,
+    since nothing else renders one.
+    Storefront: `header/desktop-nav.tsx` renders a plain item as the same
+    plain `<Link>`, so no theme opt-in is needed. An item with children is a
+    DISCLOSURE BUTTON (aria-expanded/controls), never a link — a link that
+    opens on hover and navigates on click is unusable on a tablet — and its
+    href becomes "View all" inside the panel. Hover opens only for
+    `pointerType === "mouse"` (150ms grace out, plus a bridge over the gap);
+    click, Escape (focus back to the button), a press outside, focus leaving
+    the item and a route change close it. `navPanelKind`: a short list under
+    the item, or a full-width panel (a child with its own links, or an image)
+    anchored to the FIXED header — which is why only `.navItemDropdown` is
+    positioned. Childless children gather into one column; the feature tile
+    is a link named by its caption; the image is dropped ≤1024px so the
+    columns keep their width. ★ Panel link rules are written at (0,3,1),
+    above the market variant's white `.navLinks a` and minimal's uppercase,
+    which would otherwise paint white-on-white or shout every sub-link.
+    `header/drawer-nav.tsx` drills one level at a time (not an accordion, which
+    pushes the last top-level item off a 320px drawer) with Back, a level title
+    and "View all"; Header remounts it on each open so it starts at the top,
+    and focus lands on Back going in and on the opened row coming out. The
+    drawer now scrolls (`overflow-y: auto`, `100dvh`) instead of clipping.
+    Builder: `NavTreeList` in `chrome-form.tsx` (Add sub-link under a row, up
+    to three levels; a menu image via `ImageUpload` only on a top-level row
+    with sub-links; removing the last sub-link returns the row to a plain
+    link). Theme validation reads nested hrefs and menu images
+    (`collectThemeHrefs`/`collectThemeImageUrls`); Theme Studio Stage B
+    header items are closed `{label, href, image_url, children}` two levels
+    deep, the compiler checks `image_url` with the section `*_url` slot rule
+    (only on items with children), and the prompt (now `theme-studio-v8`) asks for
+    a "Shop" menu grouping categories. Help:
+    `20260925_0138_nested_menu_help` replaces the navigation guide's
+    menu-editing step in place.
+    **The compiler runs the content floors (2026-09-25).** The first live
+    Gemini run seeded three categories because the prompt asked for "three to
+    six" while `validateThemeSampleData` requires four, and the compiler only
+    ran the package contract, so the theme passed the pipeline and failed at
+    acceptance. `contentFloorIssues` (compiler.ts) now runs the model-controlled
+    production floors — pages, homepage, sample data, links, design — and
+    returns them as repair issues. Asset rules stay at acceptance, where images
+    stop being placeholders. The offline provider seeds four categories and
+    eight products to clear them, and `theme-studio-v7` states the floors.
     ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
     column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
     child (the related-products carousel) made the grocery product page 734px
     wide on a 390px phone, its right half silently cut off by `overflow-x:
     clip`. The single-column PDP grids use `minmax(0, 1fr)` for the same
     reason — a bare `1fr` never shrinks below its widest child.
-    Header search is
-    FUNCTIONAL on all variants — it submits to
-    `/shop?q=`, and the shop grid filters by name/description/category
-    (`shop-client.tsx`, synced to the deep link).
+    **Predictive search (1.7).** Header search submits to `/shop?q=` on
+    every variant and, as the shopper types, shows up to six products (image,
+    price, struck-through compare-at), up to three categories and "See all N
+    results". `lib/storefront/product-search.ts` (pure) is the ONE matching
+    rule — whole phrase in name, description or category — used by BOTH the
+    shop grid (`shop-client.tsx`) and the dropdown, so a suggestion is always
+    something `/shop?q=` shows; `productMatchRank` only ORDERS matches (name
+    prefix → word prefix → name → category → description). ★
+    `GET /api/storefront/search?q=` is a ROUTE HANDLER, not a server action
+    (actions run one at a time per client, so a keystroke would queue in
+    front of Add to cart — §22's POS lesson), resolves the store from the
+    Host (never a parameter; `/api` bypasses proxy.ts), reads the cached
+    `getPublishedProducts`/`getActiveCategories`, and answers
+    `private, max-age=30` because nothing in front of Cloud Run varies on
+    Host. `header/predictive-search.tsx` is the ARIA 1.2 combobox (focus
+    stays in the input; `aria-activedescendant`; arrows, Enter, Escape closes
+    then clears), keeps the old `searchBar`/`searchInput` classes so every
+    header variant styles it as before, debounces 150ms, aborts the previous
+    request, remembers 30 answers, and never shows a result for a query other
+    than the one in the box. ★ `.searchWrap` is now the header's flex item,
+    so the market pill's sizing lives on it and it needs `min-width: 0`.
+    ★ PHONES: the box is hidden below 768px, so `header/phone-search.tsx`
+    puts a search icon in the phone header that opens a full-width sheet,
+    PORTALLED into `.storefront-root` — the scrolled header's
+    `backdrop-filter` makes it the containing block for fixed children, and
+    the root carries the theme tokens. The drawer's own search was removed;
+    the merchant's `showSearch` switch now governs phone search as well
+    (it used to show in the drawer regardless).
+    **Shop page and collection pages (1.8).** Every active category has its
+    own page, `(pages)/collections/[slug]/page.tsx`: self-canonical, the
+    category's name as title and h1, its description as meta description
+    (cut to 155 characters on a word), its image as OG image, a
+    BreadcrumbList, `noindex` while `?q` is present, 404 for an unknown or
+    hidden slug. ★ There is NO `collections/page.tsx`, so a merchant page
+    slugged `collections` could still resolve — "collections" is nonetheless
+    in `RESERVED_PAGE_SLUGS` and `STOREFRONT_CODE_ROUTES` so no new one can be
+    made. `/shop?category=<active slug>` answers **308** to it
+    (`legacyCategoryRedirect`, `lib/storefront/collection-links.ts`),
+    carrying every other parameter; an unknown slug and the `uncategorized`
+    "Other" view stay on /shop. `collectionPath(slug)` is the ONE builder,
+    used by the shop's category chips (now real `<Link>`s in a
+    `nav[aria-label=Categories]`), homepage category tiles, search
+    suggestions, the product breadcrumb (active category only), the builder
+    placeholder and the sitemap, which lists a collection only when a product
+    is on it, dated by its newest product's `content_updated_at`
+    (`populatedCollections`). Theme validation accepts `/collections/<slug>`
+    as a category link and refuses a bare `/collections`.
+    `shop/shop-view.ts` (server-only) is the ONE loader both pages share
+    (products, categories, resolved layout, low-stock threshold, offer
+    badges), so /shop and a collection cannot price or badge differently.
+    ★★ SORT, FILTERS AND LOAD MORE ARE THEME OPT-INS: `ThemeLayout.shopFilters`
+    and `.collectionBanner`, resolved `=== true` in
+    `resolveStorefrontAppearance`. Without `shopFilters` the grid renders
+    exactly as before AND ignores `sort`/`stock`/`min`/`max`/`page` in the
+    URL, so no existing store changes. `lib/storefront/shop-filters.ts`
+    (pure) owns the vocabulary: sorts featured | price-asc | price-desc |
+    newest | name, `stock=in`, rupee `min`/`max` (a backwards pair swaps,
+    negative or absurd bounds drop), `page` = how many 24-product pages are
+    revealed (capped at 200). Defaults are omitted from the URL and junk is
+    ignored, never an error. Sorting is stable with the featured order as
+    tie-break; price means `effectivePricing(p).selling` and sold out means
+    `productIsSoldOut` — the card's own rules. ★ State changes go through
+    `history.replaceState`: every product is already loaded, so a sort is a
+    re-order, not a round trip, and Back leaves the shop rather than undoing
+    one filter at a time. ★ "Load more" reveals already-loaded products;
+    it paginates the DOM, not the query. `shop/shop-filter-panel.tsx` is a
+    dialog (side drawer; bottom sheet at ≤600px), PORTALLED into
+    `.storefront-root` for the theme tokens, with a focus trap and scroll
+    lock. ★ ITS CHANGES ARE A DRAFT until "Show N products", which quotes the
+    count first; Escape, the backdrop or Close discard it. Active filters show
+    as removable chips beside a Sort select and an `aria-live` count, and an
+    empty result offers "Clear filters". `collectionBanner` puts the
+    category's image and description above a collection's grid (no search in
+    the box). The row types gained `products.created_at` and
+    `categories.description`, so both cache keys moved to `-v2`. Stage B, the
+    package contract, the fake provider and prompt `theme-studio-v8` carry the
+    two keys and write `/collections/<slug>` menu links. Help:
+    `20260925_0139_collection_pages_help` replaces the categories guide's
+    handle sentence in place.
     `storefront: "grocery"` is the deepest variant: it swaps the shared
     product cards, the product-detail page and the cart for a distinct
     premium grocery layout, so a store on such a theme looks NOTHING like the

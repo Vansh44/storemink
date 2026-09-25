@@ -22,7 +22,7 @@ import {
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v5";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v8";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -71,23 +71,25 @@ Design tokens
 - Every palette value is a hex colour. shadowRgb is three comma-separated integers such as "23, 23, 21". Body text (ink) on the page (cream) and on cards (surface), and secondary text (inkSoft) on the page, must each reach WCAG AA contrast of 4.5:1. onAccent must be readable on the accent colour and onInk on ink.
 - Fonts must be exactly one of: ${THEME_STUDIO_FONT_VALUES.join(", ")}.
 - Shape values are CSS lengths in px, for example "4px" or "999px".
-- Layout values may be null to keep the shared default. For a storefront that should feel like a premium theme, set stickyAddToCart to true (a phone add-to-cart bar once the page's own button scrolls away) and gridColumnsMobile to 2 (two products per row on phones); choose gridColumnsDesktop 3 for large editorial product photography, 5 for dense catalogues, otherwise leave it null.
+- Layout values may be null to keep the shared default. For a storefront that should feel like a premium theme, set stickyAddToCart to true (a phone add-to-cart bar once the page's own button scrolls away) and gridColumnsMobile to 2 (two products per row on phones); choose gridColumnsDesktop 3 for large editorial product photography, 5 for dense catalogues, otherwise leave it null. Set shopFilters to true (a sort menu, availability and price filters, and products 24 at a time with Load more) for any store with more than a handful of products, and collectionBanner to true so each category page opens with its image and description.
 
 Pages
 - Exactly one homepage, whose slug is the empty string. Other slugs are lowercase kebab-case and must not be any of: ${reserved}.
-- Two to six pages in total. Every page has a title.
+- Two to six pages in total. Every page has a title and an SEO description of at least 20 characters.
+- The homepage has at least five sections using at least four different section types.
 - Each section has a type from the schema and configJson: a JSON object, encoded as a string, with exactly the fields of that type's example below. Keep id-based fields (product_ids, category_ids, blog_ids) as empty arrays; featured_products must use source "featured" and shop_by_category must use source "all".
 - The examples below show each type's field names and value types with EMPTY defaults. Fill them: a gallery needs at least two images, testimonials and FAQs at least one item, a promo banner an image or heading, a tile grid at least one tile, and rich text real HTML paragraphs.
 - hero and hero_carousel (and each carousel slide) also accept these OPTIONAL fields, which you may add to that config only: height ("auto", "small", "medium", "large" or "screen" — use "large" or "screen" for an image-led homepage, never on a text-only hero), mobile_image_url (a separate portrait image slot for phones, when the desktop banner is wide and its subject would be cropped away), focal_x and focal_y (integers 0–100, the subject's position in the image, so phones crop around it), overlay_opacity (integer 0–80, a veil behind the copy; use 20–45 when light text sits over a busy photo) and content_position ("top", "middle" or "bottom"). Leave any of them out to keep the default.
-- Image fields (keys ending in _url) are either "" or "theme-asset://<asset-brief-id>" using an id from the intent's asset briefs. video_url must always be "". Never write an external URL. Links (keys ending in _href) are either "" or a site path starting with "/", such as "/shop" or "/about".
+- Image fields (keys ending in _url) are either "" or "theme-asset://<asset-brief-id>" using an id from the intent's asset briefs. video_url must always be "". Never write an external URL. Links (keys ending in _href) are either "" or a site path starting with "/", such as "/shop" or "/about". Every link must reach something the store will have: one of your own page slugs, /shop, /collections/<a category slug you seed>, /shop/<a product slug you seed>, or a policy page such as /privacy-policy. The examples' own links (such as /our-story) are placeholders — replace them.
 - Write original copy in the store's voice. No lorem ipsum, no placeholder brand names such as "Brand Name".
 
 Section config examples:
 ${configExamples()}
 
 Navigation: header links point to /shop and to your pages. Footer groups hold two to four columns. Legal links are optional.
+- A header item may open a menu: its children are shown when a shopper opens it. Give a store with several categories a "Shop" item whose children group them — two to four children, each a column heading with two to six links such as "/collections/<slug>" — and set that item's image_url to a category or hero image slot to feature it. A child may have no children of its own. An item that only opens a menu may leave href "". Keep other header items plain: children [] and image_url "". Never nest deeper than a child's links.
 
-Sample catalogue: three to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot and each category may have one; both use asset-brief ids. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
+Sample catalogue: four to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot and each category may have one; both use asset-brief ids. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
 
 Carry the intent's capability gaps forward and add any you discover. Respond with JSON only, matching the provided schema.`;
 }

@@ -6,7 +6,13 @@ import {
   type GenerateContentResponse,
   type Part,
 } from "@google/genai";
+import { logWarn } from "@/lib/observability/logger";
 import { THEME_STUDIO_LIMITS } from "./contracts";
+import {
+  RATE_LIMIT_BACKOFF,
+  rateLimitDelayMs,
+  sleepUnlessAborted,
+} from "./rate-limit-backoff";
 import {
   ZERO_USAGE,
   type ProviderUsage,
@@ -150,9 +156,22 @@ function toParts(request: StructuredRequest): Part[] {
   );
 }
 
+/** Status codes the SDK retries on its own, fast. 429 is deliberately absent:
+ * it gets the slower backoff below (rate-limit-backoff.ts). */
+const SDK_RETRY_STATUS_CODES = [408, 500, 502, 503, 504];
+
+export interface VertexClientOptions {
+  /** Test seams; production uses real timers and Math.random. */
+  sleep?: (ms: number, signal?: AbortSignal) => Promise<boolean>;
+  random?: () => number;
+}
+
 export function createVertexModelClient(
   config: VertexConfig,
+  options: VertexClientOptions = {},
 ): ThemeStudioModelClient {
+  const sleep = options.sleep ?? sleepUnlessAborted;
+  const random = options.random ?? Math.random;
   const ai = new GoogleGenAI({
     enterprise: true,
     project: config.projectId,
@@ -162,16 +181,46 @@ export function createVertexModelClient(
       timeout: REQUEST_TIMEOUT_MS,
       // The SDK retries transient failures; the first attempt plus the Phase 0
       // retry budget. A refusal or a schema miss is never retried here.
-      retryOptions: { attempts: THEME_STUDIO_LIMITS.modelRetries + 1 },
+      retryOptions: {
+        attempts: THEME_STUDIO_LIMITS.modelRetries + 1,
+        httpStatusCodes: SDK_RETRY_STATUS_CODES,
+      },
     },
   });
 
   return {
     provider: "vertex-gemini",
     async generate(request, signal) {
-      let response: GenerateContentResponse;
-      try {
-        response = await ai.models.generateContent({
+      let response: GenerateContentResponse | undefined;
+      let waitedMs = 0;
+      for (let retry = 0; !response; retry++) {
+        try {
+          response = await send();
+        } catch (error) {
+          const code = classifyProviderError(error, signal);
+          const delay =
+            code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
+              ? rateLimitDelayMs(retry, random)
+              : null;
+          if (delay === null || waitedMs + delay > RATE_LIMIT_BACKOFF.totalMs) {
+            return { kind: "error", code, usage: ZERO_USAGE };
+          }
+          // Stage and model only: never the prompt or the references.
+          logWarn("theme_studio.rate_limited_retry", {
+            stage: request.stage,
+            model: request.modelKey,
+            retry: retry + 1,
+            waitMs: delay,
+          });
+          if (!(await sleep(delay, signal))) {
+            return { kind: "error", code: "cancelled", usage: ZERO_USAGE };
+          }
+          waitedMs += delay;
+        }
+      }
+
+      function send() {
+        return ai.models.generateContent({
           model: request.providerModel,
           contents: [{ role: "user", parts: toParts(request) }],
           config: {
@@ -188,12 +237,6 @@ export function createVertexModelClient(
             },
           },
         });
-      } catch (error) {
-        return {
-          kind: "error",
-          code: classifyProviderError(error, signal),
-          usage: ZERO_USAGE,
-        };
       }
 
       const usage = usageOf(response);

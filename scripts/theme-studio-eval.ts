@@ -13,7 +13,9 @@
  *       Both --max-usd and --yes are required; there is no default ceiling.
  *       Needs ADC and THEME_STUDIO_GCP_PROJECT_ID (or GCP_PROJECT_ID).
  *
- * Options: --model=a,b (default gemini-3.8-flash), --cases=id,id, --out=report.json.
+ * Options: --model=a,b (default gemini-3.8-flash), --cases=id,id, --out=report.json,
+ * --packages=<dir> (write each generated ThemePackageV2 as <model>.<case>.json, so a
+ * paid run can be inspected afterwards rather than only graded).
  *
  * ★ It touches no database. Each case builds the same GenerationInput the
  * worker builds, so a model that passes here is judged on the pipeline it
@@ -69,6 +71,7 @@ async function main() {
   const maxUsdOption = option("max-usd");
   const maxUsd = Number(maxUsdOption ?? "0");
   const out = option("out");
+  const packagesDir = option("packages");
 
   const sharp = (await import("sharp")).default;
   const { writeFile } = await import("node:fs/promises");
@@ -229,6 +232,14 @@ async function main() {
         },
         AbortSignal.timeout(RUN_WALL_MS),
       );
+      if (packagesDir && outcome.kind === "version") {
+        const { mkdir } = await import("node:fs/promises");
+        await mkdir(packagesDir, { recursive: true });
+        await writeFile(
+          `${packagesDir}/${modelKey}.${entry.id}.json`,
+          JSON.stringify(outcome.package, null, 2),
+        );
+      }
       const observed = evaluation.observedOutcome(outcome);
       const cost = outcome.telemetry.estimatedCostMicroUsd;
       spentMicroUsd += cost;

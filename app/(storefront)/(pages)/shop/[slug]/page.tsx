@@ -396,11 +396,12 @@ export default async function ProductDetailPage({
   const breadcrumbLd = breadcrumbSchema(siteUrl, [
     { name: "Home", path: "/" },
     { name: "Shop", path: "/shop" },
-    ...(product.category
+    // A hidden category has no page, so it is not a breadcrumb step.
+    ...(product.category && product.category.status === "active"
       ? [
           {
             name: product.category.name,
-            path: `/shop?category=${product.category.slug}`,
+            path: `/collections/${product.category.slug}`,
           },
         ]
       : []),
