@@ -1176,6 +1176,8 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
         "stickyAddToCart",
         "gridColumnsMobile",
         "gridColumnsDesktop",
+        "shopFilters",
+        "collectionBanner",
         "productDetail",
         "cart",
         "footer",
@@ -1210,7 +1212,12 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
         );
       }
     }
-    for (const key of ["cardHoverImage", "stickyAddToCart"] as const) {
+    for (const key of [
+      "cardHoverImage",
+      "stickyAddToCart",
+      "shopFilters",
+      "collectionBanner",
+    ] as const) {
       if (
         value.layout[key] !== undefined &&
         typeof value.layout[key] !== "boolean"

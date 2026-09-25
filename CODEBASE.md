@@ -2222,7 +2222,9 @@ wholesip/
 │   │   │                      # just like [pageSlug]. Edited in /dashboard/builder (§11)
 │   │   ├── storefront-theme.css
 │   │   ├── (pages)/           # Customer-facing pages:
-│   │   │   ├── shop/          #   product listing + [slug] product detail (reviews, related)
+│   │   │   ├── shop/          #   product listing + [slug] product detail (reviews, related);
+│   │   │   │                  #   shop-view.ts (shared loader) + shop-filter-panel.tsx
+│   │   │   ├── collections/[slug]/ # ★ a category's own page (1.8); /shop?category= 308s here
 │   │   │   ├── cart/          #   cart page (CartProvider-driven)
 │   │   │   ├── checkout/      #   COD checkout (auth-gated client page → placeOrder) +
 │   │   │   │                  #   success/ order-confirmation page. RESERVED slug.
@@ -5253,7 +5255,7 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     (`collectThemeHrefs`/`collectThemeImageUrls`); Theme Studio Stage B
     header items are closed `{label, href, image_url, children}` two levels
     deep, the compiler checks `image_url` with the section `*_url` slot rule
-    (only on items with children), and the prompt (now `theme-studio-v7`) asks for
+    (only on items with children), and the prompt (now `theme-studio-v8`) asks for
     a "Shop" menu grouping categories. Help:
     `20260925_0138_nested_menu_help` replaces the navigation guide's
     menu-editing step in place.
@@ -5300,6 +5302,57 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     the root carries the theme tokens. The drawer's own search was removed;
     the merchant's `showSearch` switch now governs phone search as well
     (it used to show in the drawer regardless).
+    **Shop page and collection pages (1.8).** Every active category has its
+    own page, `(pages)/collections/[slug]/page.tsx`: self-canonical, the
+    category's name as title and h1, its description as meta description
+    (cut to 155 characters on a word), its image as OG image, a
+    BreadcrumbList, `noindex` while `?q` is present, 404 for an unknown or
+    hidden slug. ★ There is NO `collections/page.tsx`, so a merchant page
+    slugged `collections` could still resolve — "collections" is nonetheless
+    in `RESERVED_PAGE_SLUGS` and `STOREFRONT_CODE_ROUTES` so no new one can be
+    made. `/shop?category=<active slug>` answers **308** to it
+    (`legacyCategoryRedirect`, `lib/storefront/collection-links.ts`),
+    carrying every other parameter; an unknown slug and the `uncategorized`
+    "Other" view stay on /shop. `collectionPath(slug)` is the ONE builder,
+    used by the shop's category chips (now real `<Link>`s in a
+    `nav[aria-label=Categories]`), homepage category tiles, search
+    suggestions, the product breadcrumb (active category only), the builder
+    placeholder and the sitemap, which lists a collection only when a product
+    is on it, dated by its newest product's `content_updated_at`
+    (`populatedCollections`). Theme validation accepts `/collections/<slug>`
+    as a category link and refuses a bare `/collections`.
+    `shop/shop-view.ts` (server-only) is the ONE loader both pages share
+    (products, categories, resolved layout, low-stock threshold, offer
+    badges), so /shop and a collection cannot price or badge differently.
+    ★★ SORT, FILTERS AND LOAD MORE ARE THEME OPT-INS: `ThemeLayout.shopFilters`
+    and `.collectionBanner`, resolved `=== true` in
+    `resolveStorefrontAppearance`. Without `shopFilters` the grid renders
+    exactly as before AND ignores `sort`/`stock`/`min`/`max`/`page` in the
+    URL, so no existing store changes. `lib/storefront/shop-filters.ts`
+    (pure) owns the vocabulary: sorts featured | price-asc | price-desc |
+    newest | name, `stock=in`, rupee `min`/`max` (a backwards pair swaps,
+    negative or absurd bounds drop), `page` = how many 24-product pages are
+    revealed (capped at 200). Defaults are omitted from the URL and junk is
+    ignored, never an error. Sorting is stable with the featured order as
+    tie-break; price means `effectivePricing(p).selling` and sold out means
+    `productIsSoldOut` — the card's own rules. ★ State changes go through
+    `history.replaceState`: every product is already loaded, so a sort is a
+    re-order, not a round trip, and Back leaves the shop rather than undoing
+    one filter at a time. ★ "Load more" reveals already-loaded products;
+    it paginates the DOM, not the query. `shop/shop-filter-panel.tsx` is a
+    dialog (side drawer; bottom sheet at ≤600px), PORTALLED into
+    `.storefront-root` for the theme tokens, with a focus trap and scroll
+    lock. ★ ITS CHANGES ARE A DRAFT until "Show N products", which quotes the
+    count first; Escape, the backdrop or Close discard it. Active filters show
+    as removable chips beside a Sort select and an `aria-live` count, and an
+    empty result offers "Clear filters". `collectionBanner` puts the
+    category's image and description above a collection's grid (no search in
+    the box). The row types gained `products.created_at` and
+    `categories.description`, so both cache keys moved to `-v2`. Stage B, the
+    package contract, the fake provider and prompt `theme-studio-v8` carry the
+    two keys and write `/collections/<slug>` menu links. Help:
+    `20260925_0139_collection_pages_help` replaces the categories guide's
+    handle sentence in place.
     `storefront: "grocery"` is the deepest variant: it swaps the shared
     product cards, the product-detail page and the cart for a distinct
     premium grocery layout, so a store on such a theme looks NOTHING like the

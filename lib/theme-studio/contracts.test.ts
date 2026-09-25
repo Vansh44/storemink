@@ -205,6 +205,8 @@ describe("Theme Studio contracts", () => {
       stickyAddToCart: true,
       gridColumnsMobile: 2,
       gridColumnsDesktop: 5,
+      shopFilters: true,
+      collectionBanner: false,
     };
     expect(validateThemePackageV2(ok).ok).toBe(true);
 
@@ -213,12 +215,16 @@ describe("Theme Studio contracts", () => {
       stickyAddToCart: "yes",
       gridColumnsMobile: 3,
       gridColumnsDesktop: 2,
+      shopFilters: 1,
+      collectionBanner: "on",
     });
     const result = validateThemePackageV2(bad);
     expect(result.ok).toBe(false);
     if (result.ok) return;
     const issues = result.issues.join(" ");
     expect(issues).toContain("stickyAddToCart must be a boolean");
+    expect(issues).toContain("shopFilters must be a boolean");
+    expect(issues).toContain("collectionBanner must be a boolean");
     expect(issues).toContain("gridColumnsMobile is unsupported");
     expect(issues).toContain("gridColumnsDesktop is unsupported");
   });

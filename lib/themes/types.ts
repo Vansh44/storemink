@@ -164,6 +164,13 @@ export interface ThemeLayout {
   gridColumnsMobile?: 1 | 2;
   /** Shop grid columns on a wide desktop (>1100px). Absent = 4. */
   gridColumnsDesktop?: 3 | 4 | 5;
+  /** Shop and collection pages gain a sort menu, availability and price
+   *  filters, and show products 24 at a time behind "Load more". Opt-in: it
+   *  adds a toolbar and hides products past the first page. Absent = off. */
+  shopFilters?: boolean;
+  /** A collection page opens with its category's image and description.
+   *  Absent = off: the page is titled with the category name only. */
+  collectionBanner?: boolean;
 }
 
 export interface ThemeDesign {

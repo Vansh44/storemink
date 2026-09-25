@@ -136,6 +136,8 @@ describe("resolveStorefrontAppearance", () => {
       stickyAddToCart: false,
       gridColumnsMobile: 1,
       gridColumnsDesktop: 4,
+      shopFilters: false,
+      collectionBanner: false,
       productDetail: "editorial",
       cart: "compact",
       footer: "minimal",
@@ -171,18 +173,31 @@ describe("resolveStorefrontAppearance", () => {
       stickyAddToCart: false,
       gridColumnsMobile: 1,
       gridColumnsDesktop: 4,
+      shopFilters: false,
+      collectionBanner: false,
     });
     expect(
       resolveStorefrontAppearance({
         stickyAddToCart: true,
         gridColumnsMobile: 2,
         gridColumnsDesktop: 5,
+        shopFilters: true,
+        collectionBanner: true,
       }),
     ).toMatchObject({
       stickyAddToCart: true,
       gridColumnsMobile: 2,
       gridColumnsDesktop: 5,
+      shopFilters: true,
+      collectionBanner: true,
     });
+    // Only a real `true` opts in — a stored string does not.
+    expect(
+      resolveStorefrontAppearance({
+        shopFilters: "true" as never,
+        collectionBanner: 1 as never,
+      }),
+    ).toMatchObject({ shopFilters: false, collectionBanner: false });
     // A stored value outside the choices falls back to the default rather
     // than emitting a class nothing styles.
     expect(
@@ -222,6 +237,8 @@ describe("resolveStorefrontAppearance", () => {
       stickyAddToCart: false,
       gridColumnsMobile: 1,
       gridColumnsDesktop: 4,
+      shopFilters: false,
+      collectionBanner: false,
       productDetail: "classic",
       cart: "classic",
       footer: "editorial",

@@ -1,4 +1,5 @@
 import { effectivePricing } from "@/lib/pricing";
+import { collectionPath } from "@/lib/storefront/collection-links";
 import { productGallery } from "@/lib/products/gallery";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
 import {
@@ -81,7 +82,7 @@ export async function GET(request: Request): Promise<Response> {
     }),
     categories: rankCategories(categories, query).map((category) => ({
       name: category.name,
-      href: `/shop?category=${encodeURIComponent(category.slug)}`,
+      href: collectionPath(category.slug),
     })),
   };
   return json(body, 30);

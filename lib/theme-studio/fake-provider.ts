@@ -179,6 +179,8 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         stickyAddToCart: true,
         gridColumnsMobile: 2,
         gridColumnsDesktop: null,
+        shopFilters: true,
+        collectionBanner: true,
         productDetail: "editorial",
         cart: null,
         footer: "minimal",
@@ -233,7 +235,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
           children: [
             {
               label: "Everyday",
-              href: "/shop?category=everyday",
+              href: "/collections/everyday",
               children: [{ label: "Sample one", href: "/shop/sample-one" }],
             },
           ],

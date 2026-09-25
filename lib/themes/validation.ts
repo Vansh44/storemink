@@ -444,6 +444,8 @@ export const STOREFRONT_CODE_ROUTES: ReadonlySet<string> = new Set([
   "blogs",
   "cart",
   "checkout",
+  // Only /collections/<slug> is a page; a bare /collections is refused below.
+  "collections",
   "enquiries",
   "notifications",
   "orders",
@@ -495,13 +497,28 @@ export function validateThemeLinks(theme: ThemeDefinition): ThemeFinding[] {
     ...rendered.footerLegal.map((link) => link.href),
   ]);
   for (const href of hrefs) {
-    const category = href.match(/^\/shop\?category=([^&]+)$/);
+    // A category is linked by its own page (/collections/<slug>) or by the
+    // older query form, which now redirects there. Either must name a
+    // seeded category.
+    const category =
+      href.match(/^\/collections\/([^/?#]+)\/?$/) ??
+      href.match(/^\/shop\?category=([^&]+)$/);
     if (category) {
       if (!categories.has(category[1])) {
         out.push(
           finding("links", "category", `${href} names no seeded category.`),
         );
       }
+      continue;
+    }
+    if (/^\/collections\/?(?:[?#].*)?$/.test(href)) {
+      out.push(
+        finding(
+          "links",
+          "category",
+          `${href} names no category; link /collections/<category slug>.`,
+        ),
+      );
       continue;
     }
     const product = href.match(/^\/shop\/([^/?#]+)$/);

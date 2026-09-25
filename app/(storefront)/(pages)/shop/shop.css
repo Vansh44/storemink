@@ -2072,3 +2072,423 @@
     padding-top: 0;
   }
 }
+
+/* ── Shop toolbar, filters and "Load more" (theme layout.shopFilters) ──────
+   The category chips are links now (each category has its own page), so they
+   lose the underline an anchor would otherwise bring. */
+.shop-filters a.shop-chip {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.shop-chip:focus-visible,
+.shop-filter-btn:focus-visible,
+.shop-active-filter:focus-visible,
+.shop-clear-filters:focus-visible,
+.shop-sort select:focus-visible,
+.shop-more-btn:focus-visible,
+.shop-filter-panel button:focus-visible,
+.shop-filter-panel input:focus-visible {
+  outline: 2px solid var(--sm-ink);
+  outline-offset: 2px;
+}
+
+.shop-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.shop-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin: 0 0 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--sm-border);
+  border-bottom: 1px solid var(--sm-border);
+}
+.shop-toolbar-start,
+.shop-toolbar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.shop-filter-btn,
+.shop-active-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shop-filter-btn:hover,
+.shop-active-filter:hover {
+  border-color: var(--sm-ink);
+}
+.shop-active-filter {
+  min-height: 34px;
+  padding: 0 12px;
+  font-weight: 500;
+  background: var(--sm-cream-deep);
+}
+.shop-filter-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+  font-size: 12px;
+  line-height: 1;
+}
+.shop-clear-filters {
+  border: 0;
+  background: none;
+  padding: 6px 4px;
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.shop-toolbar-count {
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+}
+.shop-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+}
+.shop-sort select {
+  min-height: 40px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-control);
+  background-color: var(--sm-surface);
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  /* One row each on a phone: Filter + chips, then count + sort. */
+  .shop-toolbar-start,
+  .shop-toolbar-end {
+    width: 100%;
+  }
+  .shop-toolbar-end {
+    justify-content: space-between;
+  }
+  .shop-sort-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  /* 16px stops iOS zooming the page when the select takes focus. */
+  .shop-sort select {
+    font-size: 16px;
+  }
+}
+
+.shop-more {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin: 36px 0 8px;
+}
+.shop-more-count {
+  margin: 0;
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+}
+.shop-more-bar {
+  width: min(240px, 70%);
+  height: 3px;
+  border-radius: 999px;
+  background: var(--sm-border);
+  overflow: hidden;
+}
+.shop-more-bar span {
+  display: block;
+  height: 100%;
+  background: var(--sm-ink);
+}
+.shop-more-btn {
+  min-height: 46px;
+  padding: 0 32px;
+  border: 1px solid var(--sm-ink);
+  border-radius: var(--sm-radius-pill);
+  background: transparent;
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shop-more-btn:hover {
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+}
+
+/* ── Filter panel: side drawer on a computer, bottom sheet on a phone ──── */
+.shop-filter-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+}
+.shop-filter-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--sm-shadow-rgb), 0.42);
+}
+.shop-filter-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, 100vw);
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  box-shadow: -12px 0 40px rgba(var(--sm-shadow-rgb), 0.18);
+  outline: none;
+  animation: shop-filter-in-side 0.22s ease-out;
+}
+.shop-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--sm-border);
+}
+.shop-filter-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.shop-filter-close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--sm-ink);
+  cursor: pointer;
+}
+.shop-filter-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 20px 20px;
+}
+.shop-filter-group {
+  margin: 0;
+  padding: 18px 0;
+  border: 0;
+  border-bottom: 1px solid var(--sm-border);
+}
+.shop-filter-group:last-child {
+  border-bottom: 0;
+}
+.shop-filter-group legend {
+  padding: 0;
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.shop-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.shop-filter-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--sm-ink);
+}
+.shop-filter-muted {
+  color: var(--sm-ink-soft);
+}
+.shop-filter-hint {
+  margin: -4px 0 12px;
+  font-size: 13px;
+}
+.shop-filter-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.shop-filter-range label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--sm-ink-soft);
+}
+.shop-filter-money {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-control);
+  background: var(--sm-cream);
+  color: var(--sm-ink);
+}
+.shop-filter-money:focus-within {
+  border-color: var(--sm-ink);
+}
+.shop-filter-money input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  /* 16px: no iOS focus zoom. */
+  font-size: 16px;
+  outline: none;
+}
+.shop-filter-panel input:focus-visible {
+  outline: none;
+}
+.shop-filter-foot {
+  display: flex;
+  gap: 12px;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--sm-border);
+}
+.shop-filter-reset,
+.shop-filter-apply {
+  min-height: 48px;
+  border-radius: var(--sm-radius-pill);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shop-filter-reset {
+  padding: 0 20px;
+  border: 1px solid var(--sm-border);
+  background: transparent;
+  color: var(--sm-ink);
+}
+.shop-filter-apply {
+  flex: 1;
+  border: 1px solid var(--sm-ink);
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+}
+
+@media (max-width: 600px) {
+  .shop-filter-panel {
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-height: 88dvh;
+    border-radius: var(--sm-radius-card) var(--sm-radius-card) 0 0;
+    box-shadow: 0 -12px 40px rgba(var(--sm-shadow-rgb), 0.18);
+    animation-name: shop-filter-in-up;
+  }
+}
+@keyframes shop-filter-in-side {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes shop-filter-in-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shop-filter-panel {
+    animation: none;
+  }
+}
+
+/* ── Collection banner (theme layout.collectionBanner) ────────────────────
+   The category's own words and picture open its page. Without an image it is
+   a text header; with one, copy and picture sit side by side from 768px. */
+.shop-collection-banner {
+  display: grid;
+  gap: 20px;
+  margin: 0 0 24px;
+}
+.shop-collection-banner.has-image {
+  align-items: center;
+}
+.shop-collection-title {
+  margin: 0;
+  font-family: var(--font-stick-no-bills, var(--font-outfit)), sans-serif;
+  font-size: clamp(32px, 4.5vw, 56px);
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: var(--sm-ink);
+}
+.shop-collection-desc {
+  max-width: 62ch;
+  margin: 14px 0 0;
+  font-size: clamp(15px, 1.4vw, 17px);
+  line-height: 1.6;
+  color: var(--sm-ink-soft);
+  white-space: pre-line;
+}
+.shop-collection-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--sm-radius-card);
+  background: var(--sm-cream-deep);
+}
+.shop-collection-img {
+  object-fit: cover;
+}
+@media (min-width: 768px) {
+  .shop-collection-banner.has-image {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: clamp(24px, 4vw, 56px);
+  }
+  .shop-collection-media {
+    aspect-ratio: 3 / 2;
+  }
+}

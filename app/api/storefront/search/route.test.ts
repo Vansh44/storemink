@@ -76,7 +76,7 @@ describe("GET /api/storefront/search", () => {
           category: "Shirts",
         },
       ],
-      categories: [{ name: "Shirts", href: "/shop?category=shirts" }],
+      categories: [{ name: "Shirts", href: "/collections/shirts" }],
     });
     expect(response.headers.get("cache-control")).toMatch(/^private/);
   });

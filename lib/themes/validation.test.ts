@@ -160,6 +160,21 @@ describe("theme validation", () => {
     expect(collectThemeImageUrls(theme)).toContain("/themes/basket/menu.webp");
   });
 
+  it("links: a collection link must name a seeded category", () => {
+    const theme = clone();
+    const seeded = theme.preset.sampleData!.categories[0].slug;
+    theme.preset.menus.header.push(
+      { label: "Seeded", href: `/collections/${seeded}` } as never,
+      { label: "Old form", href: `/shop?category=${seeded}` } as never,
+      { label: "Ghost", href: "/collections/ghost" } as never,
+      { label: "Bare", href: "/collections" } as never,
+    );
+    expect(validateThemeLinks(theme).map((f) => f.message)).toEqual([
+      "/collections/ghost names no seeded category.",
+      "/collections names no category; link /collections/<category slug>.",
+    ]);
+  });
+
   it("links: a page link must reach a seeded page or a storefront route", () => {
     const theme = clone();
     theme.preset.menus.header.push(

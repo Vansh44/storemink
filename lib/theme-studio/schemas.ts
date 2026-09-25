@@ -213,6 +213,8 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       stickyAddToCart: nullable({ type: "boolean" }),
       gridColumnsMobile: nullable({ type: "integer", enum: [1, 2] }),
       gridColumnsDesktop: nullable({ type: "integer", enum: [3, 4, 5] }),
+      shopFilters: nullable({ type: "boolean" }),
+      collectionBanner: nullable({ type: "boolean" }),
       productDetail: nullable(enumOf(["classic", "grocery", "editorial"])),
       cart: nullable(enumOf(["classic", "grocery", "compact"])),
       footer: nullable(enumOf(["rich", "minimal", "editorial"])),

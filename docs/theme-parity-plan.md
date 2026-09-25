@@ -38,7 +38,7 @@ Studio use them.
 | 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | ✅      |
 | 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | ✅      |
 | 1.7  | Predictive search dropdown; search visible in the phone header                                         | ✅      |
-| 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | planned |
+| 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | ✅      |
 | 1.9  | Cart drawer: free-delivery progress bar, upsell row                                                    | planned |
 | 1.10 | Product page: shipping/returns/size accordions, theme-tokened badges and trust row, rich description   | planned |
 | 1.11 | Announcement bar in the header (static/rotating, dismissible); dedicated logo strip; countdown section | planned |
@@ -107,6 +107,23 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
   action — actions run one at a time per client, so a keystroke's lookup would
   have queued in front of the shopper's next Add to cart.
 - Deferred: matching blog posts and pages, typo tolerance, and recent searches.
+
+### Found and fixed while building 1.8
+
+- **A category had no address of its own.** `/shop?category=` rendered one
+  shop for every category, with one canonical, so no category page could be
+  indexed or shared. `/collections/<slug>` is a real page with its own title,
+  description, image and breadcrumb; the old links 308 there, keeping their
+  search and filters.
+- **The category chips were buttons**, so a shopper could not open a category
+  in a new tab and a crawler could not follow one. They are links now.
+- **A product's breadcrumb could link a hidden category**, which then showed
+  the whole shop. It links only an active one.
+- **Sort, filters and load more are opt-in** (`shopFilters`), and a store
+  without them ignores those URL parameters, so no existing shop changes.
+  Filter edits are a draft until "Show N products".
+- Deferred: filtering by option value (size, colour) and by tag, server-side
+  pagination for catalogues too large to load at once, and a price slider.
 
 ### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
 
