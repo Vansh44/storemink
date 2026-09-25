@@ -3,7 +3,6 @@
 
 import { useState, useEffect, useRef } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import styles from "./Header.module.css";
 import Image from "next/image";
 import { useBrand } from "@/app/(storefront)/components/brand-provider";
@@ -13,6 +12,8 @@ import { useCart } from "@/app/(storefront)/components/cart/CartProvider";
 import { DeliveryLocationControl } from "@/app/(storefront)/components/delivery/delivery-location-control";
 import { DesktopNav } from "./desktop-nav";
 import { DrawerNav } from "./drawer-nav";
+import { PredictiveSearch } from "./predictive-search";
+import { PhoneSearch } from "./phone-search";
 import {
   User,
   Package,
@@ -31,8 +32,6 @@ export default function Header() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [customerUnread, setCustomerUnread] = useState(0);
-  const [searchQuery, setSearchQuery] = useState("");
-  const router = useRouter();
   const profileRef = useRef(null);
   const profileButtonRef = useRef(null);
   const closeTimerRef = useRef(null);
@@ -115,15 +114,6 @@ export default function Header() {
     await signOut();
   };
 
-  // Header search → the shop grid, filtered by ?q=. Empty submits just go
-  // to the shop.
-  const submitSearch = (e) => {
-    e.preventDefault();
-    const q = searchQuery.trim();
-    setIsMenuOpen(false);
-    router.push(q ? `/shop?q=${encodeURIComponent(q)}` : "/shop");
-  };
-
   const displayName = customer
     ? `${customer.first_name}${customer.last_name ? " " + customer.last_name : ""}`
     : user?.phone || "Account";
@@ -158,42 +148,10 @@ export default function Header() {
 
       <div className={styles.headerRight}>
         <DeliveryLocationControl />
-        {/* Search Bar - Now exclusively in the main header */}
-        {headerCfg.showSearch && (
-          <form
-            className={styles.searchBar}
-            onSubmit={submitSearch}
-            role="search"
-          >
-            <input
-              type="text"
-              placeholder="Search products..."
-              className={styles.searchInput}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search products"
-            />
-            <button
-              type="submit"
-              className={styles.searchIcon}
-              aria-label="Search"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </button>
-          </form>
-        )}
+        {/* Predictive search on tablet and desktop; phones get PhoneSearch. */}
+        {headerCfg.showSearch && <PredictiveSearch />}
+        {/* Phones: the box above is hidden, so search opens from an icon. */}
+        {headerCfg.showSearch && <PhoneSearch />}
 
         <div className={styles.iconGroup}>
           {/* Profile Button with Dropdown */}
@@ -468,42 +426,6 @@ export default function Header() {
               <line x1="6" y1="6" x2="18" y2="18"></line>
             </svg>
           </button>
-        </div>
-
-        <div className={styles.drawerSearch}>
-          <form
-            className={styles.drawerSearchBar}
-            onSubmit={submitSearch}
-            role="search"
-          >
-            <button
-              type="submit"
-              className={styles.searchIcon}
-              aria-label="Search"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              >
-                <circle cx="11" cy="11" r="8"></circle>
-                <line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-              </svg>
-            </button>
-            <input
-              type="text"
-              placeholder="Search products..."
-              className={styles.searchInput}
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              aria-label="Search products"
-            />
-          </form>
         </div>
 
         <DeliveryLocationControl drawer />

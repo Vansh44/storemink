@@ -37,7 +37,7 @@ Studio use them.
 | 1.4  | Hero: focal point, separate mobile image, height and overlay controls; swipe on the hero carousel      | ✅      |
 | 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | ✅      |
 | 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | ✅      |
-| 1.7  | Predictive search dropdown; search visible in the phone header                                         | planned |
+| 1.7  | Predictive search dropdown; search visible in the phone header                                         | ✅      |
 | 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | planned |
 | 1.9  | Cart drawer: free-delivery progress bar, upsell row                                                    | planned |
 | 1.10 | Product page: shipping/returns/size accordions, theme-tokened badges and trust row, rich description   | planned |
@@ -92,6 +92,21 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
   link whose accessible name comes from its caption, not an `alt=""` image.
 - Deferred: a merchant-chosen promo block in the panel other than one image,
   per-link icons, and a nested footer.
+
+### Found and fixed while building 1.7
+
+- **The phone header had no search.** The header box is hidden below 768px and
+  search lived only inside the menu drawer — a tap, a scroll, and shown even
+  when the merchant had switched search off. A search icon in the phone header
+  opens a full-width sheet; the drawer copy is gone, and the merchant's
+  "Show search" switch now governs phone search too.
+- **The dropdown and the results page share one matching rule**
+  (`lib/storefront/product-search.ts`), so a suggestion is always something
+  "See all results" will show. Ranking only orders matches.
+- **The box now reads the cached catalogue through a GET route**, not a server
+  action — actions run one at a time per client, so a keystroke's lookup would
+  have queued in front of the shopper's next Add to cart.
+- Deferred: matching blog posts and pages, typo tolerance, and recent searches.
 
 ### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
 

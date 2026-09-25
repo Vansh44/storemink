@@ -2773,6 +2773,8 @@ wholesip/
 │       ├── dashboard/analytics/reports/[report]/ # ★ §20 formula-safe CSV for
 │       │                      # the four analytics drill-downs. Re-derives tenant,
 │       │                      # analytics.view and location scope; rate-limited
+│       ├── storefront/search/ # ★ Predictive header search (§11, 1.7): GET, store
+│       │                      # from the Host, cached catalogue, shared matching rule
 │       ├── og-image/          # OG image proxy (compresses Supabase images only)
 │       ├── og/                # Dynamic branded OG card (ImageResponse; ?d=JSON
 │       │                      # {title,subtitle,color}) — default share image for
@@ -5270,10 +5272,34 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     wide on a 390px phone, its right half silently cut off by `overflow-x:
     clip`. The single-column PDP grids use `minmax(0, 1fr)` for the same
     reason — a bare `1fr` never shrinks below its widest child.
-    Header search is
-    FUNCTIONAL on all variants — it submits to
-    `/shop?q=`, and the shop grid filters by name/description/category
-    (`shop-client.tsx`, synced to the deep link).
+    **Predictive search (1.7).** Header search submits to `/shop?q=` on
+    every variant and, as the shopper types, shows up to six products (image,
+    price, struck-through compare-at), up to three categories and "See all N
+    results". `lib/storefront/product-search.ts` (pure) is the ONE matching
+    rule — whole phrase in name, description or category — used by BOTH the
+    shop grid (`shop-client.tsx`) and the dropdown, so a suggestion is always
+    something `/shop?q=` shows; `productMatchRank` only ORDERS matches (name
+    prefix → word prefix → name → category → description). ★
+    `GET /api/storefront/search?q=` is a ROUTE HANDLER, not a server action
+    (actions run one at a time per client, so a keystroke would queue in
+    front of Add to cart — §22's POS lesson), resolves the store from the
+    Host (never a parameter; `/api` bypasses proxy.ts), reads the cached
+    `getPublishedProducts`/`getActiveCategories`, and answers
+    `private, max-age=30` because nothing in front of Cloud Run varies on
+    Host. `header/predictive-search.tsx` is the ARIA 1.2 combobox (focus
+    stays in the input; `aria-activedescendant`; arrows, Enter, Escape closes
+    then clears), keeps the old `searchBar`/`searchInput` classes so every
+    header variant styles it as before, debounces 150ms, aborts the previous
+    request, remembers 30 answers, and never shows a result for a query other
+    than the one in the box. ★ `.searchWrap` is now the header's flex item,
+    so the market pill's sizing lives on it and it needs `min-width: 0`.
+    ★ PHONES: the box is hidden below 768px, so `header/phone-search.tsx`
+    puts a search icon in the phone header that opens a full-width sheet,
+    PORTALLED into `.storefront-root` — the scrolled header's
+    `backdrop-filter` makes it the containing block for fixed children, and
+    the root carries the theme tokens. The drawer's own search was removed;
+    the merchant's `showSearch` switch now governs phone search as well
+    (it used to show in the drawer regardless).
     `storefront: "grocery"` is the deepest variant: it swaps the shared
     product cards, the product-detail page and the cart for a distinct
     premium grocery layout, so a store on such a theme looks NOTHING like the

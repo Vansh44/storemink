@@ -750,10 +750,6 @@
   opacity: 0.7;
 }
 
-.drawerSearch {
-  margin-bottom: 32px;
-}
-
 .drawerSearchBar {
   display: flex;
   align-items: center;
@@ -1092,4 +1088,283 @@
   font-weight: 700;
   line-height: 18px;
   text-align: center;
+}
+
+/* =========================================
+   Predictive search (Track 1.7)
+   ========================================= */
+
+/* The box and its suggestions. The form keeps .searchBar, so every header
+   variant's rules still style it; the wrapper only anchors the panel. */
+.searchWrap {
+  position: relative;
+  display: flex;
+  /* A flex item's automatic minimum is its content, which stopped the box
+     shrinking with the header the way the bare form used to. */
+  min-width: 0;
+}
+
+/* ★ The wrapper, not the form, is now the header's flex item, so the market
+   header's growing pill has to be applied to it — without this the pill
+   shrank to its 280px base width. The form then fills the wrapper. */
+:global(.sm-header-market) .searchWrap {
+  flex: 1 1 auto;
+  width: 280px;
+  max-width: 560px;
+  margin-left: clamp(12px, 4vw, 48px);
+}
+:global(.sm-header-market) .searchWrap .searchBar {
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  margin-left: 0;
+}
+@media (max-width: 1024px) {
+  :global(.sm-header-market) .searchWrap {
+    width: 220px;
+  }
+}
+
+/* Phones search from the header icon; the empty wrapper must not keep taking
+   flex space where its box is hidden. */
+@media (max-width: 768px) {
+  .searchWrap:not(.searchWrapSheet) {
+    display: none;
+  }
+}
+
+.srOnly {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.predictivePanel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  width: min(420px, calc(100vw - 32px));
+  max-height: min(70vh, 560px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-card);
+  box-shadow: 0 18px 44px rgba(var(--sm-shadow-rgb), 0.16);
+  padding: 8px;
+  z-index: 120;
+  text-align: left;
+}
+.predictivePanel[hidden],
+.predictiveSheetResults[hidden] {
+  display: none;
+}
+
+.predictivePanel ul,
+.predictiveSheetResults ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.predictiveHeading {
+  padding: 10px 10px 6px;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--sm-ink-soft);
+}
+
+.predictiveOption {
+  border-radius: var(--sm-radius-sm, 8px);
+}
+.predictiveOption:hover,
+.predictiveActive {
+  background: var(--sm-sand);
+}
+
+/* (0,3,1): above the market header's white `.navLinks a`-style colour rules,
+   which would otherwise reach into a panel painted on the surface colour. */
+.searchWrap .predictiveOption a.predictiveProduct,
+.searchWrap .predictiveOption a.predictiveCategory,
+.searchWrap .predictiveOption a.predictiveAll {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--sm-ink);
+  text-decoration: none;
+  font-family: var(--font-outfit), sans-serif;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.predictiveThumb {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--sm-radius-sm, 8px);
+  background: var(--sm-sand);
+  overflow: hidden;
+}
+.predictiveThumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.predictiveText {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.predictiveName {
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.3;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.predictivePrice {
+  font-size: 0.85rem;
+  color: var(--sm-ink-soft);
+  display: flex;
+  gap: 6px;
+  align-items: baseline;
+}
+.predictiveCompare {
+  font-size: 0.78rem;
+}
+
+.searchWrap .predictiveOption a.predictiveCategory {
+  font-size: 0.92rem;
+  font-weight: 500;
+}
+
+.predictiveEmpty {
+  padding: 12px 10px 4px;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 0.9rem;
+  color: var(--sm-ink-soft);
+}
+
+.searchWrap .predictiveOption a.predictiveAll {
+  margin-top: 4px;
+  border-top: 1px solid var(--sm-border);
+  border-radius: 0;
+  padding-top: 12px;
+  font-size: 0.9rem;
+  font-weight: 600;
+}
+
+/* The phone header's search button: phones only, where the box is hidden. */
+.phoneSearchBtn {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  background: transparent;
+  border: none;
+  color: var(--sm-ink);
+  cursor: pointer;
+}
+:global(.sm-header-market) .phoneSearchBtn {
+  color: var(--sm-header-fg, var(--sm-on-ink));
+}
+@media (max-width: 768px) {
+  .phoneSearchBtn {
+    display: flex;
+  }
+}
+
+/* The phone search sheet: slides down from the top, results fill it. */
+.searchSheetLayer {
+  position: fixed;
+  inset: 0;
+  z-index: 150;
+}
+.searchSheetBackdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.3);
+}
+.searchSheet {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  max-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  padding: 12px 16px 16px;
+  padding-top: max(12px, env(safe-area-inset-top));
+  box-shadow: 0 12px 40px rgba(var(--sm-shadow-rgb), 0.18);
+  animation: searchSheetIn 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes searchSheetIn {
+  from {
+    transform: translateY(-16px);
+    opacity: 0;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.searchWrapSheet {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+/* Room for the close button, which sits beside the box. */
+.searchWrapSheet form {
+  width: auto;
+  margin-right: 48px;
+}
+.searchSheetClose {
+  position: absolute;
+  top: max(14px, calc(env(safe-area-inset-top) + 2px));
+  right: 10px;
+  width: 40px;
+  height: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--sm-ink);
+  cursor: pointer;
+}
+.predictiveSheetResults {
+  margin-top: 8px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  min-height: 0;
+}
+/* 16px keeps iOS from zooming the page when the field takes focus. */
+.searchWrapSheet .searchInput {
+  font-size: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .searchSheet {
+    animation: none;
+  }
 }

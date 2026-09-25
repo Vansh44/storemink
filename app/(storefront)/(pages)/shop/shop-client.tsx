@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { matchesProductQuery } from "@/lib/storefront/product-search";
 import { useRouter } from "next/navigation";
 import { ShopCard } from "@/app/(storefront)/components/shop-card";
 import { useBrand } from "@/app/(storefront)/components/brand-provider";
@@ -100,15 +101,9 @@ export default function ShopClient({
     if (active === "uncategorized") list = list.filter((p) => !p.category_id);
     else if (active !== "all")
       list = list.filter((p) => p.category_id === active);
-    const q = query.trim().toLowerCase();
-    if (q) {
-      list = list.filter(
-        (p) =>
-          p.name.toLowerCase().includes(q) ||
-          (p.description ?? "").toLowerCase().includes(q) ||
-          (p.category ?? "").toLowerCase().includes(q),
-      );
-    }
+    // The header's predictive search matches with the same function, so a
+    // suggestion is always a product this grid shows for the same query.
+    if (query.trim()) list = list.filter((p) => matchesProductQuery(p, query));
     return list;
   }, [products, active, query]);
 
