@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import { render } from "@testing-library/react";
 import { SectionShell } from "./section-shell";
@@ -62,5 +63,29 @@ describe("SectionShell", () => {
     expect((container.firstElementChild as HTMLElement).className).toBe(
       "home-section",
     );
+  });
+});
+
+// "Full width" is a BAND: the background runs edge to edge, the text does not.
+// A blanket `padding-inline: 0` on `.is-fullbleed` put media + text copy flush
+// against the screen edge on every theme that used a band for it.
+describe("full-width band gutter", () => {
+  const css = readFileSync(
+    "app/(storefront)/components/homepage/homepage.css",
+    "utf8",
+  );
+
+  it("never drops the gutter for every full-width section", () => {
+    expect(css).not.toMatch(/\.home-section\.is-fullbleed\s*\{/);
+  });
+
+  it("drops it only for sections that are their own surface", () => {
+    const rule =
+      /\.home-section\.is-fullbleed:has\(([^)]*)\)\s*\{\s*padding-inline:\s*0/.exec(
+        css,
+      );
+    expect(rule).not.toBeNull();
+    expect(rule![1]).toContain(".home-carousel");
+    expect(rule![1]).not.toContain(".home-media-text");
   });
 });

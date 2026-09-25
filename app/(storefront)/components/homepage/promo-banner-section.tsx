@@ -5,6 +5,7 @@ import type {
   SectionStyle,
 } from "@/lib/homepage/section-types";
 import { SectionShell } from "../sections/section-shell";
+import { MediaTone } from "../sections/media-tone";
 
 // Full-width promo banner. Internal CTA links use next/link; absolute URLs use
 // a plain anchor. Renders nothing if there's neither an image nor a heading.
@@ -52,6 +53,9 @@ export function PromoBannerSection({
             sizes="100vw"
             className="home-banner-img"
           />
+        )}
+        {config.image_url && (
+          <MediaTone preferred={config.theme} copy=".home-banner-content" />
         )}
         <div className="home-banner-overlay">
           <div className="home-banner-content">

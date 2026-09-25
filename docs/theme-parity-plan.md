@@ -125,6 +125,21 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
 - Deferred: filtering by option value (size, colour) and by tag, server-side
   pagination for catalogues too large to load at once, and a price slider.
 
+### Found and fixed after Track 1.8
+
+- **Text over a photo could be unreadable on every theme.** A section's text
+  colour is chosen per section, not per image. Each section that puts copy on
+  an image now measures the photo behind the words once it loads and uses
+  whichever text colour reads there; only when neither does (a busy photo)
+  does it add a soft gradient from the edge the copy sits on. A first attempt
+  painted a pale panel behind the words and was rejected as ugly.
+- Carousel copy is padded clear of the arrows, and the arrows are hidden on
+  touch phones, where swipe and the dots remain.
+- Full-width media + text bands keep the page margin; only the carousel, hero,
+  ticker, trust bar and newsletter run edge to edge.
+- ⚠ Open: at about 800px wide the header search box overlaps the last menu
+  links (Vitrine, Studio, Ritual).
+
 ### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
 
 The golden set was run against the real model for about $1.12. 15 of 32 cases

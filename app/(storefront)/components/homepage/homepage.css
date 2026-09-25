@@ -49,7 +49,18 @@
 }
 
 /* ---- Shared per-section style (SectionShell / builder Style tab) ---- */
-.home-section.is-fullbleed {
+/* "Full width" makes the section a band from edge to edge. Sections whose
+   content is its own coloured surface with padding inside (carousel, hero,
+   ticker, trust bar, newsletter) run flush to the edges. Everything else —
+   media + text, galleries, product rows — keeps the page gutter, or its text
+   runs straight into the screen edge. */
+.home-section.is-fullbleed:has(
+    > .home-carousel,
+    > .home-hero,
+    > .home-ticker,
+    > .home-usp,
+    > .home-newsletter
+  ) {
   padding-inline: 0;
 }
 .home-section.home-pad-sm {
@@ -1033,6 +1044,14 @@
     height: 34px;
   }
 }
+/* On a touch phone the copy spans the slide, so the arrows sit on top of the
+   words. Touch visitors swipe between slides and the dots stay, so the arrows
+   are hidden there; a narrow desktop window with a mouse keeps them. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .home-carousel-arrow {
+    display: none;
+  }
+}
 
 /* Video media slot in the plain hero (video wins over the image). */
 .home-hero-video {
@@ -1842,4 +1861,130 @@ a.home-gallery-card:hover .home-gallery-image {
    browser. */
 .home-carousel {
   touch-action: pan-y pinch-zoom;
+}
+
+/* ---- Copy over a photo: readable on any image ----
+   ★ Text colour over a photo is chosen by `MediaTone` (sections/media-tone.tsx)
+   from the pixels actually behind the words: the section's own theme-dark /
+   theme-light when it reads, the other one when only that reads. Nothing is
+   painted behind the words. Only when NEITHER colour reads (a busy photo,
+   black and white under the same line) does the section get `sm-scrim`: a
+   soft gradient from the edge the copy sits against, in the colour opposite
+   the text, the way editorial storefronts protect a headline.
+   ★ The colour change eases in, because it can land a beat after the photo. */
+.home-carousel-copy,
+.home-hero-copy,
+.home-banner-content,
+.home-tile-copy {
+  transition: color 0.3s ease;
+}
+.home-carousel-slide.sm-scrim::after,
+.home-banner.sm-scrim::after,
+.home-tile.sm-scrim::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.home-carousel-slide.sm-scrim.theme-light::after {
+  background: linear-gradient(
+    90deg,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.62) 0%,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.3) 45%,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0) 75%
+  );
+}
+.home-carousel-slide.sm-scrim.theme-dark::after {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 72%, transparent) 0%,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 36%, transparent) 45%,
+    transparent 75%
+  );
+}
+.home-hero.variant-minimal.sm-scrim .home-hero-bgmedia::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.home-hero.variant-minimal.sm-scrim.theme-light .home-hero-bgmedia::after {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.55) 0%,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.25) 70%
+  );
+}
+.home-hero.variant-minimal.sm-scrim.theme-dark .home-hero-bgmedia::after {
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 65%, transparent) 0%,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 20%, transparent) 70%
+  );
+}
+.home-banner.sm-scrim.theme-light::after {
+  background: linear-gradient(
+    var(--sm-scrim-dir, 90deg),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.6),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0) 75%
+  );
+}
+.home-banner.sm-scrim.theme-dark::after {
+  background: linear-gradient(
+    var(--sm-scrim-dir, 90deg),
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 72%, transparent),
+    transparent 75%
+  );
+}
+.home-banner.align-right {
+  --sm-scrim-dir: 270deg;
+}
+.home-banner.align-center.sm-scrim.theme-light::after {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.55),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.15) 75%
+  );
+}
+.home-banner.align-center.sm-scrim.theme-dark::after {
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 65%, transparent),
+    transparent 75%
+  );
+}
+/* Tile copy sits at the bottom. */
+.home-tile.sm-scrim.theme-light::after {
+  background: linear-gradient(
+    0deg,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.62),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0) 65%
+  );
+}
+.home-tile.sm-scrim.theme-dark::after {
+  background: linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 75%, transparent),
+    transparent 65%
+  );
+}
+
+/* Keep the carousel's copy clear of its arrows (40px wide, 14px in). On a
+   touch phone the arrows are hidden, so the copy keeps its own padding. */
+.home-carousel.has-arrows .home-carousel-copy {
+  padding-left: max(clamp(24px, 5vw, 64px), 72px);
+  padding-right: max(clamp(24px, 5vw, 64px), 72px);
+}
+@media (max-width: 640px) {
+  .home-carousel.has-arrows .home-carousel-copy {
+    padding-left: max(clamp(24px, 5vw, 64px), 60px);
+    padding-right: max(clamp(24px, 5vw, 64px), 60px);
+  }
+}
+@media (max-width: 640px) and (pointer: coarse) {
+  .home-carousel.has-arrows .home-carousel-copy {
+    padding-left: clamp(24px, 5vw, 64px);
+    padding-right: clamp(24px, 5vw, 64px);
+  }
 }

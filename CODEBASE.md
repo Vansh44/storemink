@@ -5161,6 +5161,44 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
     compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
     guide's section-type paragraph in place.
+    **★★ TEXT OVER A PHOTO PICKS THE COLOUR THAT READS (2026-09-26).** Every
+    section that sets copy ON an image — carousel slides, the minimal hero
+    with a background image, promo banners and image tiles — picks its text
+    colour per SECTION (`theme: dark|light`), never per picture, so dark ink
+    landed on a black boot (reported on Vitrine; true of every theme).
+    `MediaTone` (`sections/media-tone.tsx`) sits inside each such root, and
+    once the photo loads it reads the pixels directly behind the words (drawn
+    the way `object-fit: cover` and the focal point crop them) and applies
+    `chooseTone` (`lib/storefront/media-tone.ts`, pure): keep the configured
+    `theme-*` when it reads, swap to the other when only that reads, and add
+    `sm-scrim` — a soft gradient from the edge the copy sits against — only
+    when neither reads on a busy photo. ★ WORST TENTH, NOT AVERAGE: dark text
+    is judged against the darkest 10% of those pixels and light text against
+    the brightest 10%, at WCAG AA 4.5:1, because half-black-half-white
+    averages to a grey both colours "pass". ★ Nothing is painted behind the
+    words: a first attempt put a blurred panel there and it read as a sticker.
+    ★ It swaps a CLASS the section already styles, so each theme's own
+    dark/light text, button and built-in scrim come with it, and a future
+    theme needs nothing. It re-applies after every render (React writes the
+    configured class back — the builder does on every edit) and re-measures
+    on resize and image load. ★ It FAILS QUIET: a video, a cross-origin photo
+    the canvas cannot read, or no canvas at all leaves the merchant's colour
+    exactly as before, and a merchant who tuned the Overlay slider is left
+    alone (`off`). ⚠ The swap lands a beat after the photo, so the copy's
+    colour eases in over 0.3s. Carousel copy is also padded clear of the
+    arrows (`has-arrows`), which overlapped the subheading on desktop, and
+    the arrows are hidden on touch phones (`pointer: coarse`, ≤640px).
+    Pinned by `media-tone.test.ts` (the decision) and
+    `sections/media-tone.test.tsx` (where the probe sits and that nothing
+    changes unmeasured). No merchant action changes, so no Help Centre update.
+    **★ "Full width" is a band, not edge-to-edge text (2026-09-26).**
+    `.home-section.is-fullbleed` used to drop the page gutter for every
+    section, so a media + text band (Vitrine's "Occasion", Ritual's and
+    Studio's editorial bands) put its heading against the screen edge. The
+    band's BACKGROUND still spans the page; only sections whose content is its
+    own padded surface — carousel, hero, ticker, trust bar, newsletter — run
+    flush, via one `:has()` rule in homepage.css. Pinned by
+    `section-shell.test.tsx`.
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded
