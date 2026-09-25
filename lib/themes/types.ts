@@ -1,3 +1,4 @@
+import type { ProductOption } from "@/lib/products/options";
 import type { PageSectionItem } from "@/lib/sections/registry";
 import type { StoreMenus } from "@/lib/menus";
 import type { ThemeMeta } from "./meta";
@@ -45,6 +46,8 @@ export interface ThemeVariantSeed {
   sku?: string;
   sort_order?: number;
   images?: string[];
+  /** This variant's value for each of its product's `options`, in order. */
+  option_values?: string[];
 }
 
 export interface ThemeProductSeed {
@@ -60,6 +63,9 @@ export interface ThemeProductSeed {
   featured?: boolean;
   sort_order?: number;
   card_color?: string;
+  /** Option axes ("Size", "Colour"), as lib/products/options.ts defines them.
+   *  When present, every variant carries a matching `option_values`. */
+  options?: ProductOption[];
   variants?: ThemeVariantSeed[];
 }
 

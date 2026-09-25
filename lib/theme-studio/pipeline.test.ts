@@ -158,6 +158,55 @@ describe("theme generation pipeline", () => {
     expect(repairText).toMatch(/site path starting with/);
   });
 
+  it("compiles option axes into the product editor's own shape", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    const [product] = outcome.package.definition.preset.sampleData!.products;
+    expect(product.options).toEqual([
+      { name: "Size", values: ["S", "M"] },
+      {
+        name: "Colour",
+        values: ["Black", "Sand"],
+        swatches: { Black: "#111111", Sand: "#d6c3a1" },
+      },
+    ]);
+    expect(product.variants?.map((v) => [v.name, v.option_values])).toEqual([
+      ["S / Black", ["S", "Black"]],
+      ["S / Sand", ["S", "Sand"]],
+      ["M / Black", ["M", "Black"]],
+      ["M / Sand", ["M", "Sand"]],
+    ]);
+  });
+
+  it("refuses a combination that repeats, then fails if never fixed", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    const repeating: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        const draft = result.value as {
+          products: { variants: { optionValues: string[] }[] }[];
+        };
+        draft.products[0].variants[1].optionValues = ["S", "Black"];
+        return result;
+      },
+    };
+    const outcome = await run(undefined, repeating);
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      errorCode: "invalid_output",
+    });
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toMatch(/Two variants are both "S \/ Black"/);
+  });
+
   it("maps a refusal and a provider error to safe codes without retrying", async () => {
     const refusing: ThemeStudioModelClient = {
       provider: "fake",

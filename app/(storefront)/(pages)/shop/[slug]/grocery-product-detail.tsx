@@ -6,6 +6,7 @@ import { useState } from "react";
 import type { ReactNode, RefObject } from "react";
 import { ProductGallery } from "./product-gallery";
 import { formatPrice, hasSpecialPrice } from "@/lib/pricing";
+import { isSoldOut } from "@/lib/inventory/status";
 import { RatingStars } from "./reviews-section";
 import type { DetailProduct, DetailVariant } from "./product-detail-client";
 
@@ -26,6 +27,7 @@ export function GroceryProductDetail({
   hasVariants,
   variantId,
   selectVariant,
+  optionPicker,
   offerMarker,
   base,
   selling,
@@ -50,6 +52,9 @@ export function GroceryProductDetail({
   hasVariants: boolean;
   variantId: string | null;
   selectVariant: (v: DetailVariant) => void;
+  /** Per-axis pickers when the product has option axes; replaces the flat
+   *  variant list. */
+  optionPicker?: ReactNode;
   /** "20% off" / "Buy 1, get 1 free", resolved server-side. See the classic
    *  layout's prop for why it arrives as a string. */
   offerMarker?: string | null;
@@ -142,10 +147,15 @@ export function GroceryProductDetail({
             </div>
             <p className="gpdp-price-note">Inclusive of all taxes</p>
 
-            {hasVariants && (
+            {optionPicker}
+
+            {hasVariants && !optionPicker && (
               <div className="gpdp-variants">
                 {product.variants.map((v) => {
-                  const disabled = v.stock <= 0;
+                  // The shared rule: an untracked or backorderable variant
+                  // is buyable at stock 0 — this used to grey those out while
+                  // the classic layout sold them.
+                  const disabled = isSoldOut(v);
                   const hasSale = hasSpecialPrice(v);
                   return (
                     <button

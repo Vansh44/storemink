@@ -237,7 +237,31 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         sellingPrice: 899,
         imageSlot: slot,
         featured: true,
-        variants: [],
+        // One product with real option axes, so the offline path exercises
+        // option compilation and the storefront pickers end to end.
+        options: [
+          { name: "Size", values: ["S", "M"], swatches: [] },
+          {
+            name: "Colour",
+            values: ["Black", "Sand"],
+            swatches: [
+              { value: "Black", hex: "#111111" },
+              { value: "Sand", hex: "#d6c3a1" },
+            ],
+          },
+        ],
+        variants: [
+          ["S", "Black"],
+          ["S", "Sand"],
+          ["M", "Black"],
+          ["M", "Sand"],
+        ].map((optionValues) => ({
+          name: optionValues.join(" / "),
+          optionValues,
+          basePrice: 999,
+          sellingPrice: 899,
+          stock: 5,
+        })),
       },
       {
         name: "Sample two",
@@ -248,6 +272,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         sellingPrice: 1499,
         imageSlot: slot,
         featured: false,
+        options: [],
         variants: [],
       },
     ],

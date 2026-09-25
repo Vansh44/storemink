@@ -13,6 +13,7 @@ import type {
 } from "@/lib/themes/meta";
 import type { ThemeDefinition } from "@/lib/themes/types";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
+import { resolveOptionRows } from "@/lib/products/options";
 
 export const THEME_INTENT_SCHEMA_VERSION = 1 as const;
 export const THEME_PACKAGE_SCHEMA_VERSION = 2 as const;
@@ -1370,6 +1371,24 @@ function validateSampleData(value: unknown, issues: string[]): void {
       issues.push(
         `definition.preset.sampleData.products[${index}] needs positive prices.`,
       );
+    }
+    // Option axes go through the same rule the product editor saves with, so a
+    // package can never seed a product whose pickers the storefront refuses.
+    if (raw.options !== undefined) {
+      const rows = resolveOptionRows(
+        raw.options,
+        Array.isArray(raw.variants)
+          ? raw.variants.filter(isRecord).map((v) => ({
+              name: String(v.name ?? ""),
+              option_values: v.option_values,
+            }))
+          : [],
+      );
+      if ("error" in rows) {
+        issues.push(
+          `definition.preset.sampleData.products[${index}].options: ${rows.error}`,
+        );
+      }
     }
   }
 }

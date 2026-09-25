@@ -261,6 +261,90 @@ describe("applyTheme", () => {
     );
   });
 
+  // Option axes seed exactly as the product editor saves them: the options on
+  // the product row, positional values and a composed name on each variant.
+  it("seeds a product's option axes and each variant's combination", async () => {
+    const base = getThemeDefinition("basket");
+    const product = base.preset.sampleData!.products[0];
+    const theme = structuredClone(base);
+    theme.preset.sampleData!.products = [
+      {
+        ...product,
+        options: [
+          { name: "Size", values: ["S", "M"] },
+          { name: "Colour", values: ["Black"], swatches: { Black: "#111111" } },
+        ],
+        variants: [
+          {
+            name: "x",
+            option_values: ["m", "black"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+          {
+            name: "y",
+            option_values: ["S", "Black"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+        ],
+      },
+    ];
+    const result = await applyThemeDefinition("store-1", theme, {
+      publish: true,
+    });
+    expect(result.errors).toEqual([]);
+    expect(dbHolder.current.calls.insert.products[0].options).toEqual([
+      { name: "Size", values: ["S", "M"] },
+      { name: "Colour", values: ["Black"], swatches: { Black: "#111111" } },
+    ]);
+    const [variants] = dbHolder.current.calls.insert.product_variants;
+    expect(variants.map((v: any) => [v.name, v.optionValues])).toEqual([
+      ["M / Black", ["M", "Black"]],
+      ["S / Black", ["S", "Black"]],
+    ]);
+  });
+
+  it("seeds inconsistent options as a flat list and says so", async () => {
+    const base = getThemeDefinition("basket");
+    const product = base.preset.sampleData!.products[0];
+    const theme = structuredClone(base);
+    theme.preset.sampleData!.products = [
+      {
+        ...product,
+        options: [{ name: "Size", values: ["S", "M"] }],
+        variants: [
+          {
+            name: "Small",
+            option_values: ["S"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+          {
+            name: "Also small",
+            option_values: ["S"],
+            base_price: 10,
+            selling_price: 9,
+            stock: 2,
+          },
+        ],
+      },
+    ];
+    const result = await applyThemeDefinition("store-1", theme, {
+      publish: true,
+    });
+    expect(result.errors.join(" ")).toMatch(/options .*Two variants/);
+    expect(dbHolder.current.calls.insert.products[0].options).toEqual([]);
+    const [variants] = dbHolder.current.calls.insert.product_variants;
+    expect(variants.map((v: any) => [v.name, v.optionValues])).toEqual([
+      ["Small", []],
+      ["Also small", []],
+    ]);
+  });
+
   it("refuses reset on a non-demo store", async () => {
     const r = await applyTheme("store-1", "basket", {
       publish: true,

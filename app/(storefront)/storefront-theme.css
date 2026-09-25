@@ -763,3 +763,232 @@
     transition: none;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Option pickers (components/option-picker.tsx) — one row per option axis,
+   shared by both PDP layouts and the quick-add dialog. Tokenised, so each
+   theme's palette, radii and type reach it with no per-theme rules; a product
+   with no option axes never renders these classes, so nothing changes for it.
+   --------------------------------------------------------------------------- */
+.sm-opts {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin: 22px 0 24px;
+}
+.sm-opt {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.sm-opt-legend {
+  padding: 0;
+  margin-bottom: 10px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--sm-ink);
+}
+.sm-opt-chosen {
+  font-weight: 400;
+  color: var(--sm-ink-soft);
+}
+.sm-opt-chosen > span {
+  color: var(--sm-ink);
+}
+.sm-opt-values {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.sm-opt-value {
+  position: relative;
+  min-width: 48px;
+  min-height: 44px;
+  padding: 0 16px;
+  border: 1.5px solid var(--sm-border);
+  border-radius: var(--sm-radius-control);
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+.sm-opt-value:hover {
+  border-color: var(--sm-ink-soft);
+}
+.sm-opt-value.is-active {
+  border-color: var(--sm-ink);
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+}
+.sm-opt-value.is-unavailable {
+  color: var(--sm-ink-faint);
+  text-decoration: line-through;
+}
+.sm-opt-value.is-unavailable.is-active {
+  background: var(--sm-surface);
+  color: var(--sm-ink-soft);
+}
+.sm-opt-value:focus-visible {
+  outline: 2px solid var(--sm-ink);
+  outline-offset: 2px;
+}
+/* A swatch is a colour, so it cannot carry a strike-through label: a
+   diagonal line across the dot says "unavailable" instead. */
+.sm-opt-value.is-swatch {
+  min-width: 44px;
+  width: 44px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.sm-opt-value.is-swatch.is-active {
+  background: var(--sm-surface);
+  box-shadow: inset 0 0 0 2px var(--sm-surface);
+}
+.sm-opt-swatch {
+  display: block;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  box-shadow: inset 0 0 0 1px rgba(var(--sm-shadow-rgb), 0.18);
+}
+.sm-opt-value.is-swatch.is-unavailable::after {
+  content: "";
+  position: absolute;
+  top: 50%;
+  left: 6px;
+  right: 6px;
+  height: 1.5px;
+  background: var(--sm-ink-soft);
+  transform: rotate(-45deg);
+}
+
+/* Quick-add chooser (components/quick-add-dialog.tsx). A bottom sheet on a
+   phone — the thumb is already there — and a centred panel from 640px. */
+.sm-quickadd {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  background: rgba(var(--sm-shadow-rgb), 0.45);
+}
+.sm-quickadd-panel {
+  position: relative;
+  width: 100%;
+  max-height: 88dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 22px 20px calc(20px + env(safe-area-inset-bottom));
+  border-radius: var(--sm-radius-card) var(--sm-radius-card) 0 0;
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  box-shadow: 0 -12px 40px rgba(var(--sm-shadow-rgb), 0.18);
+  outline: none;
+}
+@media (min-width: 640px) {
+  .sm-quickadd {
+    align-items: center;
+    padding: 24px;
+  }
+  .sm-quickadd-panel {
+    max-width: 440px;
+    border-radius: var(--sm-radius-card);
+    padding-bottom: 22px;
+  }
+}
+.sm-quickadd-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--sm-ink-soft);
+  cursor: pointer;
+}
+.sm-quickadd-close:hover {
+  color: var(--sm-ink);
+}
+.sm-quickadd-head {
+  display: flex;
+  gap: 14px;
+  align-items: center;
+  margin-bottom: 18px;
+  padding-right: 36px;
+}
+.sm-quickadd-img {
+  position: relative;
+  flex: 0 0 72px;
+  width: 72px;
+  height: 72px;
+  overflow: hidden;
+  border-radius: var(--sm-radius-sm);
+  background: var(--sm-tile);
+}
+.sm-quickadd-img img {
+  object-fit: cover;
+}
+.sm-quickadd-name {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.3;
+}
+.sm-quickadd-price {
+  margin-top: 4px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.sm-quickadd-was {
+  margin-left: 8px;
+  font-weight: 400;
+  color: var(--sm-ink-faint);
+  text-decoration: line-through;
+}
+.sm-quickadd-msg {
+  padding: 24px 0;
+  color: var(--sm-ink-soft);
+  text-align: center;
+}
+.sm-quickadd-add {
+  width: 100%;
+  min-height: 48px;
+  border: 0;
+  border-radius: var(--sm-radius-control);
+  background: var(--brand-primary);
+  color: var(--sm-on-accent);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.sm-quickadd-add:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.sm-quickadd-add:focus-visible,
+.sm-quickadd-close:focus-visible {
+  outline: 2px solid var(--sm-ink);
+  outline-offset: 2px;
+}
+.sm-quickadd-details {
+  display: block;
+  margin-top: 12px;
+  text-align: center;
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+  text-decoration: underline;
+}

@@ -2804,6 +2804,10 @@ export const productVariants = pgTable(
     allowBackorder: boolean("allow_backorder").default(false).notNull(),
     variantNo: integer("variant_no").notNull(),
     barcode: text(),
+    // Positional values on the parent product's `options` axes
+    // (lib/products/options.ts). Empty for a product without options, whose
+    // variants keep a free-text `name`.
+    optionValues: text("option_values").array().default([]).notNull(),
     // Nullable = inherit the product's logistics value. A size/pack variant
     // can override any physical measurement without duplicating the rest.
     requiresShipping: boolean("requires_shipping"),
@@ -2950,6 +2954,9 @@ export const products = pgTable(
     sku: text().notNull(),
     skuNo: integer("sku_no").notNull(),
     variantSeq: integer("variant_seq").default(0).notNull(),
+    // Option axes ("Size", "Colour") as [{name, values, swatches?}] — see
+    // lib/products/options.ts. `[]` = the product has plain named variants.
+    options: jsonb().default([]).notNull(),
     taxClassId: uuid("tax_class_id"),
     // Return policy (returns_01_product_policy.sql). `returnable` FALSE = final
     // sale; `returnWindowDays` NULL = use the store's returns.windowDays.

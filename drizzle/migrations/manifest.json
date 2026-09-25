@@ -5662,6 +5662,58 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260925_0136_product_options",
+      "description": "Add product option axes and each variant's positional option values",
+      "file": "sql/20260925_0136_product_options.sql",
+      "transaction": true,
+      "requires": ["20260925_0135_hero_image_controls_help"],
+      "verify": {
+        "columns": ["products.options", "product_variants.option_values"],
+        "constraints": [
+          "products_options_shape_check",
+          "product_variants_option_values_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "every existing product starts with no options",
+            "sql": "select count(*)::text from public.products where options <> '[]'::jsonb",
+            "equals": "0"
+          },
+          {
+            "name": "every existing variant starts with no option values",
+            "sql": "select count(*)::text from public.product_variants where cardinality(option_values) <> 0",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0137_product_options_help",
+      "description": "Describe product options, colour swatches, per-option storefront choices and quick add in the product variants guide",
+      "file": "sql/20260925_0137_product_options_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0136_product_options"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the variants guide explains options and swatches",
+            "sql": "select count(*)::text from help_articles where slug='add-product-images-and-variants' and status='published' and body like '%Show as colour swatches on the storefront%' and body like '%opens the same choices without leaving the page%'",
+            "equals": "1"
+          },
+          {
+            "name": "the variants guide no longer says the top variant opens first",
+            "sql": "select count(*)::text from help_articles where slug='add-product-images-and-variants' and status='published' and body like '%the top variant is selected first on the product page%'",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

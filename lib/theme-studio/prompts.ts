@@ -22,7 +22,7 @@ import {
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v4";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v5";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -87,7 +87,7 @@ ${configExamples()}
 
 Navigation: header links point to /shop and to your pages. Footer groups hold two to four columns. Legal links are optional.
 
-Sample catalogue: three to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot and each category may have one; both use asset-brief ids. Variants are optional and must have a positive stock.
+Sample catalogue: three to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot and each category may have one; both use asset-brief ids. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
 
 Carry the intent's capability gaps forward and add any you discover. Respond with JSON only, matching the provided schema.`;
 }

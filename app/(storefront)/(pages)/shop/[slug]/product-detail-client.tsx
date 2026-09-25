@@ -23,6 +23,12 @@ import { productGallery } from "@/lib/products/gallery";
 import { GroceryProductDetail } from "./grocery-product-detail";
 import { ProductGallery, ProductLightbox } from "./product-gallery";
 import { StickyAddToCart } from "./sticky-add-to-cart";
+import { OptionPicker } from "@/app/(storefront)/components/option-picker";
+import {
+  initialVariant,
+  usesOptionPickers,
+  type ProductOption,
+} from "@/lib/products/options";
 import ReviewsSection, {
   RatingStars,
   type ProductReview,
@@ -43,6 +49,9 @@ export interface DetailVariant {
   stock: number;
   low_stock_threshold: number | null;
   allow_backorder: boolean;
+  /** Positional values for the product's option axes ("M", "Black"); empty
+   *  for a variant with none. */
+  option_values?: string[];
 }
 
 export interface DetailProduct {
@@ -65,6 +74,8 @@ export interface DetailProduct {
   /** FALSE = final sale. Said BEFORE the sale — discovering it afterwards is
    *  how a return policy becomes an argument. */
   returnable?: boolean;
+  /** Option axes (size, colour). Empty for a product with plain variants. */
+  options?: ProductOption[];
   variants: DetailVariant[];
 }
 
@@ -92,6 +103,7 @@ export default function ProductDetailClient({
   grocery = false,
   storeLowStockThreshold = 0,
   offerMarker = null,
+  requestedVariantId = null,
 }: {
   product: DetailProduct;
   related: RelatedProduct[];
@@ -110,12 +122,34 @@ export default function ProductDetailClient({
    * cannot reach. The page renders what it is given.
    */
   offerMarker?: string | null;
+  /** `?variant=<id>` from the URL; ignored when it names no variant here. */
+  requestedVariantId?: string | null;
 }) {
   const router = useRouter();
   const { addItem } = useCart();
   const hasVariants = product.variants.length > 0;
+  const options = useMemo(() => product.options ?? [], [product.options]);
+  // Every variant with the two facts a picker needs. `available` is the same
+  // isSoldOut rule the buy button uses, so a chip and the button can never
+  // disagree about whether something can be bought.
+  const pickable = useMemo(
+    () =>
+      product.variants.map((v) => ({
+        ...v,
+        option_values: v.option_values ?? [],
+        available: !isSoldOut(v),
+      })),
+    [product.variants],
+  );
+  const showPickers = usesOptionPickers(options, pickable);
+  // ★ The page opens on the requested variant, else the first one that can be
+  //   BOUGHT. Opening on a sold-out first variant greyed the buy button on
+  //   arrival for a product with plenty of other stock.
+  const openingVariant = hasVariants
+    ? (initialVariant(pickable, requestedVariantId) ?? null)
+    : null;
   const [variantId, setVariantId] = useState<string | null>(
-    hasVariants ? product.variants[0].id : null,
+    openingVariant?.id ?? null,
   );
   const [quantity, setQuantity] = useState(1);
   // The photo the full-screen viewer is open on, or null when it is closed.
@@ -144,11 +178,9 @@ export default function ProductDetailClient({
       ? Array.from(new Set(variantImages))
       : productImages;
 
-  // Default image: the first variant's first photo if it has one, else the
+  // Default image: the opening variant's first photo if it has one, else the
   // product gallery lead.
-  const firstVariantImages = hasVariants
-    ? (product.variants[0].images ?? []).filter(Boolean)
-    : [];
+  const firstVariantImages = (openingVariant?.images ?? []).filter(Boolean);
   const [activeImg, setActiveImg] = useState<string | null>(
     firstVariantImages[0] ?? productImages[0] ?? null,
   );
@@ -159,7 +191,26 @@ export default function ProductDetailClient({
     setVariantId(v.id);
     const imgs = (v.images ?? []).filter(Boolean);
     setActiveImg(imgs[0] ?? productImages[0] ?? null);
+    // The URL names the variant on screen, so a shared or refreshed link
+    // opens on it. replaceState, not the router: nothing on the server
+    // depends on it, and a navigation would refetch the whole page.
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.set("variant", v.id);
+      window.history.replaceState(window.history.state, "", url);
+    } catch {
+      // A URL we cannot rewrite costs a shareable link, never the selection.
+    }
   };
+
+  const optionPicker = showPickers ? (
+    <OptionPicker
+      options={options}
+      variants={pickable}
+      selectedId={variantId}
+      onSelect={selectVariant}
+    />
+  ) : null;
 
   const base = selectedVariant
     ? selectedVariant.base_price
@@ -249,6 +300,7 @@ export default function ProductDetailClient({
           hasVariants={hasVariants}
           variantId={variantId}
           selectVariant={selectVariant}
+          optionPicker={optionPicker}
           offerMarker={offerMarker}
           base={base}
           selling={selling}
@@ -392,7 +444,9 @@ export default function ProductDetailClient({
             <ShareButtons title={product.name} />
           </div>
 
-          {hasVariants && (
+          {optionPicker}
+
+          {hasVariants && !optionPicker && (
             <div className="pdp-variants">
               <label className="pdp-variants-label">Options</label>
               <div className="pdp-variant-options">

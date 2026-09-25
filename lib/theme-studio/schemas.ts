@@ -249,10 +249,22 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       sellingPrice: { type: "number" },
       imageSlot: str,
       featured: { type: "boolean" },
+      options: {
+        type: "array",
+        items: obj({
+          name: str,
+          values: { type: "array", items: str },
+          swatches: {
+            type: "array",
+            items: obj({ value: str, hex: str }),
+          },
+        }),
+      },
       variants: {
         type: "array",
         items: obj({
           name: str,
+          optionValues: { type: "array", items: str },
           basePrice: { type: "number" },
           sellingPrice: { type: "number" },
           stock: { type: "integer" },

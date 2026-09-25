@@ -26,6 +26,7 @@ import {
 } from "./contracts";
 import type { ThemeStudioModelKey } from "./models";
 import { PALETTE_KEYS, THEME_STUDIO_SECTION_TYPES } from "./schemas";
+import { resolveOptionRows, type ProductOption } from "@/lib/products/options";
 
 // ---------------------------------------------------------------------------
 // Stage B compiler: model draft → ThemePackageV2.
@@ -348,6 +349,7 @@ function buildCatalogue(
           `${where}.variants[${j}].stock must be a positive integer.`,
         );
       }
+      const optionValues = list(v.optionValues).map(text);
       return [
         {
           name: text(v.name),
@@ -355,9 +357,39 @@ function buildCatalogue(
           selling_price: Number(v.sellingPrice),
           stock,
           sort_order: j,
+          ...(optionValues.length > 0 ? { option_values: optionValues } : {}),
         },
       ];
     });
+    // Swatches arrive as a list of { value, hex } (the schema subset has no
+    // map type) and are stored as the editor stores them, a value → hex map.
+    const rawOptions = list(raw.options).flatMap((o) => {
+      if (!isRec(o)) return [];
+      const swatchList = list(o.swatches).filter(isRec);
+      return [
+        {
+          name: text(o.name),
+          values: list(o.values).map(text),
+          ...(swatchList.length > 0
+            ? {
+                swatches: Object.fromEntries(
+                  swatchList.map((sw) => [text(sw.value), text(sw.hex)]),
+                ),
+              }
+            : {}),
+        },
+      ];
+    });
+    let options: ProductOption[] = [];
+    let optionVariants = variants;
+    if (rawOptions.length > 0) {
+      const rows = resolveOptionRows(rawOptions, variants);
+      if ("error" in rows) issues.push(`${where}.options: ${rows.error}`);
+      else {
+        options = rows.options;
+        optionVariants = rows.variants;
+      }
+    }
     return [
       {
         name: text(raw.name),
@@ -369,7 +401,8 @@ function buildCatalogue(
         image_url: image ?? "",
         featured: raw.featured === true,
         sort_order: i,
-        ...(variants.length > 0 ? { variants } : {}),
+        ...(options.length > 0 ? { options } : {}),
+        ...(optionVariants.length > 0 ? { variants: optionVariants } : {}),
       },
     ];
   });

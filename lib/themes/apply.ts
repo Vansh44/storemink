@@ -14,6 +14,7 @@ import {
 import { STORE_TAG } from "@/lib/store/resolve";
 import { TAGS } from "@/lib/storefront/tags";
 import { sanitizeBlogContent } from "@/lib/sanitize";
+import { resolveOptionRows } from "@/lib/products/options";
 import {
   validateSections,
   type PageSectionItem,
@@ -224,6 +225,17 @@ export async function applyThemeDefinition(
     }
 
     for (const p of preset.sampleData.products) {
+      // Option axes seed exactly as the product editor saves them. A seed
+      // whose combinations do not add up keeps its variants as a flat list
+      // (and says so) rather than writing options the storefront would
+      // refuse to render as pickers.
+      const optionRows = resolveOptionRows(p.options, p.variants ?? []);
+      if ("error" in optionRows) fail(`options ${p.slug}`, optionRows.error);
+      const seedOptions = "error" in optionRows ? [] : optionRows.options;
+      const seedVariants =
+        "error" in optionRows
+          ? (p.variants ?? []).map((v) => ({ ...v, option_values: [] }))
+          : optionRows.variants;
       let productId: string;
       try {
         const [row] = await withService((db) =>
@@ -246,6 +258,7 @@ export async function applyThemeDefinition(
               featured: p.featured ?? false,
               sortOrder: p.sort_order ?? 0,
               cardColor: p.card_color ?? null,
+              options: seedOptions,
               publishedAt: publishSampleProducts
                 ? new Date().toISOString()
                 : null,
@@ -269,6 +282,7 @@ export async function applyThemeDefinition(
                 featured: p.featured ?? false,
                 sortOrder: p.sort_order ?? 0,
                 cardColor: p.card_color ?? null,
+                options: seedOptions,
                 publishedAt: publishSampleProducts
                   ? new Date().toISOString()
                   : null,
@@ -305,7 +319,7 @@ export async function applyThemeDefinition(
         fail(`variants(clear) ${p.slug}`, dbErrorMessage(err, "delete failed"));
       }
 
-      const variants = (p.variants ?? []).map((v, i) => ({
+      const variants = seedVariants.map((v, i) => ({
         storeId,
         productId,
         name: v.name,
@@ -317,6 +331,7 @@ export async function applyThemeDefinition(
         sku: v.sku ?? null,
         sortOrder: v.sort_order ?? i,
         images: v.images ?? [],
+        optionValues: v.option_values,
       }));
       if (variants.length > 0) {
         try {

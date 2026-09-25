@@ -5151,6 +5151,61 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
     compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
     guide's section-type paragraph in place.
+    **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
+    `{name, values, swatches?}`) and `product_variants.option_values` (text[],
+    positional) — migration `20260925_0136_product_options`, both CHECK-bounded
+    and defaulting empty, so every existing product is unchanged.
+    `lib/products/options.ts` (pure, client-safe) owns the whole vocabulary:
+    `normalizeOptions` (trims, drops blank rows, refuses duplicate values or
+    names, a value containing " / ", >3 axes, >100 combinations; keeps only
+    valid hex swatches for real values), `resolveOptionRows` (THE one writer
+    step — the editor's save, `applyTheme`'s seed and the Theme Studio compiler
+    all call it), `generateVariantRows` (editor matrix; keeps an existing row by
+    COMBINATION so its id, prices, stock and order history survive, pads a newly
+    added axis with its first value, and maps a legacy free-text name onto the
+    first option), and the storefront helpers `usesOptionPickers`,
+    `valueStates`, `selectValue`, `initialVariant`.
+    ★★ THE VARIANT NAME IS COMPOSED ("M / Black") AND STORED. The cart line,
+    `order_items.variant_name`, invoices, the till, CSV and Mink all read
+    `variants.name`, so composing it at save means none of them needed a
+    change; `option_values` is what the pickers read.
+    ★ The storefront renders pickers only when `usesOptionPickers` says every
+    variant holds a valid unique combination; anything else falls back to the
+    flat list, so inconsistent data can never hide a variant. `OptionPicker`
+    (`components/option-picker.tsx`) is shared by both PDP layouts and quick
+    add. ★ `selectValue` takes the exact combination whenever it EXISTS, sold
+    out included (the page says "Sold out" about what was asked for); only a
+    combination that does not exist moves to the nearest available variant with
+    that value. Values that do not exist or are sold out are struck through,
+    never hidden. The PDP opens on `?variant=` when it names a variant, else the
+    first IN-STOCK variant (universal: it used to open on a sold-out first
+    variant with a greyed buy button), and writes the choice back with
+    `history.replaceState` (no refetch). The grocery flat list now uses
+    `isSoldOut` like the classic one — it greyed out untracked/backorderable
+    variants at stock 0.
+    ★★ QUICK ADD WORKS FOR VARIANT PRODUCTS. "+ Add" on a card with variants
+    used to fall through to the PDP; it opens `quick-add-dialog.tsx`, which
+    loads one product through the public `getQuickAddProduct` action
+    (`app/actions/quick-add-actions.ts`: host store from
+    `getCurrentStoreOrNull`, `withAnon`, published only — the same data the PDP
+    shows, never a store argument). The dialog is PORTALLED INTO
+    `.storefront-root` (the theme tokens are inline there; `document.body` would
+    render WholeSip defaults) and stops propagation at its root, because React
+    bubbles portal events to the card's `<Link>`. Bottom sheet on phones,
+    centred from 640px; Escape, backdrop and focus return.
+    Theme seeds (`ThemeProductSeed.options`, `ThemeVariantSeed.option_values`)
+    and Theme Studio Stage B (`options[]` with `swatches` as `{value,hex}[]`,
+    `variants[].optionValues`, prompt `theme-studio-v5`) carry the same shape;
+    the package contract refuses options `resolveOptionRows` refuses, and the
+    fake provider seeds one Size × Colour product. Help:
+    `20260925_0137_product_options_help` replaces the variants guide's steps.
+    ★ A CSV import still matches variants by name; a NEW variant on a product
+    with options must be named as one value per option ("M / Black",
+    `optionValuesForName`) and is refused and named otherwise, so an import
+    cannot leave a product the editor refuses to save.
+    ⚠ Not built: Option1/2/3 CSV columns, a per-axis picker at the POS (the
+    till lists composed names), card swatches, and ProductGroup structured
+    data.
     ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
     column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
     child (the related-products carousel) made the grocery product page 734px

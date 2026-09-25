@@ -35,7 +35,7 @@ Studio use them.
 | 1.2  | Sticky add-to-cart bar on phones (`layout.stickyAddToCart`)                                            | ✅      |
 | 1.3  | Shop grid columns per breakpoint, 2 on phones (`layout.gridColumnsMobile/Desktop`)                     | ✅      |
 | 1.4  | Hero: focal point, separate mobile image, height and overlay controls; swipe on the hero carousel      | ✅      |
-| 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | planned |
+| 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | ✅      |
 | 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | planned |
 | 1.7  | Predictive search dropdown; search visible in the phone header                                         | planned |
 | 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | planned |
@@ -69,6 +69,19 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
   The carousel's swipe and reduced-motion pause are universal: at rest nothing
   looks different, and a banner that moves by itself is exactly what reduced
   motion asks to stop.
+
+### Found and fixed while building 1.5
+
+- **The product page opened on the first variant even when it was sold out**,
+  greying the buy button on arrival for a product with stock in every other
+  size. It opens on `?variant=` when given, else the first variant in stock.
+- **The grocery variant list greyed out any variant at stock 0**, including
+  untracked and backorderable ones the classic layout sold. Both layouts use
+  the shared sold-out rule.
+- **"+ Add" on a card did nothing useful for a product with variants** — it
+  fell through to the product page. It opens a chooser with the same pickers.
+- Deferred: CSV Option1/2/3 columns, per-axis choice at the POS, swatches on
+  product cards, and ProductGroup structured data.
 
 ## Track 2 — design engine
 

@@ -35,6 +35,12 @@ import { ImageUpload } from "@/components/ui/image-upload";
 import { NumberField } from "@/components/ui/number-field";
 import { slugify } from "@/lib/slug";
 import {
+  generateVariantRows,
+  normalizeOptions,
+  type ProductOption,
+} from "@/lib/products/options";
+import { OptionsEditor } from "./options-editor";
+import {
   createProduct,
   updateProduct,
   generateProductDescription,
@@ -123,6 +129,7 @@ function toForm(product: Product): ProductFormData {
     featured: product.featured,
     sort_order: product.sort_order,
     card_color: product.card_color ?? "",
+    options: storedOptions(product.options),
     seo_title: product.seo_title ?? "",
     seo_description: product.seo_description ?? "",
     track_inventory: product.track_inventory,
@@ -155,8 +162,37 @@ function toForm(product: Product): ProductFormData {
       width_cm: v.width_cm,
       height_cm: v.height_cm,
       images: v.images ?? (v.image_url ? [v.image_url] : []),
+      option_values: v.option_values ?? [],
     })),
   };
+}
+
+/** A new variant row, priced like the product until the merchant changes it
+ *  — a generated matrix of ₹0 rows would read as free on the storefront. */
+function blankVariant(f: ProductFormData): VariantFormData {
+  return {
+    name: "",
+    base_price: f.base_price,
+    selling_price: f.selling_price,
+    cost_price: null,
+    special_price: null,
+    stock: 0,
+    sku: "",
+    barcode: "",
+    requires_shipping: null,
+    weight_grams: null,
+    length_cm: null,
+    width_cm: null,
+    height_cm: null,
+    images: [],
+  };
+}
+
+/** Stored options, read through the same normaliser the save uses. A value
+ *  the rules refuse opens as "no options" rather than breaking the editor. */
+function storedOptions(raw: unknown): ProductOption[] {
+  const out = normalizeOptions(raw);
+  return "options" in out ? out.options : [];
 }
 
 const fieldClass =
@@ -425,28 +461,30 @@ export const ProductEditorForm = forwardRef<ProductEditorFormHandle, Props>(
 
     // ── Variant helpers ────────────────────────────────────────
     const addVariant = () =>
-      setForm((f) => ({
-        ...f,
-        variants: [
-          ...f.variants,
-          {
-            name: "",
-            base_price: 0,
-            selling_price: 0,
-            cost_price: null,
-            special_price: null,
-            stock: 0,
-            sku: "",
-            barcode: "",
-            requires_shipping: null,
-            weight_grams: null,
-            length_cm: null,
-            width_cm: null,
-            height_cm: null,
-            images: [],
-          },
-        ],
-      }));
+      setForm((f) => ({ ...f, variants: [...f.variants, blankVariant(f)] }));
+    // Options are stored as typed (so a half-finished option stays on screen)
+    // and the variant rows are regenerated whenever they are valid. Rows are
+    // matched by combination, so an edit never loses an existing row's id,
+    // prices or stock — only a combination the merchant removed goes.
+    const setOptions = (next: ProductOption[]) =>
+      setForm((f) => {
+        const valid = normalizeOptions(next);
+        if (!("options" in valid)) return { ...f, options: next };
+        if (valid.options.length === 0)
+          return {
+            ...f,
+            options: next,
+            variants: f.variants.map((v) => ({ ...v, option_values: [] })),
+          };
+        return {
+          ...f,
+          options: next,
+          variants: generateVariantRows(valid.options, f.variants, () =>
+            blankVariant(f),
+          ),
+        };
+      });
+    const hasOptions = (form.options ?? []).length > 0;
     const updateVariant = <K extends keyof VariantFormData>(
       index: number,
       key: K,
@@ -1162,20 +1200,40 @@ export const ProductEditorForm = forwardRef<ProductEditorFormHandle, Props>(
           </div>
 
           <div className={tab === "variants" ? "space-y-4" : "hidden"}>
+            {/* Options */}
+            <Section
+              title="Options"
+              description="Name the choices a shopper makes, like Size and Colour. Every combination becomes a variant below, and the storefront shows one picker per option."
+              icon={Layers}
+              tint="sky"
+            >
+              <OptionsEditor
+                options={form.options ?? []}
+                onChange={setOptions}
+                legacyNames={form.variants.map((v) => v.name)}
+              />
+            </Section>
+
             {/* Variants */}
             <Section
               title="Variants"
-              description="Options like size or flavour — each with its own price, stock, and auto-generated SKU. Leave empty for a single-price product."
+              description={
+                hasOptions
+                  ? "One row per combination of your options — each with its own price, stock, and auto-generated SKU."
+                  : "Options like size or flavour — each with its own price, stock, and auto-generated SKU. Leave empty for a single-price product."
+              }
               icon={Layers}
               tint="sky"
               aside={
-                <button
-                  type="button"
-                  onClick={addVariant}
-                  className="flex items-center gap-1 rounded-md border border-[#d1d5db] bg-white px-2.5 py-1 text-xs font-medium text-[#374151] hover:bg-[#f3f4f6]"
-                >
-                  <Plus className="h-3.5 w-3.5" /> Add variant
-                </button>
+                hasOptions ? undefined : (
+                  <button
+                    type="button"
+                    onClick={addVariant}
+                    className="flex items-center gap-1 rounded-md border border-[#d1d5db] bg-white px-2.5 py-1 text-xs font-medium text-[#374151] hover:bg-[#f3f4f6]"
+                  >
+                    <Plus className="h-3.5 w-3.5" /> Add variant
+                  </button>
+                )
               }
             >
               {form.variants.length === 0 ? (
@@ -1215,14 +1273,23 @@ export const ProductEditorForm = forwardRef<ProductEditorFormHandle, Props>(
                         className="space-y-2 rounded-lg border border-[#f3f4f6] bg-[#fafafa] p-2"
                       >
                         <div className="grid grid-cols-[1fr_72px_72px_60px_110px_120px_72px] items-center gap-2">
-                          <input
-                            className={fieldClass}
-                            value={v.name}
-                            onChange={(e) =>
-                              updateVariant(i, "name", e.target.value)
-                            }
-                            placeholder="500ml"
-                          />
+                          {hasOptions ? (
+                            <div
+                              className={`${fieldClass} truncate bg-[#f3f4f6] font-medium`}
+                              title="Named from its option values"
+                            >
+                              {v.name}
+                            </div>
+                          ) : (
+                            <input
+                              className={fieldClass}
+                              value={v.name}
+                              onChange={(e) =>
+                                updateVariant(i, "name", e.target.value)
+                              }
+                              placeholder="500ml"
+                            />
+                          )}
                           <NumberField
                             className={fieldClass}
                             value={v.base_price}

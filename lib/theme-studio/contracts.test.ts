@@ -298,6 +298,39 @@ describe("Theme Studio contracts", () => {
     }
   });
 
+  it("refuses sample options the storefront could not render as pickers", () => {
+    const pkg = themeDefinitionToPackageV2(THEME_DEFINITIONS[0]);
+    const product = pkg.definition.preset.sampleData!.products[0];
+    product.options = [{ name: "Size", values: ["S", "M"] }];
+    product.variants = [
+      {
+        name: "S",
+        option_values: ["S"],
+        base_price: 10,
+        selling_price: 9,
+        stock: 1,
+      },
+      {
+        name: "XL",
+        option_values: ["XL"],
+        base_price: 10,
+        selling_price: 9,
+        stock: 1,
+      },
+    ];
+    const refused = validateThemePackageV2(JSON.parse(JSON.stringify(pkg)));
+    expect(refused.ok).toBe(false);
+    expect(!refused.ok && refused.issues.join(" ")).toMatch(
+      /products\[0\]\.options/,
+    );
+
+    product.variants[1].option_values = ["M"];
+    product.variants[1].name = "M";
+    expect(validateThemePackageV2(JSON.parse(JSON.stringify(pkg))).ok).toBe(
+      true,
+    );
+  });
+
   it("keeps a blocking capability gap out of Candidate state", () => {
     const pkg = themeDefinitionToPackageV2(THEME_DEFINITIONS[0]);
     expect(canAdvanceThemePackageToCandidate(pkg)).toBe(true);
