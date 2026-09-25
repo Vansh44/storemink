@@ -147,6 +147,20 @@ export const STAGE_A_ENVELOPE_SCHEMA: Schema = obj({
 });
 
 const link = obj({ label: str, href: str });
+// A header item nests two levels (a column, then its links) and may carry a
+// mega-menu image. Closed like everything else, so the empty forms are "" and
+// []; the compiler's menu cleaner drops them.
+const headerColumn = obj({
+  label: str,
+  href: str,
+  children: { type: "array", items: link },
+});
+const headerItem = obj({
+  label: str,
+  href: str,
+  image_url: str,
+  children: { type: "array", items: headerColumn },
+});
 const hex = str;
 const PALETTE_KEYS = [
   "cream",
@@ -222,7 +236,7 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
     }),
   },
   menus: obj({
-    header: { type: "array", items: link },
+    header: { type: "array", items: headerItem },
     footerGroups: {
       type: "array",
       items: obj({ title: str, links: { type: "array", items: link } }),

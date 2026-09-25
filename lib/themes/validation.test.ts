@@ -6,6 +6,7 @@ import type { ThemeDefinition } from "./types";
 import {
   STOREFRONT_CODE_ROUTES,
   collectThemeHrefs,
+  collectThemeImageUrls,
   validateThemeCatalogMeta,
   validateThemeDefinition,
   validateThemeDesign,
@@ -136,6 +137,27 @@ describe("theme validation", () => {
     } as never);
     expect(collectThemeHrefs(theme)).toContain("/shop/ghost");
     expect(codes(validateThemeLinks(theme))).toEqual(["product"]);
+  });
+
+  it("links: a nested header link is checked, a heading without one is not", () => {
+    const theme = clone();
+    theme.preset.menus.header.push({
+      label: "More",
+      href: "",
+      image_url: "/themes/basket/menu.webp",
+      children: [
+        {
+          label: "Ghosts",
+          href: "",
+          children: [{ label: "Ghost", href: "/shop/ghost" }],
+        },
+      ],
+    });
+    expect(collectThemeHrefs(theme)).toContain("/shop/ghost");
+    expect(collectThemeHrefs(theme)).not.toContain("");
+    expect(codes(validateThemeLinks(theme))).toEqual(["product"]);
+    // A mega-menu tile is an image the theme renders, so it must exist too.
+    expect(collectThemeImageUrls(theme)).toContain("/themes/basket/menu.webp");
   });
 
   it("links: a page link must reach a seeded page or a storefront route", () => {

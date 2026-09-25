@@ -11,6 +11,8 @@ import { useChrome } from "@/app/(storefront)/components/chrome-provider";
 import { useAuth } from "@/app/(storefront)/components/auth/AuthProvider";
 import { useCart } from "@/app/(storefront)/components/cart/CartProvider";
 import { DeliveryLocationControl } from "@/app/(storefront)/components/delivery/delivery-location-control";
+import { DesktopNav } from "./desktop-nav";
+import { DrawerNav } from "./drawer-nav";
 import {
   User,
   Package,
@@ -24,6 +26,8 @@ import { getMyCustomerUnreadCount } from "@/app/actions/customer-notification-ac
 
 export default function Header() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+  // Bumped on every open so the drawer's menu remounts at its top level.
+  const [drawerKey, setDrawerKey] = useState(0);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isScrolled, setIsScrolled] = useState(false);
   const [customerUnread, setCustomerUnread] = useState(0);
@@ -149,13 +153,7 @@ export default function Header() {
           <span className={styles.brandNameText}>{brand.name}</span>
         </Link>
 
-        <nav className={styles.navLinks}>
-          {navLinks.map((link) => (
-            <Link key={`${link.href}|${link.label}`} href={link.href}>
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <DesktopNav links={navLinks} />
       </div>
 
       <div className={styles.headerRight}>
@@ -407,7 +405,10 @@ export default function Header() {
         {/* Mobile Hamburger Button */}
         <button
           className={styles.hamburgerBtn}
-          onClick={() => setIsMenuOpen(true)}
+          onClick={() => {
+            setDrawerKey((k) => k + 1);
+            setIsMenuOpen(true);
+          }}
           aria-label="Open Menu"
         >
           <svg
@@ -507,17 +508,11 @@ export default function Header() {
 
         <DeliveryLocationControl drawer />
 
-        <nav className={styles.drawerNav}>
-          {navLinks.map((link) => (
-            <Link
-              key={`${link.href}|${link.label}`}
-              href={link.href}
-              onClick={() => setIsMenuOpen(false)}
-            >
-              {link.label}
-            </Link>
-          ))}
-        </nav>
+        <DrawerNav
+          key={drawerKey}
+          links={navLinks}
+          onNavigate={() => setIsMenuOpen(false)}
+        />
 
         {/* Mobile auth section in drawer */}
         <div className={styles.drawerAuth}>

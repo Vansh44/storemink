@@ -3,6 +3,8 @@
 import { useState } from "react";
 import { ChevronDown, GripVertical, Plus, X } from "lucide-react";
 import type { ChromeLink, FooterGroup, StoreChrome } from "@/lib/chrome/types";
+import { NAV_LIMITS } from "@/lib/chrome/nav";
+import { ImageUpload } from "@/components/ui/image-upload";
 import {
   contrastIssuesFor,
   DESIGN_FONT_NAMES,
@@ -181,6 +183,196 @@ function LinkList({
   );
 }
 
+const NAV_LEVEL_CAP = [
+  NAV_LIMITS.topLevel,
+  NAV_LIMITS.children,
+  NAV_LIMITS.grandchildren,
+];
+
+/**
+ * The header menu: the same rows as LinkList, but each row can hold sub-links,
+ * and those their own — three levels, the ceiling the storefront renders.
+ *
+ * ★ Only a TOP-LEVEL item with sub-links offers an image, because that is the
+ *   only place one appears (the tile in the desktop panel). Offering it
+ *   anywhere else would be a field that silently does nothing — the cleaner
+ *   drops it on save.
+ * ★ A row with sub-links may leave its link empty: it then only opens its
+ *   menu. The placeholder says so, rather than letting the merchant find out
+ *   that an empty leaf was dropped on save.
+ */
+export function NavTreeList({
+  links,
+  onChange,
+  depth = 0,
+}: {
+  links: ChromeLink[];
+  onChange: (next: ChromeLink[]) => void;
+  depth?: number;
+}) {
+  const set = (i: number, patch: Partial<ChromeLink>) =>
+    onChange(links.map((l, n) => (n === i ? { ...l, ...patch } : l)));
+
+  const move = (i: number, dir: -1 | 1) => {
+    const j = i + dir;
+    if (j < 0 || j >= links.length) return;
+    const next = [...links];
+    [next[i], next[j]] = [next[j], next[i]];
+    onChange(next);
+  };
+
+  // Removing the last sub-link also removes the image it was for, so the row
+  // goes back to exactly the plain link it started as.
+  const setChildren = (i: number, children: ChromeLink[]) =>
+    onChange(
+      links.map((l, n) => {
+        if (n !== i) return l;
+        if (children.length) return { ...l, children };
+        return { label: l.label, href: l.href };
+      }),
+    );
+
+  const cap = NAV_LEVEL_CAP[depth];
+  const noun = depth === 0 ? "menu link" : "sub-link";
+
+  return (
+    <div className={`sm-b-linklist${depth ? " sm-b-subnav" : ""}`}>
+      {links.map((link, i) => {
+        const hasChildren = !!link.children?.length;
+        return (
+          <div key={i} className="sm-b-navnode">
+            <div className="sm-b-linkrow">
+              <span className="sm-b-linkgrip" aria-hidden>
+                <GripVertical className="h-3.5 w-3.5" />
+              </span>
+              <div className="sm-b-linkfields">
+                <input
+                  className="sm-b-input"
+                  value={link.label}
+                  placeholder="Label"
+                  aria-label={`${depth ? "Sub-link" : "Menu link"} ${i + 1} label`}
+                  onChange={(e) => set(i, { label: e.target.value })}
+                />
+                <input
+                  className="sm-b-input sm-b-input-mono"
+                  value={link.href}
+                  placeholder={hasChildren ? "Optional: /shop" : "/shop"}
+                  aria-label={`${depth ? "Sub-link" : "Menu link"} ${i + 1} link`}
+                  onChange={(e) => set(i, { href: e.target.value })}
+                />
+              </div>
+              <div className="sm-b-linkactions">
+                <button
+                  type="button"
+                  onClick={() => move(i, -1)}
+                  disabled={i === 0}
+                  aria-label="Move up"
+                >
+                  ↑
+                </button>
+                <button
+                  type="button"
+                  onClick={() => move(i, 1)}
+                  disabled={i === links.length - 1}
+                  aria-label="Move down"
+                >
+                  ↓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onChange(links.filter((_, n) => n !== i))}
+                  aria-label={`Remove ${link.label || noun}`}
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+
+            {hasChildren && (
+              <NavTreeList
+                links={link.children!}
+                depth={depth + 1}
+                onChange={(children) => setChildren(i, children)}
+              />
+            )}
+
+            {depth === 0 && hasChildren && (
+              <div className="sm-b-subnav sm-b-navimage">
+                <span className="sm-b-hint">
+                  Menu image (optional) — shown beside these links on larger
+                  screens.
+                </span>
+                <ImageUpload
+                  key={link.image_url ?? "none"}
+                  folder="navigation"
+                  defaultImage={link.image_url || undefined}
+                  onUploadSuccess={(url) => set(i, { image_url: url })}
+                />
+                {link.image_url && (
+                  <button
+                    type="button"
+                    className="sm-b-addbtn"
+                    onClick={() =>
+                      onChange(
+                        links.map((l, n) =>
+                          n === i
+                            ? {
+                                label: l.label,
+                                href: l.href,
+                                children: l.children,
+                              }
+                            : l,
+                        ),
+                      )
+                    }
+                  >
+                    Remove image
+                  </button>
+                )}
+              </div>
+            )}
+
+            {depth + 1 < NAV_LEVEL_CAP.length &&
+              (link.children?.length ?? 0) < NAV_LEVEL_CAP[depth + 1] && (
+                <button
+                  type="button"
+                  className="sm-b-addbtn sm-b-addsub"
+                  onClick={() =>
+                    set(i, {
+                      children: [
+                        ...(link.children ?? []),
+                        { label: "", href: "" },
+                      ],
+                    })
+                  }
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add sub-link{link.label ? ` under ${link.label}` : ""}
+                </button>
+              )}
+          </div>
+        );
+      })}
+      {links.length < cap && (
+        <button
+          type="button"
+          className="sm-b-addbtn"
+          onClick={() => onChange([...links, { label: "", href: "" }])}
+        >
+          <Plus className="h-3.5 w-3.5" />
+          Add {noun}
+        </button>
+      )}
+      {depth === 0 && links.length === 0 && (
+        <p className="sm-b-hint">
+          No links yet. Visitors will still reach your pages from the footer and
+          from links inside your content.
+        </p>
+      )}
+    </div>
+  );
+}
+
 export function HeaderForm({
   chrome,
   onChange,
@@ -194,12 +386,11 @@ export function HeaderForm({
 
   return (
     <>
-      <Group title="Menu" hint="The links across the top of every page.">
-        <LinkList
-          links={h.links}
-          onChange={(links) => patch({ links })}
-          addLabel="Add menu link"
-        />
+      <Group
+        title="Menu"
+        hint="The links across the top of every page. Give a link sub-links to open a menu from it; give those sub-links their own to lay the menu out in columns."
+      >
+        <NavTreeList links={h.links} onChange={(links) => patch({ links })} />
       </Group>
 
       <Group title="What appears">

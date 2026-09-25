@@ -17,11 +17,11 @@ import {
   validateStorefrontDesign,
   type StorefrontDesignOverrides,
 } from "./design";
+import { cleanNavLinks, cleanNavTree, type NavLink } from "./nav";
 
-export interface ChromeLink {
-  label: string;
-  href: string;
-}
+/** A header link may nest (children, grandchildren, a mega-menu image); a
+ * footer link never does. See lib/chrome/nav.ts. */
+export type ChromeLink = NavLink;
 
 export interface FooterGroup {
   title: string;
@@ -125,7 +125,6 @@ export interface StoreChrome {
 const MAX_LINKS = 12;
 const MAX_GROUPS = 6;
 const MAX_LABEL = 60;
-const MAX_HREF = 512;
 const MAX_TEXT = 160;
 
 /**
@@ -206,22 +205,8 @@ const str = (v: unknown, max: number): string =>
 const bool = (v: unknown, fallback: boolean): boolean =>
   typeof v === "boolean" ? v : fallback;
 
-function cleanLink(raw: unknown): ChromeLink | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const label = str(r.label, MAX_LABEL);
-  const href = str(r.href, MAX_HREF);
-  if (!label || !href) return null;
-  return { label, href };
-}
-
-function cleanLinks(raw: unknown): ChromeLink[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map(cleanLink)
-    .filter((l): l is ChromeLink => l !== null)
-    .slice(0, MAX_LINKS);
-}
+const cleanLinks = (raw: unknown): ChromeLink[] =>
+  cleanNavLinks(raw, MAX_LINKS);
 
 function cleanGroups(raw: unknown): FooterGroup[] {
   if (!Array.isArray(raw)) return [];
@@ -241,7 +226,7 @@ function cleanGroups(raw: unknown): FooterGroup[] {
 
 function cleanHeader(raw: unknown, d: HeaderConfig): HeaderConfig {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const links = cleanLinks(r.links);
+  const links = cleanNavTree(r.links);
   return {
     links,
     showSearch: bool(r.showSearch, d.showSearch),

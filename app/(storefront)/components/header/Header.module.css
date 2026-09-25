@@ -66,6 +66,212 @@
   opacity: 0.6;
 }
 
+/* ---- Nested menus (lib/chrome/nav.ts) ----------------------------------
+   Only an item WITH children renders any of this; a flat menu is the plain
+   links above. The panels sit inside .navLinks, so every rule that styles a
+   panel link is written at (0,3,1) — above the header variants' own
+   `.navLinks a` rules (market's colour, minimal's uppercase), which would
+   otherwise paint white text on a light panel or shout every sub-link. */
+.navItem {
+  display: flex;
+  align-items: center;
+}
+
+/* The short list anchors to its item; the full-width panel anchors to the
+   fixed header, which is why only this one is positioned. */
+.navItemDropdown {
+  position: relative;
+}
+
+.navTrigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font-family: var(--font-outfit), sans-serif;
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--sm-ink);
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+}
+
+.navTrigger:hover {
+  opacity: 0.6;
+}
+
+.navChevron {
+  transition: transform 0.2s ease;
+}
+
+.navTrigger[aria-expanded="true"] .navChevron {
+  transform: rotate(180deg);
+}
+
+.dropdownPanel[hidden],
+.megaPanel[hidden] {
+  display: none;
+}
+
+.dropdownPanel {
+  position: absolute;
+  top: calc(100% + 14px);
+  left: -18px;
+  z-index: 60;
+  min-width: 220px;
+  padding: 8px 0;
+  background: var(--sm-surface);
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-card, 12px);
+  box-shadow: 0 16px 36px rgba(var(--sm-shadow-rgb), 0.12);
+}
+
+/* A bridge over the gap, so a cursor moving down into the list never
+   leaves the item and closes it. */
+.dropdownPanel::before {
+  content: "";
+  position: absolute;
+  inset: -14px 0 auto;
+  height: 14px;
+}
+
+.dropdownList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.navLinks .navItem .dropdownList a {
+  display: block;
+  padding: 9px 20px;
+}
+
+.megaPanel {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  z-index: 60;
+  max-height: calc(100vh - var(--sm-header-h, 80px));
+  max-height: calc(100dvh - var(--sm-header-h, 80px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  background: var(--sm-surface);
+  border-top: 1px solid var(--sm-border);
+  box-shadow: 0 24px 40px rgba(var(--sm-shadow-rgb), 0.1);
+}
+
+.megaInner {
+  display: flex;
+  gap: clamp(28px, 4vw, 56px);
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 32px clamp(24px, 4vw, 48px) 36px;
+}
+
+.megaColumns {
+  flex: 1 1 auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 28px clamp(24px, 3vw, 44px);
+  align-content: start;
+}
+
+.megaColumn,
+.megaColumn ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.megaColumn ul {
+  margin-top: 4px;
+}
+
+.navLinks .navItem :is(.megaPanel, .dropdownPanel) a {
+  font-size: 14px;
+  font-weight: 450;
+  letter-spacing: normal;
+  text-transform: none;
+  color: var(--sm-ink-soft);
+  opacity: 1;
+}
+
+.navLinks .navItem :is(.megaPanel, .dropdownPanel) a:hover {
+  color: var(--sm-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.navLinks .navItem a.megaHeading,
+.megaHeading {
+  margin: 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 14px;
+  font-weight: 650;
+  color: var(--sm-ink);
+}
+
+.navLinks .navItem a.navViewAll,
+.navLinks .navItem .navViewAll a {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--sm-ink);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.navViewAll {
+  margin-top: 4px;
+  border-top: 1px solid var(--sm-border);
+  padding-top: 4px;
+}
+
+.megaViewAll {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  justify-self: start;
+}
+
+.megaFeature {
+  flex: 0 0 clamp(200px, 22vw, 300px);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+}
+
+.megaFeature img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 4 / 5;
+  object-fit: cover;
+  border-radius: var(--sm-radius-card, 12px);
+  background: var(--sm-sand);
+}
+
+.navLinks .navItem .megaFeatureCaption {
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sm-ink);
+}
+
+/* On a tablet the panel is narrower than the columns want; the image goes
+   first so the links keep their width. */
+@media (max-width: 1024px) {
+  .megaFeature {
+    display: none;
+  }
+}
+
 .headerRight {
   display: flex;
   align-items: center;
@@ -500,6 +706,10 @@
   width: 320px;
   max-width: 85vw;
   height: 100vh;
+  height: 100dvh;
+  /* A nested menu can outgrow the screen; scroll it rather than clip it. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--sm-surface);
   z-index: 100;
   box-shadow: -10px 0 30px rgba(var(--sm-shadow-rgb), 0.08);
@@ -579,6 +789,86 @@
 .drawerNav a:hover {
   color: var(--sm-accent);
   padding-left: 4px;
+}
+
+/* A drawer row that opens the next level: styled as the links it sits
+   between, with a chevron saying it goes somewhere rather than away. */
+.drawerNavParent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  text-align: left;
+  font-family: var(--font-outfit), sans-serif;
+  font-weight: 600;
+  font-size: 18px;
+  color: var(--sm-ink);
+  cursor: pointer;
+  transition: color 0.2s ease;
+}
+
+.drawerNavParent:hover {
+  color: var(--sm-accent);
+}
+
+.drawerLevelHead {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.drawerBack {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  margin-left: -4px;
+  padding: 4px;
+  border: 0;
+  background: none;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--sm-ink-soft);
+  cursor: pointer;
+}
+
+.drawerLevelTitle {
+  margin: 0;
+  font-family: var(--font-outfit), sans-serif;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--sm-ink);
+}
+
+.drawerNav a.drawerViewAll {
+  font-size: 15px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.drawerLevelIn {
+  animation: drawerLevelIn 0.28s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes drawerLevelIn {
+  from {
+    opacity: 0;
+    transform: translateX(16px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drawerLevelIn {
+    animation: none;
+  }
 }
 
 /* Backdrop drawer overlay */
@@ -699,6 +989,7 @@
 
 :global(.sm-header-market) .brandNameText,
 :global(.sm-header-market) .navLinks a,
+:global(.sm-header-market) .navTrigger,
 :global(.sm-header-market) .userIcon,
 :global(.sm-header-market) .cartBtn,
 :global(.sm-header-market) .hamburgerBtn {
@@ -770,7 +1061,8 @@
   :global(.sm-header-minimal) .navLinks {
     gap: clamp(16px, 2vw, 28px);
   }
-  :global(.sm-header-minimal) .navLinks a {
+  :global(.sm-header-minimal) .navLinks a,
+  :global(.sm-header-minimal) .navTrigger {
     font-size: 0.78rem;
     font-weight: 650;
     letter-spacing: 0.08em;

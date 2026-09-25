@@ -5206,6 +5206,64 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     ⚠ Not built: Option1/2/3 CSV columns, a per-axis picker at the POS (the
     till lists composed names), card swatches, and ProductGroup structured
     data.
+    **Nested menus: desktop mega menu + phone drill-down (1.6).** A HEADER
+    link may carry `children`, those their own (three levels, Shopify's
+    ceiling), and a top-level item with children an `image_url`.
+    `lib/chrome/nav.ts` (pure) is the ONE shape and cleaner, used by
+    `lib/chrome/types.ts` (store_chrome), `lib/menus.ts` (store_menus and theme
+    presets) and the Theme Studio contract alike: `cleanNavTree` (per-level
+    caps 12/10/10 PLUS a 150-item budget for the whole tree, counted in
+    document order, because per-level caps multiply), `cleanNavLinks` (footer —
+    stays FLAT, children dropped), `flattenNav`, `navPanelKind`,
+    `isSafeNavImage` (site path, https, or a package `theme-asset://` slot;
+    never http, `//`, `javascript:` or `data:` — it is an `<img src>` on every
+    page). ★★ EMPTY `children`/`image_url` ARE OMITTED, NEVER WRITTEN AS
+    []/"", so every stored flat menu cleans byte-identical — the at-rest
+    guarantee, and what keeps the contract's sanitised-equals-stored check
+    passing for every bundled theme. No migration: both columns are jsonb.
+    An item with children may leave `href` empty (a heading that only opens a
+    menu); an image survives only on a top-level item that has children,
+    since nothing else renders one.
+    Storefront: `header/desktop-nav.tsx` renders a plain item as the same
+    plain `<Link>`, so no theme opt-in is needed. An item with children is a
+    DISCLOSURE BUTTON (aria-expanded/controls), never a link — a link that
+    opens on hover and navigates on click is unusable on a tablet — and its
+    href becomes "View all" inside the panel. Hover opens only for
+    `pointerType === "mouse"` (150ms grace out, plus a bridge over the gap);
+    click, Escape (focus back to the button), a press outside, focus leaving
+    the item and a route change close it. `navPanelKind`: a short list under
+    the item, or a full-width panel (a child with its own links, or an image)
+    anchored to the FIXED header — which is why only `.navItemDropdown` is
+    positioned. Childless children gather into one column; the feature tile
+    is a link named by its caption; the image is dropped ≤1024px so the
+    columns keep their width. ★ Panel link rules are written at (0,3,1),
+    above the market variant's white `.navLinks a` and minimal's uppercase,
+    which would otherwise paint white-on-white or shout every sub-link.
+    `header/drawer-nav.tsx` drills one level at a time (not an accordion, which
+    pushes the last top-level item off a 320px drawer) with Back, a level title
+    and "View all"; Header remounts it on each open so it starts at the top,
+    and focus lands on Back going in and on the opened row coming out. The
+    drawer now scrolls (`overflow-y: auto`, `100dvh`) instead of clipping.
+    Builder: `NavTreeList` in `chrome-form.tsx` (Add sub-link under a row, up
+    to three levels; a menu image via `ImageUpload` only on a top-level row
+    with sub-links; removing the last sub-link returns the row to a plain
+    link). Theme validation reads nested hrefs and menu images
+    (`collectThemeHrefs`/`collectThemeImageUrls`); Theme Studio Stage B
+    header items are closed `{label, href, image_url, children}` two levels
+    deep, the compiler checks `image_url` with the section `*_url` slot rule
+    (only on items with children), and the prompt (now `theme-studio-v7`) asks for
+    a "Shop" menu grouping categories. Help:
+    `20260925_0138_nested_menu_help` replaces the navigation guide's
+    menu-editing step in place.
+    **The compiler runs the content floors (2026-09-25).** The first live
+    Gemini run seeded three categories because the prompt asked for "three to
+    six" while `validateThemeSampleData` requires four, and the compiler only
+    ran the package contract, so the theme passed the pipeline and failed at
+    acceptance. `contentFloorIssues` (compiler.ts) now runs the model-controlled
+    production floors — pages, homepage, sample data, links, design — and
+    returns them as repair issues. Asset rules stay at acceptance, where images
+    stop being placeholders. The offline provider seeds four categories and
+    eight products to clear them, and `theme-studio-v7` states the floors.
     ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
     column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
     child (the related-products carousel) made the grocery product page 734px

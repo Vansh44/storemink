@@ -1076,6 +1076,28 @@
   cursor: default;
 }
 
+/* Header menu tree: each level indents under a rule, so it reads as
+   belonging to the row above it. */
+.sm-b-navnode {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sm-b-subnav {
+  margin-left: 18px;
+  padding-left: 9px;
+  border-left: 1px solid var(--b-border);
+}
+.sm-b-navimage {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.sm-b-addsub {
+  margin-left: 18px;
+  align-self: flex-start;
+}
+
 .sm-b-column {
   padding: 9px;
   border: 1px solid var(--b-border);

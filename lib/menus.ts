@@ -3,13 +3,15 @@
 // storefront reads them cached (lib/storefront/queries getStoreMenus, tag
 // TAGS.menus) and hands them to Header/Footer via the MenuProvider.
 //
-// These are plain label→href link lists. hrefs are internal paths (e.g. "/shop",
-// "/our-story") or absolute URLs; they are rendered as-is, so validate on save.
+// Label→href link lists. hrefs are internal paths (e.g. "/shop", "/our-story")
+// or absolute URLs; they are rendered as-is, so validate on save. The HEADER
+// list is a tree (children, grandchildren, an optional mega-menu image); the
+// footer lists stay flat. The shape and its cleaners live in lib/chrome/nav.ts,
+// shared with store_chrome, so a theme's menus and a merchant's are one thing.
 
-export interface MenuLink {
-  label: string;
-  href: string;
-}
+import { cleanNavLinks, cleanNavTree, type NavLink } from "@/lib/chrome/nav";
+
+export type MenuLink = NavLink;
 
 export interface FooterGroup {
   title: string;
@@ -71,29 +73,10 @@ export const DEFAULT_MENUS: StoreMenus = {
 };
 
 // Caps to keep menus sane and the payload small.
-const MAX_LINKS = 12;
 const MAX_GROUPS = 6;
 const MAX_LABEL = 60;
-const MAX_HREF = 512;
 
-function cleanLink(raw: unknown): MenuLink | null {
-  if (!raw || typeof raw !== "object") return null;
-  const r = raw as Record<string, unknown>;
-  const label =
-    typeof r.label === "string" ? r.label.trim().slice(0, MAX_LABEL) : "";
-  const href =
-    typeof r.href === "string" ? r.href.trim().slice(0, MAX_HREF) : "";
-  if (!label || !href) return null;
-  return { label, href };
-}
-
-function cleanLinks(raw: unknown): MenuLink[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map(cleanLink)
-    .filter((l): l is MenuLink => l !== null)
-    .slice(0, MAX_LINKS);
-}
+const cleanLinks = (raw: unknown): MenuLink[] => cleanNavLinks(raw);
 
 function cleanGroups(raw: unknown): FooterGroup[] {
   if (!Array.isArray(raw)) return [];
@@ -118,7 +101,7 @@ function cleanGroups(raw: unknown): FooterGroup[] {
  */
 export function normalizeMenus(raw: unknown): StoreMenus {
   const r = (raw ?? {}) as Record<string, unknown>;
-  const header = cleanLinks(r.header);
+  const header = cleanNavTree(r.header);
   const footerGroups = cleanGroups(r.footerGroups ?? r.footer_groups);
   const footerLegal = cleanLinks(r.footerLegal ?? r.footer_legal);
   return {
@@ -135,7 +118,7 @@ export function normalizeMenus(raw: unknown): StoreMenus {
 export function sanitizeMenusForSave(raw: unknown): StoreMenus {
   const r = (raw ?? {}) as Record<string, unknown>;
   return {
-    header: cleanLinks(r.header),
+    header: cleanNavTree(r.header),
     footerGroups: cleanGroups(r.footerGroups ?? r.footer_groups),
     footerLegal: cleanLinks(r.footerLegal ?? r.footer_legal),
   };

@@ -143,6 +143,13 @@ export function runFakeProvider(
 //   [[fake:repair]]          Stage B's first draft is invalid; the repair fixes it
 // ---------------------------------------------------------------------------
 
+const FAKE_CATEGORIES = [
+  { name: "Everyday", slug: "everyday" },
+  { name: "Home", slug: "home" },
+  { name: "Travel", slug: "travel" },
+  { name: "Gifts", slug: "gifts" },
+] as const;
+
 function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
   const slot = intent.assetBriefs[0]?.id ?? "home-hero";
   const { palette, fonts, shape } = studio.preset.design;
@@ -156,8 +163,8 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
     features: ["category-navigation"],
     brand: {
       primaryColor: palette.ink,
-      tagline: `${name} essentials`,
-      blurb: "Placeholder copy from the test provider.",
+      tagline: `${name} everyday essentials`,
+      blurb: `${name} is an offline test storefront with a full sample catalogue.`,
     },
     design: {
       palette: { ...palette, accent: null, accentDeep: null },
@@ -192,7 +199,14 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
             height: "large",
             focal_y: 40,
           }),
+          section("shop_by_category", EMPTY_CONFIG.shop_by_category),
           section("featured_products", EMPTY_CONFIG.featured_products),
+          section("promo_banner", {
+            ...EMPTY_CONFIG.promo_banner,
+            heading: "New arrivals every week",
+            cta_label: "Shop now",
+            cta_href: "/shop",
+          }),
           section("newsletter", EMPTY_CONFIG.newsletter),
         ],
       },
@@ -204,6 +218,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         sections: [
           section("media_text", {
             ...EMPTY_CONFIG.media_text,
+            cta_href: "/shop",
             image_url: `theme-asset://${slot}`,
           }),
         ],
@@ -211,27 +226,39 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
     ],
     menus: {
       header: [
-        { label: "Shop", href: "/shop" },
-        { label: "About", href: "/about" },
+        {
+          label: "Shop",
+          href: "/shop",
+          image_url: `theme-asset://${slot}`,
+          children: [
+            {
+              label: "Everyday",
+              href: "/shop?category=everyday",
+              children: [{ label: "Sample one", href: "/shop/sample-one" }],
+            },
+          ],
+        },
+        { label: "About", href: "/about", image_url: "", children: [] },
       ],
       footerGroups: [
         { title: "Shop", links: [{ label: "All products", href: "/shop" }] },
       ],
       footerLegal: [],
     },
-    categories: [
-      {
-        name: "Everyday",
-        slug: "everyday",
-        description: null,
-        imageSlot: slot,
-      },
-    ],
+    // ★ Four categories and eight products: the production content floors
+    // (validateThemeSampleData) now run in the compiler, and the offline
+    // provider must produce a package that clears them, as a model must.
+    categories: FAKE_CATEGORIES.map((category) => ({
+      name: category.name,
+      slug: category.slug,
+      description: null,
+      imageSlot: slot,
+    })),
     products: [
       {
         name: "Sample one",
         slug: "sample-one",
-        description: "A sample product.",
+        description: "A sample product from the offline provider.",
         categorySlug: "everyday",
         basePrice: 999,
         sellingPrice: 899,
@@ -266,7 +293,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
       {
         name: "Sample two",
         slug: "sample-two",
-        description: "Another sample product.",
+        description: "Another sample product from the offline provider.",
         categorySlug: "everyday",
         basePrice: 1499,
         sellingPrice: 1499,
@@ -275,6 +302,20 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         options: [],
         variants: [],
       },
+      ...FAKE_CATEGORIES.flatMap((category, c) =>
+        [0, 1].map((n) => ({
+          name: `${category.name} pick ${n + 1}`,
+          slug: `${category.slug}-pick-${n + 1}`,
+          description: `A ${category.name.toLowerCase()} sample product for testing.`,
+          categorySlug: category.slug,
+          basePrice: 499 + c * 100 + n * 50,
+          sellingPrice: 499 + c * 100 + n * 50,
+          imageSlot: slot,
+          featured: n === 0,
+          options: [],
+          variants: [],
+        })),
+      ).slice(0, 6),
     ],
     capabilityGaps: [],
   };

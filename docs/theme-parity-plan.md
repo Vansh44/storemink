@@ -36,7 +36,7 @@ Studio use them.
 | 1.3  | Shop grid columns per breakpoint, 2 on phones (`layout.gridColumnsMobile/Desktop`)                     | ✅      |
 | 1.4  | Hero: focal point, separate mobile image, height and overlay controls; swipe on the hero carousel      | ✅      |
 | 1.5  | Variant option axes (size × colour), swatches, quick add for variant products                          | ✅      |
-| 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | planned |
+| 1.6  | Nested mobile menu drawer + desktop mega menu (menu items gain children and an optional image)         | ✅      |
 | 1.7  | Predictive search dropdown; search visible in the phone header                                         | planned |
 | 1.8  | Shop page: sort, price/availability filters, load more, category banner and per-category URLs          | planned |
 | 1.9  | Cart drawer: free-delivery progress bar, upsell row                                                    | planned |
@@ -82,6 +82,40 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
   fell through to the product page. It opens a chooser with the same pickers.
 - Deferred: CSV Option1/2/3 columns, per-axis choice at the POS, swatches on
   product cards, and ProductGroup structured data.
+
+### Found and fixed while building 1.6
+
+- **The phone drawer could not scroll.** It was a fixed 100vh column with no
+  overflow, so a long menu was cut off below the fold with nothing to say so.
+  It scrolls now, at `100dvh`.
+- **An image-only menu tile would have been an unnamed link.** The tile is a
+  link whose accessible name comes from its caption, not an `alt=""` image.
+- Deferred: a merchant-chosen promo block in the panel other than one image,
+  per-link icons, and a nested footer.
+
+### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
+
+The golden set was run against the real model for about $1.12. 15 of 32 cases
+returned: 12 passed, 3 acceptable (injection or remote-fetch briefs came back
+as a clarifying question instead of a refusal), 0 unsafe. The other 17 were
+`rate_limited` — Vertex returned `RESOURCE_EXHAUSTED` even for a 5-token call,
+so it was project or shared capacity, not request pacing. They are unrun.
+
+- **Gemini accepts the large Stage B schema** with no repair rounds.
+- **The generated themes use the new controls.** Of 9 saved packages, 7 had a
+  mega menu, and all used nested menus with an image, product options (mostly
+  with swatches), hero height and overlay, the phone buy bar and a
+  two-column phone grid.
+- **The prompt contradicted a production floor.** It asked for "three to six
+  categories" while `validateThemeSampleData` requires four, and the compiler
+  never ran the content floors, so a three-category theme passed the pipeline
+  and failed only at acceptance. The compiler now runs the model-controlled
+  floors (pages, homepage, sample data, links, design) as repair issues, and
+  the prompt (`theme-studio-v7`) states them — including that a section
+  example's placeholder link (`/our-story`) must be replaced.
+- ⚠ The pipeline never retries a 429, by design. A merchant run during a
+  capacity shortfall fails outright; a bounded backoff is worth adding before
+  production traffic.
 
 ## Track 2 — design engine
 
