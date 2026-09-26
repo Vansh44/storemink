@@ -13,6 +13,7 @@ import type {
 } from "@/lib/themes/meta";
 import type { ThemeDefinition } from "@/lib/themes/types";
 import { SECTION_SCHEMES } from "@/lib/themes/schemes";
+import { cleanTypography } from "@/lib/themes/typography";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
 import { resolveOptionRows } from "@/lib/products/options";
 
@@ -1083,10 +1084,21 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
   }
   rejectUnknownKeys(
     value,
-    ["palette", "fonts", "shape", "layout", "schemes"],
+    ["palette", "fonts", "shape", "layout", "schemes", "typography"],
     "definition.preset.design",
     issues,
   );
+  if (value.typography !== undefined) {
+    if (!isRecord(value.typography)) {
+      issues.push(
+        "definition.preset.design.typography must be an object when supplied.",
+      );
+    } else if (!sameJson(cleanTypography(value.typography), value.typography)) {
+      issues.push(
+        "definition.preset.design.typography contains unknown settings or values.",
+      );
+    }
+  }
   if (value.schemes !== undefined) {
     if (!isRecord(value.schemes)) {
       issues.push(

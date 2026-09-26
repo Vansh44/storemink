@@ -94,7 +94,7 @@
 }
 
 .shop-title {
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: calc(clamp(2rem, 4vw, 3rem) * var(--sm-hs, 1));
   font-weight: 700;
   line-height: 1.1;
   margin: 0 0 12px;
@@ -399,7 +399,7 @@
 .shop-listing .shop-title {
   font-family: var(--font-outfit), sans-serif;
   font-weight: 800;
-  font-size: clamp(36px, 4.5vw, 60px);
+  font-size: calc(clamp(36px, 4.5vw, 60px) * var(--sm-hs, 1));
   line-height: 0.95;
   letter-spacing: -0.04em;
   color: var(--sm-ink);
@@ -743,7 +743,7 @@
 }
 
 .pdp-name {
-  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  font-size: calc(clamp(1.6rem, 3vw, 2.4rem) * var(--sm-hs, 1));
   font-weight: 700;
   line-height: 1.15;
   margin: 0 0 12px;
@@ -1771,7 +1771,7 @@
 }
 .sm-storefront-grocery .gpdp-name {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 4.5vw, 3rem);
+  font-size: calc(clamp(2rem, 4.5vw, 3rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -2006,7 +2006,7 @@
 }
 .shop-title-grocery {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  font-size: calc(clamp(1.9rem, 4vw, 2.8rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--sm-ink);
@@ -2040,7 +2040,7 @@
   padding-top: clamp(24px, 5vw, 70px);
 }
 .sm-pdp-editorial .pdp-name {
-  font-size: clamp(2.3rem, 5vw, 4.7rem);
+  font-size: calc(clamp(2.3rem, 5vw, 4.7rem) * var(--sm-hs, 1));
   font-weight: 600;
   letter-spacing: -0.045em;
   line-height: 0.98;
@@ -2459,7 +2459,7 @@
 .shop-collection-title {
   margin: 0;
   font-family: var(--font-stick-no-bills, var(--font-outfit)), sans-serif;
-  font-size: clamp(32px, 4.5vw, 56px);
+  font-size: calc(clamp(32px, 4.5vw, 56px) * var(--sm-hs, 1));
   font-weight: 700;
   line-height: 1.02;
   letter-spacing: -0.02em;

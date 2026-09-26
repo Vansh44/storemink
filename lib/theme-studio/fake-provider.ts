@@ -205,6 +205,13 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         accent: null,
         inverse: null,
       },
+      typography: {
+        headingFont: "display",
+        headingScale: "large",
+        headingWeight: "semibold",
+        headingCase: null,
+        headingTracking: "tight",
+      },
     },
     pages: [
       {

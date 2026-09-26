@@ -219,6 +219,14 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       schemes[id] = out as unknown as ThemeColorScheme;
     }
   }
+  // A null setting keeps each heading's own value, so only chosen ones are
+  // stored; theme validation judges the face against the weight.
+  const typography: Rec = {};
+  if (isRec(raw.typography)) {
+    for (const [key, value] of Object.entries(raw.typography)) {
+      if (typeof value === "string") typography[key] = value;
+    }
+  }
   return {
     palette: palette as unknown as ThemeDesign["palette"],
     fonts: { body: text(raw.fonts.body), display: text(raw.fonts.display) },
@@ -232,6 +240,9 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       ? { layout: layout as ThemeDesign["layout"] }
       : {}),
     ...(Object.keys(schemes).length > 0 ? { schemes } : {}),
+    ...(Object.keys(typography).length > 0
+      ? { typography: typography as ThemeDesign["typography"] }
+      : {}),
   };
 }
 

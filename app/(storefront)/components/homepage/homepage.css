@@ -224,13 +224,13 @@
   font-weight: 700;
 }
 .home-rich-text-content h1 {
-  font-size: clamp(1.75rem, 1.3rem + 1.6vw, 2.25rem);
+  font-size: calc(clamp(1.75rem, 1.3rem + 1.6vw, 2.25rem) * var(--sm-hs, 1));
 }
 .home-rich-text-content h2 {
-  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.6rem);
+  font-size: calc(clamp(1.35rem, 1.1rem + 0.9vw, 1.6rem) * var(--sm-hs, 1));
 }
 .home-rich-text-content h3 {
-  font-size: 1.2rem;
+  font-size: calc(1.2rem * var(--sm-hs, 1));
 }
 .home-rich-text-content h4 {
   font-size: 1.05rem;
@@ -272,7 +272,7 @@
 
 .home-section-title {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.5rem, 3.5vw, 2.25rem);
+  font-size: calc(clamp(1.5rem, 3.5vw, 2.25rem) * var(--sm-hs, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--sm-ink);
@@ -832,7 +832,7 @@
 
 .home-banner-heading {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.6rem, 4vw, 2.75rem);
+  font-size: calc(clamp(1.6rem, 4vw, 2.75rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -919,7 +919,7 @@
 
 .home-hero-heading {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.9rem, 4.5vw, 3.25rem);
+  font-size: calc(clamp(1.9rem, 4.5vw, 3.25rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.08;
@@ -1088,7 +1088,7 @@
 }
 .home-carousel-heading {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.8rem, 4.2vw, 3.1rem);
+  font-size: calc(clamp(1.8rem, 4.2vw, 3.1rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.08;
@@ -1491,7 +1491,7 @@ a.home-tile:hover {
   margin: 0;
   color: var(--sm-ink);
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 4.4vw, 4.25rem);
+  font-size: calc(clamp(2rem, 4.4vw, 4.25rem) * var(--sm-hs, 1));
   font-weight: 650;
   letter-spacing: -0.035em;
   line-height: 1.02;
@@ -1705,7 +1705,7 @@ a.home-gallery-card:hover .home-gallery-image {
 .home-newsletter-heading {
   margin: 0;
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 4.5vw, 4rem);
+  font-size: calc(clamp(2rem, 4.5vw, 4rem) * var(--sm-hs, 1));
   font-weight: 650;
   letter-spacing: -0.04em;
   line-height: 1.03;

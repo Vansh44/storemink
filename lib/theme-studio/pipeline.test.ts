@@ -222,6 +222,59 @@ describe("theme generation pipeline", () => {
     expect(style("featured_products")).toBeUndefined();
   });
 
+  it("compiles heading typography, storing only the chosen settings", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    expect(outcome.package.definition.preset.design.typography).toEqual({
+      headingFont: "display",
+      headingScale: "large",
+      headingWeight: "semibold",
+      headingTracking: "tight",
+    });
+  });
+
+  it("hands a heading face that would fake its bold back as a repair", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    let drafts = 0;
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        drafts += 1;
+        if (drafts === 1) {
+          const draft = result.value as {
+            design: {
+              fonts: { display: string };
+              typography: Record<string, unknown>;
+            };
+          };
+          // Replace rather than mutate: the fake's fonts object is the
+          // bundled Studio theme's own.
+          draft.design.fonts = {
+            ...draft.design.fonts,
+            display: "var(--font-instrument-serif)",
+          };
+          draft.design.typography = {
+            ...draft.design.typography,
+            headingWeight: "bold",
+          };
+        }
+        return result;
+      },
+    };
+    const outcome = await run(undefined, client);
+    expect(outcome.kind).toBe("version");
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toMatch(/Headings would be set in faked bold/);
+  });
+
   it("drops a scheme from a photo section rather than padding it", async () => {
     const fake = createFakeModelClient(base);
     const client: ThemeStudioModelClient = {

@@ -40,6 +40,7 @@ import {
 } from "@/lib/seo/store-indexing";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { STOREMINK_ICONS } from "@/lib/brand-assets";
+import { typographyRootClasses } from "@/lib/themes/typography";
 import "./storefront-theme.css";
 
 // Per-store default title/template + canonical origin. Individual pages may set
@@ -208,6 +209,9 @@ export default async function StorefrontLayout({
     // defect §11 records for Vitrine. An un-themed store that overrides
     // NOTHING still gets no class, so its inherited font is untouched.
     design || chrome.design.fonts.body ? "sm-themed-type" : "",
+    // Heading face, weight, case and spacing the theme chose. A class per
+    // property, and none when the theme sets nothing — lib/themes/typography.ts.
+    ...typographyRootClasses(design?.typography),
     `sm-pdp-${appearance.productDetail}`,
     `sm-cart-${appearance.cart}`,
     `sm-footer-${appearance.footer}`,

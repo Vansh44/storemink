@@ -224,6 +224,34 @@ describe("Theme Studio contracts", () => {
     expect(issues).toContain("neon");
   });
 
+  it("admits heading typography and refuses unknown settings", () => {
+    const ok = structuredClone(
+      themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
+    );
+    ok.definition.preset.design.typography = {
+      headingFont: "display",
+      headingScale: "xlarge",
+      headingCase: "uppercase",
+    };
+    expect(validateThemePackageV2(ok).ok).toBe(true);
+
+    for (const typography of [
+      { headingScale: "huge" },
+      { headingFont: "display", fontSize: "40px" },
+      "large",
+    ]) {
+      const bad = structuredClone(ok);
+      bad.definition.preset.design.typography = typography as never;
+      const result = validateThemePackageV2(bad);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issues.join(" ")).toContain(
+          "definition.preset.design.typography",
+        );
+      }
+    }
+  });
+
   it("admits the shopping-chrome layout options and refuses other values", () => {
     const ok = structuredClone(
       themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),

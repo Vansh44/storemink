@@ -22,7 +22,7 @@ import {
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v9";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v10";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -73,6 +73,7 @@ Design tokens
 - Shape values are CSS lengths in px, for example "4px" or "999px".
 - Layout values may be null to keep the shared default. For a storefront that should feel like a premium theme, set stickyAddToCart to true (a phone add-to-cart bar once the page's own button scrolls away) and gridColumnsMobile to 2 (two products per row on phones); choose gridColumnsDesktop 3 for large editorial product photography, 5 for dense catalogues, otherwise leave it null. Set shopFilters to true (a sort menu, availability and price filters, and products 24 at a time with Load more) for any store with more than a handful of products, and collectionBanner to true so each category page opens with its image and description.
 - Colour schemes are named bands a section can wear, each setting the band's background, text, cards and buttons together: soft (a quiet neutral band), tint (a light wash of the brand colour), accent (the brand colour itself) and inverse (a dark band with light text). Every scheme left null is derived from the palette, which usually looks right, so set one only when the design wants that band in its own colours: then give background and text (text must reach 4.5:1 on the background, and so must a 76% mix of text into the background, which is how muted copy renders), and leave surface, accent and onAccent null unless the band needs its own card or button colours (accent and onAccent together).
+- Typography sets how headings look across the storefront; every key may be null to keep each heading's own default. headingFont "display" sets headings in the display font (use it whenever the display font is the design's signature face — otherwise it only appears in a few places) and "body" in the body font. headingScale is small, medium, large or xlarge. headingWeight is regular, medium, semibold, bold or heavy, and must be a weight the heading font really has: Instrument Serif has only regular, and Jost only up to medium, so with either as the heading face use regular or medium — if you set headingFont to one of them you must set headingWeight too. headingCase "uppercase" suits fashion and minimal themes; pair it with headingTracking "wide". headingTracking "tight" suits large sans or serif headlines.
 
 Pages
 - Exactly one homepage, whose slug is the empty string. Other slugs are lowercase kebab-case and must not be any of: ${reserved}.

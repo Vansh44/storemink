@@ -5259,6 +5259,51 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     through every eligible section: no scheme-caused text below 4.5:1, no
     overflow. ⚠ Bundled themes still use their hand-set section
     backgrounds; they were not migrated to schemes (opt-in rule).
+    **★★ HEADING TYPOGRAPHY (Track 2.2, 2026-09-26).**
+    `lib/themes/typography.ts` (pure): `ThemeDesign.typography` may set
+    `headingFont` (`body` | `display`), `headingScale` (`small` 0.88 |
+    `medium` 1 | `large` 1.12 | `xlarge` 1.25), `headingWeight` (`regular`
+    400 … `heavy` 800), `headingCase` (`none` | `uppercase`) and
+    `headingTracking` (`tight` | `normal` | `wide`). Absent = today's headings
+    exactly: no variable, no class. `HEADING_SELECTORS` names the 18 page and
+    section headings it reaches (homepage section headings, rich-text h1–h3,
+    shop/collection titles, both PDP names, both cart titles, blog title;
+    checkout/account/order titles deliberately not).
+    ★ SIZE: each heading rule multiplies its OWN size by `var(--sm-hs, 1)`;
+    `.storefront-root` sets `--sm-hs` from `--sm-heading-scale`, and at
+    ≤640px to half the difference (1.25 → 1.125), so a large theme does not
+    push hero copy off a phone. `.home-tile-title` takes the style but not
+    the scale.
+    ★★ FACE, WEIGHT, CASE, SPACING: ONE ROOT CLASS PER PROPERTY
+    (`sm-h-font`, `sm-h-weight`, `sm-h-upper`, `sm-h-track`, from
+    `typographyRootClasses`), each emitted only when the theme chose it.
+    The headings share no default — hero 800, editorial band 650, blog 600,
+    several rules set no face — so an unconditional
+    `font-weight: var(--sm-heading-weight)` would reset every heading the
+    theme left alone. The gated rules (storefront-theme.css, (0,3,0)) beat
+    every heading's own rule, variant rules included. Any class (plus
+    `sm-h-scale`) also turns on `overflow-wrap: break-word`, because an
+    extra-large capitalised product name overflowed the editorial PDP's
+    328px column.
+    ★ `headingFont` points at the LEGACY SLOT (`--font-outfit` /
+    `--font-stick-no-bills`), not the theme's font value, so a merchant font
+    override is followed. Until this, themes' display faces (Fraunces,
+    Instrument Serif) reached only the collection title.
+    ★★ FAUX BOLD IS REFUSED. `typographyIssues` checks the heading face's
+    real weights (the table mirrors app/layout.tsx: Jost 300–500, Instrument
+    Serif 400, Stick No Bills 800, the rest variable) against the chosen
+    weight, or against headings' default 600–800 when none is chosen, and
+    `validateThemeDesign` reports it as `typography` — only when a typography
+    block exists, so Vitrine (Jost headings at 650–800, faux bold today) is
+    not judged; fixing it is a new release that sets a weight.
+    Theme Studio: Stage B `design.typography` (nullable enums), compiler keeps
+    only chosen keys, package contract admits `typography` and refuses unknown
+    keys/values, prompt `theme-studio-v10`, offline provider sets a display
+    typography. Operator/theme-level only: no merchant control yet (Mink's
+    design proposals replace the whole override set, so it needs its own
+    contract change), hence no Help Centre update. Browser-checked on all
+    four demo themes at 375/768/1280px across five surfaces under three
+    extreme settings: no heading overflow after the wrap rule.
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded

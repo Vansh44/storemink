@@ -7,6 +7,7 @@ import {
   schemesUsed,
   SECTION_SCHEMES,
 } from "./schemes";
+import { typographyIssues } from "./typography";
 import { normalizeMenus } from "@/lib/menus";
 import { flattenNav } from "@/lib/chrome/nav";
 import { STORE_POLICY_SLUGS } from "@/lib/legal/store-policies";
@@ -606,6 +607,11 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
     !FONT_VAR_RE.test(design.fonts.display)
   ) {
     issue("fonts", "Fonts must reference a loaded --font-* variable.");
+  }
+  // Heading typography is opt-in, so a theme that sets none is not checked
+  // here — including against a face that would fake its bold.
+  for (const problem of typographyIssues(design.typography, design.fonts)) {
+    issue("typography", problem);
   }
   for (const key of ["card", "control", "sm", "pill"] as const) {
     if (!/^\d/.test(design.shape[key] ?? "")) {

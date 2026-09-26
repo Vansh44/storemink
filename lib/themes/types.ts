@@ -3,6 +3,7 @@ import type { PageSectionItem } from "@/lib/sections/registry";
 import type { StoreMenus } from "@/lib/menus";
 import type { ThemeMeta } from "./meta";
 import { schemeCssVars, type ThemeColorSchemes } from "./schemes";
+import { typographyCssVars, type ThemeTypography } from "./typography";
 
 // ---------------------------------------------------------------------------
 // Theme definition — the full data package a theme seeds into a store: pages
@@ -183,6 +184,9 @@ export interface ThemeDesign {
    *  scheme the theme does not declare is derived from the palette, so this
    *  is only for a band the theme wants in its own colours. */
   schemes?: ThemeColorSchemes;
+  /** Heading face, size, weight, case and spacing (lib/themes/typography.ts).
+   *  Absent: every heading keeps its own values, exactly as before. */
+  typography?: ThemeTypography;
 }
 
 /** Immutable authored preset package. Applying it seeds starting content;
@@ -261,5 +265,6 @@ export function designToCssVars(
     "--sm-radius-sm": design.shape.sm,
     "--sm-radius-pill": design.shape.pill,
     ...schemeCssVars(design, brandPrimary),
+    ...typographyCssVars(design.typography),
   };
 }

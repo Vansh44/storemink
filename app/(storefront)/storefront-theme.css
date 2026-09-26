@@ -534,6 +534,154 @@
   font-family: var(--font-outfit), sans-serif;
 }
 
+/* ---- Theme heading typography (lib/themes/typography.ts) ----------------
+   A theme may choose the face, size, weight, case and letter spacing of its
+   headings. Absent settings change nothing.
+
+   ★ SIZE: every heading rule multiplies its own size by --sm-hs, which is 1
+   unless the theme sets a scale. On a phone it gets half the difference, so
+   an "xlarge" theme does not push hero copy off a 375px screen.
+
+   ★ FACE, WEIGHT, CASE, SPACING: one root class each, emitted only when the
+   theme chose that property. The headings do not share one default (the hero
+   is 800, the editorial band 650, several rules set no face), so a rule that
+   applied unconditionally would reset the ones the theme left alone.
+   (0,3,0) beats every heading's own rule, variant rules included.
+   ------------------------------------------------------------------------ */
+.storefront-root {
+  --sm-hs: var(--sm-heading-scale, 1);
+}
+@media (max-width: 640px) {
+  .storefront-root {
+    --sm-hs: calc(1 + (var(--sm-heading-scale, 1) - 1) * 0.5);
+  }
+}
+/* A larger, wider or capitalised heading can hold a word longer than its
+   column — an uppercase product name in the editorial page's narrow side
+   column did. Break the word rather than overflow; it only ever applies to
+   a word that does not fit. */
+:is(
+    .sm-h-scale,
+    .sm-h-font,
+    .sm-h-weight,
+    .sm-h-upper,
+    .sm-h-track
+  ).storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  overflow-wrap: break-word;
+}
+.sm-h-font.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  font-family: var(--sm-heading-font), sans-serif;
+}
+.sm-h-weight.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  font-weight: var(--sm-heading-weight);
+}
+.sm-h-upper.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  text-transform: uppercase;
+}
+.sm-h-track.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  letter-spacing: var(--sm-heading-tracking);
+}
+
 /* ---- Hover second-image swap (theme layout.cardHoverImage) -------------
    The card cross-fades to the product's SECOND photograph on hover — the one
    piece of motion a fashion grid is expected to have.

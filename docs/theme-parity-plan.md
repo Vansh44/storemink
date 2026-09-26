@@ -185,7 +185,7 @@ per-section colour schemes and restrained reveal-on-scroll motion.
 | #   | Step                                                                                              | Status  |
 | --- | ------------------------------------------------------------------------------------------------- | ------- |
 | 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅      |
-| 2.2 | Type scale and heading style                                                                      | planned |
+| 2.2 | Type scale and heading style (`design.typography`: face, scale, weight, case, spacing)            | ✅      |
 | 2.3 | Button styles                                                                                     | planned |
 | 2.4 | Container width and spacing rhythm                                                                | planned |
 | 2.5 | Restrained reveal-on-scroll motion                                                                | planned |
@@ -216,6 +216,38 @@ per-section colour schemes and restrained reveal-on-scroll motion.
   not looked at in a signed-in browser.
 - Deferred: migrating the bundled themes' hand-set backgrounds to declared
   schemes, schemes on the header and footer, and more than four schemes.
+
+### Found and fixed while building 2.2
+
+- **Themes chose a display face and almost nothing used it.** Studio and
+  Ritual set Fraunces and Vitrine set Instrument Serif as the display font,
+  but every homepage heading read the body font; only the collection-page
+  title used the display slot. `typography.headingFont: "display"` puts the
+  display face on every page and section heading.
+- **A face with no bold weight fakes one.** Jost is loaded at 300–500 and
+  Instrument Serif at 400 only, while headings ask for 600–800, so the browser
+  smears regular glyphs into faux bold. Theme validation now refuses a
+  typography block whose heading face would do that, and Theme Studio gets it
+  back as a repair. Vitrine's current headings do this today (Jost at
+  650–800); it has no typography block, so it is not judged, and fixing it
+  means a new Vitrine release that sets a weight.
+- **A capitalised, extra-large product name overflowed the editorial product
+  page's narrow column** ("SNEAKER" at 1280px). Any typography setting lets a
+  word that does not fit wrap inside its heading.
+- Opt-in: a theme without `design.typography` writes no variable and no class,
+  and every heading computes the same size, face, weight and spacing as
+  before (checked on Vitrine at 1024px). Bundled themes were not changed.
+  Generated themes set it through Stage B (`theme-studio-v10`).
+- Checked on all four demo themes at 375, 768 and 1280px on the homepage,
+  shop, a product page, the cart and a collection page, under three extreme
+  settings (extra-large display capitals with wide spacing, extra-large heavy
+  body type with tight spacing, extra-large capitals only): no heading wider
+  than its box and no page overflow after the wrap fix. Phones get half the
+  scale (1.25 becomes 1.125 at 375px).
+- Deferred: a merchant control for heading style in the builder. Mink's
+  design proposals replace the whole design override set, so adding typography
+  there needs its own change to that contract. Utility page titles (checkout,
+  account, orders) keep their plain style.
 
 ## Track 3 — generated imagery
 
