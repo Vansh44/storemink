@@ -287,6 +287,16 @@ describe("theme generation pipeline", () => {
     });
   });
 
+  it("compiles page width and spacing, storing only the chosen settings", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    expect(outcome.package.definition.preset.design.page).toEqual({
+      width: "standard",
+      sectionGap: "airy",
+    });
+  });
+
   it("hands a button weight the body face lacks back as a repair", async () => {
     const seen: StructuredRequest[] = [];
     const fake = createFakeModelClient(base);

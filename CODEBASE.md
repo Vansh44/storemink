@@ -5353,6 +5353,48 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     ⚠ `.home-media-text-cta` reads `--sm-radius-button`, which nothing
     defines, so it is a pill on every theme, square Vitrine included, unless
     `buttons.shape` is set.
+    **★★ PAGE WIDTH AND SPACING RHYTHM (Track 2.4, 2026-09-26).**
+    `lib/themes/page.ts` (pure): `ThemeDesign.page` may set `width`
+    (`narrow` 1080 | `standard` 1240 | `wide` 1440 | `full` 100%),
+    `sectionGap` (`compact` | `standard` | `airy`) and `gridGap` (`tight` 12 |
+    `standard` 22 | `roomy` 36px). ★ OPT-IN BY FALLBACK, NOT BY CLASS: every
+    consumer reads its variable with TODAY'S value as the fallback
+    (`max-width: var(--sm-page-width, 1100px)`), so no variable = today's
+    layout; a standard section gap emits nothing because it IS today's gap.
+    ★★ ONE WIDTH FOR THE WHOLE STORE. Widths were scattered — homepage
+    blocks 1320/1440/1200, product rows and the shop listing uncapped, the
+    product page and cart 1100–1120, the footer 1400, the header edge to edge
+    — so nothing lined up. A chosen width reaches all of them and the
+    browser sweep measured header, sections, shop listing, product page,
+    cart and footer starting at the SAME x on all four demo themes.
+    ★ BANDS STAY FULL WIDTH: `.home-section` and `.shop-panel-body` reach the
+    width through their side padding, `max(gutter, (100% − width) / 2)`, so a
+    scheme band still paints edge to edge. Unset, `(100% − 100%) / 2` is 0
+    and the gutter wins — today's padding exactly.
+    ★ `PAGE_WIDTH_CONTAINERS` cap at the width; `PADDED_PAGE_WIDTH_CONTAINERS`
+    (the footer grid and bottom row, the editorial and grocery product
+    `<main>`) carry their 64px side padding INSIDE the cap, so theirs is the
+    width PLUS 128px (`calc(var(--sm-page-width, 1272px) + 128px)` = today's 1400) or their content starts 64px inside everyone else's. Found by
+    measuring, not reading. Narrow-by-design blocks (rich-text column, FAQ
+    list, no-media media block, editorial gallery, portrait/square video,
+    the compact cart) are deliberately NOT page-width containers.
+    ★ A section marked "Full width" opts out (`.sm-page-width … .is-fullbleed
+    { --sm-page-width: 100% }`), as Shopify's toggle does. `sm-page-width` is
+    the only root class, and exists for this gate: without a theme width
+    there is nothing to opt out of.
+    ★ The header lines up on desktop only (≥1025px, where every width is
+    narrower than the screen) with the section gutter as its floor; the
+    header-fit hook folds the menu if the narrower bar no longer fits.
+    ★ The product carousel's card basis subtracts TWO gaps, so it reads the
+    same `--sm-grid-gap`. The phone 2-up grid keeps its own 12px.
+    ★★ FIXED ALONG THE WAY: `.sm-pdp-editorial .shop-main` capped EVERY
+    `.shop-main` — the shop listing too — at 1480px with no auto margins, so
+    on editorial themes (Vitrine, Ritual) wider than 1480px both pages were
+    pinned to the left edge (Vitrine at 1920: shop grid 64px / 504px, product
+    page 190px / 630px). Now `.shop-main.pdp-page`, centred.
+    Validation: `pageIssues` → `page` code. Theme Studio: Stage B
+    `design.page`, compiler keeps chosen keys, contract admits `page`,
+    prompt `theme-studio-v12`. Theme-level only, so no Help Centre update.
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded

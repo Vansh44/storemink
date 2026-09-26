@@ -41,6 +41,7 @@ import {
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { STOREMINK_ICONS } from "@/lib/brand-assets";
 import { buttonRootClasses } from "@/lib/themes/buttons";
+import { pageRootClasses } from "@/lib/themes/page";
 import { typographyRootClasses } from "@/lib/themes/typography";
 import "./storefront-theme.css";
 
@@ -216,6 +217,9 @@ export default async function StorefrontLayout({
     // Button shape, fill, case, weight, spacing and hover — the same one
     // class per property, none when unset. lib/themes/buttons.ts.
     ...buttonRootClasses(design?.buttons),
+    // Page width: a class only so a "Full width" section can opt out of it.
+    // lib/themes/page.ts.
+    ...pageRootClasses(design?.page),
     `sm-pdp-${appearance.productDetail}`,
     `sm-cart-${appearance.cart}`,
     `sm-footer-${appearance.footer}`,

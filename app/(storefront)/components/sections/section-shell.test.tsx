@@ -76,7 +76,14 @@ describe("full-width band gutter", () => {
   );
 
   it("never drops the gutter for every full-width section", () => {
-    expect(css).not.toMatch(/\.home-section\.is-fullbleed\s*\{/);
+    // A rule may reach every full-width section (the theme page-width
+    // opt-out does, lib/themes/page.ts) but none may touch its padding.
+    const rules = [
+      ...css.matchAll(/\.home-section\.is-fullbleed\s*\{([^}]*)\}/g),
+    ];
+    for (const [, body] of rules) {
+      expect(body).not.toMatch(/padding/);
+    }
   });
 
   it("drops it only for sections that are their own surface", () => {

@@ -187,7 +187,7 @@ per-section colour schemes and restrained reveal-on-scroll motion.
 | 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅      |
 | 2.2 | Type scale and heading style (`design.typography`: face, scale, weight, case, spacing)            | ✅      |
 | 2.3 | Button styles (`design.buttons`: shape, primary/secondary fill, case, weight, spacing, hover)     | ✅      |
-| 2.4 | Container width and spacing rhythm                                                                | planned |
+| 2.4 | Page width and spacing rhythm (`design.page`: width, section gap, product-grid gap)               | ✅      |
 | 2.5 | Restrained reveal-on-scroll motion                                                                | planned |
 
 ### Found and fixed while building 2.1
@@ -284,6 +284,36 @@ per-section colour schemes and restrained reveal-on-scroll motion.
   buttons, which validation refuses, and its existing 3.41:1 white on orange.
 - Deferred: a merchant control for button style in the builder, for the same
   reason typography has none yet.
+
+### Found and fixed while building 2.4
+
+- **Nothing on a page lined up.** Homepage blocks stopped at 1320, 1440 or
+  1200px, product rows and the shop listing ran the full screen, the product
+  page and cart stopped at 1100 or 1120px, the footer at 1400px, and the
+  header's logo sat 24px from the edge. With a theme width set, the header,
+  every homepage section, the shop, the product page, the cart and the
+  footer start at the same point.
+- **Coloured bands stay full width.** A section keeps its band edge to edge
+  and only its content is held to the page width. A section a merchant marks
+  "Full width" ignores the theme width, as on Shopify.
+- **The footer and two product layouts pad inside their width.** Their
+  columns would have started 64px inside everything else; their cap is the
+  page width plus that padding.
+- **On editorial themes the shop and product pages were pinned to the left
+  on large screens.** A rule meant for the editorial product page also caught
+  the shop listing and never centred either, so on Vitrine at 1920px the shop
+  grid had 64px on the left and 504px on the right. Fixed for every editorial
+  theme, whether or not it sets a width.
+- Opt-in: every width and gap reads its current value when a theme sets
+  nothing, and the bundled themes were not changed. Generated themes set it
+  through Stage B (`theme-studio-v12`).
+- Checked on all four demo themes at 375, 768, 1280, 1600 and 1920px on the
+  homepage, shop, a product page and the cart, under narrow, wide and full
+  widths with compact and airy section spacing: every page lined up and none
+  overflowed. Phones and tablets are unchanged at every setting.
+- Not covered: blog pages, account pages and checkout keep their own reading
+  widths. The compact cart stays a narrow column by design.
+- Deferred: a merchant control for page width in the builder.
 
 ## Track 3 — generated imagery
 

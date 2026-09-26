@@ -4,6 +4,7 @@ import type { StoreMenus } from "@/lib/menus";
 import type { ThemeMeta } from "./meta";
 import { schemeCssVars, type ThemeColorSchemes } from "./schemes";
 import { buttonCssVars, type ThemeButtons } from "./buttons";
+import { pageCssVars, type ThemePage } from "./page";
 import { typographyCssVars, type ThemeTypography } from "./typography";
 
 // ---------------------------------------------------------------------------
@@ -191,6 +192,9 @@ export interface ThemeDesign {
   /** Button shape, fill, case, weight, spacing and hover
    *  (lib/themes/buttons.ts). Absent: every button keeps its own look. */
   buttons?: ThemeButtons;
+  /** Page width, section spacing and product-grid spacing
+   *  (lib/themes/page.ts). Absent: today's widths and gaps. */
+  page?: ThemePage;
 }
 
 /** Immutable authored preset package. Applying it seeds starting content;
@@ -271,5 +275,6 @@ export function designToCssVars(
     ...schemeCssVars(design, brandPrimary),
     ...typographyCssVars(design.typography),
     ...buttonCssVars(design.buttons),
+    ...pageCssVars(design.page),
   };
 }

@@ -5,8 +5,9 @@
   width: 100%;
   display: flex;
   flex-direction: column;
-  gap: clamp(40px, 6vw, 72px);
-  padding: clamp(40px, 6vw, 72px) 0;
+  /* Theme spacing rhythm (lib/themes/page.ts); today's gap when unset. */
+  gap: var(--sm-section-gap, clamp(40px, 6vw, 72px));
+  padding: var(--sm-section-gap, clamp(40px, 6vw, 72px)) 0;
 }
 
 /* The header is position:fixed (takes no layout space). The classic theme
@@ -19,7 +20,20 @@
 
 .home-section {
   width: 100%;
-  padding-inline: clamp(20px, 5vw, 64px);
+  /* The gutter, or — once a theme sets a page width — whatever holds the
+     content to that width, so a band still paints edge to edge. Unset,
+     (100% − 100%) / 2 is 0 and the gutter wins: today's padding exactly. */
+  padding-inline: max(
+    clamp(20px, 5vw, 64px),
+    calc((100% - var(--sm-page-width, 100%)) / 2)
+  );
+}
+/* A section the merchant marks "Full width" ignores the theme's page width,
+   as Shopify's full-width toggle does: its content spans the screen and the
+   blocks inside it drop their page cap. Gated, because without a theme width
+   there is nothing to opt out of. */
+.sm-page-width.storefront-root .home-section.is-fullbleed {
+  --sm-page-width: 100%;
 }
 
 /* Banners go edge-to-edge, so they cancel the section gutter. */
@@ -35,7 +49,7 @@
 /* A leading custom-code section (e.g. a full-bleed hero) sits flush under the
    header: cancel the top gutter that .home-sections adds above the first row. */
 .home-sections > .home-custom-code:first-child {
-  margin-top: calc(-1 * clamp(40px, 6vw, 72px));
+  margin-top: calc(-1 * var(--sm-section-gap, clamp(40px, 6vw, 72px)));
 }
 
 /* The market header reserves space on the root itself; remove double padding */
@@ -293,7 +307,7 @@
 .home-product-scroll {
   display: flex;
   align-items: flex-start;
-  gap: 22px;
+  gap: var(--sm-grid-gap, 22px);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
   padding-bottom: 24px; /* room for shadow */
@@ -316,7 +330,7 @@
 
 /* 3 visible on desktop/tablet */
 .home-product-scroll .shop-card {
-  flex: 0 0 calc((100% - 44px) / 3);
+  flex: 0 0 calc((100% - 2 * var(--sm-grid-gap, 22px)) / 3);
   scroll-snap-align: start;
 }
 
@@ -1449,7 +1463,7 @@ a.home-tile:hover {
   grid-template-columns: minmax(0, 1.05fr) minmax(280px, 0.95fr);
   align-items: center;
   gap: clamp(28px, 6vw, 88px);
-  max-width: 1320px;
+  max-width: var(--sm-page-width, 1320px);
   margin-inline: auto;
 }
 .home-media-text.media-right .home-media-text-media {
@@ -1537,7 +1551,7 @@ a.home-tile:hover {
 .home-gallery {
   display: grid;
   gap: clamp(12px, 2vw, 24px);
-  max-width: 1440px;
+  max-width: var(--sm-page-width, 1440px);
   margin-inline: auto;
 }
 .home-gallery.cols-2 {
@@ -1581,7 +1595,7 @@ a.home-gallery-card:hover .home-gallery-image {
 .home-testimonials {
   display: grid;
   gap: clamp(14px, 2vw, 24px);
-  max-width: 1320px;
+  max-width: var(--sm-page-width, 1320px);
   margin-inline: auto;
 }
 .home-testimonials.cols-2 {
@@ -1657,7 +1671,7 @@ a.home-gallery-card:hover .home-gallery-image {
 .home-video-player {
   position: relative;
   width: 100%;
-  max-width: 1320px;
+  max-width: var(--sm-page-width, 1320px);
   margin-inline: auto;
   overflow: hidden;
   border-radius: var(--sm-radius-card, 18px);
@@ -1694,7 +1708,7 @@ a.home-gallery-card:hover .home-gallery-image {
   grid-template-columns: minmax(0, 1fr) minmax(320px, 0.8fr);
   align-items: center;
   gap: clamp(30px, 6vw, 90px);
-  max-width: 1320px;
+  max-width: var(--sm-page-width, 1320px);
   margin-inline: auto;
   padding: clamp(34px, 6vw, 84px);
   border-radius: var(--sm-radius-card, 20px);

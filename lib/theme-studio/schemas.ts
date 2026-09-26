@@ -17,6 +17,7 @@ import {
   BUTTON_TRACKINGS,
   BUTTON_WEIGHTS,
 } from "@/lib/themes/buttons";
+import { GRID_GAPS, PAGE_WIDTHS, SECTION_GAPS } from "@/lib/themes/page";
 import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
@@ -267,6 +268,11 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       weight: nullable(enumOf(BUTTON_WEIGHTS)),
       tracking: nullable(enumOf(BUTTON_TRACKINGS)),
       hover: nullable(enumOf(BUTTON_HOVERS)),
+    }),
+    page: obj({
+      width: nullable(enumOf(PAGE_WIDTHS)),
+      sectionGap: nullable(enumOf(SECTION_GAPS)),
+      gridGap: nullable(enumOf(GRID_GAPS)),
     }),
   }),
   pages: {

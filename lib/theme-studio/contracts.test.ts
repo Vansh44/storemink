@@ -280,6 +280,34 @@ describe("Theme Studio contracts", () => {
     }
   });
 
+  it("admits page width and spacing and refuses unknown settings", () => {
+    const ok = structuredClone(
+      themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
+    );
+    ok.definition.preset.design.page = {
+      width: "wide",
+      sectionGap: "compact",
+      gridGap: "roomy",
+    };
+    expect(validateThemePackageV2(ok).ok).toBe(true);
+
+    for (const page of [
+      { width: "1600px" },
+      { width: "wide", gutter: "large" },
+      "wide",
+    ]) {
+      const bad = structuredClone(ok);
+      bad.definition.preset.design.page = page as never;
+      const result = validateThemePackageV2(bad);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issues.join(" ")).toContain(
+          "definition.preset.design.page",
+        );
+      }
+    }
+  });
+
   it("admits the shopping-chrome layout options and refuses other values", () => {
     const ok = structuredClone(
       themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),

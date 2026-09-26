@@ -234,6 +234,13 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       if (typeof value === "string") buttons[key] = value;
     }
   }
+  // Page width and spacing: a null keeps today's width or gap.
+  const page: Rec = {};
+  if (isRec(raw.page)) {
+    for (const [key, value] of Object.entries(raw.page)) {
+      if (typeof value === "string") page[key] = value;
+    }
+  }
   return {
     palette: palette as unknown as ThemeDesign["palette"],
     fonts: { body: text(raw.fonts.body), display: text(raw.fonts.display) },
@@ -252,6 +259,9 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       : {}),
     ...(Object.keys(buttons).length > 0
       ? { buttons: buttons as ThemeDesign["buttons"] }
+      : {}),
+    ...(Object.keys(page).length > 0
+      ? { page: page as ThemeDesign["page"] }
       : {}),
   };
 }

@@ -14,6 +14,7 @@ import type {
 import type { ThemeDefinition } from "@/lib/themes/types";
 import { SECTION_SCHEMES } from "@/lib/themes/schemes";
 import { cleanButtons } from "@/lib/themes/buttons";
+import { cleanPage } from "@/lib/themes/page";
 import { cleanTypography } from "@/lib/themes/typography";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
 import { resolveOptionRows } from "@/lib/products/options";
@@ -1085,7 +1086,16 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
   }
   rejectUnknownKeys(
     value,
-    ["palette", "fonts", "shape", "layout", "schemes", "typography", "buttons"],
+    [
+      "palette",
+      "fonts",
+      "shape",
+      "layout",
+      "schemes",
+      "typography",
+      "buttons",
+      "page",
+    ],
     "definition.preset.design",
     issues,
   );
@@ -1108,6 +1118,17 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
     } else if (!sameJson(cleanButtons(value.buttons), value.buttons)) {
       issues.push(
         "definition.preset.design.buttons contains unknown settings or values.",
+      );
+    }
+  }
+  if (value.page !== undefined) {
+    if (!isRecord(value.page)) {
+      issues.push(
+        "definition.preset.design.page must be an object when supplied.",
+      );
+    } else if (!sameJson(cleanPage(value.page), value.page)) {
+      issues.push(
+        "definition.preset.design.page contains unknown settings or values.",
       );
     }
   }

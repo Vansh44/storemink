@@ -87,26 +87,40 @@ describe("preparing a slot image", () => {
     expect(prepared.value.width / prepared.value.height).toBeCloseTo(9 / 19, 2);
   });
 
-  it("compresses a detailed image under the catalog card's 250 KB", async () => {
-    const prepared = await prepareSlotImage(
-      await noise(1600, 1200),
-      LANDSCAPE,
-      250 * 1024,
-    );
-    expect(prepared.ok).toBe(true);
-    if (!prepared.ok) return;
-    expect(prepared.value.bytes.byteLength).toBeLessThanOrEqual(250 * 1024);
-    expect(prepared.value.width).toBeGreaterThanOrEqual(800);
-  });
+  // These two re-encode a 1600px noise image at every quality step, which is
+  // CPU-bound sharp work: ~1.5s alone, and past the 5s default when the full
+  // suite runs in parallel on a small machine. The limit is for the loop, not
+  // a wait on anything asynchronous.
+  const ENCODE_LOOP_TIMEOUT_MS = 20_000;
 
-  it("gives up with a reason when nothing fits the limit", async () => {
-    const prepared = await prepareSlotImage(
-      await noise(1600, 1200),
-      LANDSCAPE,
-      2 * 1024,
-    );
-    expect(prepared).toEqual({ ok: false, code: "too_detailed" });
-  });
+  it(
+    "compresses a detailed image under the catalog card's 250 KB",
+    async () => {
+      const prepared = await prepareSlotImage(
+        await noise(1600, 1200),
+        LANDSCAPE,
+        250 * 1024,
+      );
+      expect(prepared.ok).toBe(true);
+      if (!prepared.ok) return;
+      expect(prepared.value.bytes.byteLength).toBeLessThanOrEqual(250 * 1024);
+      expect(prepared.value.width).toBeGreaterThanOrEqual(800);
+    },
+    ENCODE_LOOP_TIMEOUT_MS,
+  );
+
+  it(
+    "gives up with a reason when nothing fits the limit",
+    async () => {
+      const prepared = await prepareSlotImage(
+        await noise(1600, 1200),
+        LANDSCAPE,
+        2 * 1024,
+      );
+      expect(prepared).toEqual({ ok: false, code: "too_detailed" });
+    },
+    ENCODE_LOOP_TIMEOUT_MS,
+  );
 
   it("refuses a non-image the same way a reference is refused", async () => {
     const prepared = await prepareSlotImage(

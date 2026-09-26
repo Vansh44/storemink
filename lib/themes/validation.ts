@@ -9,6 +9,7 @@ import {
   SECTION_SCHEMES,
 } from "./schemes";
 import { buttonIssues, buttonsDrawColourAsText } from "./buttons";
+import { pageIssues } from "./page";
 import { typographyIssues } from "./typography";
 import { normalizeMenus } from "@/lib/menus";
 import { flattenNav } from "@/lib/chrome/nav";
@@ -619,6 +620,10 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
   // sets none.
   for (const problem of buttonIssues(design.buttons, design.fonts)) {
     issue("buttons", problem);
+  }
+  // Page width and spacing, likewise: only a theme that sets them is checked.
+  for (const problem of pageIssues(design.page)) {
+    issue("page", problem);
   }
   for (const key of ["card", "control", "sm", "pill"] as const) {
     if (!/^\d/.test(design.shape[key] ?? "")) {

@@ -894,6 +894,21 @@
   visibility: visible;
 }
 
+/* Theme page width (lib/themes/page.ts): the header's logo and actions line
+   up with the content's edges instead of the screen's — with the section
+   gutter as the floor, so "full" lines up with the sections too. Desktop only — below
+   1025px every width is wider than the screen, and the tablet and phone
+   paddings below stay as they are. The header-fit hook measures the live
+   header, so a narrower bar folds the menu if it no longer fits. */
+@media (min-width: 1025px) {
+  :global(.sm-page-width) .header {
+    padding-inline: max(
+      clamp(20px, 5vw, 64px),
+      calc((100% - var(--sm-page-width)) / 2)
+    );
+  }
+}
+
 /* =========================================
    Responsiveness Media Queries
    ========================================= */

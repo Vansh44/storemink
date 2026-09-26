@@ -147,8 +147,8 @@
 .shop-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 28px;
-  max-width: 1200px;
+  gap: var(--sm-grid-gap, 28px);
+  max-width: var(--sm-page-width, 1200px);
   margin: 0 auto;
 }
 
@@ -362,7 +362,11 @@
 
 /* Content gutters — content fills the page, aligned to its edges */
 .shop-panel-body {
-  padding: 24px clamp(20px, 5vw, 64px) 24px;
+  /* Same gutter-or-page-width padding as a homepage section
+     (lib/themes/page.ts); today's gutter when no width is set. */
+  padding: 24px
+    max(clamp(20px, 5vw, 64px), calc((100% - var(--sm-page-width, 100%)) / 2))
+    24px;
 }
 
 @media (max-width: 700px) {
@@ -459,7 +463,7 @@
 /* Product cards — fixed 4 per row, responsive down */
 .shop-listing .shop-grid {
   grid-template-columns: repeat(4, 1fr);
-  gap: 22px;
+  gap: var(--sm-grid-gap, 22px);
   max-width: none;
 }
 
@@ -615,7 +619,7 @@
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
-  max-width: 1100px;
+  max-width: var(--sm-page-width, 1100px);
   margin: 0 auto 28px;
   font-size: 13px;
   color: var(--shop-text-subtle);
@@ -642,7 +646,7 @@
      the page padding on a phone. */
   grid-template-columns: minmax(0, 1fr);
   gap: 40px;
-  max-width: 1100px;
+  max-width: var(--sm-page-width, 1100px);
   margin: 0 auto;
 }
 
@@ -1208,7 +1212,7 @@
 
 /* You may also like */
 .pdp-related {
-  max-width: 1200px;
+  max-width: var(--sm-page-width, 1200px);
   margin: 72px auto 0;
 }
 
@@ -1680,7 +1684,9 @@
    the per-grid base card rules.
    ============================================================ */
 .sm-storefront-grocery .gpdp-main {
-  max-width: 1180px;
+  /* This is the page's <main>, so its side padding sits inside the cap: the
+     page width plus that padding (1052 + 128 = today's 1180px). */
+  max-width: calc(var(--sm-page-width, 1052px) + 128px);
   margin-inline: auto;
 }
 
@@ -2036,8 +2042,16 @@
 
 /* Phase 3 editorial PDP — same accessible/interactive classic markup, with a
    more magazine-like composition selected by the published appearance. */
-.sm-pdp-editorial .shop-main {
-  max-width: 1480px;
+/* ★ The PRODUCT page only, and centred. This used to be
+   `.sm-pdp-editorial .shop-main`, which also caught the shop listing, and it
+   set no auto margins: on a screen wider than 1480px both pages were pinned
+   to the left edge with an empty strip on the right. */
+.sm-pdp-editorial .shop-main.pdp-page {
+  /* Its side padding sits inside this cap, so the cap is the page width plus
+     that padding (1352 + 128 = today's 1480px), and the product columns start
+     where the rest of the page's content does. */
+  max-width: calc(var(--sm-page-width, 1352px) + 128px);
+  margin-inline: auto;
 }
 .sm-pdp-editorial .pdp-grid {
   grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
