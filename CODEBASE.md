@@ -5026,9 +5026,60 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     for a number the spend cap will read). `npm run theme-studio:image-check`
     runs anchor → product → product offline (fake), or live with `--live
     --yes` (three calls, ≈ $0.30), writing raw and cropped files.
-    ⚠ The live run on 2026-09-26 stopped at `provider_auth`: local ADC needed
-    re-authentication, so the Theme-Studio-shaped request (inline references,
-    4:5) is not yet live-verified. Operator-only: no Help Centre migration.
+    ★ LIVE-VERIFIED 2026-09-26 (`storemink-staging`, global): anchor 2400×1792
+    in 20.0 s, then two 4:5 product shots with inline references (1856×2304,
+    15.5 s and 18.9 s); input tokens rose with each reference (601 → 1,788 →
+    2,947) and output was exactly 1,680 tokens per image, so the estimate
+    matched ($0.305 for three). Crops came to 53–106 KB against the 500 KB
+    limit. The set read as one shoot: shared palette, glaze and light, and the
+    two product shots on the same seamless backdrop at the same camera height,
+    unbranded, with no text or people. Operator-only: no Help Centre migration.
+    **Theme Studio generated imagery, Track 3.2 (2026-09-26; image runs).**
+    An operator asks for a version's images (`queueThemeStudioImages`, the
+    "Generate images" panel on the version's Images page, with the image count
+    and list-price estimate stated before the click). It queues a run of the
+    new kind `images`, bound to that version and to the package digest on
+    screen like a revision, recorded by an immutable `images` message and an
+    `images_requested` event. ★ NEVER AUTOMATIC AND NEVER RETRIED BY THE
+    WORKER: every image is paid, so `max_attempts` is 1 (a retry through
+    `retryThemeStudioRun` stays an image run with one attempt), and states are
+    `ready`/`candidate` only — an approved version is frozen for publication.
+    `image-generation-core.ts` (pure) picks the slots: PLACEHOLDER slots of
+    kind hero/product/category/content only, never one an operator filled and
+    never the catalog card or a catalog screenshot (pictures of the
+    storefront, not art — excluded by both kind and catalog role); subject and
+    art direction from the VERSION'S INTENT (the package keeps only id, shape
+    and alt; a slot with no brief is described by its alt), and the request
+    ratio is the accepted ratio nearest the slot's shape (the brief's own, by
+    construction). `image-generation.ts` draws the anchor, then the slots
+    three at a time. ★★ THE ANCHOR GATES THE RUN: refused or failed, nothing
+    else is attempted, because images drawn without the shared look do not
+    belong together and each is paid. ★ A failed slot (refused, errored, or an
+    image the crop cannot use) KEEPS ITS PLACEHOLDER and is recorded in the
+    run's `outcome_detail`; the rest carry on. ★ EVERY CALL'S USAGE IS
+    RECORDED, refused ones included, so the daily spend cap counts what may
+    have been billed. Images are cropped and compressed by the existing
+    `prepareSlotImage` and stored as ordinary `image` assets (so acceptance,
+    the public image route and publication accept them unchanged); the anchor
+    is stored under the new purpose `anchor` (never served or published) and
+    its id recorded on the run for later regeneration. `applyGeneratedImages`
+    writes ONE new version (origin `run`, parent = the version filled): drawn
+    slots get `source: "generated"` and `GENERATED_LICENSE_NOTE` — not the
+    placeholder note, which is the only signal acceptance and publication use
+    to spot a placeholder — and the release notes name the model. An abort
+    keeps what was already drawn (a timeout's images are paid and good; a
+    cancel writes no version). The run's `usage.modelKey` names the image
+    model while the `model_key` column keeps the project's text model.
+    Migration `20260926_0141_theme_studio_image_runs` widens the run kind,
+    base-version rule, message kind, asset purpose and event vocabularies.
+    ⚠ A worker still on the previous revision would claim an `images` run as
+    a generation during a rollout; accepted, documented in the migration.
+    Verified end to end against the local Postgres with the offline providers
+    (20 checks: queue, run, stored rows, version parentage, contract, refusal,
+    retry) and by unit tests; the live request shape is the one verified above.
+    ⚠ After an image run, publication is still blocked by the catalog card and
+    the two screenshots, which only an upload fills today (Track 3.6).
+    Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

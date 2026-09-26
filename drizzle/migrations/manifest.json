@@ -901,7 +901,7 @@
         "queries": [
           {
             "name": "plan guide contains exact product tiers and no-data-loss downgrade contract",
-            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>—</td><td>—</td><td>Included%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>\u2014</td><td>\u2014</td><td>Included%'",
             "equals": "1"
           },
           {
@@ -915,7 +915,7 @@
         "queries": [
           {
             "name": "plan guide contains exact product tiers and no-data-loss downgrade contract",
-            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>—</td><td>—</td><td>Included%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'manage-your-storemink-plan-and-subscription' and status = 'published' and body like '%<td>5</td><td>50</td><td>Unlimited</td>%' and body like '%does not delete store data because a plan becomes lower%' and body like '%Custom domain</td><td>\u2014</td><td>\u2014</td><td>Included%'",
             "equals": "1"
           },
           {
@@ -1188,7 +1188,7 @@
         "queries": [
           {
             "name": "the dashboard Mink AI alpha guide is published with limits and permissions",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%This alpha is read only.%' and body like '%Products → View%' and body like '%does not debit AI credits%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%This alpha is read only.%' and body like '%Products \u2192 View%' and body like '%does not debit AI credits%'",
             "equals": "1"
           }
         ]
@@ -1298,7 +1298,7 @@
         "queries": [
           {
             "name": "the Mink dashboard guide documents Phase 1B tools permissions and reliability",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics → View%' and body like '%Inventory → View%' and body like '%retries a transient model failure at most once%' and body like '%never displays prompts, answers, tool arguments, tool results or model reasoning%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics \u2192 View%' and body like '%Inventory \u2192 View%' and body like '%retries a transient model failure at most once%' and body like '%never displays prompts, answers, tool arguments, tool results or model reasoning%'",
             "equals": "1"
           }
         ]
@@ -1307,7 +1307,7 @@
         "queries": [
           {
             "name": "the Mink dashboard guide includes sales and low-stock permissions",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics → View%' and body like '%Inventory → View%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Analytics \u2192 View%' and body like '%Inventory \u2192 View%'",
             "equals": "1"
           }
         ]
@@ -1344,7 +1344,7 @@
         "queries": [
           {
             "name": "the Mink dashboard guide documents the invited beta cards privacy compaction feedback and shadow metering",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Cards, filters and dashboard context%' and body like '%Customers → View%' and body like '%bounded extractive summary%' and body like '%Shadow credits%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and body like '%Cards, filters and dashboard context%' and body like '%Customers \u2192 View%' and body like '%bounded extractive summary%' and body like '%Shadow credits%'",
             "equals": "1"
           }
         ]
@@ -1762,7 +1762,7 @@
           },
           {
             "name": "the Mink guide documents guarded delivery order-status transitions",
-            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Advance one delivery order</h2>%' and body like '%pending → processing%' and body like '%Delivery order-status transitions%' and body like '%Pending or approved cancellation states and any refund activity block advancement%'",
+            "sql": "select count(*)::text from public.help_articles where slug = 'use-mink-ai-in-your-dashboard' and status = 'published' and category_id is not null and body like '%<h2>Advance one delivery order</h2>%' and body like '%pending \u2192 processing%' and body like '%Delivery order-status transitions%' and body like '%Pending or approved cancellation states and any refund activity block advancement%'",
             "equals": "1"
           }
         ]
@@ -4536,7 +4536,7 @@
         "queries": [
           {
             "name": "the guide names the design proposal and its credit weight",
-            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%its two typefaces and its corner roundness — for 2%'",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%its two typefaces and its corner roundness \u2014 for 2%'",
             "equals": "1"
           },
           {
@@ -4755,7 +4755,7 @@
           },
           {
             "name": "the guide explains offer availability and permission",
-            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Offers → View</strong> for offer status%' and body like '%store-wide automatic-offer switch%' and body like '%so \"on any order\" does not mean \"all products\"%'",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Offers \u2192 View</strong> for offer status%' and body like '%store-wide automatic-offer switch%' and body like '%so \"on any order\" does not mean \"all products\"%'",
             "equals": "1"
           },
           {
@@ -4770,7 +4770,7 @@
           },
           {
             "name": "the obsolete permission paragraph was removed",
-            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Inventory → View</strong> for low-stock lists. Asking for a hidden tool%'",
+            "sql": "select count(*)::text from help_articles where slug='use-mink-ai-in-your-dashboard' and status='published' and body like '%<strong>Inventory \u2192 View</strong> for low-stock lists. Asking for a hidden tool%'",
             "equals": "0"
           },
           {
@@ -5767,6 +5767,51 @@
           {
             "name": "the section guide explains colour schemes",
             "sql": "select count(*)::text from help_articles where slug='add-and-arrange-storefront-sections' and status='published' and body like '%<strong>Colour scheme</strong>%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260926_0141_theme_studio_image_runs",
+      "description": "Theme Studio image runs: the images run and message kinds, the anchor asset purpose and the images_requested event",
+      "file": "sql/20260926_0141_theme_studio_image_runs.sql",
+      "transaction": true,
+      "requires": ["20260926_0140_section_color_schemes_help"],
+      "verify": {
+        "constraints": [
+          "theme_studio_runs_kind_check",
+          "theme_studio_runs_base_check",
+          "theme_studio_messages_kind_check",
+          "theme_studio_assets_purpose_check",
+          "theme_studio_events_type_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "image runs are a run kind",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_runs_kind_check' and pg_get_constraintdef(oid) like '%images%'",
+            "equals": "1"
+          },
+          {
+            "name": "an image run is bound to a base version",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_runs_base_check' and pg_get_constraintdef(oid) like '%images%'",
+            "equals": "1"
+          },
+          {
+            "name": "image requests are a message kind",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_messages_kind_check' and pg_get_constraintdef(oid) like '%images%'",
+            "equals": "1"
+          },
+          {
+            "name": "anchors are an asset purpose",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_assets_purpose_check' and pg_get_constraintdef(oid) like '%anchor%'",
+            "equals": "1"
+          },
+          {
+            "name": "image requests are an event type",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%images_requested%'",
             "equals": "1"
           }
         ]

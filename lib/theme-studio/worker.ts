@@ -27,6 +27,21 @@ import {
   type ThemePackageV2,
 } from "./contracts";
 import { createFakeModelClient } from "./fake-provider";
+import { createFakeImageClient } from "./image-fake";
+import {
+  applyGeneratedImages,
+  generatableSlots,
+} from "./image-generation-core";
+import {
+  runThemeImageGeneration,
+  type ThemeImageRunResult,
+} from "./image-generation";
+import {
+  THEME_STUDIO_IMAGE_MODEL_KEY,
+  getThemeStudioImageConfig,
+} from "./image-models";
+import type { ThemeStudioImageClient } from "./image-provider";
+import { createVertexImageClient } from "./image-vertex";
 import { THEME_STUDIO_MODELS, type ThemeStudioModelKey } from "./models";
 import { runThemeGeneration, type GenerationOutcome } from "./pipeline";
 import type { ThemeStudioModelClient } from "./provider";
@@ -67,7 +82,7 @@ type ClaimedRun = {
   id: string;
   projectId: string;
   messageId: string;
-  kind: "generate" | "revise";
+  kind: "generate" | "revise" | "images";
   baseVersionId: string | null;
   basePackageDigest: string | null;
   contextMessageIds: string[];
@@ -321,6 +336,13 @@ async function loadRunInput(
 
 type Outcome =
   | { kind: "generated"; result: GenerationOutcome; versionNumber: number }
+  | {
+      kind: "images";
+      result: ThemeImageRunResult;
+      intent: ThemeIntent;
+      package: ThemePackageV2;
+      versionNumber: number;
+    }
   | { kind: "failed"; errorCode: string; detail?: Record<string, unknown> }
   | { kind: "retry"; errorCode: string };
 
@@ -363,7 +385,116 @@ async function cancelRequested(runId: string): Promise<boolean> {
   return Boolean(row?.at);
 }
 
+// ── Image runs (Track 3.2) ────────────────────────────────────────────────
+
+type ImageRunInput = {
+  intent: ThemeIntent;
+  package: ThemePackageV2;
+  versionNumber: number;
+};
+
+/** The version an image run fills, re-verified exactly as a revision's is. */
+async function loadImageRunInput(
+  run: ClaimedRun,
+): Promise<ImageRunInput | { errorCode: string }> {
+  return withService(async (db) => {
+    if (!run.baseVersionId || !run.basePackageDigest) {
+      return { errorCode: "base_missing" };
+    }
+    const [base] = await db
+      .select({
+        intentJson: themeStudioVersions.intentJson,
+        packageJson: themeStudioVersions.packageJson,
+        packageDigest: themeStudioVersions.packageDigest,
+      })
+      .from(themeStudioVersions)
+      .where(
+        and(
+          eq(themeStudioVersions.id, run.baseVersionId),
+          eq(themeStudioVersions.projectId, run.projectId),
+        ),
+      )
+      .limit(1);
+    if (!base || !base.packageJson) return { errorCode: "base_missing" };
+    // ★ Recomputed, not only compared as stored: the run draws images for
+    // exactly the package the operator was shown.
+    if (
+      base.packageDigest !== run.basePackageDigest ||
+      digestThemeStudioJson(base.packageJson) !== run.basePackageDigest
+    ) {
+      return { errorCode: "base_changed" };
+    }
+    const intent = validateThemeIntent(base.intentJson);
+    const pkg = validateThemePackageV2(base.packageJson);
+    if (!intent.ok || !pkg.ok) return { errorCode: "base_invalid" };
+    const [{ latest }] = await db
+      .select({ latest: max(themeStudioVersions.versionNumber) })
+      .from(themeStudioVersions)
+      .where(eq(themeStudioVersions.projectId, run.projectId));
+    return {
+      intent: intent.value,
+      package: pkg.value,
+      versionNumber: (latest ?? 0) + 1,
+    };
+  });
+}
+
+function imageClientFor(provider: string): ThemeStudioImageClient | null {
+  if (provider === "fake") return createFakeImageClient();
+  if (provider === "vertex-gemini") {
+    const config = getThemeStudioImageConfig();
+    return config ? createVertexImageClient(config) : null;
+  }
+  return null;
+}
+
+async function executeImages(run: ClaimedRun): Promise<Outcome> {
+  if (!getThemeStudioConfig().generationEnabled) {
+    return { kind: "failed", errorCode: "generation_disabled" };
+  }
+  const input = await loadImageRunInput(run);
+  if ("errorCode" in input) {
+    return { kind: "failed", errorCode: input.errorCode };
+  }
+  if (generatableSlots(input.package, input.intent).length === 0) {
+    return { kind: "failed", errorCode: "images_nothing_to_draw" };
+  }
+  const client = imageClientFor(run.provider);
+  if (!client) return { kind: "failed", errorCode: "provider_unavailable" };
+
+  const controller = new AbortController();
+  const deadline = setTimeout(() => controller.abort(), RUN_DEADLINE_MS);
+  const poll = setInterval(() => {
+    void cancelRequested(run.id)
+      .then((yes) => {
+        if (yes) controller.abort();
+      })
+      .catch(() => {});
+  }, CANCEL_POLL_MS);
+  try {
+    // An abort stops drawing new images but keeps those already drawn: a
+    // timeout's images are paid for and good, and a cancel is settled by
+    // finish(), which sees cancel_requested_at and writes no version.
+    const result = await runThemeImageGeneration(
+      client,
+      { pkg: input.package, intent: input.intent },
+      controller.signal,
+    );
+    return {
+      kind: "images",
+      result,
+      intent: input.intent,
+      package: input.package,
+      versionNumber: input.versionNumber,
+    };
+  } finally {
+    clearTimeout(deadline);
+    clearInterval(poll);
+  }
+}
+
 async function execute(run: ClaimedRun): Promise<Outcome> {
+  if (run.kind === "images") return executeImages(run);
   const config = getThemeStudioConfig();
   // Re-checked at execution, not only at queue time: the emergency stop and a
   // disabled model must also stop work that was already waiting.
@@ -466,10 +597,15 @@ type RunRow = typeof themeStudioRuns.$inferSelect;
 
 function usageRecord(run: ClaimedRun, outcome: Outcome) {
   const telemetry =
-    outcome.kind === "generated" ? outcome.result.telemetry : undefined;
+    outcome.kind === "generated" || outcome.kind === "images"
+      ? outcome.result.telemetry
+      : undefined;
   return {
     provider: run.provider,
-    modelKey: run.modelKey,
+    // An image run records the image model it actually called; the run row's
+    // model_key column keeps the project's text model.
+    modelKey:
+      run.kind === "images" ? THEME_STUDIO_IMAGE_MODEL_KEY : run.modelKey,
     providerModel: run.providerModel,
     promptVersion: run.promptVersion,
     ...(telemetry ?? {}),
@@ -560,6 +696,17 @@ async function finish(
     }
     if (outcome.kind === "failed")
       return failRun(outcome.errorCode, outcome.detail);
+
+    if (outcome.kind === "images") {
+      return finishImages(db, {
+        run,
+        project,
+        outcome,
+        terminal,
+        event,
+        failRun,
+      });
+    }
 
     const result = outcome.result;
     if (result.kind === "failed")
@@ -663,6 +810,161 @@ async function finish(
     });
     return "succeeded";
   });
+}
+
+/**
+ * Settle an image run: store the anchor and each generated image, then write
+ * ONE version whose package points at them and whose parent is the version
+ * filled. Nothing generated is a failure that keeps the base version current.
+ */
+async function finishImages(
+  db: Db,
+  ctx: {
+    run: ClaimedRun;
+    project: typeof themeStudioProjects.$inferSelect;
+    outcome: Extract<Outcome, { kind: "images" }>;
+    terminal: Record<string, unknown>;
+    event: (type: string, detail?: Record<string, unknown>) => Promise<void>;
+    failRun: (
+      errorCode: string,
+      detail?: Record<string, unknown>,
+    ) => Promise<"failed">;
+  },
+): Promise<"succeeded" | "failed"> {
+  const { run, project, outcome, terminal, event, failRun } = ctx;
+  const result = outcome.result;
+  const detail = {
+    kind: "images",
+    outcomes: result.outcomes,
+    ...(result.anchorFailure ? { anchorFailure: result.anchorFailure } : {}),
+    ...(result.anchorFailure?.kind === "refused"
+      ? { category: result.anchorFailure.reason ?? "IMAGE_SAFETY" }
+      : {}),
+  };
+  if (result.anchorFailure) {
+    return failRun(
+      result.anchorFailure.kind === "refused"
+        ? "images_anchor_refused"
+        : `images_anchor_${result.anchorFailure.code}`.slice(0, 64),
+      detail,
+    );
+  }
+  if (result.images.length === 0) return failRun("images_none", detail);
+
+  const [{ latest }] = await db
+    .select({ latest: max(themeStudioVersions.versionNumber) })
+    .from(themeStudioVersions)
+    .where(eq(themeStudioVersions.projectId, run.projectId));
+  if ((latest ?? 0) + 1 !== outcome.versionNumber) {
+    return failRun("project_state_changed");
+  }
+  const applied = applyGeneratedImages(
+    outcome.package,
+    result.images.map(({ slotId, image }) => ({
+      slotId,
+      sha256: image.sha256,
+      width: image.width,
+      height: image.height,
+    })),
+    outcome.versionNumber,
+    THEME_STUDIO_IMAGE_MODEL_KEY,
+  );
+  if (!applied.ok) return failRun("images_package_invalid", detail);
+
+  const store = async (
+    image: ThemeImageRunResult["images"][number]["image"],
+    purpose: "image" | "anchor",
+  ) => {
+    await db
+      .insert(themeStudioAssets)
+      .values({
+        projectId: run.projectId,
+        purpose,
+        mediaType: "image/webp",
+        bytes: Buffer.from(image.bytes),
+        byteSize: image.bytes.byteLength,
+        width: image.width,
+        height: image.height,
+        sha256: image.sha256,
+        originalMediaType: image.originalMediaType,
+        originalByteSize: image.originalByteSize,
+      })
+      .onConflictDoNothing({
+        target: [themeStudioAssets.projectId, themeStudioAssets.sha256],
+      });
+    const [row] = await db
+      .select({ id: themeStudioAssets.id, purpose: themeStudioAssets.purpose })
+      .from(themeStudioAssets)
+      .where(
+        and(
+          eq(themeStudioAssets.projectId, run.projectId),
+          eq(themeStudioAssets.sha256, image.sha256),
+        ),
+      )
+      .limit(1);
+    return row ?? null;
+  };
+  for (const { image } of result.images) {
+    const row = await store(image, "image");
+    // The same bytes stored earlier under another purpose would be served and
+    // published by the wrong rules; refuse rather than point a slot at it.
+    if (!row || row.purpose !== "image") {
+      return failRun("images_asset_conflict", detail);
+    }
+  }
+  const anchorRow = result.anchor ? await store(result.anchor, "anchor") : null;
+
+  const intentDigest = digestThemeStudioJson(outcome.intent);
+  const packageDigest = digestThemeStudioJson(applied.value);
+  const [version] = await db
+    .insert(themeStudioVersions)
+    .values({
+      projectId: run.projectId,
+      runId: run.id,
+      parentVersionId: run.baseVersionId,
+      versionNumber: outcome.versionNumber,
+      intentJson: outcome.intent,
+      intentDigest,
+      packageJson: applied.value,
+      packageDigest,
+    })
+    .returning({
+      id: themeStudioVersions.id,
+      versionNumber: themeStudioVersions.versionNumber,
+    });
+  await db
+    .update(themeStudioRuns)
+    .set({
+      ...terminal,
+      status: "succeeded",
+      outcomeDetail: {
+        ...detail,
+        ...(anchorRow?.purpose === "anchor"
+          ? { anchorAssetId: anchorRow.id }
+          : {}),
+      },
+    })
+    .where(eq(themeStudioRuns.id, run.id));
+  await db
+    .update(themeStudioProjects)
+    .set({
+      status: "ready",
+      currentVersionId: version.id,
+      revision: project.revision + 1,
+    })
+    .where(eq(themeStudioProjects.id, run.projectId));
+  await event("run_succeeded");
+  await event("version_created", {
+    versionId: version.id,
+    versionNumber: version.versionNumber,
+    intentDigest,
+    packageDigest,
+    images: result.images.length,
+    imagesMissing: result.outcomes.filter((o) => o.status !== "generated")
+      .length,
+    parentVersionId: run.baseVersionId,
+  });
+  return "succeeded";
 }
 
 /** Drain a bounded amount of queued work. Safe to call concurrently: claims

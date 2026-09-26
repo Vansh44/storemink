@@ -28,10 +28,17 @@ import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
   THEME_STUDIO_LIMITS,
+  validateThemeIntent,
   validateThemePackageV2,
   type ThemePackageV2,
   type ThemeStudioProjectState,
 } from "./contracts";
+import { generatableSlots } from "./image-generation-core";
+import { getThemeStudioImageConfig } from "./image-models";
+import {
+  THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
+  THEME_STUDIO_IMAGE_PROMPT_VERSION,
+} from "./image-provider";
 import { getVertexConfig } from "./gemini-vertex";
 import { PLACEHOLDER_LICENSE_NOTE } from "./compiler";
 import {
@@ -119,7 +126,7 @@ export interface ThemeStudioRunView {
   declineReason: string | null;
   refusalCategory: string | null;
   id: string;
-  kind: "generate" | "revise";
+  kind: "generate" | "revise" | "images";
   status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
   provider: string;
   modelKey: ThemeStudioModelKey;
@@ -173,7 +180,7 @@ export interface ThemeStudioEventView {
 
 export interface ThemeStudioMessageView {
   id: string;
-  kind: "brief" | "revision";
+  kind: "brief" | "revision" | "images";
   body: string;
   referenceCount: number;
   createdAt: string;
@@ -455,7 +462,7 @@ export async function getThemeStudioProject(
       references: references.map((r) => ({ ...r, cited: cited.has(r.id) })),
       messages: messages.map((m) => ({
         id: m.id,
-        kind: m.kind as "brief" | "revision",
+        kind: m.kind as ThemeStudioMessageView["kind"],
         body: m.body,
         referenceCount: m.referenceAssetIds.length,
         createdAt: m.createdAt,
@@ -463,7 +470,7 @@ export async function getThemeStudioProject(
       runs: runs.map((r) => ({
         ...runExtras(r.usage, r.outcomeDetail),
         id: r.id,
-        kind: r.kind as "generate" | "revise",
+        kind: r.kind as ThemeStudioRunView["kind"],
         status: r.status as ThemeStudioRunView["status"],
         provider: r.provider,
         modelKey: r.modelKey as ThemeStudioModelKey,
@@ -1063,6 +1070,35 @@ function resolveProviderForQueue(modelKey: ThemeStudioModelKey) {
   };
 }
 
+/**
+ * The provider for an image run: the same switch as text runs (the offline
+ * fake, or Vertex), but the image model and its own prompt version.
+ */
+function resolveImageProviderForQueue(
+  modelKey: ThemeStudioModelKey,
+): ReturnType<typeof resolveProviderForQueue> {
+  const text = resolveProviderForQueue(modelKey);
+  if (text.provider === "fake") {
+    return {
+      ...text,
+      providerModel: "fake",
+      promptVersion: THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
+    };
+  }
+  const image = getThemeStudioImageConfig();
+  if (!image) {
+    throw new ThemeStudioError(
+      "provider_unavailable",
+      "Image generation is not configured in this environment.",
+    );
+  }
+  return {
+    ...text,
+    providerModel: image.providerModel,
+    promptVersion: THEME_STUDIO_IMAGE_PROMPT_VERSION,
+  };
+}
+
 /** Estimated model spend this operator started in the last 24 hours. Only a
  * paid provider counts; the offline provider records zero. */
 async function assertSpendHeadroom(
@@ -1342,9 +1378,10 @@ export async function retryThemeStudioRun(
         "This project can't start a run right now.",
       );
     }
-    const resolved = resolveProviderForQueue(
-      project.modelKey as ThemeStudioModelKey,
-    );
+    const images = run.kind === "images";
+    const resolved = images
+      ? resolveImageProviderForQueue(project.modelKey as ThemeStudioModelKey)
+      : resolveProviderForQueue(project.modelKey as ThemeStudioModelKey);
     await assertRunCapacity(db, actor);
     await assertSpendHeadroom(db, actor, resolved);
     const [retry] = await db
@@ -1358,7 +1395,8 @@ export async function retryThemeStudioRun(
         providerModel: resolved.providerModel,
         promptVersion: resolved.promptVersion,
         idempotencyKey: input.idempotencyKey,
-        maxAttempts: 1 + THEME_STUDIO_LIMITS.modelRetries,
+        // An image run is never retried automatically: every image is paid.
+        maxAttempts: images ? 1 : 1 + THEME_STUDIO_LIMITS.modelRetries,
         retryOfRunId: run.id,
         // A retried revision revises the same version with the same messages.
         baseVersionId: run.baseVersionId,
@@ -1686,6 +1724,160 @@ export async function reviseThemeStudioVersion(
       },
     });
     return { runId: run.id, duplicate: false };
+  });
+}
+
+/** States a version's images can be drawn from. Like a revision, but not
+ *  `approved`: an approved project's version is frozen for publication. */
+const IMAGE_STATES: readonly ThemeStudioProjectState[] = ["ready", "candidate"];
+
+/**
+ * Ask Theme Studio to draw a version's images: an art-direction anchor, then
+ * every placeholder slot matched to it, saved as one new version whose parent
+ * is this one. Bound to the version and the content address on the operator's
+ * screen, like a revision; idempotent on the key.
+ *
+ * ★ Never automatic and never retried by the worker: every image is paid, so
+ * the operator decides when a layout is worth drawing, and a failure is
+ * retried only by asking again.
+ */
+export async function queueThemeStudioImages(
+  actor: ThemeStudioActor,
+  input: {
+    projectId: string;
+    versionId: string;
+    expectedRevision: number;
+    expectedPackageDigest: string;
+    idempotencyKey: string;
+  },
+): Promise<{ runId: string; duplicate: boolean; slots: number }> {
+  if (!isUuid(input.projectId) || !isUuid(input.versionId)) {
+    throw new ThemeStudioError("not_found", "That version no longer exists.");
+  }
+  if (!IDEMPOTENCY_RE.test(input.idempotencyKey)) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      "The request is malformed. Reload and try again.",
+    );
+  }
+  return withService(async (db) => {
+    const project = await lockProject(db, input.projectId);
+    const [prior] = await db
+      .select({ id: themeStudioRuns.id, projectId: themeStudioRuns.projectId })
+      .from(themeStudioRuns)
+      .where(eq(themeStudioRuns.idempotencyKey, input.idempotencyKey))
+      .limit(1);
+    if (prior) {
+      if (prior.projectId !== project.id) {
+        throw new ThemeStudioError(
+          "invalid_input",
+          "The request is malformed. Reload and try again.",
+        );
+      }
+      return { runId: prior.id, duplicate: true, slots: 0 };
+    }
+    if (project.revision !== input.expectedRevision) {
+      throw new ThemeStudioError(
+        "stale",
+        "This project changed in another tab. Reload to see it.",
+      );
+    }
+    if (!IMAGE_STATES.includes(project.status as ThemeStudioProjectState)) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "This project can't draw images right now.",
+      );
+    }
+    const [version] = await db
+      .select({
+        id: themeStudioVersions.id,
+        packageJson: themeStudioVersions.packageJson,
+        packageDigest: themeStudioVersions.packageDigest,
+        intentJson: themeStudioVersions.intentJson,
+      })
+      .from(themeStudioVersions)
+      .where(
+        and(
+          eq(themeStudioVersions.id, input.versionId),
+          eq(themeStudioVersions.projectId, project.id),
+        ),
+      )
+      .limit(1);
+    if (!version) {
+      throw new ThemeStudioError("not_found", "That version no longer exists.");
+    }
+    if (!version.packageDigest || !version.packageJson) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "That version has no theme to draw images for.",
+      );
+    }
+    if (version.packageDigest !== input.expectedPackageDigest) {
+      throw new ThemeStudioError(
+        "stale",
+        "That version is not the one on your screen. Reload to see it.",
+      );
+    }
+    const pkg = validateThemePackageV2(version.packageJson);
+    const intent = validateThemeIntent(version.intentJson);
+    if (!pkg.ok || !intent.ok) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "That version can no longer be read. Revise it or restore another.",
+      );
+    }
+    const slots = generatableSlots(pkg.value, intent.value).length;
+    if (slots === 0) {
+      throw new ThemeStudioError(
+        "illegal_state",
+        "Every image slot in that version already has an image.",
+      );
+    }
+    const resolved = resolveImageProviderForQueue(
+      project.modelKey as ThemeStudioModelKey,
+    );
+    await assertRunCapacity(db, actor);
+    await assertSpendHeadroom(db, actor, resolved);
+    const [message] = await db
+      .insert(themeStudioMessages)
+      .values({
+        projectId: project.id,
+        kind: "images",
+        body: `Generate images for ${slots} slot${slots === 1 ? "" : "s"}.`,
+        referenceAssetIds: [],
+        createdBy: actor.id,
+      })
+      .returning({ id: themeStudioMessages.id });
+    const [run] = await db
+      .insert(themeStudioRuns)
+      .values({
+        projectId: project.id,
+        messageId: message.id,
+        kind: "images",
+        baseVersionId: version.id,
+        basePackageDigest: version.packageDigest,
+        contextMessageIds: [],
+        provider: resolved.provider,
+        modelKey: project.modelKey,
+        providerModel: resolved.providerModel,
+        promptVersion: resolved.promptVersion,
+        idempotencyKey: input.idempotencyKey,
+        maxAttempts: 1,
+        createdBy: actor.id,
+      })
+      .returning({ id: themeStudioRuns.id });
+    await db
+      .update(themeStudioProjects)
+      .set({ status: "generating", revision: project.revision + 1 })
+      .where(eq(themeStudioProjects.id, project.id));
+    await recordEvent(db, {
+      projectId: project.id,
+      runId: run.id,
+      actor,
+      eventType: "images_requested",
+      detail: { versionId: version.id, slots },
+    });
+    return { runId: run.id, duplicate: false, slots };
   });
 }
 

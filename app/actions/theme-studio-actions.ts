@@ -31,6 +31,7 @@ import {
   removeThemeStudioReference,
   restoreThemeStudioVersion,
   retryThemeStudioRun,
+  queueThemeStudioImages,
   reviseThemeStudioVersion,
   submitThemeStudioDetails,
   ThemeStudioError,
@@ -291,6 +292,33 @@ export async function reviseThemeStudioVersionAction(input: {
     return { ok: true, id: runId };
   } catch (error) {
     return failure(error, "revise version");
+  }
+}
+
+/** Ask Theme Studio to draw a version's images (Track 3.2). */
+export async function queueThemeStudioImagesAction(input: {
+  projectId: string;
+  versionId: string;
+  expectedRevision: number;
+  expectedPackageDigest: string;
+  idempotencyKey: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) return MALFORMED;
+  try {
+    const { runId } = await queueThemeStudioImages(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      expectedRevision: input.expectedRevision,
+      expectedPackageDigest: String(input.expectedPackageDigest ?? ""),
+      idempotencyKey: String(input.idempotencyKey),
+    });
+    kickWorker();
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true, id: runId };
+  } catch (error) {
+    return failure(error, "generate images");
   }
 }
 

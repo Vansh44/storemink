@@ -351,10 +351,11 @@ with regeneration. Owner decision: no per-theme cost cap.
 | #   | Step                                                                                                           | Status  |
 | --- | -------------------------------------------------------------------------------------------------------------- | ------- |
 | 3.1 | Image client: allowlisted model, its own prompt, request builder (anchor, composition per purpose), fake, cost | ✅      |
-| 3.2 | Generation run: anchor first, every generate brief matched to it, cropped to its slot, saved as one version    | planned |
+| 3.2 | Generation run: anchor first, every placeholder art slot matched to it, cropped to its slot, one new version   | ✅      |
 | 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | planned |
 | 3.4 | Vision quality check with regeneration                                                                         | planned |
 | 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | planned |
+| 3.6 | Catalog card and screenshots captured from the preview store, so a generated theme can publish                 | planned |
 
 ### Found and fixed while building 3.1
 
@@ -372,13 +373,35 @@ with regeneration. Owner decision: no per-theme cost cap.
 - **One paid attempt per image.** A timeout may already have been billed, so
   only a rate-limit refusal (which bills nothing) is retried.
 - **Cost:** about $0.10 per 2K image at Google's list price.
-- The offline run works end to end: requests are built, fake images are
-  cropped to their slot and compressed well under the size limit. The live
-  run could not start because the local Google login needs re-authentication;
-  the model and settings were verified live for Mink on 2026-09-21, but this
-  request shape (inline reference images) is not yet.
+- Checked live on 2026-09-26: an art-direction image and two product shots
+  matched to it, about 20 seconds and $0.10 each. The three read as one shoot
+  (same palette, glaze and light), the product shots share one backdrop and
+  camera height, and none carries text, a logo or a person. Each was cropped
+  to its slot and came in at 53–106 KB against a 500 KB limit.
 - Found, for 3.3: nothing stops every product sharing one image slot, and the
   offline test provider does exactly that.
+
+### Found and fixed while building 3.2
+
+- **An operator can now have Theme Studio draw a version's images.** It draws
+  one art-direction image, then every placeholder picture matched to it, and
+  saves them as a new version; the version drawn from stays as it was. The
+  cost is shown before the click, and a run is never retried on its own
+  because every image is paid.
+- **Only placeholders are drawn.** An image an operator uploaded is never
+  replaced, and the catalog card and screenshots are left alone because they
+  are pictures of the storefront.
+- **If the art-direction image is refused, nothing else is drawn**: images
+  without the shared look would not belong together and would each be paid
+  for. A picture refused on its own keeps its placeholder while the rest are
+  drawn.
+- **Found, now planned as 3.6: a generated theme still cannot publish on its
+  own.** Publication requires a real catalog card and two screenshots, which
+  only an upload provides today.
+- Checked end to end against a real local database with the offline
+  providers: queueing, the run, every stored image, the new version and its
+  parent, the package contract, a refused art-direction image and a retry.
+  The live image model was checked separately with the same request shape.
 
 ## Track 4 — fewer prompts
 

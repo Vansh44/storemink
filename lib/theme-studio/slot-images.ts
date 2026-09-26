@@ -11,6 +11,7 @@ import { withService } from "@/lib/db/client";
 import type { ThemeStudioActor } from "./access";
 import {
   THEME_STUDIO_LIMITS,
+  validateThemeIntent,
   validateThemePackageV2,
   type ThemePackageV2,
 } from "./contracts";
@@ -40,6 +41,7 @@ import {
   recordThemeStudioEvent,
   ThemeStudioError,
 } from "./repository";
+import { generatableSlots } from "./image-generation-core";
 import { slotUrls } from "./preview";
 
 // ---------------------------------------------------------------------------
@@ -178,6 +180,7 @@ async function loadVersion(projectId: string, versionId: string) {
         versionNumber: themeStudioVersions.versionNumber,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
+        intentJson: themeStudioVersions.intentJson,
       })
       .from(themeStudioVersions)
       .where(
@@ -190,12 +193,14 @@ async function loadVersion(projectId: string, versionId: string) {
   );
   if (!row?.packageJson || !row.packageDigest) return null;
   const parsed = validateThemePackageV2(row.packageJson);
+  const intent = validateThemeIntent(row.intentJson);
   return parsed.ok
     ? {
         id: row.id,
         versionNumber: row.versionNumber,
         packageDigest: row.packageDigest,
         pkg: parsed.value,
+        intent: intent.ok ? intent.value : null,
       }
     : null;
 }
@@ -467,6 +472,8 @@ export async function listThemeStudioSlots(
 ): Promise<{
   versionNumber: number;
   packageDigest: string;
+  /** Placeholder slots an image run would draw (Track 3.2). */
+  generatable: number;
   slots: ThemeStudioSlotView[];
 } | null> {
   const version = await loadVersion(projectId, versionId);
@@ -476,6 +483,9 @@ export async function listThemeStudioSlots(
   return {
     versionNumber: version.versionNumber,
     packageDigest: version.packageDigest,
+    generatable: version.intent
+      ? generatableSlots(version.pkg, version.intent).length
+      : 0,
     slots: slots.map((slot) => ({ ...slot, url: urls.get(slot.id) ?? null })),
   };
 }

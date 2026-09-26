@@ -7,6 +7,8 @@ import { listThemeStudioSlots } from "@/lib/theme-studio/slot-images";
 import { requireOperator } from "../../../../../../require-operator";
 import { StudioStatusBadge, SuperadminOnly } from "../../../../studio-ui";
 import { SlotImagesEditor } from "./slot-images-editor";
+import { GenerateImagesButton } from "./generate-images-button";
+import { getThemeStudioConfig } from "@/lib/theme-studio/config";
 
 export const metadata = { title: "Theme images — StoreMink Admin" };
 
@@ -71,6 +73,26 @@ export default async function ThemeStudioSlotImagesPage({
             : " No placeholders remain."}
         </p>
       </header>
+      <GenerateImagesButton
+        projectId={project.id}
+        versionId={versionId}
+        revision={project.revision}
+        packageDigest={listing.packageDigest}
+        slots={listing.generatable}
+        estimate={
+          getThemeStudioConfig().provider === "fake"
+            ? null
+            : // About $0.10 per 2K image at list price (lib/theme-studio/cost.ts).
+              `about $${((listing.generatable + 1) * 0.1).toFixed(2)}`
+        }
+        blockedReason={
+          canEdit
+            ? null
+            : project.status === "generating"
+              ? "Wait for the active run to finish."
+              : "Images can be drawn only while the project is ready or a candidate."
+        }
+      />
       <SlotImagesEditor
         projectId={project.id}
         versionId={versionId}

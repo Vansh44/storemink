@@ -284,8 +284,12 @@ export function ProjectWorkspace({
             {project.messages.map((m) => (
               <li key={m.id} className="rounded-lg bg-slate-50 p-3">
                 <p className="text-xs text-slate-500">
-                  {m.kind === "brief" ? "Submitted brief" : "Revision"} ·{" "}
-                  {m.referenceCount} reference
+                  {m.kind === "brief"
+                    ? "Submitted brief"
+                    : m.kind === "images"
+                      ? "Image request"
+                      : "Revision"}{" "}
+                  · {m.referenceCount} reference
                   {m.referenceCount === 1 ? "" : "s"} ·{" "}
                   {studioDate(m.createdAt)}
                 </p>

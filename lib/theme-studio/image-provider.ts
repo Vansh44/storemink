@@ -8,6 +8,13 @@ import type { ProviderErrorCode } from "./provider";
 // Pure: no provider SDK, no fs, no database.
 // ---------------------------------------------------------------------------
 
+/** Names the prompt document and request builder an image run used, recorded
+ *  on the run like a text run's prompt version. Bump it with any change to
+ *  docs/theme-studio-image-prompt.md or image-prompt.ts. */
+export const THEME_STUDIO_IMAGE_PROMPT_VERSION = "theme-studio-image-v1";
+export const THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION =
+  "theme-studio-image-fake-v1";
+
 /** The aspect ratios the image model accepts, and so the ones a request may
  *  ask for. Every Stage A brief ratio is one of them; a slot's exact ratio is
  *  reached afterwards by cropping (slot-images.ts prepareSlotImage). */
