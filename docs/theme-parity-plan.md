@@ -186,7 +186,7 @@ per-section colour schemes and restrained reveal-on-scroll motion.
 | --- | ------------------------------------------------------------------------------------------------- | ------- |
 | 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅      |
 | 2.2 | Type scale and heading style (`design.typography`: face, scale, weight, case, spacing)            | ✅      |
-| 2.3 | Button styles                                                                                     | planned |
+| 2.3 | Button styles (`design.buttons`: shape, primary/secondary fill, case, weight, spacing, hover)     | ✅      |
 | 2.4 | Container width and spacing rhythm                                                                | planned |
 | 2.5 | Restrained reveal-on-scroll motion                                                                | planned |
 
@@ -248,6 +248,42 @@ per-section colour schemes and restrained reveal-on-scroll motion.
   design proposals replace the whole design override set, so adding typography
   there needs its own change to that contract. Utility page titles (checkout,
   account, orders) keep their plain style.
+
+### Found and fixed while building 2.3
+
+- **Storefront buttons had no shared identity.** Every button set its own
+  colours, radius and hover in its own stylesheet, so a theme could not make
+  "Buy now" and "Shop now" belong together. Buttons now carry a role class
+  (primary or secondary), and each one paints from a declared colour pair, so
+  one setting reaches all of them without changing any button a theme leaves
+  alone.
+- **An outlined button on the newsletter card read ink on ink.** On Vitrine
+  the newsletter's light theme is an ink card, and a ring drawn in Vitrine's
+  near-black accent disappeared into it (1:1). The card now counts as a colour
+  field, where rings take the text colour, like the hero and banners.
+- **An outline or underlined button needs a readable accent.** Validation
+  refuses one when the accent does not reach 4.5:1 on the page, on cards, or
+  in a scheme's band. Basket's orange on cream is 3.41:1, so Basket cannot
+  ship outlined buttons without a darker accent.
+- **Dropped: an underlined, text-only primary.** An "Add to cart" that looks
+  like a link loses to a filled button, so text is offered for secondary
+  buttons only.
+- Found, not fixed: the cart drawer renders outside the themed storefront
+  root, so no theme colours or button styles reach it. The editorial
+  media-text button is a pill on every theme (it reads a radius token nothing
+  defines) unless a theme sets a button shape. The footer newsletter button
+  is not tagged.
+- Opt-in: a theme without `design.buttons` emits no class and no variable.
+  Bundled themes were not changed. Generated themes set it through Stage B
+  (`theme-studio-v11`).
+- Checked on all four demo themes at 375, 768 and 1280px on the homepage,
+  shop, a product page and the cart, under three extreme settings (square
+  outline with text secondaries, bold capitals and invert hover; pill with
+  solid secondaries and lift; rounded outlines with capitals and darken). No
+  button overflowed. The only contrast failures were Basket's outlined
+  buttons, which validation refuses, and its existing 3.41:1 white on orange.
+- Deferred: a merchant control for button style in the builder, for the same
+  reason typography has none yet.
 
 ## Track 3 — generated imagery
 

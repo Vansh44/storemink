@@ -3,6 +3,7 @@ import type { PageSectionItem } from "@/lib/sections/registry";
 import type { StoreMenus } from "@/lib/menus";
 import type { ThemeMeta } from "./meta";
 import { schemeCssVars, type ThemeColorSchemes } from "./schemes";
+import { buttonCssVars, type ThemeButtons } from "./buttons";
 import { typographyCssVars, type ThemeTypography } from "./typography";
 
 // ---------------------------------------------------------------------------
@@ -187,6 +188,9 @@ export interface ThemeDesign {
   /** Heading face, size, weight, case and spacing (lib/themes/typography.ts).
    *  Absent: every heading keeps its own values, exactly as before. */
   typography?: ThemeTypography;
+  /** Button shape, fill, case, weight, spacing and hover
+   *  (lib/themes/buttons.ts). Absent: every button keeps its own look. */
+  buttons?: ThemeButtons;
 }
 
 /** Immutable authored preset package. Applying it seeds starting content;
@@ -266,5 +270,6 @@ export function designToCssVars(
     "--sm-radius-pill": design.shape.pill,
     ...schemeCssVars(design, brandPrimary),
     ...typographyCssVars(design.typography),
+    ...buttonCssVars(design.buttons),
   };
 }

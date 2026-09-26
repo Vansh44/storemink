@@ -199,7 +199,7 @@ export function GroceryProductDetail({
                 </button>
               </div>
               <button
-                className="gpdp-btn gpdp-btn-cart"
+                className="gpdp-btn gpdp-btn-cart sm-btn-secondary"
                 onClick={onAddToCart}
                 disabled={outOfStock}
               >
@@ -208,7 +208,7 @@ export function GroceryProductDetail({
             </div>
 
             <button
-              className="gpdp-btn gpdp-btn-buy"
+              className="gpdp-btn gpdp-btn-buy sm-btn-primary"
               onClick={onBuyNow}
               disabled={outOfStock}
             >

@@ -29,7 +29,7 @@ export function HeroSection({
   const cta = hasCta ? (
     isExternal ? (
       <a
-        className="home-hero-cta"
+        className="home-hero-cta sm-btn-primary"
         href={config.cta_href}
         target="_blank"
         rel="noopener noreferrer"
@@ -37,7 +37,7 @@ export function HeroSection({
         {config.cta_label}
       </a>
     ) : (
-      <Link className="home-hero-cta" href={config.cta_href}>
+      <Link className="home-hero-cta sm-btn-primary" href={config.cta_href}>
         {config.cta_label}
       </Link>
     )

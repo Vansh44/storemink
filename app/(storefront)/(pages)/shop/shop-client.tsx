@@ -466,7 +466,7 @@ export default function ShopClient({
                           </div>
                           <button
                             type="button"
-                            className="shop-more-btn"
+                            className="shop-more-btn sm-btn-secondary"
                             onClick={() =>
                               updateShop({ ...shop, pages: shop.pages + 1 })
                             }

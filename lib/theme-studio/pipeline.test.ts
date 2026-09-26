@@ -275,6 +275,57 @@ describe("theme generation pipeline", () => {
     expect(repairText).toMatch(/Headings would be set in faked bold/);
   });
 
+  it("compiles button styles, storing only the chosen settings", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    expect(outcome.package.definition.preset.design.buttons).toEqual({
+      shape: "rounded",
+      secondary: "outline",
+      weight: "semibold",
+      hover: "lift",
+    });
+  });
+
+  it("hands a button weight the body face lacks back as a repair", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    let drafts = 0;
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        drafts += 1;
+        if (drafts === 1) {
+          const draft = result.value as {
+            design: {
+              fonts: { body: string };
+              typography: Record<string, unknown>;
+              buttons: Record<string, unknown>;
+            };
+          };
+          // Replace rather than mutate: the fake's objects are the bundled
+          // Studio theme's own.
+          draft.design.fonts = {
+            ...draft.design.fonts,
+            body: "var(--font-jost)",
+          };
+          draft.design.buttons = { ...draft.design.buttons, weight: "bold" };
+        }
+        return result;
+      },
+    };
+    const outcome = await run(undefined, client);
+    expect(outcome.kind).toBe("version");
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toMatch(/Button labels would be set in faked bold/);
+  });
+
   it("drops a scheme from a photo section rather than padding it", async () => {
     const fake = createFakeModelClient(base);
     const client: ThemeStudioModelClient = {

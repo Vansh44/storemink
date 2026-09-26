@@ -77,7 +77,7 @@ export function StickyAddToCart({
         </span>
         <button
           type="button"
-          className="sm-sticky-atc-btn"
+          className="sm-sticky-atc-btn sm-btn-primary"
           onClick={onAdd}
           disabled={disabled}
         >

@@ -5,8 +5,10 @@ import {
   resolveScheme,
   schemeContrastIssues,
   schemesUsed,
+  SECTION_SCHEME_META,
   SECTION_SCHEMES,
 } from "./schemes";
+import { buttonIssues, buttonsDrawColourAsText } from "./buttons";
 import { typographyIssues } from "./typography";
 import { normalizeMenus } from "@/lib/menus";
 import { flattenNav } from "@/lib/chrome/nav";
@@ -613,6 +615,11 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
   for (const problem of typographyIssues(design.typography, design.fonts)) {
     issue("typography", problem);
   }
+  // Buttons are opt-in on the same terms: nothing is checked for a theme that
+  // sets none.
+  for (const problem of buttonIssues(design.buttons, design.fonts)) {
+    issue("buttons", problem);
+  }
   for (const key of ["card", "control", "sm", "pill"] as const) {
     if (!/^\d/.test(design.shape[key] ?? "")) {
       issue("shape", `shape.${key} must be a CSS length.`);
@@ -676,6 +683,27 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
       "Button labels on the accent colour",
     ],
   ];
+  // A ringed or underlined button, or the ringed half of an inverting hover,
+  // draws the accent as TEXT on the page and on cards, so the accent has to
+  // read there as body text does. (Ink-coloured buttons are ink on the page,
+  // already checked above.)
+  if (buttonsDrawColourAsText(design.buttons)) {
+    const accent = palette.accent ?? brand.primaryColor;
+    pairs.push(
+      [
+        accent,
+        palette.cream,
+        THEME_TEXT_CONTRAST,
+        "Ringed and text buttons (the accent) on the page background",
+      ],
+      [
+        accent,
+        palette.surface,
+        THEME_TEXT_CONTRAST,
+        "Ringed and text buttons (the accent) on cards",
+      ],
+    );
+  }
   if (layout?.headerBackground && layout.headerForeground) {
     pairs.push([
       layout.headerForeground,
@@ -738,6 +766,16 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
       const resolved = resolveScheme(id, design, brand.primaryColor);
       for (const problem of schemeContrastIssues(id, resolved)) {
         issue("scheme_contrast", problem.message);
+      }
+      // Inside a band a ringed button takes the band's button colour.
+      if (buttonsDrawColourAsText(design.buttons)) {
+        const ratio = contrastRatio(resolved.accent, resolved.background);
+        if (ratio < THEME_TEXT_CONTRAST) {
+          issue(
+            "scheme_contrast",
+            `Ringed buttons in the ${SECTION_SCHEME_META[id].label} scheme are hard to read (${ratio.toFixed(2)}:1, needs ${THEME_TEXT_CONTRAST}:1).`,
+          );
+        }
       }
     }
   }

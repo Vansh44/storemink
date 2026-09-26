@@ -227,6 +227,13 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       if (typeof value === "string") typography[key] = value;
     }
   }
+  // Buttons follow the same rule: a null keeps each button's own look.
+  const buttons: Rec = {};
+  if (isRec(raw.buttons)) {
+    for (const [key, value] of Object.entries(raw.buttons)) {
+      if (typeof value === "string") buttons[key] = value;
+    }
+  }
   return {
     palette: palette as unknown as ThemeDesign["palette"],
     fonts: { body: text(raw.fonts.body), display: text(raw.fonts.display) },
@@ -242,6 +249,9 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
     ...(Object.keys(schemes).length > 0 ? { schemes } : {}),
     ...(Object.keys(typography).length > 0
       ? { typography: typography as ThemeDesign["typography"] }
+      : {}),
+    ...(Object.keys(buttons).length > 0
+      ? { buttons: buttons as ThemeDesign["buttons"] }
       : {}),
   };
 }

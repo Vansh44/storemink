@@ -333,9 +333,11 @@
 
 .cart-checkout-btn {
   width: 100%;
-  border: 1.5px solid var(--cart-accent);
-  background: var(--cart-accent);
-  color: var(--cart-on-accent);
+  --sm-btn-bg: var(--cart-accent);
+  --sm-btn-fg: var(--cart-on-accent);
+  border: 1.5px solid var(--sm-btn-bg);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   border-radius: 12px;
   padding: 14px 20px;
   font-size: 1rem;
@@ -416,8 +418,10 @@
 
 .cart-main .cart-empty-cta {
   display: inline-block;
-  background: var(--cart-accent);
-  color: var(--cart-on-accent);
+  --sm-btn-bg: var(--cart-accent);
+  --sm-btn-fg: var(--cart-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   border-radius: 12px;
   padding: 13px 28px;
   font-size: 1rem;
@@ -682,8 +686,10 @@
 .gcart-checkout-btn {
   width: 100%;
   border: none;
-  background: var(--sm-accent, var(--brand-primary));
-  color: var(--sm-on-accent);
+  --sm-btn-bg: var(--sm-accent, var(--brand-primary));
+  --sm-btn-fg: var(--sm-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   border-radius: var(--sm-radius-pill, 999px);
   padding: 15px 20px;
   font-family: var(--font-outfit), sans-serif;
@@ -738,8 +744,10 @@
 }
 .gcart-empty-cta {
   display: inline-block;
-  background: var(--sm-accent, var(--brand-primary));
-  color: var(--sm-on-accent);
+  --sm-btn-bg: var(--sm-accent, var(--brand-primary));
+  --sm-btn-fg: var(--sm-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   border-radius: var(--sm-radius-pill, 999px);
   padding: 13px 30px;
   font-weight: 700;

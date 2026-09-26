@@ -853,8 +853,12 @@
   font-weight: 600;
   font-size: 0.95rem;
   text-decoration: none;
-  background: var(--sm-ink);
-  color: var(--sm-cream);
+  /* The button's solid colours, read by the theme button styles
+     (storefront-theme.css) to draw it as a ring or invert it on hover. */
+  --sm-btn-bg: var(--sm-ink);
+  --sm-btn-fg: var(--sm-cream);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   transition:
     transform 0.15s ease,
     background 0.15s ease;
@@ -865,8 +869,8 @@
 }
 /* On a dark-text banner, the dark button needs the inverse for contrast. */
 .home-banner.theme-light .home-banner-cta {
-  background: var(--sm-surface);
-  color: var(--sm-ink);
+  --sm-btn-bg: var(--sm-surface);
+  --sm-btn-fg: var(--sm-ink);
 }
 .home-banner.theme-light .home-banner-cta:hover {
   background: var(--sm-cream);
@@ -941,8 +945,10 @@
   font-weight: 700;
   font-size: 0.98rem;
   text-decoration: none;
-  background: var(--sm-accent, var(--brand-primary));
-  color: var(--sm-on-accent);
+  --sm-btn-bg: var(--sm-accent, var(--brand-primary));
+  --sm-btn-fg: var(--sm-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   transition:
     transform 0.15s ease,
     filter 0.15s ease;
@@ -1511,8 +1517,10 @@ a.home-tile:hover {
   margin-top: clamp(20px, 3vw, 30px);
   padding: 0 24px;
   border-radius: var(--sm-radius-button, 999px);
-  background: var(--sm-ink);
-  color: var(--sm-on-ink);
+  --sm-btn-bg: var(--sm-ink);
+  --sm-btn-fg: var(--sm-on-ink);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   font-family: var(--font-outfit), sans-serif;
   font-size: 0.9rem;
   font-weight: 650;
@@ -1753,8 +1761,10 @@ a.home-gallery-card:hover .home-gallery-image {
   border: 0;
   border-radius: 0 var(--sm-radius-control, 10px) var(--sm-radius-control, 10px)
     0;
-  background: var(--sm-accent);
-  color: var(--sm-on-accent);
+  --sm-btn-bg: var(--sm-accent);
+  --sm-btn-fg: var(--sm-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   font-family: var(--font-outfit), sans-serif;
   font-weight: 700;
   cursor: pointer;

@@ -13,6 +13,7 @@ import type {
 } from "@/lib/themes/meta";
 import type { ThemeDefinition } from "@/lib/themes/types";
 import { SECTION_SCHEMES } from "@/lib/themes/schemes";
+import { cleanButtons } from "@/lib/themes/buttons";
 import { cleanTypography } from "@/lib/themes/typography";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
 import { resolveOptionRows } from "@/lib/products/options";
@@ -1084,7 +1085,7 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
   }
   rejectUnknownKeys(
     value,
-    ["palette", "fonts", "shape", "layout", "schemes", "typography"],
+    ["palette", "fonts", "shape", "layout", "schemes", "typography", "buttons"],
     "definition.preset.design",
     issues,
   );
@@ -1096,6 +1097,17 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
     } else if (!sameJson(cleanTypography(value.typography), value.typography)) {
       issues.push(
         "definition.preset.design.typography contains unknown settings or values.",
+      );
+    }
+  }
+  if (value.buttons !== undefined) {
+    if (!isRecord(value.buttons)) {
+      issues.push(
+        "definition.preset.design.buttons must be an object when supplied.",
+      );
+    } else if (!sameJson(cleanButtons(value.buttons), value.buttons)) {
+      issues.push(
+        "definition.preset.design.buttons contains unknown settings or values.",
       );
     }
   }

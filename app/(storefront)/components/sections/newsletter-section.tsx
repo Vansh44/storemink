@@ -40,7 +40,7 @@ export function NewsletterSection({
             form: "home-newsletter-form",
             fields: "home-newsletter-fields",
             input: "home-newsletter-input",
-            button: "home-newsletter-button",
+            button: "home-newsletter-button sm-btn-primary",
             consent: "home-newsletter-consent",
             message: "home-newsletter-message",
           }}

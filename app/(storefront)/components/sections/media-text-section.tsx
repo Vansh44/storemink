@@ -8,7 +8,7 @@ import { SectionShell } from "./section-shell";
 
 function Cta({ config }: { config: MediaTextConfig }) {
   if (!config.cta_label || !config.cta_href) return null;
-  const className = "home-media-text-cta";
+  const className = "home-media-text-cta sm-btn-primary";
   if (/^https?:\/\//i.test(config.cta_href)) {
     return (
       <a

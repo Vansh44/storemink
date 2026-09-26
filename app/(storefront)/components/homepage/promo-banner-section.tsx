@@ -26,7 +26,7 @@ export function PromoBannerSection({
   const cta = hasCta ? (
     isExternal ? (
       <a
-        className="home-banner-cta"
+        className="home-banner-cta sm-btn-primary"
         href={config.cta_href}
         target="_blank"
         rel="noopener noreferrer"
@@ -34,7 +34,7 @@ export function PromoBannerSection({
         {config.cta_label}
       </a>
     ) : (
-      <Link className="home-banner-cta" href={config.cta_href}>
+      <Link className="home-banner-cta sm-btn-primary" href={config.cta_href}>
         {config.cta_label}
       </Link>
     )

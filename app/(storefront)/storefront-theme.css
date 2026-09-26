@@ -682,6 +682,182 @@
   letter-spacing: var(--sm-heading-tracking);
 }
 
+/* ---- Theme button styles (lib/themes/buttons.ts) --------------------------
+   A theme may choose button shape, how primary and secondary buttons are
+   filled, their case, weight and letter spacing, and what a hover does.
+   Absent settings change nothing: each rule is gated on a root class that
+   `buttonRootClasses` emits only for a setting the theme made.
+
+   Buttons wear their ROLE in markup (`sm-btn-primary` / `sm-btn-secondary`)
+   and each one's base rule declares its solid colours as `--sm-btn-bg` /
+   `--sm-btn-fg`. A button that is a ring at rest (Add to cart, Load more)
+   also declares what it is at rest, on hover and when inverted. Everything
+   below reads those, so one rule covers buttons styled in four sheets.
+
+   ★ A RING IS AN INSET SHADOW, NOT A BORDER. Some buttons have a border and
+   some do not; a shadow draws the same ring on both without changing size.
+   The border turns transparent, and the background paints under it.
+
+   ★ ON A COLOUR FIELD OR A PHOTO THE COPY'S OWN COLOUR IS THE ONE THAT
+   READS (MediaTone keeps it so), so there a ring, an inverted hover and a
+   ringed primary take the text colour instead of the button's own. The
+   newsletter card counts: its "light" theme is an ink card, and a ring in
+   the accent there was ink on ink on a dark-accent theme like Vitrine. */
+.storefront-root
+  :is(.home-hero, .home-carousel-slide, .home-banner, .home-newsletter)
+  .sm-btn-primary {
+  --sm-btn-inv-fg: currentColor;
+  --sm-btn-inv-ring: currentColor;
+}
+
+.sm-btn-shape.storefront-root
+  :is(.sm-btn-primary, .sm-btn-secondary):not(.home-newsletter-button) {
+  border-radius: var(--sm-btn-radius);
+}
+.sm-btn-upper.storefront-root :is(.sm-btn-primary, .sm-btn-secondary) {
+  text-transform: uppercase;
+}
+.sm-btn-weight.storefront-root :is(.sm-btn-primary, .sm-btn-secondary) {
+  font-weight: var(--sm-btn-weight);
+}
+.sm-btn-track.storefront-root :is(.sm-btn-primary, .sm-btn-secondary) {
+  letter-spacing: var(--sm-btn-tracking);
+}
+
+/* Primary buttons drawn as a ring. */
+.sm-btn-p-outline.storefront-root .sm-btn-primary {
+  --sm-btn-ring: inset 0 0 0 1.5px currentColor;
+  --sm-btn-rest-bg: transparent;
+  --sm-btn-rest-fg: var(--sm-btn-bg);
+  --sm-btn-rest-border: transparent;
+  --sm-btn-hover-bg: color-mix(in srgb, currentColor 10%, transparent);
+  --sm-btn-hover-filter: none;
+  --sm-btn-inv-bg: var(--sm-btn-bg);
+  --sm-btn-inv-fg: var(--sm-btn-fg);
+  background: transparent;
+  color: var(--sm-btn-bg);
+  border-color: transparent;
+  box-shadow: var(--sm-btn-ring);
+}
+.sm-btn-p-outline.storefront-root
+  :is(.home-hero, .home-carousel-slide, .home-banner, .home-newsletter)
+  .sm-btn-primary {
+  --sm-btn-bg: currentColor;
+  --sm-btn-inv-bg: color-mix(in srgb, currentColor 14%, transparent);
+  --sm-btn-inv-fg: currentColor;
+}
+
+/* Secondary buttons, filled. */
+.sm-btn-s-solid.storefront-root .sm-btn-secondary {
+  --sm-btn-ring: 0 0 #0000;
+  --sm-btn-rest-bg: var(--sm-btn-bg);
+  --sm-btn-rest-fg: var(--sm-btn-fg);
+  --sm-btn-rest-border: var(--sm-btn-bg);
+  --sm-btn-hover-bg: var(--sm-btn-bg);
+  --sm-btn-hover-filter: brightness(0.92);
+  --sm-btn-inv-bg: transparent;
+  --sm-btn-inv-fg: var(--sm-btn-bg);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
+  border-color: var(--sm-btn-bg);
+  box-shadow: none;
+}
+
+/* Secondary buttons drawn as a ring. */
+.sm-btn-s-outline.storefront-root .sm-btn-secondary {
+  --sm-btn-ring: inset 0 0 0 1.5px currentColor;
+  --sm-btn-rest-bg: transparent;
+  --sm-btn-rest-fg: var(--sm-btn-bg);
+  --sm-btn-rest-border: transparent;
+  --sm-btn-hover-bg: color-mix(in srgb, currentColor 10%, transparent);
+  --sm-btn-hover-filter: none;
+  --sm-btn-inv-bg: var(--sm-btn-bg);
+  --sm-btn-inv-fg: var(--sm-btn-fg);
+  background: transparent;
+  color: var(--sm-btn-bg);
+  border-color: transparent;
+  box-shadow: var(--sm-btn-ring);
+}
+
+/* Secondary buttons as an underlined label with no box. */
+.sm-btn-s-text.storefront-root .sm-btn-secondary {
+  --sm-btn-rest-bg: transparent;
+  --sm-btn-rest-fg: var(--sm-btn-bg);
+  background: transparent;
+  color: var(--sm-btn-bg);
+  border-color: transparent;
+  box-shadow: none;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.3em;
+}
+
+/* A fill the theme chose owns its hover too: a button's own hover assumes
+   its own fill, and on a ring it could paint the label's colour behind it. */
+.sm-btn-p-outline.storefront-root .sm-btn-primary:hover:not(:disabled),
+.sm-btn-s-outline.storefront-root .sm-btn-secondary:hover:not(:disabled),
+.sm-btn-s-solid.storefront-root .sm-btn-secondary:hover:not(:disabled) {
+  background: var(--sm-btn-hover-bg);
+  color: var(--sm-btn-rest-fg);
+  border-color: var(--sm-btn-rest-border);
+  box-shadow: var(--sm-btn-ring);
+  filter: var(--sm-btn-hover-filter);
+  opacity: 1;
+  transform: none;
+}
+
+/* Hover the theme chose, for every role. Later than the fill hovers, and
+   the same specificity, so it wins. */
+.sm-btn-hover-darken.storefront-root
+  :is(.sm-btn-primary, .sm-btn-secondary):hover:not(:disabled) {
+  background: var(--sm-btn-hover-bg, var(--sm-btn-rest-bg, var(--sm-btn-bg)));
+  color: var(--sm-btn-rest-fg, var(--sm-btn-fg));
+  border-color: var(--sm-btn-rest-border, var(--sm-btn-bg));
+  box-shadow: var(--sm-btn-ring, none);
+  filter: var(--sm-btn-hover-filter, brightness(0.92));
+  opacity: 1;
+  transform: none;
+}
+.sm-btn-hover-lift.storefront-root
+  :is(.sm-btn-primary, .sm-btn-secondary):hover:not(:disabled) {
+  background: var(--sm-btn-rest-bg, var(--sm-btn-bg));
+  color: var(--sm-btn-rest-fg, var(--sm-btn-fg));
+  border-color: var(--sm-btn-rest-border, var(--sm-btn-bg));
+  box-shadow:
+    var(--sm-btn-ring, 0 0 #0000),
+    0 8px 18px -8px rgba(var(--sm-shadow-rgb, 23, 19, 15), 0.45);
+  filter: none;
+  opacity: 1;
+  transform: translateY(-2px);
+}
+.sm-btn-hover-invert.storefront-root
+  :is(.sm-btn-primary, .sm-btn-secondary):hover:not(:disabled) {
+  background: var(--sm-btn-inv-bg, transparent);
+  color: var(--sm-btn-inv-fg, var(--sm-btn-bg));
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--sm-btn-inv-ring, var(--sm-btn-bg));
+  filter: none;
+  opacity: 1;
+  transform: none;
+}
+/* An underlined label has no box to tint, raise or invert: it thickens. */
+.sm-btn-s-text.storefront-root .sm-btn-secondary:hover:not(:disabled) {
+  background: transparent;
+  color: var(--sm-btn-bg);
+  border-color: transparent;
+  box-shadow: none;
+  filter: none;
+  opacity: 1;
+  transform: none;
+  text-decoration-thickness: 2px;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sm-btn-hover-lift.storefront-root
+    :is(.sm-btn-primary, .sm-btn-secondary):hover:not(:disabled) {
+    transform: none;
+  }
+}
+
 /* ---- Hover second-image swap (theme layout.cardHoverImage) -------------
    The card cross-fades to the product's SECOND photograph on hover — the one
    piece of motion a fashion grid is expected to have.
@@ -948,8 +1124,10 @@
   padding: 0 18px;
   border: none;
   border-radius: var(--sm-radius-control);
-  background: var(--brand-primary);
-  color: var(--sm-on-accent);
+  --sm-btn-bg: var(--brand-primary);
+  --sm-btn-fg: var(--sm-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   font-size: 15px;
   font-weight: 600;
   white-space: nowrap;

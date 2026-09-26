@@ -54,7 +54,7 @@ function ClassicCart() {
           <p className="cart-empty-sub">
             Looks like you haven&apos;t added anything yet.
           </p>
-          <Link href="/shop" className="cart-empty-cta">
+          <Link href="/shop" className="cart-empty-cta sm-btn-primary">
             Continue shopping
           </Link>
         </div>
@@ -118,7 +118,7 @@ function ClassicCart() {
           </div>
           <Link
             href="/checkout"
-            className="cart-checkout-btn block text-center"
+            className="cart-checkout-btn sm-btn-primary block text-center"
           >
             Proceed to Checkout
           </Link>

@@ -212,6 +212,15 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         headingCase: null,
         headingTracking: "tight",
       },
+      buttons: {
+        shape: "rounded",
+        primary: null,
+        secondary: "outline",
+        case: null,
+        weight: "semibold",
+        tracking: null,
+        hover: "lift",
+      },
     },
     pages: [
       {

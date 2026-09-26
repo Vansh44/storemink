@@ -9,6 +9,15 @@ import {
   HEADING_WEIGHTS,
 } from "@/lib/themes/typography";
 import {
+  BUTTON_CASES,
+  BUTTON_HOVERS,
+  BUTTON_PRIMARY_STYLES,
+  BUTTON_SECONDARY_STYLES,
+  BUTTON_SHAPES,
+  BUTTON_TRACKINGS,
+  BUTTON_WEIGHTS,
+} from "@/lib/themes/buttons";
+import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
   THEME_INTENT_SCHEMA_VERSION,
@@ -249,6 +258,15 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       headingWeight: nullable(enumOf(HEADING_WEIGHTS)),
       headingCase: nullable(enumOf(HEADING_CASES)),
       headingTracking: nullable(enumOf(HEADING_TRACKINGS)),
+    }),
+    buttons: obj({
+      shape: nullable(enumOf(BUTTON_SHAPES)),
+      primary: nullable(enumOf(BUTTON_PRIMARY_STYLES)),
+      secondary: nullable(enumOf(BUTTON_SECONDARY_STYLES)),
+      case: nullable(enumOf(BUTTON_CASES)),
+      weight: nullable(enumOf(BUTTON_WEIGHTS)),
+      tracking: nullable(enumOf(BUTTON_TRACKINGS)),
+      hover: nullable(enumOf(BUTTON_HOVERS)),
     }),
   }),
   pages: {

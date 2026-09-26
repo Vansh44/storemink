@@ -1174,9 +1174,19 @@
 }
 
 .pdp-btn-cart {
+  /* Solid colours, plus what this ringed button is at rest and when inverted
+     — read by the theme button styles in storefront-theme.css. */
+  --sm-btn-bg: var(--shop-accent);
+  --sm-btn-fg: var(--shop-on-accent);
+  --sm-btn-rest-bg: transparent;
+  --sm-btn-rest-fg: var(--sm-btn-bg);
+  --sm-btn-hover-bg: var(--shop-accent-soft);
+  --sm-btn-hover-filter: none;
+  --sm-btn-inv-bg: var(--sm-btn-bg);
+  --sm-btn-inv-fg: var(--sm-btn-fg);
   background: transparent;
-  color: var(--shop-accent);
-  border: 1.5px solid var(--shop-accent);
+  color: var(--sm-btn-bg);
+  border: 1.5px solid var(--sm-btn-bg);
 }
 
 .pdp-btn-cart:hover:not(:disabled) {
@@ -1184,9 +1194,11 @@
 }
 
 .pdp-btn-buy {
-  background: var(--shop-accent);
-  color: var(--shop-on-accent);
-  border: 1.5px solid var(--shop-accent);
+  --sm-btn-bg: var(--shop-accent);
+  --sm-btn-fg: var(--shop-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
+  border: 1.5px solid var(--sm-btn-bg);
 }
 
 .pdp-btn-buy:hover:not(:disabled) {
@@ -1926,14 +1938,18 @@
 }
 .sm-storefront-grocery .gpdp-btn-cart {
   flex: 1 1 auto;
-  background: var(--sm-ink);
-  color: var(--sm-on-ink);
+  --sm-btn-bg: var(--sm-ink);
+  --sm-btn-fg: var(--sm-on-ink);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   padding: 14px 24px;
 }
 .sm-storefront-grocery .gpdp-btn-buy {
   width: 100%;
-  background: var(--sm-accent, var(--brand-primary));
-  color: var(--sm-on-accent);
+  --sm-btn-bg: var(--sm-accent, var(--brand-primary));
+  --sm-btn-fg: var(--sm-on-accent);
+  background: var(--sm-btn-bg);
+  color: var(--sm-btn-fg);
   padding: 15px 24px;
 }
 .sm-storefront-grocery .gpdp-btn-cart:hover:not(:disabled),
@@ -2245,10 +2261,18 @@
 .shop-more-btn {
   min-height: 46px;
   padding: 0 32px;
-  border: 1px solid var(--sm-ink);
+  --sm-btn-bg: var(--sm-ink);
+  --sm-btn-fg: var(--sm-on-ink);
+  --sm-btn-rest-bg: transparent;
+  --sm-btn-rest-fg: var(--sm-btn-bg);
+  --sm-btn-hover-bg: color-mix(in srgb, var(--sm-btn-bg) 8%, transparent);
+  --sm-btn-hover-filter: none;
+  --sm-btn-inv-bg: var(--sm-btn-bg);
+  --sm-btn-inv-fg: var(--sm-btn-fg);
+  border: 1px solid var(--sm-btn-bg);
   border-radius: var(--sm-radius-pill);
   background: transparent;
-  color: var(--sm-ink);
+  color: var(--sm-btn-bg);
   font: inherit;
   font-size: 15px;
   font-weight: 600;

@@ -5304,6 +5304,55 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     contract change), hence no Help Centre update. Browser-checked on all
     four demo themes at 375/768/1280px across five surfaces under three
     extreme settings: no heading overflow after the wrap rule.
+    **★★ BUTTON STYLES (Track 2.3, 2026-09-26).** `lib/themes/buttons.ts`
+    (pure): `ThemeDesign.buttons` may set `shape` (`square` 0 | `rounded` 8px
+    | `pill`), `primary` (`solid` | `outline`), `secondary` (`solid` |
+    `outline` | `text`), `case`, `weight` (400–700), `tracking` (`normal` |
+    `wide`) and `hover` (`darken` | `lift` | `invert`). Absent = today's
+    buttons exactly, 2.2's rule: a variable only for shape/weight/tracking
+    and one root class per chosen property (`sm-btn-shape`,
+    `sm-btn-p-outline`, `sm-btn-s-*`, `sm-btn-upper`, `sm-btn-weight`,
+    `sm-btn-track`, `sm-btn-hover-*`). `primary: "solid"` emits NOTHING —
+    every primary is solid already, and the class would take over its hover.
+    ★ BUTTONS WEAR THEIR ROLE AS A CLASS: `sm-btn-primary` on the one action
+    a screen exists for (hero/banner/media-text/newsletter CTAs, Buy now,
+    sticky add-to-cart, checkout, empty-cart CTA) and `sm-btn-secondary` on
+    the quieter one (PDP Add to cart, Load more). `PRIMARY_BUTTON_SELECTORS`
+    / `SECONDARY_BUTTON_SELECTORS` list them and a test fails if one renders
+    without its role. Forms (reviews, checkout, sign-in) are deliberately not
+    tagged, for 2.2's utility-title reason.
+    ★★ EACH BUTTON'S BASE RULE DECLARES ITS OWN SOLID PAIR (`--sm-btn-bg`,
+    `--sm-btn-fg`) AND PAINTS FROM IT, so the untouched look is identical and
+    the outline, text and invert rules can re-use a button's real colour
+    without knowing which module styled it. Ring-at-rest buttons (Add to
+    cart, Load more) also declare their rest/hover pair. A ring is an INSET
+    BOX-SHADOW, not a border, so it never changes a button's size.
+    ★★ ON A COLOUR FIELD OR PHOTO (hero, carousel slide, promo banner,
+    newsletter card) a ring and an inverted hover take the COPY's colour
+    (`currentColor`), which MediaTone keeps readable. The newsletter card
+    counts because its "light" theme is an ink card: a ring in Vitrine's
+    ink accent there was ink on ink, 1:1 — found by the browser sweep.
+    Order matters: a chosen fill owns its default hover, explicit hover
+    classes come after it, and the text-secondary hover comes last (an
+    underlined label ignores every hover). Lift respects reduced motion.
+    Validation (`buttons` code): unknown keys/values, and faux bold checked
+    against the BODY face (buttons render in it; Jost tops out at 500,
+    Instrument Serif at 400). ★★ Whenever a setting draws the accent AS
+    TEXT (outline, text, invert — `buttonsDrawColourAsText`) the accent must
+    reach 4.5:1 on the page and on cards, and each scheme's accent on its
+    band (`scheme_contrast`) — an outline Basket (orange on cream, 3.41:1)
+    is refused. Theme Studio: Stage B `design.buttons`, compiler keeps only
+    chosen keys, contract admits `buttons`, prompt `theme-studio-v11`.
+    Theme-level only, so no Help Centre update. Browser-swept on all four
+    demo themes (home, shop, PDP, cart × 375/768/1280 × three extreme
+    configs): no overflow, and no contrast failure except Basket's refused
+    outline and its pre-existing 3.41:1 solid pair.
+    ⚠ `CartDrawer` renders OUTSIDE `.storefront-root` (it follows the root
+    div in `layout.tsx`), so no theme token, scheme or button style reaches
+    the drawer — pre-existing, left for its own change.
+    ⚠ `.home-media-text-cta` reads `--sm-radius-button`, which nothing
+    defines, so it is a pill on every theme, square Vitrine included, unless
+    `buttons.shape` is set.
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded

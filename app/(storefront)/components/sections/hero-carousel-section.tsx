@@ -213,7 +213,7 @@ function Slide({
           {hasCta &&
             (isExternal ? (
               <a
-                className="home-hero-cta"
+                className="home-hero-cta sm-btn-primary"
                 href={slide.cta_href}
                 target="_blank"
                 rel="noopener noreferrer"
@@ -223,7 +223,7 @@ function Slide({
               </a>
             ) : (
               <Link
-                className="home-hero-cta"
+                className="home-hero-cta sm-btn-primary"
                 href={slide.cta_href}
                 tabIndex={active ? 0 : -1}
               >

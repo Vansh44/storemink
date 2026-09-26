@@ -528,14 +528,14 @@ export default function ProductDetailClient({
 
           <div className="pdp-actions" ref={actionsRef}>
             <button
-              className="pdp-btn pdp-btn-cart"
+              className="pdp-btn pdp-btn-cart sm-btn-secondary"
               onClick={handleAddToCart}
               disabled={outOfStock}
             >
               {outOfStock ? "Out of stock" : "Add to Cart"}
             </button>
             <button
-              className="pdp-btn pdp-btn-buy"
+              className="pdp-btn pdp-btn-buy sm-btn-primary"
               onClick={handleBuyNow}
               disabled={outOfStock}
             >
