@@ -2,15 +2,30 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ImageUp, Loader2, Save, X } from "lucide-react";
+import { ImageUp, Loader2, RefreshCw, Save, X } from "lucide-react";
 import { toast } from "sonner";
-import { replaceThemeStudioSlotImagesAction } from "@/app/actions/theme-studio-actions";
+import {
+  queueThemeStudioImagesAction,
+  replaceThemeStudioSlotImagesAction,
+} from "@/app/actions/theme-studio-actions";
+import {
+  THEME_IMAGE_PROBLEM_LABEL,
+  redrawEstimate,
+  type SlotDrawHistory,
+} from "@/lib/theme-studio/image-history";
 import type { ThemeStudioSlotView } from "@/lib/theme-studio/slot-images";
 
 // The slot-image editor. Uploads go straight to the slot-image route, which
 // crops and stores them without changing any version; they are STAGED here
 // with alt text and provenance, and saved together as one new version.
 // Nothing here decides validity — the server re-checks every field.
+//
+// Track 3.5: each slot also shows what an image run is asked to draw for it
+// (the brief) and how its current image came to be (attempts, the check's
+// verdict, cost), and a placeholder or generated image can be ticked for a
+// REDRAW — a run of just those slots, matched to the theme's existing
+// art-direction image. An uploaded image is never offered: it is the
+// operator's to replace.
 
 type Source = "operator-owned" | "licensed";
 
@@ -54,6 +69,59 @@ function kb(bytes: number): string {
   return `${Math.max(1, Math.round(bytes / 1024))} KB`;
 }
 
+function usd(microUsd: number): string {
+  return `~$${(microUsd / 1_000_000).toFixed(microUsd < 10_000 ? 3 : 2)}`;
+}
+
+function problems(list: SlotDrawHistory["problems"]): string {
+  return list.map((p) => THEME_IMAGE_PROBLEM_LABEL[p]).join(", ");
+}
+
+/** One line on how a slot's image came to be, and its tone. */
+export function historyLine(history: SlotDrawHistory): {
+  text: string;
+  tone: "ok" | "warn" | "bad";
+} {
+  const twice = history.attempts > 1 ? " after a redraw" : "";
+  // The reviewer writes whole sentences; the line adds its own full stop.
+  const trimmed = history.note.trim().replace(/[.\s]+$/, "");
+  const note = trimmed ? ` — ${trimmed}` : "";
+  switch (history.status) {
+    case "generated":
+      if (history.review === "passed") {
+        return { text: `Drawn and checked${twice}.`, tone: "ok" };
+      }
+      if (history.review === "flagged") {
+        return {
+          text: `Drawn${twice}; kept with ${problems(history.problems)}${note}.`,
+          tone: "warn",
+        };
+      }
+      return { text: `Drawn${twice}; not checked.`, tone: "warn" };
+    case "rejected":
+      return {
+        text: `Failed its check twice (${problems(history.problems)})${note}. The placeholder was kept.`,
+        tone: "bad",
+      };
+    case "refused":
+      return {
+        text: `The image model refused it${history.reason ? ` (${history.reason})` : ""}.`,
+        tone: "bad",
+      };
+    default:
+      return {
+        text: `Not drawn${history.reason ? ` (${history.reason})` : ""}.`,
+        tone: "bad",
+      };
+  }
+}
+
+const TONE: Record<"ok" | "warn" | "bad", string> = {
+  ok: "text-emerald-700",
+  warn: "text-amber-700",
+  bad: "text-red-700",
+};
+
 export function SlotImagesEditor({
   projectId,
   versionId,
@@ -64,6 +132,8 @@ export function SlotImagesEditor({
   canEdit,
   blockedReason,
   slots,
+  anchorReusable,
+  prices,
 }: {
   projectId: string;
   versionId: string;
@@ -74,6 +144,10 @@ export function SlotImagesEditor({
   canEdit: boolean;
   blockedReason: string | null;
   slots: ThemeStudioSlotView[];
+  /** A redraw matches the existing art-direction image instead of drawing one. */
+  anchorReusable: boolean;
+  /** List prices for the redraw estimate; null for the test provider. */
+  prices: { imageUsd: number; reviewUsd: number } | null;
 }) {
   const router = useRouter();
   const [staged, setStaged] = useState<Record<string, Staged>>({});
@@ -83,6 +157,8 @@ export function SlotImagesEditor({
     slots.some((slot) => slot.placeholder),
   );
   const [pending, startTransition] = useTransition();
+  const [redraw, setRedraw] = useState<Set<string>>(new Set());
+  const [confirmingRedraw, setConfirmingRedraw] = useState(false);
   // The licence note typed last, offered for the next image: most uploads in
   // one sitting come from the same place.
   const lastLicense = useRef<{ source: Source; note: string } | null>(null);
@@ -91,6 +167,42 @@ export function SlotImagesEditor({
     ? slots.filter((slot) => slot.placeholder || staged[slot.id])
     : slots;
   const stagedCount = Object.keys(staged).length;
+  const redrawCount = redraw.size;
+  const estimate =
+    prices && redrawCount > 0
+      ? redrawEstimate(redrawCount, anchorReusable, prices)
+      : null;
+
+  function toggleRedraw(slotId: string, on: boolean) {
+    setConfirmingRedraw(false);
+    setRedraw((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(slotId);
+      else next.delete(slotId);
+      return next;
+    });
+  }
+
+  function startRedraw() {
+    startTransition(async () => {
+      const result = await queueThemeStudioImagesAction({
+        projectId,
+        versionId,
+        expectedRevision: revision,
+        expectedPackageDigest: packageDigest,
+        idempotencyKey: crypto.randomUUID(),
+        // Package order, so the run's message lists them as the page does.
+        slotIds: slots.map((s) => s.id).filter((id) => redraw.has(id)),
+      });
+      if (!result.ok) {
+        toast.error(result.error ?? "The redraw couldn't be queued.");
+        return;
+      }
+      toast.success("Redrawing. The run appears on the project.");
+      setRedraw(new Set());
+      router.push(`/dashboard/themes/studio/${projectId}`);
+    });
+  }
 
   async function upload(slot: ThemeStudioSlotView, file: File) {
     setUploading(slot.id);
@@ -123,6 +235,8 @@ export function SlotImagesEditor({
         return;
       }
       const license = lastLicense.current;
+      // An upload replaces the slot; drawing it as well would be two answers.
+      toggleRedraw(slot.id, false);
       setStaged((prev) => ({
         ...prev,
         [slot.id]: {
@@ -206,9 +320,55 @@ export function SlotImagesEditor({
           />
           Show only slots with a placeholder
         </label>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-3">
           {!canEdit && blockedReason ? (
             <span className="text-sm text-slate-500">{blockedReason}</span>
+          ) : null}
+          {redrawCount > 0 ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="max-w-md text-xs text-slate-600">
+                {stagedCount > 0
+                  ? "Save or discard your uploads before redrawing."
+                  : estimate
+                    ? `${estimate.images} image${estimate.images === 1 ? "" : "s"}${anchorReusable ? "" : " (with a new art-direction image)"}, about $${estimate.expectedUsd.toFixed(2)}, at most $${estimate.mostUsd.toFixed(2)} if each needs a redraw.`
+                    : "The test provider redraws at no cost."}
+              </span>
+              {confirmingRedraw ? (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => setConfirmingRedraw(false)}
+                    disabled={pending}
+                    className="rounded-lg px-3 py-2 text-sm text-slate-600 hover:bg-slate-50"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="button"
+                    onClick={startRedraw}
+                    disabled={pending}
+                    className="inline-flex items-center gap-2 rounded-lg bg-violet-600 px-4 py-2 text-sm font-medium text-white hover:bg-violet-700 disabled:opacity-50"
+                  >
+                    {pending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-4 w-4" />
+                    )}
+                    Confirm redraw
+                  </button>
+                </>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => setConfirmingRedraw(true)}
+                  disabled={!canEdit || stagedCount > 0 || pending}
+                  className="inline-flex items-center gap-2 rounded-lg border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-medium text-violet-800 hover:bg-violet-100 disabled:opacity-50"
+                >
+                  <RefreshCw className="h-4 w-4" />
+                  Redraw {redrawCount} image{redrawCount === 1 ? "" : "s"}
+                </button>
+              )}
+            </div>
           ) : null}
           <button
             type="button"
@@ -306,6 +466,37 @@ export function SlotImagesEditor({
                         : ""}
                     </p>
                   ) : null}
+                  {slot.history ? (
+                    <p className="text-xs">
+                      <span className={TONE[historyLine(slot.history).tone]}>
+                        {historyLine(slot.history).text}
+                      </span>
+                      <span className="text-slate-500">
+                        {" "}
+                        {slot.history.redraw ? "Redraw · " : ""}
+                        {usd(slot.history.costMicroUsd)} estimated
+                      </span>
+                    </p>
+                  ) : null}
+                  {slot.brief ? (
+                    <details className="text-xs text-slate-600">
+                      <summary className="cursor-pointer text-slate-500 hover:text-slate-900">
+                        What the image model is asked for
+                      </summary>
+                      <dl className="mt-1 grid grid-cols-[auto,1fr] gap-x-3 gap-y-1">
+                        <dt className="text-slate-400">Subject</dt>
+                        <dd>{slot.brief.subject}</dd>
+                        {slot.brief.artDirection ? (
+                          <>
+                            <dt className="text-slate-400">Direction</dt>
+                            <dd>{slot.brief.artDirection}</dd>
+                          </>
+                        ) : null}
+                        <dt className="text-slate-400">Shape</dt>
+                        <dd>{slot.brief.aspectRatio}</dd>
+                      </dl>
+                    </details>
+                  ) : null}
 
                   {image ? (
                     <div className="grid gap-2 sm:grid-cols-2">
@@ -391,6 +582,19 @@ export function SlotImagesEditor({
                         }}
                       />
                     </label>
+                    {slot.redrawable && !image ? (
+                      <label className="inline-flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-xs text-slate-700">
+                        <input
+                          type="checkbox"
+                          checked={redraw.has(slot.id)}
+                          disabled={!canEdit}
+                          onChange={(event) =>
+                            toggleRedraw(slot.id, event.target.checked)
+                          }
+                        />
+                        {slot.placeholder ? "Draw" : "Redraw"}
+                      </label>
+                    ) : null}
                     {image ? (
                       <button
                         type="button"

@@ -45,6 +45,7 @@ import {
   THEME_STUDIO_IMAGE_MODEL_KEY,
   getThemeStudioImageConfig,
 } from "./image-models";
+import { describeSlots } from "./slot-images-core";
 import type { ThemeStudioImageClient } from "./image-provider";
 import { createVertexImageClient } from "./image-vertex";
 import {
@@ -95,6 +96,8 @@ type ClaimedRun = {
   baseVersionId: string | null;
   basePackageDigest: string | null;
   contextMessageIds: string[];
+  /** Image runs: the slots to redraw; empty means every placeholder. */
+  imageSlotIds: string[];
   provider: string;
   modelKey: string;
   providerModel: string;
@@ -175,6 +178,7 @@ async function claimRun(
               r.kind AS "kind", r.base_version_id AS "baseVersionId",
               r.base_package_digest AS "basePackageDigest",
               r.context_message_ids AS "contextMessageIds",
+              r.image_slot_ids AS "imageSlotIds",
               r.provider AS "provider", r.model_key AS "modelKey",
               r.provider_model AS "providerModel", r.prompt_version AS "promptVersion",
               r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts"
@@ -351,6 +355,8 @@ type Outcome =
       intent: ThemeIntent;
       package: ThemePackageV2;
       versionNumber: number;
+      /** A redraw's reused art-direction image, recorded like a new one. */
+      reusedAnchorAssetId: string | null;
     }
   | { kind: "failed"; errorCode: string; detail?: Record<string, unknown> }
   | { kind: "retry"; errorCode: string };
@@ -448,6 +454,97 @@ async function loadImageRunInput(
   });
 }
 
+/**
+ * What a redraw reuses (Track 3.5): the art-direction image the version's
+ * images were drawn to match, and a product photo to stage products against.
+ *
+ * ★ The anchor is found by walking up the version's parents to the nearest
+ * image run that recorded one: an operator upload or an earlier redraw in
+ * between writes a new version but keeps the lineage. None found (images
+ * only ever uploaded) means the redraw draws a fresh anchor, like a full run.
+ *
+ * ★ The set shot is the first product slot in package order that is NOT
+ * being redrawn and has a real image — generated or uploaded, both show the
+ * staging the redrawn products should match.
+ */
+async function loadImageSeed(
+  run: ClaimedRun,
+  pkg: ThemePackageV2,
+): Promise<{
+  seed: {
+    anchor: { bytes: Uint8Array; mediaType: "image/webp" };
+    set: { bytes: Uint8Array; mediaType: "image/webp" } | null;
+  };
+  anchorAssetId: string;
+} | null> {
+  if (!run.baseVersionId) return null;
+  return withService(async (db) => {
+    const anchors = await db.execute(sql`
+      WITH RECURSIVE chain(id, parent, run_id, depth) AS (
+        SELECT v.id, v.parent_version_id, v.run_id, 0
+          FROM theme_studio_versions v
+         WHERE v.id = ${run.baseVersionId}::uuid AND v.project_id = ${run.projectId}::uuid
+        UNION ALL
+        SELECT v.id, v.parent_version_id, v.run_id, c.depth + 1
+          FROM theme_studio_versions v
+          JOIN chain c ON v.id = c.parent
+         WHERE c.depth < 50 AND v.project_id = ${run.projectId}::uuid
+      )
+      SELECT a.id AS "id", a.bytes AS "bytes"
+        FROM chain c
+        JOIN theme_studio_runs r ON r.id = c.run_id AND r.kind = 'images'
+        JOIN theme_studio_assets a
+          ON a.project_id = ${run.projectId}::uuid
+         AND a.purpose = 'anchor'
+         AND a.media_type = 'image/webp'
+         AND a.id::text = r.outcome_detail ->> 'anchorAssetId'
+       ORDER BY c.depth
+       LIMIT 1
+    `);
+    const anchor = anchors.rows[0] as { id: string; bytes: Buffer } | undefined;
+    if (!anchor) return null;
+
+    const redrawn = new Set(run.imageSlotIds);
+    const setSlot = describeSlots(pkg).find(
+      (slot) =>
+        slot.kind === "product" &&
+        !slot.placeholder &&
+        !redrawn.has(slot.id) &&
+        pkg.assets.find((a) => a.id === slot.id)?.sha256,
+    );
+    const sha = setSlot
+      ? pkg.assets.find((a) => a.id === setSlot.id)?.sha256
+      : null;
+    let set: { bytes: Uint8Array; mediaType: "image/webp" } | null = null;
+    if (sha) {
+      const [row] = await db
+        .select({ bytes: themeStudioAssets.bytes })
+        .from(themeStudioAssets)
+        .where(
+          and(
+            eq(themeStudioAssets.projectId, run.projectId),
+            eq(themeStudioAssets.sha256, sha),
+            eq(themeStudioAssets.purpose, "image"),
+            eq(themeStudioAssets.mediaType, "image/webp"),
+          ),
+        )
+        .limit(1);
+      if (row)
+        set = { bytes: new Uint8Array(row.bytes), mediaType: "image/webp" };
+    }
+    return {
+      seed: {
+        anchor: {
+          bytes: new Uint8Array(anchor.bytes),
+          mediaType: "image/webp",
+        },
+        set,
+      },
+      anchorAssetId: anchor.id,
+    };
+  });
+}
+
 function imageClientFor(provider: string): ThemeStudioImageClient | null {
   if (provider === "fake") return createFakeImageClient();
   if (provider === "vertex-gemini") {
@@ -488,11 +585,14 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
   if ("errorCode" in input) {
     return { kind: "failed", errorCode: input.errorCode };
   }
-  if (generatableSlots(input.package, input.intent).length === 0) {
+  const only = run.imageSlotIds.length > 0 ? run.imageSlotIds : undefined;
+  if (generatableSlots(input.package, input.intent, only).length === 0) {
     return { kind: "failed", errorCode: "images_nothing_to_draw" };
   }
   const client = imageClientFor(run.provider);
   if (!client) return { kind: "failed", errorCode: "provider_unavailable" };
+  // Only a redraw reuses references; a full run sets the theme's look afresh.
+  const reuse = only ? await loadImageSeed(run, input.package) : null;
 
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), RUN_DEADLINE_MS);
@@ -513,6 +613,8 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
         pkg: input.package,
         intent: input.intent,
         reviewer: imageReviewerFor(run.provider),
+        ...(only ? { only } : {}),
+        seed: reuse?.seed ?? null,
       },
       controller.signal,
     );
@@ -522,6 +624,7 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
       intent: input.intent,
       package: input.package,
       versionNumber: input.versionNumber,
+      reusedAnchorAssetId: reuse?.anchorAssetId ?? null,
     };
   } finally {
     clearTimeout(deadline);
@@ -978,9 +1081,13 @@ async function finishImages(
       status: "succeeded",
       outcomeDetail: {
         ...detail,
+        // A redraw records the anchor it reused, so the next redraw finds it
+        // on this run without walking further.
         ...(anchorRow?.purpose === "anchor"
           ? { anchorAssetId: anchorRow.id }
-          : {}),
+          : outcome.reusedAnchorAssetId
+            ? { anchorAssetId: outcome.reusedAnchorAssetId }
+            : {}),
       },
     })
     .where(eq(themeStudioRuns.id, run.id));

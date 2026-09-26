@@ -28,6 +28,7 @@ import {
   generatableSlots,
   imageRunEstimate,
   nearestImageRatio,
+  redrawableSlotIds,
   type GeneratableSlot,
 } from "./image-generation-core";
 import {
@@ -1137,5 +1138,130 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         .filter((o) => o.slotId !== "home-hero")
         .every((o) => o.status === "generated" && o.attempts === 1),
     ).toBe(true);
+  });
+});
+
+describe("redrawing chosen slots", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
+  /** The fixture after a full run: every art slot holds a generated image. */
+  async function drawnFixture() {
+    const { pkg, intent } = await fixture();
+    const result = await runThemeImageGeneration(
+      createFakeImageClient(),
+      { pkg, intent, reviewer: null },
+      new AbortController().signal,
+    );
+    const applied = applyGeneratedImages(
+      pkg,
+      result.images.map(({ slotId, image }) => ({
+        slotId,
+        sha256: image.sha256,
+        width: image.width,
+        height: image.height,
+      })),
+      2,
+      "m",
+    );
+    if (!applied.ok) throw new Error(applied.error);
+    return { pkg: applied.value, intent, result };
+  }
+
+  it("offers placeholders and generated images for a redraw, never an upload or the catalog pictures", async () => {
+    const { pkg } = await drawnFixture();
+    const uploaded = structuredClone(pkg);
+    const hero = uploaded.assets.find((a) => a.id === "home-hero")!;
+    hero.source = "operator-owned";
+    hero.licenseNote = "Our photo.";
+    const ids = redrawableSlotIds(uploaded);
+    expect(ids).not.toContain("home-hero");
+    expect(ids).not.toContain("preview");
+    expect(ids).not.toContain("screenshot-desktop");
+    const products = pkg.definition.preset.sampleData!.products;
+    for (const p of products) {
+      expect(ids).toContain(p.image_url.replace("theme-asset://", ""));
+    }
+    // A full run draws nothing (no placeholders are left) …
+    const { intent } = await fixture();
+    expect(generatableSlots(pkg, intent)).toEqual([]);
+    // … and a named redraw draws exactly the named slots it may draw.
+    const named = generatableSlots(uploaded, intent, [
+      ids[0],
+      "home-hero",
+      "preview",
+      "nope",
+    ]).map((s) => s.slotId);
+    expect(named).toEqual([ids[0]]);
+  });
+
+  it("matches the stored art-direction image and product photo instead of drawing new ones", async () => {
+    const { pkg, intent, result: first } = await drawnFixture();
+    const productIds = generatableSlots(pkg, intent, redrawableSlotIds(pkg))
+      .filter((s) => s.purpose === "product")
+      .map((s) => s.slotId);
+    const anchor = first.anchor!.bytes;
+    const set = first.images.find((i) => i.slotId === productIds[0])!.image
+      .bytes;
+    const seen: ThemeImageRequest[] = [];
+    const reviews: StructuredRequest[] = [];
+    const redraw = await runThemeImageGeneration(
+      scripted({}, seen),
+      {
+        pkg,
+        intent,
+        reviewer: scriptedReviewer(() => [], reviews),
+        only: [productIds[1], productIds[2], "home-hero"],
+        seed: {
+          anchor: { bytes: anchor, mediaType: "image/webp" },
+          set: { bytes: set, mediaType: "image/webp" },
+        },
+      },
+      new AbortController().signal,
+    );
+    // No new anchor: three images for three slots.
+    expect(seen.map((r) => r.briefId).sort()).toEqual(
+      [productIds[1], productIds[2], "home-hero"].sort(),
+    );
+    const b64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
+    for (const request of seen) {
+      expect(request.references[0]).toEqual({
+        role: "anchor",
+        mediaType: "image/webp",
+        base64: b64(anchor),
+      });
+    }
+    for (const id of [productIds[1], productIds[2]]) {
+      expect(seen.find((r) => r.briefId === id)!.references[1]).toEqual({
+        role: "set",
+        mediaType: "image/webp",
+        base64: b64(set),
+      });
+    }
+    expect(
+      seen.find((r) => r.briefId === "home-hero")!.references,
+    ).toHaveLength(1);
+    // The reviewer compares against the same stored pictures.
+    for (const review of reviews) {
+      const shown = review.content.flatMap((b) =>
+        b.type === "image" ? [b.base64] : [],
+      );
+      expect(shown[1]).toBe(b64(anchor));
+    }
+    // Nothing new to store for the anchor; only the redrawn slots come back.
+    expect(redraw.anchor).toBeNull();
+    expect(redraw.images.map((i) => i.slotId).sort()).toEqual(
+      [productIds[1], productIds[2], "home-hero"].sort(),
+    );
+    expect(redraw.outcomes).toHaveLength(3);
+  });
+
+  it("draws a fresh art-direction image for a redraw with nothing to reuse", async () => {
+    const { pkg, intent } = await drawnFixture();
+    const seen: ThemeImageRequest[] = [];
+    const redraw = await runThemeImageGeneration(
+      scripted({}, seen),
+      { pkg, intent, reviewer: null, only: ["home-hero"], seed: null },
+      new AbortController().signal,
+    );
+    expect(seen.map((r) => r.purpose)).toEqual(["anchor", "hero"]);
+    expect(redraw.anchor).not.toBeNull();
   });
 });

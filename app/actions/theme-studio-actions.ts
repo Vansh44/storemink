@@ -302,10 +302,19 @@ export async function queueThemeStudioImagesAction(input: {
   expectedRevision: number;
   expectedPackageDigest: string;
   idempotencyKey: string;
+  /** Redraw exactly these slots; absent draws every placeholder. */
+  slotIds?: string[];
 }): Promise<ThemeStudioActionResult> {
   const actor = await getThemeStudioActor();
   if (!actor) return NOT_AUTHORIZED;
   if (!Number.isInteger(input?.expectedRevision)) return MALFORMED;
+  if (
+    input.slotIds !== undefined &&
+    (!Array.isArray(input.slotIds) ||
+      input.slotIds.some((id) => typeof id !== "string"))
+  ) {
+    return MALFORMED;
+  }
   try {
     const { runId } = await queueThemeStudioImages(actor, {
       projectId: String(input.projectId),
@@ -313,6 +322,7 @@ export async function queueThemeStudioImagesAction(input: {
       expectedRevision: input.expectedRevision,
       expectedPackageDigest: String(input.expectedPackageDigest ?? ""),
       idempotencyKey: String(input.idempotencyKey),
+      ...(input.slotIds ? { slotIds: input.slotIds } : {}),
     });
     kickWorker();
     revalidatePath(`${STUDIO_PATH}/${input.projectId}`);

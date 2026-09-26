@@ -155,6 +155,12 @@ export interface ThemeImageRunResult {
   };
 }
 
+/** An image already stored for this theme, reused as a reference. */
+export interface StoredReference {
+  bytes: Uint8Array;
+  mediaType: ThemeImageReference["mediaType"];
+}
+
 /** The vision reviewer. Null runs without review (every image "unreviewed"). */
 export interface ThemeImageReviewer {
   client: ThemeStudioModelClient;
@@ -204,12 +210,21 @@ export async function runThemeImageGeneration(
     intent: ThemeIntent;
     /** Required, so every caller decides whether images are reviewed. */
     reviewer: ThemeImageReviewer | null;
+    /** Track 3.5: redraw exactly these slots (see generatableSlots). */
+    only?: readonly string[];
+    /**
+     * Track 3.5: references to reuse instead of drawing them. A redraw of a
+     * few slots matches the theme's existing art-direction image (so the
+     * redraw belongs to the set it joins) and, for products, an existing
+     * product photo. Both are the stored WebP.
+     */
+    seed?: { anchor: StoredReference; set: StoredReference | null } | null;
   },
   signal: AbortSignal,
   options: ImageRunOptions = {},
 ): Promise<ThemeImageRunResult> {
   const prepare = options.prepare ?? prepareSlotImage;
-  const slots = generatableSlots(input.pkg, input.intent);
+  const slots = generatableSlots(input.pkg, input.intent, input.only);
   const direction = directionFromPackage(input.pkg, input.intent);
   const calls: ImageCall[] = [];
   const reviews: ReviewCall[] = [];
@@ -389,22 +404,36 @@ export async function runThemeImageGeneration(
     });
   }
 
-  // 1. The anchor.
-  const anchorResult = await drawReviewed({
-    briefId: "anchor",
-    purpose: "anchor",
-    brief: {
-      subject: `A signature still life that sets the look for ${direction.themeName}.`,
-      artDirection: "",
-      aspectRatio: "4:3",
-    },
-    request: (retake) => buildAnchorRequest(direction, undefined, retake),
-    target: ANCHOR_TARGET,
-    byteLimit: THEME_IMAGE_RULES.maxBytes,
-    reviewAnchor: null,
-    reviewSet: null,
-    allowUnprepared: true,
-  });
+  // 1. The anchor: reused when the caller has one (a redraw), else drawn.
+  const seed = input.seed ?? null;
+  const anchorResult: DrawResult = seed
+    ? {
+        status: "kept",
+        drawn: {
+          bytes: seed.anchor.bytes,
+          mediaType: seed.anchor.mediaType,
+          prepared: null,
+        },
+        attempts: 0,
+        review: "unreviewed",
+        problems: [],
+        note: "",
+      }
+    : await drawReviewed({
+        briefId: "anchor",
+        purpose: "anchor",
+        brief: {
+          subject: `A signature still life that sets the look for ${direction.themeName}.`,
+          artDirection: "",
+          aspectRatio: "4:3",
+        },
+        request: (retake) => buildAnchorRequest(direction, undefined, retake),
+        target: ANCHOR_TARGET,
+        byteLimit: THEME_IMAGE_RULES.maxBytes,
+        reviewAnchor: null,
+        reviewSet: null,
+        allowUnprepared: true,
+      });
   if (anchorResult.status !== "kept") {
     return finish({
       anchorFailure:
@@ -437,9 +466,12 @@ export async function runThemeImageGeneration(
     mediaType: anchorResult.drawn.mediaType,
     base64: base64(anchorResult.drawn.bytes),
   };
-  const anchorForReview = anchorResult.drawn.prepared
-    ? base64(anchorResult.drawn.prepared.bytes)
-    : null;
+  // A reused anchor is already the stored WebP the reviewer should see.
+  const anchorForReview = seed
+    ? base64(seed.anchor.bytes)
+    : anchorResult.drawn.prepared
+      ? base64(anchorResult.drawn.prepared.bytes)
+      : null;
 
   // 2. Every slot, a few at a time: the product leader first, the rest of
   // the products once it is known, everything else from the start.
@@ -518,14 +550,27 @@ export async function runThemeImageGeneration(
   const products = slots.filter((s) => s.purpose === "product");
   const others = slots.filter((s) => s.purpose !== "product");
   const queue: (() => Promise<unknown>)[] = [];
-  let setRef: ThemeImageReference | null = null;
-  let setForReview: string | null = null;
-  let leaderSettled = products.length === 0;
+  // A reused product photo is the set shot from the start, so every product
+  // is drawn at once; otherwise the first product that lands becomes it.
+  let setRef: ThemeImageReference | null = seed?.set
+    ? {
+        role: "set",
+        mediaType: seed.set.mediaType,
+        base64: base64(seed.set.bytes),
+      }
+    : null;
+  let setForReview: string | null = seed?.set ? base64(seed.set.bytes) : null;
+  let leaderSettled = products.length === 0 || setRef !== null;
   let releaseLeader: () => void = () => {};
   const leaderDone = new Promise<void>((resolve) => {
     releaseLeader = resolve;
   });
-  if (products.length > 0) {
+  if (products.length > 0 && setRef) {
+    const refs = [anchorRef, setRef];
+    for (const slot of products) {
+      queue.push(() => drawOne(slot, refs, setForReview));
+    }
+  } else if (products.length > 0) {
     queue.push(async () => {
       const waiting = [...products];
       try {
@@ -584,7 +629,8 @@ export async function runThemeImageGeneration(
   images.sort((a, b) => order.get(a.slotId)! - order.get(b.slotId)!);
   return finish({
     anchorFailure: null,
-    anchor: anchorResult.drawn.prepared,
+    // A reused anchor is already stored; only a newly drawn one is returned.
+    anchor: seed ? null : anchorResult.drawn.prepared,
     images,
     outcomes: slots.map(
       (s) => outcomes.get(s.slotId) ?? { slotId: s.slotId, status: "skipped" },

@@ -29,7 +29,10 @@ import {
   reviseThemeStudioVersionAction,
   submitThemeStudioDetailsAction,
 } from "@/app/actions/theme-studio-actions";
-import type { ThemeStudioProjectDetail } from "@/lib/theme-studio/repository";
+import type {
+  ThemeStudioProjectDetail,
+  ThemeStudioRunView,
+} from "@/lib/theme-studio/repository";
 import { StudioStatusBadge, studioDate } from "../studio-ui";
 
 // The project workspace. Everything shown was read server-side behind the
@@ -62,7 +65,42 @@ const ERROR_TEXT: Record<string, string> = {
   base_changed:
     "The version being revised is not the one the run was queued against.",
   base_invalid: "The version being revised no longer passes validation.",
+  images_anchor_refused:
+    "The image model refused the art-direction image, so nothing else was drawn.",
+  images_anchor_rejected:
+    "The art-direction image failed its check twice, so nothing else was drawn.",
+  images_none: "No image came back, so no version was made.",
+  images_package_invalid:
+    "The theme with the new images no longer passed its checks.",
+  images_asset_conflict: "A drawn image clashed with a stored file.",
+  images_nothing_to_draw: "There was nothing left to draw.",
 };
+
+function errorText(code: string): string {
+  return (
+    ERROR_TEXT[code] ??
+    (code.startsWith("images_anchor_")
+      ? "The art-direction image could not be drawn, so nothing else was."
+      : "The run failed.")
+  );
+}
+
+/** One line about an image run: what came back and what it cost. */
+function imageRunLine(images: NonNullable<ThemeStudioRunView["images"]>) {
+  const parts = [
+    `${images.generated} drawn`,
+    images.rejected > 0
+      ? `${images.rejected} failed the check and kept the placeholder`
+      : null,
+    images.failed > 0 ? `${images.failed} not drawn (refused or failed)` : null,
+    images.skipped > 0 ? `${images.skipped} not reached` : null,
+    images.redrawn > 0 ? `${images.redrawn} redrawn after a check` : null,
+    images.flagged > 0 ? `${images.flagged} kept with a minor problem` : null,
+    images.unreviewed > 0 ? `${images.unreviewed} unchecked` : null,
+    `images ${formatCost(images.imageCostMicroUsd)} + checks ${formatCost(images.reviewCostMicroUsd)} estimated`,
+  ];
+  return parts.filter(Boolean).join(" · ");
+}
 
 const REVISABLE = ["ready", "candidate", "approved"];
 
@@ -577,7 +615,15 @@ export function ProjectWorkspace({
                         ? ` · finished ${studioDate(r.finishedAt)}`
                         : ""}
                     </p>
-                    {r.usage ? (
+                    {r.kind === "images" ? (
+                      <p className="text-xs text-slate-700">
+                        {r.imageSlotIds.length > 0
+                          ? `Redraw of ${r.imageSlotIds.length} image${r.imageSlotIds.length === 1 ? "" : "s"}`
+                          : "Every placeholder"}
+                        {r.images ? ` · ${imageRunLine(r.images)}` : ""}
+                      </p>
+                    ) : null}
+                    {r.usage && r.kind !== "images" ? (
                       <p className="text-xs text-slate-500">
                         {r.usage.inputTokens.toLocaleString("en-IN")} in ·{" "}
                         {r.usage.outputTokens.toLocaleString("en-IN")} out
@@ -595,7 +641,7 @@ export function ProjectWorkspace({
                     ) : null}
                     {r.errorCode ? (
                       <p className="text-xs text-red-700">
-                        {ERROR_TEXT[r.errorCode] ?? "The run failed."}{" "}
+                        {errorText(r.errorCode)}{" "}
                         <span className="font-mono">({r.errorCode})</span>
                         {r.refusalCategory
                           ? ` · category ${r.refusalCategory}`

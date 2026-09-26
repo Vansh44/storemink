@@ -5172,6 +5172,48 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     Offline end to end against the local database (queue, worker, stored run
     and version) for a redraw that passes and one that stays rejected.
     Operator-only: no Help Centre migration.
+    **Theme Studio generated imagery, Track 3.5 (2026-09-27; redraw chosen
+    slots, and see each image's brief, check and cost).** A version's Images
+    page (`slot-images-editor.tsx`) shows, per slot, what the image model is
+    asked for (subject, direction, shape) and how the current image came to be
+    (`historyLine`: drawn and checked, redrawn, kept with a minor problem,
+    failed its check and kept the placeholder, refused, not drawn), with that
+    slot's estimated cost. A placeholder or GENERATED image can be ticked and
+    redrawn: `queueThemeStudioImages({ slotIds })` (1–40 ids, deduped),
+    stored on the run as `theme_studio_runs.image_slot_ids` (migration
+    `20260927_0142_theme_studio_image_slots`, empty = every placeholder, only
+    an image run may name slots) and copied by a retry.
+    ★ `isRedrawableSlot`: an art slot whose source is `generated` —
+    placeholders are compiled with that source, and an operator's upload
+    (`operator-owned`/`licensed`) is NEVER redrawn. A request naming anything
+    else is REFUSED, not trimmed: drawing fewer images than the operator
+    confirmed is a different request. `generatableSlots(pkg, intent, only)`
+    draws exactly the named redrawable slots.
+    ★★ A REDRAW JOINS THE SET IT REPLACES AN IMAGE IN. The worker's
+    `loadImageSeed` walks the version's parents (recursive CTE, ≤50) to the
+    nearest image run that recorded `anchorAssetId`, so an upload or an
+    earlier redraw in between keeps the lineage, and reuses that stored WebP
+    as the anchor (no new art-direction image) and the first non-redrawn
+    product photo with a real image as the set shot. `runThemeImageGeneration`
+    takes these as `seed`; the reviewer compares against the same stored
+    pictures, and the redraw records the reused anchor id, so the next redraw
+    finds it on its own run. With nothing to reuse (images only ever
+    uploaded) a redraw draws a fresh anchor, like a full run.
+    `image-history.ts` (pure) reads it all back from stored runs:
+    `slotDrawHistory` (nearest run that drew the slot, a skipped outcome
+    passed over, 3.2 runs read as one unchecked attempt), `imageRunSummary`
+    (the run list's "N drawn · M redrawn after a check · … · images $x +
+    checks $y"), `hasReusableAnchor` and `redrawEstimate` (the redraw's cost
+    statement, a new anchor counted only when none can be reused). The run
+    list now names the image-run error codes. ⚠ Not checked in a browser: the
+    Studio needs a superadmin sign-in, which goes through Identity Platform.
+    Covered by component tests, offline end to end against the local database
+    (a redraw of a hero and a product: two image calls, no new anchor, every
+    other slot's image unchanged, a new version parented on the one redrawn;
+    and a redraw after an operator upload), and live (2026-09-27): a redraw
+    sent the stored WebP anchor and product photo as references, and the new
+    teapot matched the set's linen and light for $0.105.
+    Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

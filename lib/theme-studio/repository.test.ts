@@ -140,6 +140,14 @@ describe("image run input", () => {
       [{ projectId: "p1" }, /no longer exists/],
       [{ versionId: "v1" }, /no longer exists/],
       [{ idempotencyKey: "short" }, /malformed/],
+      // A redraw names 1–40 real slot ids (Track 3.5).
+      [{ slotIds: [] }, /between 1 and 40/],
+      [
+        { slotIds: Array.from({ length: 41 }, (_, i) => `slot-${i}`) },
+        /between 1 and 40/,
+      ],
+      [{ slotIds: ["Home Hero"] }, /between 1 and 40/],
+      [{ slotIds: ["home-hero", 7] }, /between 1 and 40/],
     ];
     for (const [patch, message] of cases) {
       await expect(

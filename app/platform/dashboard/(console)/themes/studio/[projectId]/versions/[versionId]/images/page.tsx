@@ -9,7 +9,11 @@ import { StudioStatusBadge, SuperadminOnly } from "../../../../studio-ui";
 import { SlotImagesEditor } from "./slot-images-editor";
 import { GenerateImagesButton } from "./generate-images-button";
 import { getThemeStudioConfig } from "@/lib/theme-studio/config";
-import { imageRunEstimate } from "@/lib/theme-studio/image-generation-core";
+import {
+  IMAGE_LIST_PRICE_USD,
+  IMAGE_REVIEW_LIST_PRICE_USD,
+  imageRunEstimate,
+} from "@/lib/theme-studio/image-generation-core";
 
 export const metadata = { title: "Theme images — StoreMink Admin" };
 
@@ -65,7 +69,8 @@ export default async function ThemeStudioSlotImagesPage({
         </div>
         <p className="max-w-3xl text-sm text-slate-500">
           Every picture this theme shows is a slot. Upload an image for each
-          slot that still has a placeholder: it is cropped to the slot&apos;s
+          slot that still has a placeholder, or tick a placeholder or generated
+          image to have it drawn again: an upload is cropped to the slot&apos;s
           shape and compressed to the storefront&apos;s limits. Say where each
           image came from — acceptance and publication rely on it. Saving
           creates a new version; version {listing.versionNumber} stays as it is.
@@ -94,6 +99,15 @@ export default async function ThemeStudioSlotImagesPage({
         }
       />
       <SlotImagesEditor
+        anchorReusable={listing.anchorReusable}
+        prices={
+          getThemeStudioConfig().provider === "fake"
+            ? null
+            : {
+                imageUsd: IMAGE_LIST_PRICE_USD,
+                reviewUsd: IMAGE_REVIEW_LIST_PRICE_USD,
+              }
+        }
         projectId={project.id}
         versionId={versionId}
         versionNumber={listing.versionNumber}

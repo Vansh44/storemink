@@ -41,7 +41,13 @@ import {
   recordThemeStudioEvent,
   ThemeStudioError,
 } from "./repository";
-import { generatableSlots } from "./image-generation-core";
+import { generatableSlots, redrawableSlotIds } from "./image-generation-core";
+import {
+  hasReusableAnchor,
+  slotDrawHistory,
+  type SlotDrawHistory,
+  type StoredImageRun,
+} from "./image-history";
 import { slotUrls } from "./preview";
 
 // ---------------------------------------------------------------------------
@@ -463,6 +469,17 @@ export async function replaceThemeStudioSlotImages(
 export interface ThemeStudioSlotView extends SlotDescriptor {
   /** Where the slot's current image is served, or null if it has no bytes. */
   url: string | null;
+  /** Track 3.5: a placeholder or generated image an operator may redraw. */
+  redrawable: boolean;
+  /** What an image run is asked to draw for this slot, when it can draw it. */
+  brief: {
+    purpose: string;
+    subject: string;
+    artDirection: string;
+    aspectRatio: string;
+  } | null;
+  /** How the current image came to be, from the nearest image run. */
+  history: SlotDrawHistory | null;
 }
 
 /** Every slot of a version with a link to its current image. */
@@ -474,20 +491,83 @@ export async function listThemeStudioSlots(
   packageDigest: string;
   /** Placeholder slots an image run would draw (Track 3.2). */
   generatable: number;
+  /** A redraw can match an existing art-direction image, so it draws no
+   *  new one (Track 3.5). */
+  anchorReusable: boolean;
   slots: ThemeStudioSlotView[];
 } | null> {
   const version = await loadVersion(projectId, versionId);
   if (!version) return null;
   const slots = describeSlots(version.pkg);
-  const urls = await slotImageUrls(projectId, version.pkg);
+  const [urls, runs] = await Promise.all([
+    slotImageUrls(projectId, version.pkg),
+    imageRunsInLineage(projectId, versionId),
+  ]);
+  const redrawable = new Set(redrawableSlotIds(version.pkg));
+  const briefs = new Map(
+    version.intent
+      ? generatableSlots(version.pkg, version.intent, [...redrawable]).map(
+          (slot) => [
+            slot.slotId,
+            {
+              purpose: slot.brief.purpose,
+              subject: slot.brief.subject,
+              artDirection: slot.brief.artDirection,
+              aspectRatio: slot.brief.aspectRatio,
+            },
+          ],
+        )
+      : [],
+  );
+  const history = slotDrawHistory(runs);
   return {
     versionNumber: version.versionNumber,
     packageDigest: version.packageDigest,
     generatable: version.intent
       ? generatableSlots(version.pkg, version.intent).length
       : 0,
-    slots: slots.map((slot) => ({ ...slot, url: urls.get(slot.id) ?? null })),
+    anchorReusable: hasReusableAnchor(runs),
+    slots: slots.map((slot) => ({
+      ...slot,
+      url: urls.get(slot.id) ?? null,
+      redrawable: redrawable.has(slot.id) && briefs.has(slot.id),
+      brief: briefs.get(slot.id) ?? null,
+      history: history.get(slot.id) ?? null,
+    })),
   };
+}
+
+/**
+ * The image runs behind a version, nearest first: the run that made the
+ * version, then those that made its parents. A version an upload made has no
+ * run of its own, so walking the parents is what keeps a generated image's
+ * story (and the art-direction image a redraw reuses) after an upload.
+ */
+async function imageRunsInLineage(
+  projectId: string,
+  versionId: string,
+): Promise<StoredImageRun[]> {
+  const result = await withService((db) =>
+    db.execute(sql`
+      WITH RECURSIVE chain(id, parent, run_id, depth) AS (
+        SELECT v.id, v.parent_version_id, v.run_id, 0
+          FROM theme_studio_versions v
+         WHERE v.id = ${versionId}::uuid AND v.project_id = ${projectId}::uuid
+        UNION ALL
+        SELECT v.id, v.parent_version_id, v.run_id, c.depth + 1
+          FROM theme_studio_versions v
+          JOIN chain c ON v.id = c.parent
+         WHERE c.depth < 50 AND v.project_id = ${projectId}::uuid
+      )
+      SELECT r.id AS "id", r.created_at::text AS "createdAt",
+             r.image_slot_ids AS "imageSlotIds",
+             r.outcome_detail AS "outcomeDetail", r.usage AS "usage"
+        FROM chain c
+        JOIN theme_studio_runs r ON r.id = c.run_id AND r.kind = 'images'
+       ORDER BY c.depth
+    `),
+  );
+  return result.rows as unknown as StoredImageRun[];
 }
 
 /** Where each slot's current bytes are served (preview.ts owns the mapping,

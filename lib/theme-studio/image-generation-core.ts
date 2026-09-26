@@ -77,11 +77,40 @@ export function nearestImageRatio(aspect: number): ThemeImageAspectRatio {
   return best;
 }
 
-/** Every placeholder slot an image model can fill, in package order. */
+/**
+ * Whether an image run may draw this slot when an operator asks for it by
+ * name (Track 3.5): an art slot (not the catalog card or a screenshot) whose
+ * current image is a placeholder or one Theme Studio generated. Placeholders
+ * are compiled with source "generated", so the source alone decides — an
+ * operator's own upload ("operator-owned" or "licensed") is never redrawn.
+ */
+export function isRedrawableSlot(slot: SlotDescriptor): boolean {
+  return (
+    GENERATABLE_KINDS.has(slot.kind) &&
+    !slot.catalogPreview &&
+    !slot.catalogScreenshot &&
+    slot.source === "generated"
+  );
+}
+
+/** The ids of every slot an operator may ask to redraw, in package order. */
+export function redrawableSlotIds(pkg: ThemePackageV2): string[] {
+  return describeSlots(pkg)
+    .filter(isRedrawableSlot)
+    .map((slot) => slot.id);
+}
+
+/**
+ * The slots an image run draws, in package order. By default every
+ * placeholder art slot. With `only`, exactly the named slots that may be
+ * redrawn (isRedrawableSlot) — a generated image included, an upload never.
+ */
 export function generatableSlots(
   pkg: ThemePackageV2,
   intent: ThemeIntent,
+  only?: readonly string[],
 ): GeneratableSlot[] {
+  const chosen = only ? new Set(only) : null;
   const briefs = new Map(intent.assetBriefs.map((b) => [b.id, b]));
   // Only a slot exactly one product uses is described by that product: a
   // version made before products had their own slots shares one among many,
@@ -95,8 +124,16 @@ export function generatableSlots(
   }
   const out: GeneratableSlot[] = [];
   for (const slot of describeSlots(pkg)) {
-    if (!slot.placeholder || !GENERATABLE_KINDS.has(slot.kind)) continue;
-    if (slot.catalogPreview || slot.catalogScreenshot) continue;
+    if (chosen) {
+      if (!chosen.has(slot.id) || !isRedrawableSlot(slot)) continue;
+    } else if (
+      !slot.placeholder ||
+      !GENERATABLE_KINDS.has(slot.kind) ||
+      slot.catalogPreview ||
+      slot.catalogScreenshot
+    ) {
+      continue;
+    }
     const target = slotTargetSize(slot);
     if (!target) continue;
     // A slot's shape came from its brief's ratio, which is one the model

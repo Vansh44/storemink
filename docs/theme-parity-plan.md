@@ -354,7 +354,7 @@ with regeneration. Owner decision: no per-theme cost cap.
 | 3.2 | Generation run: anchor first, every placeholder art slot matched to it, cropped to its slot, one new version   | ✅      |
 | 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | ✅      |
 | 3.4 | Vision quality check with regeneration                                                                         | ✅      |
-| 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | planned |
+| 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | ✅      |
 | 3.6 | Catalog card and screenshots captured from the preview store, so a generated theme can publish                 | planned |
 
 ### Found and fixed while building 3.1
@@ -472,6 +472,28 @@ with regeneration. Owner decision: no per-theme cost cap.
   They keep their placeholders.
 - Checked end to end against the local database with the offline providers:
   a redraw that passes, and one whose serious problem remains.
+
+### Found and fixed while building 3.5
+
+- **Any placeholder or generated image can now be redrawn on its own.** On a
+  version's Images page an operator ticks the images to redraw and sees the
+  likely cost and the most it can cost before confirming. An image the
+  operator uploaded is never offered: it is theirs to replace.
+- **A redraw matches the set it joins.** It reuses the theme's existing
+  art-direction image and, for a product, an existing product photo, so the
+  new image sits in the same light and setup as the rest. It finds them even
+  after an upload or an earlier redraw.
+- **Each image shows its story**: what the image model was asked for, whether
+  it was redrawn, what the check found, and what it cost. The run list shows
+  what an image run drew, redrew, kept with a minor problem or left as a
+  placeholder, with the image and check costs separately.
+- Found: the run list had no wording for image-run failures (they showed as
+  "The run failed."). It now says what happened.
+- Checked end to end against the local database with the offline providers,
+  including a redraw after an upload. Checked live on 2026-09-27: a redrawn
+  teapot matched the existing set's linen and light, for $0.105.
+- Not checked in a browser: the Studio needs a superadmin sign-in. The screens
+  are covered by component tests.
 
 ## Track 4 — fewer prompts
 

@@ -33,7 +33,8 @@ import {
   type ThemePackageV2,
   type ThemeStudioProjectState,
 } from "./contracts";
-import { generatableSlots } from "./image-generation-core";
+import { MAX_IMAGES_PER_RUN, generatableSlots } from "./image-generation-core";
+import { imageRunSummary, type ImageRunSummary } from "./image-history";
 import { getThemeStudioImageConfig } from "./image-models";
 import {
   THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
@@ -121,6 +122,10 @@ export interface ThemeStudioRunUsageView {
 
 export interface ThemeStudioRunView {
   usage: ThemeStudioRunUsageView | null;
+  /** Image runs (Track 3.5): what was drawn, checked and kept, and the cost. */
+  images: ImageRunSummary | null;
+  /** Image runs: the slots a redraw was asked for; empty for a full run. */
+  imageSlotIds: string[];
   /** Operator-readable result that isn't a version: questions or a reason. */
   questions: string[];
   declineReason: string | null;
@@ -469,6 +474,17 @@ export async function getThemeStudioProject(
       })),
       runs: runs.map((r) => ({
         ...runExtras(r.usage, r.outcomeDetail),
+        images:
+          r.kind === "images"
+            ? imageRunSummary({
+                id: r.id,
+                createdAt: r.createdAt,
+                imageSlotIds: r.imageSlotIds,
+                outcomeDetail: r.outcomeDetail,
+                usage: r.usage,
+              })
+            : null,
+        imageSlotIds: r.imageSlotIds,
         id: r.id,
         kind: r.kind as ThemeStudioRunView["kind"],
         status: r.status as ThemeStudioRunView["status"],
@@ -623,6 +639,8 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const THEME_ID_RE = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_-]{16,80}$/;
+/** A package asset id (contracts.ts ASSET_ID_RE). */
+const SLOT_ID_RE = /^[a-z][a-z0-9-]{0,79}$/;
 
 export function isUuid(value: unknown): value is string {
   return typeof value === "string" && UUID_RE.test(value);
@@ -1402,6 +1420,8 @@ export async function retryThemeStudioRun(
         baseVersionId: run.baseVersionId,
         basePackageDigest: run.basePackageDigest,
         contextMessageIds: run.contextMessageIds,
+        // A retried redraw redraws the same slots.
+        imageSlotIds: run.imageSlotIds,
         createdBy: actor.id,
       })
       .returning({ id: themeStudioRuns.id });
@@ -1749,10 +1769,27 @@ export async function queueThemeStudioImages(
     expectedRevision: number;
     expectedPackageDigest: string;
     idempotencyKey: string;
+    /**
+     * Track 3.5: redraw exactly these slots (placeholders or generated
+     * images, never an upload). Absent: every placeholder.
+     */
+    slotIds?: readonly string[];
   },
 ): Promise<{ runId: string; duplicate: boolean; slots: number }> {
   if (!isUuid(input.projectId) || !isUuid(input.versionId)) {
     throw new ThemeStudioError("not_found", "That version no longer exists.");
+  }
+  const slotIds = input.slotIds ? [...new Set(input.slotIds)] : null;
+  if (
+    slotIds &&
+    (slotIds.length === 0 ||
+      slotIds.length > MAX_IMAGES_PER_RUN - 1 ||
+      slotIds.some((id) => typeof id !== "string" || !SLOT_ID_RE.test(id)))
+  ) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      "Choose between 1 and 40 images to redraw.",
+    );
   }
   if (!IDEMPOTENCY_RE.test(input.idempotencyKey)) {
     throw new ThemeStudioError(
@@ -1826,7 +1863,20 @@ export async function queueThemeStudioImages(
         "That version can no longer be read. Revise it or restore another.",
       );
     }
-    const slots = generatableSlots(pkg.value, intent.value).length;
+    const drawn = generatableSlots(
+      pkg.value,
+      intent.value,
+      slotIds ?? undefined,
+    );
+    const slots = drawn.length;
+    if (slotIds && slots !== slotIds.length) {
+      // Refused rather than trimmed: drawing fewer images than the operator
+      // chose, silently, is a different request from the one they confirmed.
+      throw new ThemeStudioError(
+        "invalid_input",
+        "Only a placeholder or a generated image can be redrawn; an uploaded image is yours to replace.",
+      );
+    }
     if (slots === 0) {
       throw new ThemeStudioError(
         "illegal_state",
@@ -1843,7 +1893,12 @@ export async function queueThemeStudioImages(
       .values({
         projectId: project.id,
         kind: "images",
-        body: `Generate images for ${slots} slot${slots === 1 ? "" : "s"}.`,
+        body: slotIds
+          ? `Redraw ${slots} image${slots === 1 ? "" : "s"}: ${drawn.map((d) => d.slotId).join(", ")}.`.slice(
+              0,
+              2000,
+            )
+          : `Generate images for ${slots} slot${slots === 1 ? "" : "s"}.`,
         referenceAssetIds: [],
         createdBy: actor.id,
       })
@@ -1863,6 +1918,7 @@ export async function queueThemeStudioImages(
         promptVersion: resolved.promptVersion,
         idempotencyKey: input.idempotencyKey,
         maxAttempts: 1,
+        imageSlotIds: slotIds ? drawn.map((d) => d.slotId) : [],
         createdBy: actor.id,
       })
       .returning({ id: themeStudioRuns.id });
@@ -1875,7 +1931,11 @@ export async function queueThemeStudioImages(
       runId: run.id,
       actor,
       eventType: "images_requested",
-      detail: { versionId: version.id, slots },
+      detail: {
+        versionId: version.id,
+        slots,
+        ...(slotIds ? { redraw: drawn.map((d) => d.slotId) } : {}),
+      },
     });
     return { runId: run.id, duplicate: false, slots };
   });

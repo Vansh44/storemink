@@ -5816,6 +5816,26 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260927_0142_theme_studio_image_slots",
+      "description": "Theme Studio image runs record the slots they were asked to redraw",
+      "file": "sql/20260927_0142_theme_studio_image_slots.sql",
+      "transaction": true,
+      "requires": ["20260926_0141_theme_studio_image_runs"],
+      "verify": {
+        "columns": ["theme_studio_runs.image_slot_ids"],
+        "constraints": ["theme_studio_runs_image_slots_check"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "only an image run may name slots, at most 41",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_runs_image_slots_check' and pg_get_constraintdef(oid) like '%images%' and pg_get_constraintdef(oid) like '%41%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

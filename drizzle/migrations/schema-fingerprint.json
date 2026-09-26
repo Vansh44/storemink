@@ -2,10 +2,10 @@
   "$comment": "Committed schema baseline per environment. Refresh with `db-migrate drift --update-baseline` immediately after applying migrations, and commit it in the same change. A `drift=out_of_band` verdict means DDL reached the database without the runner.",
   "environments": {
     "local": {
-      "fingerprint": "340aa26503633fa88aad72cd69df7ad153b42131d1f9e88a98740db85fb7ee7f",
+      "fingerprint": "75683db457f956c2fc8d50081108fe72361393f448fcad9c77ec7335b4bf251d",
       "ledger": {
-        "count": 151,
-        "digest": "09d65d079b118c340ecbc5d935bbe55001c5e1d629f495456731a8053bb7d376"
+        "count": 152,
+        "digest": "a9ba61929282a5ef2f6e46394425d5f89f961e8471d316d67036a36f1a9dcb22"
       }
     },
     "production": {

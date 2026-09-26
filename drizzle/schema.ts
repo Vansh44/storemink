@@ -2381,6 +2381,8 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
   basePackageDigest: text("base_package_digest"),
   /** Revise runs only: the ordered messages the run reads. */
   contextMessageIds: uuid("context_message_ids").array().default([]).notNull(),
+  /** Image runs only: the slots to redraw; empty means every placeholder. */
+  imageSlotIds: text("image_slot_ids").array().default([]).notNull(),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
     .defaultNow()
