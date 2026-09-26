@@ -13,14 +13,14 @@ import { BrandMark } from "@/app/platform/brand-mark";
 import { PLATFORM_URL, THEMES_URL } from "@/lib/site";
 import { ROOT_DOMAIN } from "@/lib/store/host";
 import {
-  THEME_CATEGORIES,
-  THEME_META,
   canPreviewTheme,
   isThemeSelectable,
   newestThemesFirst,
+  themeCategoriesFor,
   type ThemeIndustry,
   type ThemeMeta,
 } from "@/lib/themes/meta";
+import { getThemeCatalog } from "@/lib/themes/runtime-registry";
 import {
   ThemeClosingArt,
   ThemeHeroStage,
@@ -82,14 +82,16 @@ export default async function ThemesPage({
 }: {
   searchParams: Promise<{ industry?: string }>;
 }) {
+  const themeCatalog = await getThemeCatalog();
+  const themeCategories = themeCategoriesFor(themeCatalog);
   const requested = (await searchParams).industry;
-  const selected: ThemeIndustry | "all" = THEME_CATEGORIES.some(
+  const selected: ThemeIndustry | "all" = themeCategories.some(
     (category) => category.id === requested,
   )
     ? (requested as ThemeIndustry | "all")
     : "all";
   const selectableThemes = newestThemesFirst(
-    THEME_META.filter(isThemeSelectable),
+    themeCatalog.filter(isThemeSelectable),
   );
   const showcaseThemes: ShowcaseTheme[] = selectableThemes.map((theme) => ({
     id: theme.id,
@@ -225,7 +227,7 @@ export default async function ThemesPage({
             className="themes-filters"
             aria-label="Filter themes by industry"
           >
-            {THEME_CATEGORIES.map((category) => (
+            {themeCategories.map((category) => (
               <Link
                 key={category.id}
                 href={

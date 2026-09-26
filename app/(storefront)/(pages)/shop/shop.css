@@ -94,7 +94,7 @@
 }
 
 .shop-title {
-  font-size: clamp(2rem, 4vw, 3rem);
+  font-size: calc(clamp(2rem, 4vw, 3rem) * var(--sm-hs, 1));
   font-weight: 700;
   line-height: 1.1;
   margin: 0 0 12px;
@@ -399,7 +399,7 @@
 .shop-listing .shop-title {
   font-family: var(--font-outfit), sans-serif;
   font-weight: 800;
-  font-size: clamp(36px, 4.5vw, 60px);
+  font-size: calc(clamp(36px, 4.5vw, 60px) * var(--sm-hs, 1));
   line-height: 0.95;
   letter-spacing: -0.04em;
   color: var(--sm-ink);
@@ -478,6 +478,60 @@
 @media (max-width: 460px) {
   .shop-listing .shop-grid {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ── Theme-chosen grid columns (layout.gridColumnsDesktop/Mobile) ──
+   Opt-in root classes, so a store whose theme sets neither keeps the fixed
+   4 → 3 → 2 → 1 ladder above. Premium themes keep TWO columns on a phone:
+   one card per screen makes a catalogue feel empty and costs a scroll per
+   product. The compact card rules below are what make a ~170px card read
+   cleanly — smaller type, tighter padding, and badges under the name rather
+   than squeezing it into a sliver beside them. */
+@media (min-width: 1101px) {
+  .sm-grid-d3 .shop-listing .shop-grid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+  .sm-grid-d5 .shop-listing .shop-grid {
+    grid-template-columns: repeat(5, 1fr);
+  }
+}
+@media (max-width: 460px) {
+  .sm-grid-m2 .shop-listing .shop-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 12px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-body {
+    padding: 8px 10px 12px;
+    gap: 4px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-head > .shrink-0 {
+    margin-left: 0;
+    align-items: flex-start;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-name {
+    font-size: 0.95rem;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-cat {
+    margin-bottom: 6px;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-price {
+    gap: 4px 6px;
+    padding-top: 4px;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-sell {
+    font-size: 0.95rem;
+  }
+  .sm-grid-m2 .shop-listing .shop-card-base,
+  .sm-grid-m2 .shop-listing .shop-card-off {
+    font-size: 0.75rem;
   }
 }
 
@@ -583,7 +637,10 @@
 
 .pdp-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  /* minmax(0, …) not 1fr: a bare 1fr track never shrinks below its widest
+     child's min-content, so one long word or form row pushed the column past
+     the page padding on a phone. */
+  grid-template-columns: minmax(0, 1fr);
   gap: 40px;
   max-width: 1100px;
   margin: 0 auto;
@@ -686,7 +743,7 @@
 }
 
 .pdp-name {
-  font-size: clamp(1.6rem, 3vw, 2.4rem);
+  font-size: calc(clamp(1.6rem, 3vw, 2.4rem) * var(--sm-hs, 1));
   font-weight: 700;
   line-height: 1.15;
   margin: 0 0 12px;
@@ -1151,17 +1208,80 @@
   text-align: center;
 }
 
-/* Zoom lightbox */
-.pdp-lightbox {
+/* ── Product gallery (product-gallery.tsx) ──────────────────────────
+   One track of slides. Desktop shows only the active slide (thumbnails
+   switch it); below the two-column breakpoint the track becomes a native
+   scroll-snap strip the shopper swipes. The `[data-active]` selectors are
+   deliberately specific: each layout styles its slide through its own class
+   (.pdp-main-img, .sm-storefront-grocery .gpdp-main-img) and those rules set
+   `display: block`, so a plain selector here would lose to them. */
+.sm-gallery-frame {
+  position: relative;
+}
+.sm-gallery-track > .sm-gallery-slide[data-active="false"] {
+  display: none;
+}
+.sm-gallery-count {
+  display: none;
+}
+
+@media (max-width: 859.98px) {
+  .sm-gallery-track.is-multi {
+    display: flex;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .sm-gallery-track.is-multi::-webkit-scrollbar {
+    display: none;
+  }
+  .sm-gallery-track.is-multi > .sm-gallery-slide[data-active] {
+    display: block;
+    flex: 0 0 100%;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+  }
+  .sm-gallery-count {
+    display: inline-flex;
+    position: absolute;
+    left: 12px;
+    bottom: 12px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(var(--sm-shadow-rgb), 0.62);
+    color: #ffffff;
+    font-size: 12px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    pointer-events: none;
+  }
+  /* Thumbnails stay (nothing a merchant saw disappears) but scroll in one
+     row instead of wrapping into several under a swipeable photo. */
+  .sm-gallery .pdp-thumbs,
+  .sm-storefront-grocery .sm-gallery .gpdp-thumbs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .sm-gallery .pdp-thumb,
+  .sm-storefront-grocery .sm-gallery .gpdp-thumb {
+    flex: 0 0 auto;
+  }
+  /* A touch screen has no hover; the hint only ever flashed on tap. */
+  .sm-gallery .pdp-zoom-hint {
+    display: none;
+  }
+}
+
+/* ── Full-screen photo viewer ──────────────────────────────────────── */
+.sm-lightbox {
   position: fixed;
   inset: 0;
   z-index: 9999;
-  background: var(--shop-overlay);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 32px;
-  cursor: zoom-out;
+  background: rgba(12, 12, 12, 0.94);
+  color: #ffffff;
   animation: pdp-fade 0.15s ease;
 }
 
@@ -1174,34 +1294,121 @@
   }
 }
 
-.pdp-lightbox-img-wrap {
-  position: relative;
-  width: min(90vw, 760px);
-  height: min(90vh, 760px);
-  cursor: default;
+.sm-lightbox-bar {
+  position: absolute;
+  inset: 0 0 auto;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: calc(12px + env(safe-area-inset-top)) 16px 12px;
+  pointer-events: none;
+}
+.sm-lightbox-bar > * {
+  pointer-events: auto;
+}
+.sm-lightbox-count {
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.sm-lightbox-close {
+  margin-left: auto;
 }
 
-.pdp-lightbox-img {
+/* Swipe is native scrolling here too, so pinch-to-zoom (the browser's own)
+   keeps working on phones. */
+.sm-lightbox-track {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  overflow-x: hidden;
+}
+.sm-lightbox-track.is-multi {
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scroll-snap-type: x mandatory;
+  scrollbar-width: none;
+}
+.sm-lightbox-track::-webkit-scrollbar {
+  display: none;
+}
+.sm-lightbox-slide {
+  flex: 0 0 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 64px 16px calc(24px + env(safe-area-inset-bottom));
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
+}
+.sm-lightbox-stage {
+  position: relative;
+  width: min(100%, 1200px);
+  height: 100%;
+  cursor: zoom-in;
+  transition: transform 0.2s ease;
+}
+.sm-lightbox-stage.is-magnified {
+  cursor: zoom-out;
+  transition: none;
+}
+.sm-lightbox-img {
   object-fit: contain;
 }
 
-.pdp-lightbox-close {
-  position: absolute;
-  top: 20px;
-  right: 24px;
+.sm-lightbox-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   width: 44px;
   height: 44px;
   border-radius: 999px;
   border: none;
-  background: rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.14);
   color: #ffffff;
-  font-size: 20px;
   cursor: pointer;
   transition: background 0.15s ease;
 }
-
-.pdp-lightbox-close:hover {
-  background: rgba(255, 255, 255, 0.3);
+.sm-lightbox-btn:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+.sm-lightbox-btn:focus-visible {
+  outline: 2px solid #ffffff;
+  outline-offset: 2px;
+}
+.sm-lightbox-prev,
+.sm-lightbox-next {
+  position: absolute;
+  top: 50%;
+  z-index: 2;
+  transform: translateY(-50%);
+}
+.sm-lightbox-prev {
+  left: 16px;
+}
+.sm-lightbox-next {
+  right: 16px;
+}
+/* Phones swipe; arrows over a phone-sized photo only get in the way. */
+@media (pointer: coarse) {
+  .sm-lightbox-prev,
+  .sm-lightbox-next {
+    display: none;
+  }
+  .sm-lightbox-stage {
+    cursor: default;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sm-lightbox,
+  .sm-lightbox-stage {
+    animation: none;
+    transition: none;
+  }
 }
 
 .pdp-description {
@@ -1488,7 +1695,7 @@
 
 .sm-storefront-grocery .gpdp-grid {
   display: grid;
-  grid-template-columns: 1fr;
+  grid-template-columns: minmax(0, 1fr);
   gap: clamp(24px, 4vw, 56px);
   align-items: start;
 }
@@ -1564,7 +1771,7 @@
 }
 .sm-storefront-grocery .gpdp-name {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 4.5vw, 3rem);
+  font-size: calc(clamp(2rem, 4.5vw, 3rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -1799,7 +2006,7 @@
 }
 .shop-title-grocery {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.9rem, 4vw, 2.8rem);
+  font-size: calc(clamp(1.9rem, 4vw, 2.8rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   color: var(--sm-ink);
@@ -1833,7 +2040,7 @@
   padding-top: clamp(24px, 5vw, 70px);
 }
 .sm-pdp-editorial .pdp-name {
-  font-size: clamp(2.3rem, 5vw, 4.7rem);
+  font-size: calc(clamp(2.3rem, 5vw, 4.7rem) * var(--sm-hs, 1));
   font-weight: 600;
   letter-spacing: -0.045em;
   line-height: 0.98;
@@ -1854,7 +2061,7 @@
 }
 @media (max-width: 860px) {
   .sm-pdp-editorial .pdp-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .sm-pdp-editorial .pdp-main-img {
     min-height: 0;
@@ -1863,5 +2070,425 @@
   .sm-pdp-editorial .pdp-info {
     position: static;
     padding-top: 0;
+  }
+}
+
+/* ── Shop toolbar, filters and "Load more" (theme layout.shopFilters) ──────
+   The category chips are links now (each category has its own page), so they
+   lose the underline an anchor would otherwise bring. */
+.shop-filters a.shop-chip {
+  display: inline-flex;
+  align-items: center;
+  text-decoration: none;
+}
+.shop-chip:focus-visible,
+.shop-filter-btn:focus-visible,
+.shop-active-filter:focus-visible,
+.shop-clear-filters:focus-visible,
+.shop-sort select:focus-visible,
+.shop-more-btn:focus-visible,
+.shop-filter-panel button:focus-visible,
+.shop-filter-panel input:focus-visible {
+  outline: 2px solid var(--sm-ink);
+  outline-offset: 2px;
+}
+
+.shop-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.shop-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 20px;
+  margin: 0 0 20px;
+  padding: 12px 0;
+  border-top: 1px solid var(--sm-border);
+  border-bottom: 1px solid var(--sm-border);
+}
+.shop-toolbar-start,
+.shop-toolbar-end {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  min-width: 0;
+}
+.shop-filter-btn,
+.shop-active-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-pill);
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shop-filter-btn:hover,
+.shop-active-filter:hover {
+  border-color: var(--sm-ink);
+}
+.shop-active-filter {
+  min-height: 34px;
+  padding: 0 12px;
+  font-weight: 500;
+  background: var(--sm-cream-deep);
+}
+.shop-filter-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+  font-size: 12px;
+  line-height: 1;
+}
+.shop-clear-filters {
+  border: 0;
+  background: none;
+  padding: 6px 4px;
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 14px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  cursor: pointer;
+}
+.shop-toolbar-count {
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+}
+.shop-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+}
+.shop-sort select {
+  min-height: 40px;
+  padding: 0 34px 0 12px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-control);
+  background-color: var(--sm-surface);
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+@media (max-width: 600px) {
+  /* One row each on a phone: Filter + chips, then count + sort. */
+  .shop-toolbar-start,
+  .shop-toolbar-end {
+    width: 100%;
+  }
+  .shop-toolbar-end {
+    justify-content: space-between;
+  }
+  .shop-sort-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  /* 16px stops iOS zooming the page when the select takes focus. */
+  .shop-sort select {
+    font-size: 16px;
+  }
+}
+
+.shop-more {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
+  margin: 36px 0 8px;
+}
+.shop-more-count {
+  margin: 0;
+  font-size: 14px;
+  color: var(--sm-ink-soft);
+}
+.shop-more-bar {
+  width: min(240px, 70%);
+  height: 3px;
+  border-radius: 999px;
+  background: var(--sm-border);
+  overflow: hidden;
+}
+.shop-more-bar span {
+  display: block;
+  height: 100%;
+  background: var(--sm-ink);
+}
+.shop-more-btn {
+  min-height: 46px;
+  padding: 0 32px;
+  border: 1px solid var(--sm-ink);
+  border-radius: var(--sm-radius-pill);
+  background: transparent;
+  color: var(--sm-ink);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shop-more-btn:hover {
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+}
+
+/* ── Filter panel: side drawer on a computer, bottom sheet on a phone ──── */
+.shop-filter-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 140;
+}
+.shop-filter-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(var(--sm-shadow-rgb), 0.42);
+}
+.shop-filter-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  flex-direction: column;
+  width: min(400px, 100vw);
+  background: var(--sm-surface);
+  color: var(--sm-ink);
+  box-shadow: -12px 0 40px rgba(var(--sm-shadow-rgb), 0.18);
+  outline: none;
+  animation: shop-filter-in-side 0.22s ease-out;
+}
+.shop-filter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 20px;
+  border-bottom: 1px solid var(--sm-border);
+}
+.shop-filter-head h2 {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+}
+.shop-filter-close {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  margin-right: -8px;
+  border: 0;
+  border-radius: 999px;
+  background: none;
+  color: var(--sm-ink);
+  cursor: pointer;
+}
+.shop-filter-body {
+  flex: 1;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 8px 20px 20px;
+}
+.shop-filter-group {
+  margin: 0;
+  padding: 18px 0;
+  border: 0;
+  border-bottom: 1px solid var(--sm-border);
+}
+.shop-filter-group:last-child {
+  border-bottom: 0;
+}
+.shop-filter-group legend {
+  padding: 0;
+  margin-bottom: 12px;
+  font-size: 15px;
+  font-weight: 700;
+}
+.shop-filter-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 40px;
+  font-size: 15px;
+  cursor: pointer;
+}
+.shop-filter-check input {
+  width: 20px;
+  height: 20px;
+  accent-color: var(--sm-ink);
+}
+.shop-filter-muted {
+  color: var(--sm-ink-soft);
+}
+.shop-filter-hint {
+  margin: -4px 0 12px;
+  font-size: 13px;
+}
+.shop-filter-range {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.shop-filter-range label {
+  display: grid;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--sm-ink-soft);
+}
+.shop-filter-money {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--sm-border);
+  border-radius: var(--sm-radius-control);
+  background: var(--sm-cream);
+  color: var(--sm-ink);
+}
+.shop-filter-money:focus-within {
+  border-color: var(--sm-ink);
+}
+.shop-filter-money input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  /* 16px: no iOS focus zoom. */
+  font-size: 16px;
+  outline: none;
+}
+.shop-filter-panel input:focus-visible {
+  outline: none;
+}
+.shop-filter-foot {
+  display: flex;
+  gap: 12px;
+  padding: 14px 20px calc(14px + env(safe-area-inset-bottom));
+  border-top: 1px solid var(--sm-border);
+}
+.shop-filter-reset,
+.shop-filter-apply {
+  min-height: 48px;
+  border-radius: var(--sm-radius-pill);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.shop-filter-reset {
+  padding: 0 20px;
+  border: 1px solid var(--sm-border);
+  background: transparent;
+  color: var(--sm-ink);
+}
+.shop-filter-apply {
+  flex: 1;
+  border: 1px solid var(--sm-ink);
+  background: var(--sm-ink);
+  color: var(--sm-on-ink);
+}
+
+@media (max-width: 600px) {
+  .shop-filter-panel {
+    top: auto;
+    left: 0;
+    width: 100%;
+    max-height: 88dvh;
+    border-radius: var(--sm-radius-card) var(--sm-radius-card) 0 0;
+    box-shadow: 0 -12px 40px rgba(var(--sm-shadow-rgb), 0.18);
+    animation-name: shop-filter-in-up;
+  }
+}
+@keyframes shop-filter-in-side {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+@keyframes shop-filter-in-up {
+  from {
+    transform: translateY(24px);
+    opacity: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .shop-filter-panel {
+    animation: none;
+  }
+}
+
+/* ── Collection banner (theme layout.collectionBanner) ────────────────────
+   The category's own words and picture open its page. Without an image it is
+   a text header; with one, copy and picture sit side by side from 768px. */
+.shop-collection-banner {
+  display: grid;
+  gap: 20px;
+  margin: 0 0 24px;
+}
+.shop-collection-banner.has-image {
+  align-items: center;
+}
+.shop-collection-title {
+  margin: 0;
+  font-family: var(--font-stick-no-bills, var(--font-outfit)), sans-serif;
+  font-size: calc(clamp(32px, 4.5vw, 56px) * var(--sm-hs, 1));
+  font-weight: 700;
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: var(--sm-ink);
+}
+.shop-collection-desc {
+  max-width: 62ch;
+  margin: 14px 0 0;
+  font-size: clamp(15px, 1.4vw, 17px);
+  line-height: 1.6;
+  color: var(--sm-ink-soft);
+  white-space: pre-line;
+}
+.shop-collection-media {
+  position: relative;
+  aspect-ratio: 16 / 9;
+  overflow: hidden;
+  border-radius: var(--sm-radius-card);
+  background: var(--sm-cream-deep);
+}
+.shop-collection-img {
+  object-fit: cover;
+}
+@media (min-width: 768px) {
+  .shop-collection-banner.has-image {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr);
+    gap: clamp(24px, 4vw, 56px);
+  }
+  .shop-collection-media {
+    aspect-ratio: 3 / 2;
   }
 }

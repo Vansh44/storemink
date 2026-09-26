@@ -36,11 +36,10 @@ import {
   RotateCcw,
 } from "lucide-react";
 import {
-  THEME_META,
-  THEME_CATEGORIES,
   DEFAULT_THEME_ID,
   canPreviewTheme,
   isThemeSelectable,
+  themeCategoriesFor,
   type ThemeIndustry,
 } from "@/lib/themes/meta";
 import { COUNTRIES, DEFAULT_COUNTRY } from "@/lib/countries";
@@ -49,6 +48,7 @@ import "react-phone-number-input/style.css";
 import { customPhoneLabels } from "@/lib/phone-labels";
 import { CountrySelect } from "@/components/ui/phone-country-select";
 import { LocationPicker, type PickedLocation } from "./location-picker";
+import { useSignupThemeCatalog } from "./theme-catalog-context";
 import { acceptPlatformPolicies } from "@/app/actions/legal-actions";
 import { signupRequiredDocs } from "@/lib/legal/documents";
 import {
@@ -131,6 +131,14 @@ const CONSENT_DOC_NAMES = CONSENT_DOCS.map((d, i) =>
 ).join("");
 
 export default function SignupPage() {
+  const themeCatalog = useSignupThemeCatalog();
+  const themeCategories = themeCategoriesFor(themeCatalog);
+  const defaultThemeId =
+    themeCatalog.find(
+      (theme) => theme.id === DEFAULT_THEME_ID && isThemeSelectable(theme),
+    )?.id ??
+    themeCatalog.find(isThemeSelectable)?.id ??
+    DEFAULT_THEME_ID;
   // Firebase phone linking: invisible reCAPTCHA + the verificationId from
   // PhoneAuthProvider, held across the send → verify steps.
   const recaptchaRef = useRef<HTMLDivElement | null>(null);
@@ -220,7 +228,7 @@ export default function SignupPage() {
   const seq = useRef(0);
 
   // Theme
-  const [template, setTemplate] = useState<string>(DEFAULT_THEME_ID);
+  const [template, setTemplate] = useState<string>(defaultThemeId);
   const [themeFilter, setThemeFilter] = useState<ThemeIndustry | "all">("all");
 
   async function restartSignup() {
@@ -1352,7 +1360,7 @@ export default function SignupPage() {
               </p>
 
               <div className="mb-6 flex flex-wrap gap-2">
-                {THEME_CATEGORIES.map((c) => (
+                {themeCategories.map((c) => (
                   <button
                     key={c.id}
                     type="button"
@@ -1369,7 +1377,8 @@ export default function SignupPage() {
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 mb-8">
-                {THEME_META.filter(isThemeSelectable)
+                {themeCatalog
+                  .filter(isThemeSelectable)
                   .filter(
                     (t) =>
                       themeFilter === "all" ||

@@ -14,12 +14,13 @@ import {
 import { STORE_TAG } from "@/lib/store/resolve";
 import { TAGS } from "@/lib/storefront/tags";
 import { sanitizeBlogContent } from "@/lib/sanitize";
+import { resolveOptionRows } from "@/lib/products/options";
 import {
   validateSections,
   type PageSectionItem,
   type RichTextConfig,
 } from "@/lib/sections/registry";
-import { getThemeDefinition } from "./index";
+import { resolveThemeDefinition } from "./runtime-registry";
 import type { StoredThemeInstallation } from "./meta";
 import type { ThemeDefinition } from "./types";
 
@@ -46,36 +47,54 @@ export interface ApplyThemeResult {
   errors: string[];
 }
 
+export interface ApplyThemeOptions {
+  publish: boolean;
+  actorUserId?: string | null;
+  reset?: boolean;
+  /**
+   * Publish the theme's SAMPLE products (default: seed them as drafts).
+   *
+   * Only the demo stores want them live. For a real merchant they are
+   * placeholders that say so in their own copy — "Tomatoes (500 g) (Sample)",
+   * "replace it with your own" — and publishing them means every store on
+   * this theme serves the same handful of identical product pages under a
+   * different subdomain. That is a near-duplicate cluster that competes with
+   * the merchant's own products, and a shop whose live catalogue announces
+   * itself as placeholder is worse for a visitor than one that is empty.
+   *
+   * As drafts they still appear in the dashboard, fully written, one click
+   * from live — which is what makes them useful as a starting point.
+   */
+  publishSampleProducts?: boolean;
+}
+
 export async function applyTheme(
   storeId: string,
   themeId: unknown,
+  options: ApplyThemeOptions,
+): Promise<ApplyThemeResult> {
+  return applyThemeDefinition(
+    storeId,
+    await resolveThemeDefinition(themeId),
+    options,
+  );
+}
+
+/**
+ * Seed a store from a theme DEFINITION the caller already holds. applyTheme
+ * resolves one from the registry; a Theme Studio preview passes a draft
+ * version's definition, which the registry never serves.
+ */
+export async function applyThemeDefinition(
+  storeId: string,
+  theme: ThemeDefinition,
   {
     publish,
     actorUserId = null,
     reset = false,
     publishSampleProducts = false,
-  }: {
-    publish: boolean;
-    actorUserId?: string | null;
-    reset?: boolean;
-    /**
-     * Publish the theme's SAMPLE products (default: seed them as drafts).
-     *
-     * Only the demo stores want them live. For a real merchant they are
-     * placeholders that say so in their own copy — "Tomatoes (500 g) (Sample)",
-     * "replace it with your own" — and publishing them means every store on
-     * this theme serves the same handful of identical product pages under a
-     * different subdomain. That is a near-duplicate cluster that competes with
-     * the merchant's own products, and a shop whose live catalogue announces
-     * itself as placeholder is worse for a visitor than one that is empty.
-     *
-     * As drafts they still appear in the dashboard, fully written, one click
-     * from live — which is what makes them useful as a starting point.
-     */
-    publishSampleProducts?: boolean;
-  },
+  }: ApplyThemeOptions,
 ): Promise<ApplyThemeResult> {
-  const theme = getThemeDefinition(themeId);
   const { preset } = theme;
   const errors: string[] = [];
   const fail = (step: string, message: string) => {
@@ -206,6 +225,17 @@ export async function applyTheme(
     }
 
     for (const p of preset.sampleData.products) {
+      // Option axes seed exactly as the product editor saves them. A seed
+      // whose combinations do not add up keeps its variants as a flat list
+      // (and says so) rather than writing options the storefront would
+      // refuse to render as pickers.
+      const optionRows = resolveOptionRows(p.options, p.variants ?? []);
+      if ("error" in optionRows) fail(`options ${p.slug}`, optionRows.error);
+      const seedOptions = "error" in optionRows ? [] : optionRows.options;
+      const seedVariants =
+        "error" in optionRows
+          ? (p.variants ?? []).map((v) => ({ ...v, option_values: [] }))
+          : optionRows.variants;
       let productId: string;
       try {
         const [row] = await withService((db) =>
@@ -228,6 +258,7 @@ export async function applyTheme(
               featured: p.featured ?? false,
               sortOrder: p.sort_order ?? 0,
               cardColor: p.card_color ?? null,
+              options: seedOptions,
               publishedAt: publishSampleProducts
                 ? new Date().toISOString()
                 : null,
@@ -244,11 +275,17 @@ export async function applyTheme(
                 sellingPrice: p.selling_price,
                 imageUrl: p.image_url,
                 images: p.images ?? [],
-                status: "published",
+                // Re-applying keeps the same publish rule as the first apply:
+                // an unconditional "published" here would put a merchant's
+                // draft sample products live on any re-seed.
+                status: publishSampleProducts ? "published" : "draft",
                 featured: p.featured ?? false,
                 sortOrder: p.sort_order ?? 0,
                 cardColor: p.card_color ?? null,
-                publishedAt: new Date().toISOString(),
+                options: seedOptions,
+                publishedAt: publishSampleProducts
+                  ? new Date().toISOString()
+                  : null,
                 updatedBy: actorUserId,
               },
             })
@@ -282,7 +319,7 @@ export async function applyTheme(
         fail(`variants(clear) ${p.slug}`, dbErrorMessage(err, "delete failed"));
       }
 
-      const variants = (p.variants ?? []).map((v, i) => ({
+      const variants = seedVariants.map((v, i) => ({
         storeId,
         productId,
         name: v.name,
@@ -294,6 +331,7 @@ export async function applyTheme(
         sku: v.sku ?? null,
         sortOrder: v.sort_order ?? i,
         images: v.images ?? [],
+        optionValues: v.option_values,
       }));
       if (variants.length > 0) {
         try {

@@ -49,7 +49,18 @@
 }
 
 /* ---- Shared per-section style (SectionShell / builder Style tab) ---- */
-.home-section.is-fullbleed {
+/* "Full width" makes the section a band from edge to edge. Sections whose
+   content is its own coloured surface with padding inside (carousel, hero,
+   ticker, trust bar, newsletter) run flush to the edges. Everything else —
+   media + text, galleries, product rows — keeps the page gutter, or its text
+   runs straight into the screen edge. */
+.home-section.is-fullbleed:has(
+    > .home-carousel,
+    > .home-hero,
+    > .home-ticker,
+    > .home-usp,
+    > .home-newsletter
+  ) {
   padding-inline: 0;
 }
 .home-section.home-pad-sm {
@@ -60,6 +71,130 @@
 }
 .home-section.home-pad-lg {
   padding-block: clamp(56px, 8vw, 96px);
+}
+
+/* ---- Colour schemes (SectionShell `sm-scheme sm-scheme-<id>`) ----
+   Re-points the page tokens inside the section, so every block's own CSS —
+   headings, muted copy, cards, hairlines, buttons — follows the band with no
+   per-section rule. The weights (76/56/16/6) are SCHEME_MIX in
+   lib/themes/schemes.ts, which checks contrast on these exact mixes.
+   ★ --sm-on-ink becomes the band's BACKGROUND: an element that paints an
+     "ink" block with "on-ink" text (the newsletter card, a filled chip) then
+     inverts against the band and stays readable in every scheme.
+   ★ --sm-accent is set directly: on the root it is var(--brand-primary),
+     already resolved there, so re-pointing --brand-primary alone here would
+     not reach it. */
+.home-section.sm-scheme {
+  --sm-cream: var(--sm-scheme-bg);
+  --sm-cream-deep: color-mix(
+    in srgb,
+    var(--sm-scheme-fg) 6%,
+    var(--sm-scheme-bg)
+  );
+  --sm-sand: var(--sm-cream-deep);
+  --sm-taupe: var(--sm-cream-deep);
+  --sm-tile: var(--sm-cream-deep);
+  --sm-surface: var(--sm-scheme-surface);
+  --sm-ink: var(--sm-scheme-fg);
+  --sm-ink-soft: color-mix(
+    in srgb,
+    var(--sm-scheme-fg) 76%,
+    var(--sm-scheme-bg)
+  );
+  --sm-ink-faint: color-mix(
+    in srgb,
+    var(--sm-scheme-fg) 56%,
+    var(--sm-scheme-bg)
+  );
+  --sm-border: color-mix(in srgb, var(--sm-scheme-fg) 16%, var(--sm-scheme-bg));
+  --sm-on-ink: var(--sm-scheme-bg);
+  --brand-primary: var(--sm-scheme-accent);
+  --sm-accent: var(--sm-scheme-accent);
+  --sm-accent-deep: color-mix(
+    in srgb,
+    var(--sm-scheme-accent) 86%,
+    var(--sm-scheme-fg)
+  );
+  --sm-on-accent: var(--sm-scheme-on-accent);
+  background: var(--sm-scheme-bg);
+  color: var(--sm-scheme-fg);
+}
+.home-section.sm-scheme-soft {
+  --sm-scheme-bg: var(--sm-scheme-soft-bg);
+  --sm-scheme-fg: var(--sm-scheme-soft-fg);
+  --sm-scheme-surface: var(--sm-scheme-soft-surface);
+  --sm-scheme-accent: var(--sm-scheme-soft-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-soft-on-accent);
+}
+.home-section.sm-scheme-tint {
+  --sm-scheme-bg: var(--sm-scheme-tint-bg);
+  --sm-scheme-fg: var(--sm-scheme-tint-fg);
+  --sm-scheme-surface: var(--sm-scheme-tint-surface);
+  --sm-scheme-accent: var(--sm-scheme-tint-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-tint-on-accent);
+}
+.home-section.sm-scheme-accent {
+  --sm-scheme-bg: var(--sm-scheme-accent-bg);
+  --sm-scheme-fg: var(--sm-scheme-accent-fg);
+  --sm-scheme-surface: var(--sm-scheme-accent-surface);
+  --sm-scheme-accent: var(--sm-scheme-accent-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-accent-on-accent);
+}
+.home-section.sm-scheme-inverse {
+  --sm-scheme-bg: var(--sm-scheme-inverse-bg);
+  --sm-scheme-fg: var(--sm-scheme-inverse-fg);
+  --sm-scheme-surface: var(--sm-scheme-inverse-surface);
+  --sm-scheme-accent: var(--sm-scheme-inverse-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-inverse-on-accent);
+}
+/* A strip's own "light/dark text" setting was chosen against the page, and
+   under a scheme it would pick the band's background colour for its text.
+   Inside a band the text follows the band. */
+.home-section.sm-scheme .home-usp,
+.home-section.sm-scheme .home-ticker {
+  color: var(--sm-ink);
+}
+/* A product card paints its own tile (a per-product colour, or the theme's
+   card surface) and was designed for the page's text on that tile; a tile in
+   a tile grid paints the merchant's own colour and picks light or dark text
+   against it. Inside a band both keep the page's colours — light cards on a
+   dark band — rather than taking the band's text onto a fill that stayed
+   what it was. A hero whose copy sits on its own photo is the same case:
+   that copy was chosen against the photo, not the band. */
+.home-section.sm-scheme .shop-card,
+.home-section.sm-scheme .home-tile,
+.home-section.sm-scheme .home-hero.variant-banner,
+.home-section.sm-scheme .home-hero:has(.home-hero-bgmedia) {
+  --sm-cream: var(--sm-page-cream);
+  --sm-cream-deep: var(--sm-page-cream-deep);
+  --sm-surface: var(--sm-page-surface);
+  --sm-sand: var(--sm-page-sand);
+  --sm-taupe: var(--sm-page-cream-deep);
+  --sm-tile: var(--sm-page-tile);
+  --sm-ink: var(--sm-page-ink);
+  --sm-ink-soft: var(--sm-page-ink-soft);
+  --sm-ink-faint: var(--sm-page-ink-faint);
+  --sm-border: var(--sm-page-border);
+  --sm-on-ink: var(--sm-page-on-ink);
+  --brand-primary: var(--sm-page-accent);
+  --sm-accent: var(--sm-page-accent);
+  --sm-accent-deep: var(--sm-page-accent-deep);
+  --sm-on-accent: var(--sm-page-on-accent);
+  color: var(--sm-ink);
+}
+/* The newsletter paints its own card. Inside a band that card would be a
+   second band — and its "light" setting would flip it to the band's text
+   colour, a white card inside a dark band. In a band, the band IS the card:
+   no fill of its own, and the band's padding instead of its own. */
+.home-section.sm-scheme .home-newsletter {
+  padding-block: 0;
+  background: transparent;
+  color: var(--sm-ink);
+}
+.home-section.sm-scheme .home-newsletter .home-section-eyebrow,
+.home-section.sm-scheme .home-newsletter .home-newsletter-sub,
+.home-section.sm-scheme .home-newsletter .home-newsletter-consent {
+  color: var(--sm-ink-soft);
 }
 
 /* ---- Rich text ---- */
@@ -89,13 +224,13 @@
   font-weight: 700;
 }
 .home-rich-text-content h1 {
-  font-size: clamp(1.75rem, 1.3rem + 1.6vw, 2.25rem);
+  font-size: calc(clamp(1.75rem, 1.3rem + 1.6vw, 2.25rem) * var(--sm-hs, 1));
 }
 .home-rich-text-content h2 {
-  font-size: clamp(1.35rem, 1.1rem + 0.9vw, 1.6rem);
+  font-size: calc(clamp(1.35rem, 1.1rem + 0.9vw, 1.6rem) * var(--sm-hs, 1));
 }
 .home-rich-text-content h3 {
-  font-size: 1.2rem;
+  font-size: calc(1.2rem * var(--sm-hs, 1));
 }
 .home-rich-text-content h4 {
   font-size: 1.05rem;
@@ -137,7 +272,7 @@
 
 .home-section-title {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.5rem, 3.5vw, 2.25rem);
+  font-size: calc(clamp(1.5rem, 3.5vw, 2.25rem) * var(--sm-hs, 1));
   font-weight: 700;
   letter-spacing: -0.01em;
   color: var(--sm-ink);
@@ -697,7 +832,7 @@
 
 .home-banner-heading {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.6rem, 4vw, 2.75rem);
+  font-size: calc(clamp(1.6rem, 4vw, 2.75rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.05;
@@ -784,7 +919,7 @@
 
 .home-hero-heading {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.9rem, 4.5vw, 3.25rem);
+  font-size: calc(clamp(1.9rem, 4.5vw, 3.25rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.08;
@@ -953,7 +1088,7 @@
 }
 .home-carousel-heading {
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(1.8rem, 4.2vw, 3.1rem);
+  font-size: calc(clamp(1.8rem, 4.2vw, 3.1rem) * var(--sm-hs, 1));
   font-weight: 800;
   letter-spacing: -0.02em;
   line-height: 1.08;
@@ -1031,6 +1166,14 @@
   .home-carousel-arrow {
     width: 34px;
     height: 34px;
+  }
+}
+/* On a touch phone the copy spans the slide, so the arrows sit on top of the
+   words. Touch visitors swipe between slides and the dots stay, so the arrows
+   are hidden there; a narrow desktop window with a mouse keeps them. */
+@media (max-width: 640px) and (pointer: coarse) {
+  .home-carousel-arrow {
+    display: none;
   }
 }
 
@@ -1348,7 +1491,7 @@ a.home-tile:hover {
   margin: 0;
   color: var(--sm-ink);
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 4.4vw, 4.25rem);
+  font-size: calc(clamp(2rem, 4.4vw, 4.25rem) * var(--sm-hs, 1));
   font-weight: 650;
   letter-spacing: -0.035em;
   line-height: 1.02;
@@ -1562,7 +1705,7 @@ a.home-gallery-card:hover .home-gallery-image {
 .home-newsletter-heading {
   margin: 0;
   font-family: var(--font-outfit), sans-serif;
-  font-size: clamp(2rem, 4.5vw, 4rem);
+  font-size: calc(clamp(2rem, 4.5vw, 4rem) * var(--sm-hs, 1));
   font-weight: 650;
   letter-spacing: -0.04em;
   line-height: 1.03;
@@ -1769,4 +1912,203 @@ a.home-gallery-card:hover .home-gallery-image {
   color: var(--sm-ink-soft);
   line-height: 1.7;
   font-size: 0.98rem;
+}
+
+/* ---- Hero image controls (hero-media.tsx) -------------------------------
+   Focal point, phone image, height presets, content position and a tuned
+   overlay — shared by the hero and every carousel slide. Every class here is
+   emitted only when a merchant (or a theme) chose something other than the
+   default, so an untouched hero renders exactly as before. */
+.home-hero-picture {
+  display: contents;
+}
+/* The focal point steers the MAIN image. With a separate phone image it
+   applies only where the main image is showing. */
+@media (min-width: 768px) {
+  .home-hero-img.has-focal,
+  .home-carousel-media.has-focal {
+    object-position: var(--sm-focal);
+  }
+}
+.home-hero-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+/* A tuned overlay replaces the built-in scrim rather than stacking on it. */
+.home-hero.has-overlay .home-hero-bgmedia::after,
+.home-carousel-slide.has-overlay::after {
+  display: none;
+}
+
+/* Height presets. Later than each variant's own min-height, same
+   specificity, so the preset wins; "screen" fills the phone below the
+   header on every browser that has small-viewport units. */
+.home-hero.height-small,
+.home-carousel.height-small {
+  min-height: clamp(240px, 28vw, 360px);
+}
+.home-hero.height-medium,
+.home-carousel.height-medium {
+  min-height: clamp(360px, 42vw, 560px);
+}
+.home-hero.height-large,
+.home-carousel.height-large {
+  min-height: clamp(460px, 58vw, 760px);
+}
+.home-hero.height-screen,
+.home-carousel.height-screen {
+  min-height: calc(100vh - var(--sm-header-h, 72px));
+  min-height: calc(100svh - var(--sm-header-h, 72px));
+}
+
+/* Vertical placement of copy over media. */
+.home-hero.content-top .home-hero-copy {
+  justify-content: flex-start;
+}
+.home-hero.content-bottom .home-hero-copy {
+  justify-content: flex-end;
+}
+.home-carousel-slide.content-top {
+  align-items: flex-start;
+}
+.home-carousel-slide.content-bottom {
+  align-items: flex-end;
+}
+/* Clear the dots when the copy sits at the bottom. */
+.home-carousel-slide.content-bottom .home-carousel-copy {
+  padding-bottom: clamp(44px, 6vw, 72px);
+}
+
+/* Swipe between slides on touch; vertical scrolling and pinch stay with the
+   browser. */
+.home-carousel {
+  touch-action: pan-y pinch-zoom;
+}
+
+/* ---- Copy over a photo: readable on any image ----
+   ★ Text colour over a photo is chosen by `MediaTone` (sections/media-tone.tsx)
+   from the pixels actually behind the words: the section's own theme-dark /
+   theme-light when it reads, the other one when only that reads. Nothing is
+   painted behind the words. Only when NEITHER colour reads (a busy photo,
+   black and white under the same line) does the section get `sm-scrim`: a
+   soft gradient from the edge the copy sits against, in the colour opposite
+   the text, the way editorial storefronts protect a headline.
+   ★ The colour change eases in, because it can land a beat after the photo. */
+.home-carousel-copy,
+.home-hero-copy,
+.home-banner-content,
+.home-tile-copy {
+  transition: color 0.3s ease;
+}
+.home-carousel-slide.sm-scrim::after,
+.home-banner.sm-scrim::after,
+.home-tile.sm-scrim::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+.home-carousel-slide.sm-scrim.theme-light::after {
+  background: linear-gradient(
+    90deg,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.62) 0%,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.3) 45%,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0) 75%
+  );
+}
+.home-carousel-slide.sm-scrim.theme-dark::after {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 72%, transparent) 0%,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 36%, transparent) 45%,
+    transparent 75%
+  );
+}
+.home-hero.variant-minimal.sm-scrim .home-hero-bgmedia::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.home-hero.variant-minimal.sm-scrim.theme-light .home-hero-bgmedia::after {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.55) 0%,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.25) 70%
+  );
+}
+.home-hero.variant-minimal.sm-scrim.theme-dark .home-hero-bgmedia::after {
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 65%, transparent) 0%,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 20%, transparent) 70%
+  );
+}
+.home-banner.sm-scrim.theme-light::after {
+  background: linear-gradient(
+    var(--sm-scrim-dir, 90deg),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.6),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0) 75%
+  );
+}
+.home-banner.sm-scrim.theme-dark::after {
+  background: linear-gradient(
+    var(--sm-scrim-dir, 90deg),
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 72%, transparent),
+    transparent 75%
+  );
+}
+.home-banner.align-right {
+  --sm-scrim-dir: 270deg;
+}
+.home-banner.align-center.sm-scrim.theme-light::after {
+  background: radial-gradient(
+    ellipse at center,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.55),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.15) 75%
+  );
+}
+.home-banner.align-center.sm-scrim.theme-dark::after {
+  background: radial-gradient(
+    ellipse at center,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 65%, transparent),
+    transparent 75%
+  );
+}
+/* Tile copy sits at the bottom. */
+.home-tile.sm-scrim.theme-light::after {
+  background: linear-gradient(
+    0deg,
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.62),
+    rgba(var(--sm-shadow-rgb, 16, 24, 40), 0) 65%
+  );
+}
+.home-tile.sm-scrim.theme-dark::after {
+  background: linear-gradient(
+    0deg,
+    color-mix(in srgb, var(--sm-cream, #fdfcfb) 75%, transparent),
+    transparent 65%
+  );
+}
+
+/* Keep the carousel's copy clear of its arrows (40px wide, 14px in). On a
+   touch phone the arrows are hidden, so the copy keeps its own padding. */
+.home-carousel.has-arrows .home-carousel-copy {
+  padding-left: max(clamp(24px, 5vw, 64px), 72px);
+  padding-right: max(clamp(24px, 5vw, 64px), 72px);
+}
+@media (max-width: 640px) {
+  .home-carousel.has-arrows .home-carousel-copy {
+    padding-left: max(clamp(24px, 5vw, 64px), 60px);
+    padding-right: max(clamp(24px, 5vw, 64px), 60px);
+  }
+}
+@media (max-width: 640px) and (pointer: coarse) {
+  .home-carousel.has-arrows .home-carousel-copy {
+    padding-left: clamp(24px, 5vw, 64px);
+    padding-right: clamp(24px, 5vw, 64px);
+  }
 }

@@ -105,6 +105,14 @@ function num(value: unknown): number {
  * The operator home snapshot. Never throws — an unreadable database renders
  * `ok: false` and the page says the figures are unavailable.
  */
+// Theme Studio preview stores are platform plumbing, not merchants: they are
+// created and removed by operators reviewing a theme, so counting them would
+// report signups nobody made. Every query below reads this CTE, never
+// `stores` directly.
+const MERCHANT_STORES = sql.raw(
+  "with merchant_stores as (select * from stores where not (settings ? 'studioPreview'))",
+);
+
 export async function getPlatformInsights(): Promise<PlatformInsights> {
   try {
     return await withService(async (db) => {
@@ -116,28 +124,29 @@ export async function getPlatformInsights(): Promise<PlatformInsights> {
       // while the gates read effective ones, the console would report revenue
       // the product is not actually delivering.
       const summary = await db.execute(sql`
+        ${MERCHANT_STORES}
         select
-          (select count(*)::int from stores) as stores,
-          (select count(*)::int from stores where status = 'active') as active,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores) as stores,
+          (select count(*)::int from merchant_stores where status = 'active') as active,
+          (select count(*)::int from merchant_stores
             where plan <> 'free'
               and (plan_expires_at is null or plan_expires_at > now())) as paid,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where created_at >= now() - interval '30 days') as new_30d,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where created_at >= now() - interval '7 days') as new_7d,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where coalesce(settings->>'launched', 'true') <> 'false') as launched,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where (plan_expires_at is null or plan_expires_at > now())
               and plan = 'basic') as plan_basic,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where (plan_expires_at is null or plan_expires_at > now())
               and plan = 'pro') as plan_pro,
-          (select count(*)::int from stores where status = 'suspended') as suspended,
+          (select count(*)::int from merchant_stores where status = 'suspended') as suspended,
           (select count(*)::int from billing_subscriptions
             where grace_ends_at is not null and grace_ends_at > now()) as billing_grace,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where settings->>'domain_pending_since' is not null
               and (settings->>'domain_pending_since')::timestamptz
                     < now() - interval '3 days'
@@ -159,9 +168,10 @@ export async function getPlatformInsights(): Promise<PlatformInsights> {
       // no signups is a zero rather than a gap — a sparse series renders as a
       // chart that silently rescales its own x-axis every time it is opened.
       const signupRows = await db.execute(sql`
+        ${MERCHANT_STORES}
         select
           to_char(w.week, 'YYYY-MM-DD') as week_start,
-          (select count(*)::int from stores s
+          (select count(*)::int from merchant_stores s
             where s.created_at >= w.week
               and s.created_at < w.week + interval '7 days') as count
         from generate_series(
@@ -173,12 +183,13 @@ export async function getPlatformInsights(): Promise<PlatformInsights> {
       `);
 
       const recentRows = await db.execute(sql`
+        ${MERCHANT_STORES}
         select
           s.id, s.slug, s.name, s.plan, s.status, s.created_at,
           (select a.email from admins a
             where a.store_id = s.id and a.role = 'superadmin'
             order by a.created_at asc limit 1) as owner_email
-        from stores s
+        from merchant_stores s
         order by s.created_at desc
         limit 8
       `);

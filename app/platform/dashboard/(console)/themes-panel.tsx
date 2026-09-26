@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ExternalLink, Loader2, Sprout } from "lucide-react";
 import { seedDemoStore } from "@/app/actions/platform";
-import { THEME_META } from "@/lib/themes/meta";
+import type { ThemeMeta } from "@/lib/themes/meta";
 
 // Operator panel: one live demo store per theme (the signup picker's Preview
 // target). Seed creates+fills it; Reseed wipes it back to the theme's pristine
@@ -11,10 +11,13 @@ import { THEME_META } from "@/lib/themes/meta";
 export function ThemesPanel({
   rootDomain,
   demoSlugsLive,
+  themes,
 }: {
   rootDomain: string;
   /** Slugs of demo stores that already exist. */
   demoSlugsLive: string[];
+  /** Server-resolved runtime catalog projection. */
+  themes: ThemeMeta[];
 }) {
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [live, setLive] = useState(new Set(demoSlugsLive));
@@ -43,7 +46,7 @@ export function ThemesPanel({
         </p>
       </div>
       <ul className="divide-y divide-gray-100">
-        {THEME_META.map((t) => {
+        {themes.map((t) => {
           const exists = live.has(t.demo.slug);
           return (
             <li

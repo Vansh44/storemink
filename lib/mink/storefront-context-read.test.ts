@@ -14,6 +14,20 @@ const { execute } = vi.hoisted(() => ({ execute: vi.fn() }));
 vi.mock("@/lib/db/client", () => ({
   withService: vi.fn((run: (db: unknown) => unknown) => run({ execute })),
 }));
+vi.mock("@/lib/themes/runtime-registry", () => ({
+  resolveInstalledThemeDefinitionWithDb: vi.fn(
+    async (
+      _db: unknown,
+      selection: { id: string; version?: string } | null,
+    ) => {
+      const { getThemeDefinition, isBundledThemeId } =
+        await import("@/lib/themes");
+      return selection && isBundledThemeId(selection.id)
+        ? getThemeDefinition(selection.id, selection.version)
+        : null;
+    },
+  ),
+}));
 
 const ACTOR: MinkActorContext = {
   storeId: "store-1",

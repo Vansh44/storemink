@@ -21,6 +21,7 @@ import { getOgImageUrl } from "@/lib/og-image";
 import { variantEffectiveSelling } from "@/lib/pricing";
 import { productSchema, breadcrumbSchema } from "@/lib/seo/schema";
 import { JsonLd } from "@/app/(storefront)/components/json-ld";
+import { normalizeOptions } from "@/lib/products/options";
 import ProductDetailClient, {
   type DetailProduct,
 } from "./product-detail-client";
@@ -35,6 +36,7 @@ export const revalidate = 300;
 
 type PageProps = {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ variant?: string | string[] }>;
 };
 
 // Wrapped in React.cache so the page body and generateMetadata share ONE query
@@ -61,6 +63,7 @@ const getProduct = cache(
             low_stock_threshold: products.lowStockThreshold,
             allow_backorder: products.allowBackorder,
             returnable: products.returnable,
+            options: products.options,
             cat_id: categories.id,
             cat_name: categories.name,
             cat_slug: categories.slug,
@@ -93,15 +96,26 @@ const getProduct = cache(
             stock: productVariants.onlineStock,
             low_stock_threshold: productVariants.lowStockThreshold,
             allow_backorder: productVariants.allowBackorder,
+            option_values: productVariants.optionValues,
           })
           .from(productVariants)
           .where(eq(productVariants.productId, row.id))
           .orderBy(asc(productVariants.sortOrder));
 
-        const { cat_id, cat_name, cat_slug, cat_status, ...productFields } =
-          row;
+        const {
+          cat_id,
+          cat_name,
+          cat_slug,
+          cat_status,
+          options: rawOptions,
+          ...productFields
+        } = row;
+        // Stored options are re-normalised on read: a row the checks below
+        // would refuse renders as the flat list instead of a broken picker.
+        const normalized = normalizeOptions(rawOptions);
         return {
           ...productFields,
+          options: "options" in normalized ? normalized.options : [],
           images: productFields.images ?? [],
           category: cat_id
             ? {
@@ -278,8 +292,15 @@ export async function generateMetadata({
   };
 }
 
-export default async function ProductDetailPage({ params }: PageProps) {
-  const { slug } = await params;
+export default async function ProductDetailPage({
+  params,
+  searchParams,
+}: PageProps) {
+  const [{ slug }, query] = await Promise.all([params, searchParams]);
+  // `?variant=<id>` opens the page on that variant — the link a card swatch,
+  // a shared URL or an ad points at. Anything else is ignored.
+  const requestedVariant =
+    typeof query.variant === "string" ? query.variant : null;
   const storeId = await requireStorefrontStoreId();
   const product = await getProduct(slug, storeId);
 
@@ -375,11 +396,12 @@ export default async function ProductDetailPage({ params }: PageProps) {
   const breadcrumbLd = breadcrumbSchema(siteUrl, [
     { name: "Home", path: "/" },
     { name: "Shop", path: "/shop" },
-    ...(product.category
+    // A hidden category has no page, so it is not a breadcrumb step.
+    ...(product.category && product.category.status === "active"
       ? [
           {
             name: product.category.name,
-            path: `/shop?category=${product.category.slug}`,
+            path: `/collections/${product.category.slug}`,
           },
         ]
       : []),
@@ -396,6 +418,7 @@ export default async function ProductDetailPage({ params }: PageProps) {
         grocery={layout.productDetail === "grocery"}
         storeLowStockThreshold={lowStockThreshold as number}
         offerMarker={offerMarker}
+        requestedVariantId={requestedVariant}
       />
     </>
   );

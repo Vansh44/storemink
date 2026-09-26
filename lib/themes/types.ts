@@ -1,6 +1,9 @@
+import type { ProductOption } from "@/lib/products/options";
 import type { PageSectionItem } from "@/lib/sections/registry";
 import type { StoreMenus } from "@/lib/menus";
 import type { ThemeMeta } from "./meta";
+import { schemeCssVars, type ThemeColorSchemes } from "./schemes";
+import { typographyCssVars, type ThemeTypography } from "./typography";
 
 // ---------------------------------------------------------------------------
 // Theme definition — the full data package a theme seeds into a store: pages
@@ -45,6 +48,8 @@ export interface ThemeVariantSeed {
   sku?: string;
   sort_order?: number;
   images?: string[];
+  /** This variant's value for each of its product's `options`, in order. */
+  option_values?: string[];
 }
 
 export interface ThemeProductSeed {
@@ -60,6 +65,9 @@ export interface ThemeProductSeed {
   featured?: boolean;
   sort_order?: number;
   card_color?: string;
+  /** Option axes ("Size", "Colour"), as lib/products/options.ts defines them.
+   *  When present, every variant carries a matching `option_values`. */
+  options?: ProductOption[];
   variants?: ThemeVariantSeed[];
 }
 
@@ -149,6 +157,22 @@ export interface ThemeLayout {
    *  class), so a store on this theme looks nothing like the classic WholeSip
    *  storefront. "classic" (default) = today's shared layout, untouched. */
   storefront?: "classic" | "grocery";
+  /** A phone add-to-cart bar that slides up once the product page's own buy
+   *  buttons have scrolled out of view. Opt-in: it adds chrome to every
+   *  product page. Absent = off. */
+  stickyAddToCart?: boolean;
+  /** Shop grid columns on a phone (≤460px). Absent = 1, the long-standing
+   *  default; premium themes choose 2. */
+  gridColumnsMobile?: 1 | 2;
+  /** Shop grid columns on a wide desktop (>1100px). Absent = 4. */
+  gridColumnsDesktop?: 3 | 4 | 5;
+  /** Shop and collection pages gain a sort menu, availability and price
+   *  filters, and show products 24 at a time behind "Load more". Opt-in: it
+   *  adds a toolbar and hides products past the first page. Absent = off. */
+  shopFilters?: boolean;
+  /** A collection page opens with its category's image and description.
+   *  Absent = off: the page is titled with the category name only. */
+  collectionBanner?: boolean;
 }
 
 export interface ThemeDesign {
@@ -156,6 +180,13 @@ export interface ThemeDesign {
   fonts: ThemeFonts;
   shape: ThemeShape;
   layout?: ThemeLayout;
+  /** Named colour schemes a section can wear (lib/themes/schemes.ts). A
+   *  scheme the theme does not declare is derived from the palette, so this
+   *  is only for a band the theme wants in its own colours. */
+  schemes?: ThemeColorSchemes;
+  /** Heading face, size, weight, case and spacing (lib/themes/typography.ts).
+   *  Absent: every heading keeps its own values, exactly as before. */
+  typography?: ThemeTypography;
 }
 
 /** Immutable authored preset package. Applying it seeds starting content;
@@ -233,5 +264,7 @@ export function designToCssVars(
     "--sm-radius-control": design.shape.control,
     "--sm-radius-sm": design.shape.sm,
     "--sm-radius-pill": design.shape.pill,
+    ...schemeCssVars(design, brandPrimary),
+    ...typographyCssVars(design.typography),
   };
 }

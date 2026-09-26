@@ -11,6 +11,11 @@ import {
 import { dbErrorMessage, isUniqueViolation } from "@/lib/db/errors";
 import { slugify } from "@/lib/slug";
 import { firstForeignStoreImageUrl } from "@/lib/storage/ownership";
+import {
+  composeVariantName,
+  normalizeOptions,
+  optionValuesForName,
+} from "@/lib/products/options";
 import type { ProductDraft, VariantDraft } from "../parse";
 import type { RowIssue } from "../types";
 import {
@@ -247,17 +252,33 @@ async function applyVariants(
   const issues: ReturnType<typeof issue>[] = [];
   if (drafts.length === 0) return { issues };
 
-  const existing = await withUser(ctx.admin, (db) =>
-    db
-      .select({
-        id: productVariants.id,
-        name: productVariants.name,
-        basePrice: productVariants.basePrice,
-        sellingPrice: productVariants.sellingPrice,
-      })
-      .from(productVariants)
-      .where(eq(productVariants.productId, productId)),
-  );
+  const [existing, optionRows] = await Promise.all([
+    withUser(ctx.admin, (db) =>
+      db
+        .select({
+          id: productVariants.id,
+          name: productVariants.name,
+          basePrice: productVariants.basePrice,
+          sellingPrice: productVariants.sellingPrice,
+        })
+        .from(productVariants)
+        .where(eq(productVariants.productId, productId)),
+    ),
+    withUser(ctx.admin, (db) =>
+      db
+        .select({ options: products.options })
+        .from(products)
+        .where(eq(products.id, productId))
+        .limit(1),
+    ),
+  ]);
+  // A product with option axes (Size, Colour) needs every NEW variant to be
+  // one of its combinations, or the product page can no longer offer its
+  // pickers and the editor refuses the next save. The file only has a name,
+  // so the name must read as one value per option ("M / Black").
+  const normalizedOptions = normalizeOptions(optionRows[0]?.options);
+  const options =
+    "options" in normalizedOptions ? normalizedOptions.options : [];
   const byName = new Map<string, ExistingVariant>(
     existing.map((v) => [v.name.trim().toLowerCase(), v]),
   );
@@ -342,12 +363,39 @@ async function applyVariants(
       // (pos_01_inventory_levels.sql) carries it onto the default location's
       // shelf. On an existing one it must go through the stock ledger instead —
       // see the note in applyProduct.
+      let name = draft.name;
+      let optionValues: string[] = [];
+      if (options.length > 0) {
+        const values = optionValuesForName(options, draft.name);
+        if (!values) {
+          issues.push(
+            issue(
+              draft.line,
+              "Variant Name",
+              "variant_failed",
+              `Couldn't add the variant "${draft.name}": this product has the options ${options
+                .map((o) => o.name)
+                .join(
+                  " and ",
+                )}, so name it with one value of each, like "${composeVariantName(
+                options.map((o) => o.values[0]),
+              )}".`,
+              "error",
+              draft.name,
+            ),
+          );
+          continue;
+        }
+        optionValues = values;
+        name = composeVariantName(values);
+      }
       const stock = draft.values.variantStock;
       await withUser(ctx.admin, (db) =>
         db.insert(productVariants).values({
           storeId: ctx.storeId,
           productId,
-          name: draft.name,
+          name,
+          optionValues,
           basePrice: prices.basePrice ?? 0,
           sellingPrice: prices.sellingPrice ?? prices.basePrice ?? 0,
           specialPrice: specialPrice ?? null,

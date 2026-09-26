@@ -94,7 +94,7 @@ export function validateSections(
       return { error: `${label} (${type}): ${validated.error}` };
     }
 
-    const style = validateSectionStyle(item.style);
+    const style = validateSectionStyle(item.style, type);
     sections.push({
       id,
       type,
@@ -129,6 +129,10 @@ export const RESERVED_PAGE_SLUGS: ReadonlySet<string> = new Set([
   "blogs",
   "cart",
   "checkout",
+  // /collections/<slug> is each category's page. Reserving it stops a NEW
+  // page taking the name; an existing page slugged "collections" still
+  // renders, because there is no collections/page.tsx to shadow it.
+  "collections",
   "enquiries",
   "notifications",
   "orders",

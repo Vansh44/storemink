@@ -20,6 +20,10 @@ vi.mock("@/lib/legal/store", () => ({
 vi.mock("@/lib/themes/apply", () => ({
   applyTheme: vi.fn(async () => ({ success: true, errors: [] })),
 }));
+vi.mock("@/lib/themes/runtime-registry", async () => {
+  const { THEME_META } = await import("@/lib/themes/meta");
+  return { getThemeCatalog: vi.fn(async () => [...THEME_META]) };
+});
 
 import { updateTag } from "next/cache";
 import { isUniqueViolation } from "@/lib/db/errors";

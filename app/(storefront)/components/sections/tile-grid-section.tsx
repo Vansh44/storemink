@@ -6,6 +6,7 @@ import type {
   TileItem,
 } from "@/lib/homepage/section-types";
 import { SectionShell } from "./section-shell";
+import { MediaTone } from "./media-tone";
 
 // One tile: colour field and/or cover image with a text overlay. Linked tiles
 // wrap in next/link (internal) or a plain anchor (external); unlinked tiles
@@ -21,6 +22,9 @@ function Tile({ tile }: { tile: TileItem }) {
           sizes="(max-width: 760px) 50vw, 320px"
           className="home-tile-img"
         />
+      )}
+      {tile.image_url && (tile.title || tile.subtitle) && (
+        <MediaTone preferred={tile.theme} copy=".home-tile-copy" />
       )}
       {(tile.title || tile.subtitle) && (
         <span className="home-tile-copy">

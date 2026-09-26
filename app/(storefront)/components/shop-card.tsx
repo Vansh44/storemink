@@ -121,7 +121,7 @@ export function ShopCard({
       </div>
 
       <div className="shop-card-body">
-        <div className="flex items-start justify-between">
+        <div className="shop-card-head flex items-start justify-between">
           <div className="min-w-0">
             {p.category && <span className="shop-card-cat">{p.category}</span>}
             <NameHeading className="shop-card-name">{p.name}</NameHeading>

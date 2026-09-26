@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import Image from "next/image";
-import { ImageIcon, Truck, RotateCcw, Sprout, Minus } from "lucide-react";
+import { Truck, RotateCcw, Sprout, Minus } from "lucide-react";
 import { useState } from "react";
-import type { ReactNode } from "react";
+import type { ReactNode, RefObject } from "react";
+import { ProductGallery } from "./product-gallery";
 import { formatPrice, hasSpecialPrice } from "@/lib/pricing";
+import { isSoldOut } from "@/lib/inventory/status";
 import { RatingStars } from "./reviews-section";
 import type { DetailProduct, DetailVariant } from "./product-detail-client";
 
@@ -17,14 +18,16 @@ import type { DetailProduct, DetailVariant } from "./product-detail-client";
 export function GroceryProductDetail({
   product,
   gallery,
-  activeImg,
-  setActiveImg,
+  activeIndex,
+  setActiveIndex,
   onZoom,
+  actionsRef,
   averageRating,
   reviewCount,
   hasVariants,
   variantId,
   selectVariant,
+  optionPicker,
   offerMarker,
   base,
   selling,
@@ -39,14 +42,19 @@ export function GroceryProductDetail({
 }: {
   product: DetailProduct;
   gallery: string[];
-  activeImg: string | null;
-  setActiveImg: (u: string) => void;
-  onZoom: () => void;
+  activeIndex: number;
+  setActiveIndex: (index: number) => void;
+  onZoom: (index: number) => void;
+  /** The buy buttons, observed by the phone sticky add-to-cart bar. */
+  actionsRef: RefObject<HTMLDivElement | null>;
   averageRating: number;
   reviewCount: number;
   hasVariants: boolean;
   variantId: string | null;
   selectVariant: (v: DetailVariant) => void;
+  /** Per-axis pickers when the product has option axes; replaces the flat
+   *  variant list. */
+  optionPicker?: ReactNode;
   /** "20% off" / "Buy 1, get 1 free", resolved server-side. See the classic
    *  layout's prop for why it arrives as a string. */
   offerMarker?: string | null;
@@ -84,49 +92,15 @@ export function GroceryProductDetail({
 
       <div className="gpdp-grid">
         {/* Gallery */}
-        <div className="gpdp-gallery">
-          <button
-            type="button"
-            className="gpdp-main-img"
-            onClick={() => activeImg && onZoom()}
-            aria-label="Zoom image"
-          >
-            {activeImg ? (
-              <Image
-                src={activeImg}
-                alt={product.name}
-                fill
-                sizes="(max-width: 860px) 100vw, 560px"
-                className="gpdp-main-img-el"
-                priority
-              />
-            ) : (
-              <div className="gpdp-img-placeholder">
-                <ImageIcon size={44} strokeWidth={1.5} aria-hidden />
-              </div>
-            )}
-          </button>
-          {gallery.length > 1 && (
-            <div className="gpdp-thumbs">
-              {gallery.map((url) => (
-                <button
-                  key={url}
-                  className={`gpdp-thumb${activeImg === url ? " active" : ""}`}
-                  onClick={() => setActiveImg(url)}
-                  aria-label="View image"
-                >
-                  <Image
-                    src={url}
-                    alt=""
-                    fill
-                    sizes="72px"
-                    className="gpdp-thumb-el"
-                  />
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProductGallery
+          images={gallery}
+          alt={product.name}
+          activeIndex={activeIndex}
+          onActiveIndexChange={setActiveIndex}
+          onZoom={onZoom}
+          classPrefix="gpdp"
+          sizes="(max-width: 860px) 100vw, 560px"
+        />
 
         {/* Info */}
         <div className="gpdp-info">
@@ -173,10 +147,15 @@ export function GroceryProductDetail({
             </div>
             <p className="gpdp-price-note">Inclusive of all taxes</p>
 
-            {hasVariants && (
+            {optionPicker}
+
+            {hasVariants && !optionPicker && (
               <div className="gpdp-variants">
                 {product.variants.map((v) => {
-                  const disabled = v.stock <= 0;
+                  // The shared rule: an untracked or backorderable variant
+                  // is buyable at stock 0 — this used to grey those out while
+                  // the classic layout sold them.
+                  const disabled = isSoldOut(v);
                   const hasSale = hasSpecialPrice(v);
                   return (
                     <button
@@ -199,7 +178,7 @@ export function GroceryProductDetail({
 
             {deliveryEstimator}
 
-            <div className="gpdp-actions">
+            <div className="gpdp-actions" ref={actionsRef}>
               <div className="gpdp-stepper" aria-label="Quantity">
                 <button
                   type="button"

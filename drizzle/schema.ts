@@ -9,6 +9,7 @@ import {
   boolean,
   timestamp,
   integer,
+  smallint,
   uniqueIndex,
   unique,
   numeric,
@@ -19,6 +20,7 @@ import {
   pgSequence,
   date,
   vector,
+  customType,
 } from "drizzle-orm/pg-core";
 import { sql, type SQL } from "drizzle-orm";
 
@@ -2193,6 +2195,372 @@ export const platformAdmins = pgTable(
   ],
 );
 
+// Theme Studio Phase 1: immutable, service-owned runtime packages. A release
+// row is never updated or deleted (the database trigger enforces that); stores
+// pin theme_id + version, while the catalog pointer below can move between
+// published releases without changing any existing installation.
+export const themeReleases = pgTable(
+  "theme_releases",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    themeId: text("theme_id").notNull(),
+    version: text().notNull(),
+    releaseStatus: text("release_status").notNull(),
+    packageJson: jsonb("package_json").notNull(),
+    manifestDigest: text("manifest_digest").notNull(),
+    source: text().default("theme-studio").notNull(),
+    // Actor snapshot only. A release stays immutable if that operator row is
+    // later removed, so no ON DELETE action may rewrite this column.
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    unique("theme_releases_theme_version_key").on(table.themeId, table.version),
+    unique("theme_releases_id_theme_key").on(table.id, table.themeId),
+    index("theme_releases_lookup_idx").on(
+      table.themeId,
+      table.version,
+      table.releaseStatus,
+    ),
+    check(
+      "theme_releases_theme_id_check",
+      sql`${table.themeId} ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$' AND char_length(${table.themeId}) <= 80`,
+    ),
+    check(
+      "theme_releases_version_check",
+      sql`${table.version} ~ '^[0-9]+\.[0-9]+\.[0-9]+$'`,
+    ),
+    check(
+      "theme_releases_status_check",
+      sql`${table.releaseStatus} IN ('candidate', 'approved', 'published', 'blocked')`,
+    ),
+    check(
+      "theme_releases_digest_check",
+      sql`${table.manifestDigest} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "theme_releases_source_check",
+      sql`${table.source} IN ('bundled-import', 'theme-studio')`,
+    ),
+    check(
+      "theme_releases_package_size_check",
+      sql`octet_length(${table.packageJson}::text) <= 2097152`,
+    ),
+  ],
+);
+
+export const themeCatalogEntries = pgTable(
+  "theme_catalog_entries",
+  {
+    themeId: text("theme_id").primaryKey().notNull(),
+    currentReleaseId: uuid("current_release_id").notNull(),
+    visibility: text().notNull(),
+    updatedBy: uuid("updated_by").references(() => platformAdmins.id, {
+      onDelete: "set null",
+    }),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      columns: [table.currentReleaseId, table.themeId],
+      foreignColumns: [themeReleases.id, themeReleases.themeId],
+      name: "theme_catalog_entries_release_fkey",
+    }),
+    index("theme_catalog_entries_visibility_idx").on(
+      table.visibility,
+      table.themeId,
+    ),
+    check(
+      "theme_catalog_entries_theme_id_check",
+      sql`${table.themeId} ~ '^[a-z0-9]+(?:-[a-z0-9]+)*$' AND char_length(${table.themeId}) <= 80`,
+    ),
+    check(
+      "theme_catalog_entries_visibility_check",
+      sql`${table.visibility} IN ('hidden', 'legacy', 'public')`,
+    ),
+  ],
+);
+
+// Theme Studio Phase 2: operator-only project intake. Platform data, not tenant
+// data: no store_id, no merchant grant, service scope behind a superadmin gate.
+// Migration 20260923_0128_theme_studio_intake owns the triggers that make
+// messages/assets immutable, versions/events append-only, and enforce the
+// Phase 0 project state machine.
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
+
+export const themeStudioProjects = pgTable("theme_studio_projects", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  themeId: text("theme_id").notNull(),
+  name: text().notNull(),
+  status: text().default("draft").notNull(),
+  industries: text().array().default([]).notNull(),
+  catalogSizes: text("catalog_sizes").array().default([]).notNull(),
+  requiredFeatures: text("required_features").array().default([]).notNull(),
+  baseThemeId: text("base_theme_id"),
+  modelKey: text("model_key").notNull(),
+  draftBrief: text("draft_brief").notNull(),
+  currentVersionId: uuid("current_version_id"),
+  revision: integer().default(0).notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  archivedAt: timestamp("archived_at", { withTimezone: true, mode: "string" }),
+});
+
+export const themeStudioAssets = pgTable("theme_studio_assets", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  purpose: text().default("reference").notNull(),
+  mediaType: text("media_type").notNull(),
+  bytes: bytea().notNull(),
+  byteSize: integer("byte_size").notNull(),
+  width: integer().notNull(),
+  height: integer().notNull(),
+  sha256: text().notNull(),
+  originalMediaType: text("original_media_type").notNull(),
+  originalByteSize: integer("original_byte_size").notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioMessages = pgTable("theme_studio_messages", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  kind: text().notNull(),
+  body: text().notNull(),
+  referenceAssetIds: uuid("reference_asset_ids").array().default([]).notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioRuns = pgTable("theme_studio_runs", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  messageId: uuid("message_id").notNull(),
+  kind: text().notNull(),
+  status: text().default("queued").notNull(),
+  provider: text().notNull(),
+  modelKey: text("model_key").notNull(),
+  providerModel: text("provider_model").notNull(),
+  promptVersion: text("prompt_version").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(3).notNull(),
+  leaseOwner: uuid("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  cancelRequestedAt: timestamp("cancel_requested_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+  finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
+  errorCode: text("error_code"),
+  usage: jsonb().default({}).notNull(),
+  outcomeDetail: jsonb("outcome_detail").default({}).notNull(),
+  retryOfRunId: uuid("retry_of_run_id"),
+  /** Revise runs only: the version revised and its content address. */
+  baseVersionId: uuid("base_version_id"),
+  basePackageDigest: text("base_package_digest"),
+  /** Revise runs only: the ordered messages the run reads. */
+  contextMessageIds: uuid("context_message_ids").array().default([]).notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioVersions = pgTable("theme_studio_versions", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  /** Null only for an `asset_edit` version, which no model run produced. */
+  runId: uuid("run_id"),
+  /** `run` (a generation or revision) or `asset_edit` (operator images). */
+  origin: text().default("run").notNull(),
+  /** For an asset edit: which slots were replaced, from which version. */
+  editDetail: jsonb("edit_detail").default({}).notNull(),
+  parentVersionId: uuid("parent_version_id"),
+  versionNumber: integer("version_number").notNull(),
+  intentJson: jsonb("intent_json").notNull(),
+  intentDigest: text("intent_digest").notNull(),
+  packageJson: jsonb("package_json"),
+  packageDigest: text("package_digest"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+/** A private, demo-flagged store materialized from one Studio version. */
+export const themeStudioPreviews = pgTable("theme_studio_previews", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  storeId: uuid("store_id").notNull(),
+  status: text().default("materializing").notNull(),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  lastOpenedAt: timestamp("last_opened_at", {
+    withTimezone: true,
+    mode: "string",
+  })
+    .defaultNow()
+    .notNull(),
+  expiresAt: timestamp("expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }).notNull(),
+});
+
+/** One automated acceptance run over one version, bound to its inputs. */
+export const themeStudioAcceptanceRuns = pgTable(
+  "theme_studio_acceptance_runs",
+  {
+    id: uuid().defaultRandom().primaryKey().notNull(),
+    projectId: uuid("project_id").notNull(),
+    versionId: uuid("version_id").notNull(),
+    packageDigest: text("package_digest").notNull(),
+    assetsDigest: text("assets_digest").notNull(),
+    buildId: text("build_id").notNull(),
+    status: text().default("running").notNull(),
+    serverReport: jsonb("server_report").default({}).notNull(),
+    browserReport: jsonb("browser_report").default({}).notNull(),
+    evidenceDigest: text("evidence_digest"),
+    browserNonceHash: text("browser_nonce_hash"),
+    browserExpiresAt: timestamp("browser_expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+    createdBy: uuid("created_by"),
+    createdByEmail: text("created_by_email").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    completedAt: timestamp("completed_at", {
+      withTimezone: true,
+      mode: "string",
+    }),
+  },
+);
+
+/** One reviewer's scorecard for one version, bound to the acceptance run
+ * whose evidence they reviewed (migration 0134). The eight scores are columns
+ * so the approval bar is a CHECK on the row. */
+export const themeStudioReviews = pgTable("theme_studio_reviews", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  acceptanceRunId: uuid("acceptance_run_id").notNull(),
+  packageDigest: text("package_digest").notNull(),
+  evidenceDigest: text("evidence_digest").notNull(),
+  reviewerRole: text("reviewer_role").notNull(),
+  reviewerIsAuthor: boolean("reviewer_is_author").notNull(),
+  artDirection: smallint("art_direction").notNull(),
+  distinctness: smallint().notNull(),
+  commerceClarity: smallint("commerce_clarity").notNull(),
+  typography: smallint().notNull(),
+  imagery: smallint().notNull(),
+  responsiveComposition: smallint("responsive_composition").notNull(),
+  detailQuality: smallint("detail_quality").notNull(),
+  brandAdaptability: smallint("brand_adaptability").notNull(),
+  rejections: text().array().default([]).notNull(),
+  verdict: text().notNull(),
+  notes: text().default("").notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+/** One publication attempt (migration 0134). Written before anything leaves
+ * the database, so a retry resumes the release it was building. */
+export const themeStudioPublications = pgTable("theme_studio_publications", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  acceptanceRunId: uuid("acceptance_run_id").notNull(),
+  themeId: text("theme_id").notNull(),
+  releaseVersion: text("release_version").notNull(),
+  releaseId: uuid("release_id"),
+  manifestDigest: text("manifest_digest"),
+  demoStoreId: uuid("demo_store_id"),
+  status: text().default("publishing").notNull(),
+  failure: jsonb().default([]).notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  completedAt: timestamp("completed_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+});
+
+/** Every change to what new stores may install (migration 0134). Append-only;
+ * a store's pinned release is never changed by any of these. */
+export const themeCatalogAudit = pgTable("theme_catalog_audit", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  themeId: text("theme_id").notNull(),
+  action: text().notNull(),
+  releaseId: uuid("release_id").notNull(),
+  visibility: text().notNull(),
+  previousReleaseId: uuid("previous_release_id"),
+  previousVisibility: text("previous_visibility"),
+  projectId: uuid("project_id"),
+  reason: text().default("").notNull(),
+  createdBy: uuid("created_by"),
+  createdByEmail: text("created_by_email").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+export const themeStudioEvents = pgTable("theme_studio_events", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  runId: uuid("run_id"),
+  actorKind: text("actor_kind").notNull(),
+  actorId: uuid("actor_id"),
+  actorEmail: text("actor_email"),
+  eventType: text("event_type").notNull(),
+  detail: jsonb().default({}).notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
 /**
  * StoreMink's OWN tax identity, edited by an operator (owner decision: GST is
  * operator-configured, not merchant-facing).
@@ -2436,6 +2804,10 @@ export const productVariants = pgTable(
     allowBackorder: boolean("allow_backorder").default(false).notNull(),
     variantNo: integer("variant_no").notNull(),
     barcode: text(),
+    // Positional values on the parent product's `options` axes
+    // (lib/products/options.ts). Empty for a product without options, whose
+    // variants keep a free-text `name`.
+    optionValues: text("option_values").array().default([]).notNull(),
     // Nullable = inherit the product's logistics value. A size/pack variant
     // can override any physical measurement without duplicating the rest.
     requiresShipping: boolean("requires_shipping"),
@@ -2582,6 +2954,9 @@ export const products = pgTable(
     sku: text().notNull(),
     skuNo: integer("sku_no").notNull(),
     variantSeq: integer("variant_seq").default(0).notNull(),
+    // Option axes ("Size", "Colour") as [{name, values, swatches?}] — see
+    // lib/products/options.ts. `[]` = the product has plain named variants.
+    options: jsonb().default([]).notNull(),
     taxClassId: uuid("tax_class_id"),
     // Return policy (returns_01_product_policy.sql). `returnable` FALSE = final
     // sale; `returnWindowDays` NULL = use the store's returns.windowDays.

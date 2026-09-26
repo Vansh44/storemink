@@ -5284,6 +5284,493 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260923_0127_theme_runtime_registry",
+      "description": "Add immutable runtime theme releases and mutable catalog pointers",
+      "file": "sql/20260923_0127_theme_runtime_registry.sql",
+      "transaction": true,
+      "requires": ["20260923_0126_mink_marginal_metering"],
+      "verify": {
+        "tables": ["theme_releases", "theme_catalog_entries"],
+        "columns": [
+          "theme_releases.package_json",
+          "theme_releases.manifest_digest",
+          "theme_catalog_entries.current_release_id",
+          "theme_catalog_entries.visibility"
+        ],
+        "constraints": [
+          "theme_releases_theme_version_key",
+          "theme_releases_digest_check",
+          "theme_releases_package_size_check",
+          "theme_catalog_entries_release_fkey",
+          "theme_catalog_entries_visibility_check"
+        ],
+        "indexes": [
+          "theme_releases_lookup_idx",
+          "theme_catalog_entries_visibility_idx"
+        ],
+        "rlsTables": ["theme_releases", "theme_catalog_entries"],
+        "functions": [
+          "prevent_theme_release_mutation()",
+          "validate_theme_catalog_release()"
+        ]
+      },
+      "applyVerify": {
+        "queries": []
+      }
+    },
+    {
+      "id": "20260923_0128_theme_studio_intake",
+      "description": "Add operator-only Theme Studio projects, sanitized references, immutable messages/runs/versions and audit events",
+      "file": "sql/20260923_0128_theme_studio_intake.sql",
+      "transaction": true,
+      "requires": ["20260923_0127_theme_runtime_registry"],
+      "verify": {
+        "tables": [
+          "theme_studio_projects",
+          "theme_studio_assets",
+          "theme_studio_messages",
+          "theme_studio_runs",
+          "theme_studio_versions",
+          "theme_studio_events"
+        ],
+        "columns": [
+          "theme_studio_projects.status",
+          "theme_studio_projects.revision",
+          "theme_studio_assets.bytes",
+          "theme_studio_assets.sha256",
+          "theme_studio_runs.lease_expires_at",
+          "theme_studio_runs.idempotency_key",
+          "theme_studio_versions.intent_digest",
+          "theme_studio_events.event_type"
+        ],
+        "constraints": [
+          "theme_studio_projects_status_check",
+          "theme_studio_projects_current_version_fkey",
+          "theme_studio_assets_project_sha_key",
+          "theme_studio_runs_lease_check",
+          "theme_studio_runs_idempotency_key",
+          "theme_studio_versions_number_key",
+          "theme_studio_events_type_check",
+          "theme_studio_projects_model_check",
+          "theme_studio_runs_model_check",
+          "theme_studio_runs_provider_check"
+        ],
+        "indexes": [
+          "theme_studio_projects_active_theme_key",
+          "theme_studio_runs_one_active_key",
+          "theme_studio_runs_claim_idx",
+          "theme_studio_events_project_idx"
+        ],
+        "rlsTables": [
+          "theme_studio_projects",
+          "theme_studio_assets",
+          "theme_studio_messages",
+          "theme_studio_runs",
+          "theme_studio_versions",
+          "theme_studio_events"
+        ],
+        "functions": [
+          "theme_studio_forbid_mutation()",
+          "theme_studio_project_guard()"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio table privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name like 'theme_studio_%'",
+            "equals": "0"
+          },
+          {
+            "name": "Theme Studio immutability and lifecycle triggers are installed",
+            "sql": "select count(*)::text from pg_trigger where not tgisinternal and tgname in ('theme_studio_messages_immutable','theme_studio_assets_immutable','theme_studio_versions_immutable','theme_studio_events_immutable','theme_studio_projects_guard')",
+            "equals": "5"
+          },
+          {
+            "name": "the Gemini provider is admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_runs_provider_check' and pg_get_constraintdef(oid) like '%vertex-gemini%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260923_0129_theme_studio_generation",
+      "description": "Theme Studio generation: run outcome detail, placeholder asset purpose and clarification events",
+      "file": "sql/20260923_0129_theme_studio_generation.sql",
+      "transaction": true,
+      "requires": ["20260923_0128_theme_studio_intake"],
+      "verify": {
+        "columns": ["theme_studio_runs.outcome_detail"],
+        "constraints": [
+          "theme_studio_runs_outcome_detail_check",
+          "theme_studio_assets_purpose_check",
+          "theme_studio_events_type_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "placeholder is an accepted asset purpose",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_assets_purpose_check' and pg_get_constraintdef(oid) like '%placeholder%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260924_0130_theme_studio_preview_revision",
+      "description": "Theme Studio previews and revisions: base-version-bound revision runs, private preview stores and their audit events",
+      "file": "sql/20260924_0130_theme_studio_preview_revision.sql",
+      "transaction": true,
+      "requires": ["20260923_0129_theme_studio_generation"],
+      "verify": {
+        "tables": ["theme_studio_previews"],
+        "columns": [
+          "theme_studio_runs.base_version_id",
+          "theme_studio_runs.base_package_digest",
+          "theme_studio_runs.context_message_ids"
+        ],
+        "constraints": [
+          "theme_studio_runs_base_version_fkey",
+          "theme_studio_runs_base_check",
+          "theme_studio_previews_version_key",
+          "theme_studio_previews_store_key",
+          "theme_studio_previews_status_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": [
+          "theme_studio_previews_expiry_idx",
+          "theme_studio_previews_project_idx"
+        ],
+        "rlsTables": ["theme_studio_previews"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio preview privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name = 'theme_studio_previews'",
+            "equals": "0"
+          },
+          {
+            "name": "a preview store deletion cascades to its preview row",
+            "sql": "select count(*)::text from pg_constraint where conrelid = 'public.theme_studio_previews'::regclass and contype = 'f' and confrelid = 'public.stores'::regclass and confdeltype = 'c'",
+            "equals": "1"
+          },
+          {
+            "name": "revision events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%preview_expired%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260924_0131_theme_studio_acceptance",
+      "description": "Theme Studio automated acceptance: digest-bound acceptance runs and a database-enforced candidate precondition",
+      "file": "sql/20260924_0131_theme_studio_acceptance.sql",
+      "transaction": true,
+      "requires": ["20260924_0130_theme_studio_preview_revision"],
+      "verify": {
+        "tables": ["theme_studio_acceptance_runs"],
+        "columns": [
+          "theme_studio_acceptance_runs.package_digest",
+          "theme_studio_acceptance_runs.assets_digest",
+          "theme_studio_acceptance_runs.build_id",
+          "theme_studio_acceptance_runs.evidence_digest"
+        ],
+        "constraints": [
+          "theme_studio_acceptance_version_fkey",
+          "theme_studio_acceptance_status_check",
+          "theme_studio_acceptance_digest_check",
+          "theme_studio_acceptance_lifecycle_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": [
+          "theme_studio_acceptance_one_active",
+          "theme_studio_acceptance_project_idx",
+          "theme_studio_acceptance_version_idx"
+        ],
+        "rlsTables": ["theme_studio_acceptance_runs"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio acceptance privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name = 'theme_studio_acceptance_runs'",
+            "equals": "0"
+          },
+          {
+            "name": "the project guard requires passing evidence for candidate",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_project_guard' and prosrc like '%needs passing acceptance evidence%'",
+            "equals": "1"
+          },
+          {
+            "name": "acceptance events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%acceptance_blocked%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260924_0132_theme_studio_operator_removal",
+      "description": "Theme Studio immutable rows admit the foreign key's created_by SET NULL, so a platform operator can be removed",
+      "file": "sql/20260924_0132_theme_studio_operator_removal.sql",
+      "transaction": true,
+      "requires": ["20260924_0131_theme_studio_acceptance"],
+      "verify": {
+        "tables": ["theme_studio_assets", "theme_studio_acceptance_runs"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "immutable Studio rows admit the operator-removal SET NULL",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_forbid_mutation' and prosrc like '%created_by%'",
+            "equals": "1"
+          },
+          {
+            "name": "finished acceptance runs admit the operator-removal SET NULL",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_acceptance_guard' and prosrc like '%operator''s removal%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260924_0133_theme_studio_slot_images",
+      "description": "Theme Studio operator slot images: versions made by an image edit, the image asset purpose and their events",
+      "file": "sql/20260924_0133_theme_studio_slot_images.sql",
+      "transaction": true,
+      "requires": ["20260924_0132_theme_studio_operator_removal"],
+      "verify": {
+        "columns": [
+          "theme_studio_versions.origin",
+          "theme_studio_versions.edit_detail"
+        ],
+        "constraints": [
+          "theme_studio_versions_origin_check",
+          "theme_studio_assets_purpose_check",
+          "theme_studio_events_type_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "a version may carry no run",
+            "sql": "select is_nullable from information_schema.columns where table_schema = 'public' and table_name = 'theme_studio_versions' and column_name = 'run_id'",
+            "equals": "YES"
+          },
+          {
+            "name": "operator images are an asset purpose",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_assets_purpose_check' and pg_get_constraintdef(oid) like '%image%'",
+            "equals": "1"
+          },
+          {
+            "name": "slot image events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%slot_images_replaced%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0134_theme_studio_publication",
+      "description": "Theme Studio approval and publication: bound two-reviewer scorecards, publication attempts, the catalog audit and database-enforced approval and publication preconditions",
+      "file": "sql/20260925_0134_theme_studio_publication.sql",
+      "transaction": true,
+      "requires": ["20260924_0133_theme_studio_slot_images"],
+      "verify": {
+        "tables": [
+          "theme_studio_reviews",
+          "theme_studio_publications",
+          "theme_catalog_audit"
+        ],
+        "columns": [
+          "theme_studio_reviews.acceptance_run_id",
+          "theme_studio_reviews.reviewer_is_author",
+          "theme_studio_publications.release_id",
+          "theme_catalog_audit.visibility"
+        ],
+        "constraints": [
+          "theme_studio_reviews_version_fkey",
+          "theme_studio_reviews_role_unique",
+          "theme_studio_reviews_reviewer_unique",
+          "theme_studio_reviews_approve_bar_check",
+          "theme_studio_reviews_reject_reason_check",
+          "theme_studio_publications_lifecycle_check",
+          "theme_catalog_audit_action_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": [
+          "theme_studio_publications_one_active",
+          "theme_studio_publications_one_published",
+          "theme_catalog_audit_theme_idx"
+        ],
+        "functions": [
+          "theme_studio_review_binding()",
+          "theme_studio_publication_guard()"
+        ],
+        "rlsTables": [
+          "theme_studio_reviews",
+          "theme_studio_publications",
+          "theme_catalog_audit"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "app_user holds no Theme Studio publication privilege",
+            "sql": "select count(*)::text from information_schema.role_table_grants where grantee = 'app_user' and table_name in ('theme_studio_reviews','theme_studio_publications','theme_catalog_audit')",
+            "equals": "0"
+          },
+          {
+            "name": "the project guard requires two qualifying reviews for approval",
+            "sql": "select count(*)::text from pg_proc where proname = 'theme_studio_project_guard' and prosrc like '%needs two qualifying reviews%'",
+            "equals": "1"
+          },
+          {
+            "name": "publication events are admitted",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%catalog_release_selected%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0135_hero_image_controls_help",
+      "description": "Describe hero height, focal point, phone image, overlay and text position controls, and carousel swipe",
+      "file": "sql/20260925_0135_hero_image_controls_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0134_theme_studio_publication"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the section guide describes the hero image controls",
+            "sql": "select count(*)::text from help_articles where slug='add-and-arrange-storefront-sections' and status='published' and body like '%click the subject in the <strong>Focal point</strong> preview%' and body like '%phones download only that one%'",
+            "equals": "1"
+          },
+          {
+            "name": "the section guide describes carousel swipe and reduced motion",
+            "sql": "select count(*)::text from help_articles where slug='add-and-arrange-storefront-sections' and status='published' and body like '%swipe between carousel slides%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0136_product_options",
+      "description": "Add product option axes and each variant's positional option values",
+      "file": "sql/20260925_0136_product_options.sql",
+      "transaction": true,
+      "requires": ["20260925_0135_hero_image_controls_help"],
+      "verify": {
+        "columns": ["products.options", "product_variants.option_values"],
+        "constraints": [
+          "products_options_shape_check",
+          "product_variants_option_values_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "every existing product starts with no options",
+            "sql": "select count(*)::text from public.products where options <> '[]'::jsonb",
+            "equals": "0"
+          },
+          {
+            "name": "every existing variant starts with no option values",
+            "sql": "select count(*)::text from public.product_variants where cardinality(option_values) <> 0",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0137_product_options_help",
+      "description": "Describe product options, colour swatches, per-option storefront choices and quick add in the product variants guide",
+      "file": "sql/20260925_0137_product_options_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0136_product_options"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the variants guide explains options and swatches",
+            "sql": "select count(*)::text from help_articles where slug='add-product-images-and-variants' and status='published' and body like '%Show as colour swatches on the storefront%' and body like '%opens the same choices without leaving the page%'",
+            "equals": "1"
+          },
+          {
+            "name": "the variants guide no longer says the top variant opens first",
+            "sql": "select count(*)::text from help_articles where slug='add-product-images-and-variants' and status='published' and body like '%the top variant is selected first on the product page%'",
+            "equals": "0"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0138_nested_menu_help",
+      "description": "Explain header sub-links, menu columns and the menu image in the header and navigation guide",
+      "file": "sql/20260925_0138_nested_menu_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0137_product_options_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the navigation guide explains sub-links and the menu image",
+            "sql": "select count(*)::text from help_articles where slug='edit-your-header-footer-and-navigation' and status='published' and body like '%select <strong>Add sub-link</strong> under it%' and body like '%one level at a time with a Back button%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260925_0139_collection_pages_help",
+      "description": "Explain that a category's handle is the address of its own collection page",
+      "file": "sql/20260925_0139_collection_pages_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0138_nested_menu_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the categories guide names the collection page address",
+            "sql": "select count(*)::text from help_articles where slug='organize-products-with-categories-and-card-colours' and status='published' and body like '%<code>/collections/your-handle</code>%'",
+            "equals": "1"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20260926_0140_section_color_schemes_help",
+      "description": "Explain the Website Builder section colour schemes in the section guide",
+      "file": "sql/20260926_0140_section_color_schemes_help.sql",
+      "transaction": true,
+      "requires": ["20260925_0139_collection_pages_help"],
+      "verify": {
+        "tables": ["help_articles"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "the section guide explains colour schemes",
+            "sql": "select count(*)::text from help_articles where slug='add-and-arrange-storefront-sections' and status='published' and body like '%<strong>Colour scheme</strong>%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

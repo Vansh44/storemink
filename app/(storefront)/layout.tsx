@@ -17,12 +17,19 @@ import { resolveStorefrontAppearance } from "@/lib/chrome/types";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
 import { isStoreSearchIndexable } from "@/lib/store/launch";
 import { getStoreUrl } from "@/lib/site";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
 import { designOverrideCssVars } from "@/lib/chrome/design";
+import {
+  schemeCssVars,
+  schemeDesignFor,
+  withPaletteOverrides,
+} from "@/lib/themes/schemes";
 import { Toaster } from "@/components/ui/sonner";
 import { MerchantTracking } from "@/app/(storefront)/components/merchant-tracking";
+import { StudioAcceptanceProbe } from "@/app/(storefront)/components/studio-acceptance-probe";
+import { studioPreviewMarker } from "@/lib/theme-studio/preview-store";
 import { getPlatformAnalyticsFeatures } from "@/lib/analytics/platform-feature-store";
 import { analyticsFeatureAllowed } from "@/lib/analytics/features";
 import { resolveMerchantPixelSettings } from "@/lib/analytics/merchant-pixels";
@@ -33,6 +40,7 @@ import {
 } from "@/lib/seo/store-indexing";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { STOREMINK_ICONS } from "@/lib/brand-assets";
+import { typographyRootClasses } from "@/lib/themes/typography";
 import "./storefront-theme.css";
 
 // Per-store default title/template + canonical origin. Individual pages may set
@@ -143,10 +151,9 @@ export default async function StorefrontLayout({
   // only --brand-primary — the globals.css defaults ARE the WholeSip look, so
   // it stays exactly as today.
   const themeSelection = readThemeSelection(store.settings);
-  const design = themeSelection
-    ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
-        .design
-    : null;
+  const design =
+    (await resolveInstalledThemeDefinition(themeSelection))?.preset.design ??
+    null;
   // ★★ THE PRESET'S OWN MAP, KEPT SEPARATE FROM THE MERGED ONE. The inline
   // style below wants the merchant's overrides ON TOP; ChromeProvider wants
   // the map WITHOUT them, because its job when an override is CLEARED in the
@@ -161,9 +168,19 @@ export default async function StorefrontLayout({
   // un-overridden store keeps inheriting the theme and a later preset upgrade
   // still reaches it.
   const designOverrides = designOverrideCssVars(chrome.design);
+  // Section colour schemes, from the palette this store really paints —
+  // the theme's with the merchant's overrides on top, or the storefront
+  // defaults with no theme. Only the colours CSS cannot derive on its own
+  // are written (lib/themes/schemes.ts); they are read only inside a
+  // section that wears a scheme, so a store using none is unaffected.
+  const schemeVars = schemeCssVars(
+    withPaletteOverrides(schemeDesignFor(design), chrome.design.palette),
+    brand.primaryColor,
+  );
   const themeVars: Record<string, string> = {
     ...presetVars,
     ...designOverrides,
+    ...schemeVars,
   };
 
   // Theme defaults + the merchant's published builder overrides resolve into
@@ -179,6 +196,11 @@ export default async function StorefrontLayout({
     `sm-card-${appearance.card}`,
     appearance.cardQuickAdd ? "sm-card-quickadd" : "",
     appearance.cardHoverImage ? "sm-card-hoverimg" : "",
+    appearance.stickyAddToCart ? "sm-atc-sticky" : "",
+    appearance.gridColumnsMobile === 2 ? "sm-grid-m2" : "",
+    appearance.gridColumnsDesktop !== 4
+      ? `sm-grid-d${appearance.gridColumnsDesktop}`
+      : "",
     // Only when a face is actually being imposed — see the `.sm-themed-type`
     // note in storefront-theme.css. ★ A FONT OVERRIDE COUNTS, not just a
     // theme: the class is what makes untokenised descendants inherit the
@@ -187,6 +209,9 @@ export default async function StorefrontLayout({
     // defect §11 records for Vitrine. An un-themed store that overrides
     // NOTHING still gets no class, so its inherited font is untouched.
     design || chrome.design.fonts.body ? "sm-themed-type" : "",
+    // Heading face, weight, case and spacing the theme chose. A class per
+    // property, and none when the theme sets nothing — lib/themes/typography.ts.
+    ...typographyRootClasses(design?.typography),
     `sm-pdp-${appearance.productDetail}`,
     `sm-cart-${appearance.cart}`,
     `sm-footer-${appearance.footer}`,
@@ -221,6 +246,10 @@ export default async function StorefrontLayout({
                   {children}
                   <Footer />
                 </div>
+                {/* Theme Studio acceptance measures only preview stores. */}
+                {studioPreviewMarker(store.settings) ? (
+                  <StudioAcceptanceProbe />
+                ) : null}
               </ChromeProvider>
             </BrandProvider>
             <AuthModalLoader />
