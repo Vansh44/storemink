@@ -182,13 +182,13 @@ so it was project or shared capacity, not request pacing. They are unrun.
 Themes gain type scale, button styles, container width, spacing rhythm, named
 per-section colour schemes and restrained reveal-on-scroll motion.
 
-| #   | Step                                                                                              | Status  |
-| --- | ------------------------------------------------------------------------------------------------- | ------- |
-| 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅      |
-| 2.2 | Type scale and heading style (`design.typography`: face, scale, weight, case, spacing)            | ✅      |
-| 2.3 | Button styles (`design.buttons`: shape, primary/secondary fill, case, weight, spacing, hover)     | ✅      |
-| 2.4 | Page width and spacing rhythm (`design.page`: width, section gap, product-grid gap)               | ✅      |
-| 2.5 | Restrained reveal-on-scroll motion                                                                | planned |
+| #   | Step                                                                                              | Status |
+| --- | ------------------------------------------------------------------------------------------------- | ------ |
+| 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅     |
+| 2.2 | Type scale and heading style (`design.typography`: face, scale, weight, case, spacing)            | ✅     |
+| 2.3 | Button styles (`design.buttons`: shape, primary/secondary fill, case, weight, spacing, hover)     | ✅     |
+| 2.4 | Page width and spacing rhythm (`design.page`: width, section gap, product-grid gap)               | ✅     |
+| 2.5 | Restrained reveal-on-scroll motion (`design.motion.reveal`: fade or rise)                         | ✅     |
 
 ### Found and fixed while building 2.1
 
@@ -314,6 +314,32 @@ per-section colour schemes and restrained reveal-on-scroll motion.
 - Not covered: blog pages, account pages and checkout keep their own reading
   widths. The compact cart stays a narrow column by design.
 - Deferred: a merchant control for page width in the builder.
+
+### Found and fixed while building 2.5
+
+- **Sections fade in, or fade and rise, as they scroll into view.** Only
+  sections below the first screen move, so the first thing a shopper sees is
+  never held back and nothing flashes. Without JavaScript, or before the page
+  is ready, every section is simply visible.
+- **Motion never hides anything that matters.** It is off for shoppers who ask
+  their device for reduced motion, off in the builder, and a section shows at
+  once when keyboard focus enters it or the page is printed.
+- **Theme Studio's acceptance checks would have skipped hidden sections.**
+  The accessibility and overflow checks ignore invisible content, so the
+  checker now reveals every section before it measures.
+- **The intent's motion preference finally does something.** Theme Studio has
+  recorded "none", "restrained" or "expressive" since Phase 0 and nothing
+  used it; it now maps to none, fade and rise.
+- Opt-in: a theme without `design.motion` mounts nothing and adds no class,
+  and the bundled themes were not changed (`theme-studio-v13` for generated
+  themes).
+- Checked in the browser on Ritual with rise forced for the test: only
+  sections below the first screen started hidden, every one arrived during a
+  full scroll and kept no leftover attribute, the page height did not change
+  and layout shift was 0. Leaving the page and coming back re-scanned it, and
+  the checker's reveal-all showed every section at once.
+- Deferred: per-card and per-heading motion, and a merchant control in the
+  builder. Track 2 is complete.
 
 ## Track 3 — generated imagery
 

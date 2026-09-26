@@ -9,6 +9,7 @@ import {
   SECTION_SCHEMES,
 } from "./schemes";
 import { buttonIssues, buttonsDrawColourAsText } from "./buttons";
+import { motionIssues } from "./motion";
 import { pageIssues } from "./page";
 import { typographyIssues } from "./typography";
 import { normalizeMenus } from "@/lib/menus";
@@ -624,6 +625,9 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
   // Page width and spacing, likewise: only a theme that sets them is checked.
   for (const problem of pageIssues(design.page)) {
     issue("page", problem);
+  }
+  for (const problem of motionIssues(design.motion)) {
+    issue("motion", problem);
   }
   for (const key of ["card", "control", "sm", "pill"] as const) {
     if (!/^\d/.test(design.shape[key] ?? "")) {

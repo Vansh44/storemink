@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { isPlatformHost } from "@/lib/store/host";
+import { REVEAL_ALL_EVENT } from "@/lib/themes/motion";
 
 // ---------------------------------------------------------------------------
 // The Theme Studio acceptance probe.
@@ -185,6 +186,10 @@ async function measure(perf: { lcp: number | null; cls: number }) {
     );
   }
   if (document.fonts?.ready) await withTimeout(document.fonts.ready, 5_000);
+  // A theme that reveals sections on scroll holds some at opacity 0 until
+  // they arrive; show them all first, so axe and the overflow check measure
+  // every section rather than skipping the ones not yet revealed.
+  window.dispatchEvent(new Event(REVEAL_ALL_EVENT));
 
   // Scroll through the page so lazy images load and below-the-fold layout is
   // exercised, then return to the top before measuring.

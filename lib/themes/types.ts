@@ -4,6 +4,7 @@ import type { StoreMenus } from "@/lib/menus";
 import type { ThemeMeta } from "./meta";
 import { schemeCssVars, type ThemeColorSchemes } from "./schemes";
 import { buttonCssVars, type ThemeButtons } from "./buttons";
+import { type ThemeMotion } from "./motion";
 import { pageCssVars, type ThemePage } from "./page";
 import { typographyCssVars, type ThemeTypography } from "./typography";
 
@@ -195,6 +196,9 @@ export interface ThemeDesign {
   /** Page width, section spacing and product-grid spacing
    *  (lib/themes/page.ts). Absent: today's widths and gaps. */
   page?: ThemePage;
+  /** Sections revealed on scroll (lib/themes/motion.ts). Absent: no
+   *  motion. */
+  motion?: ThemeMotion;
 }
 
 /** Immutable authored preset package. Applying it seeds starting content;

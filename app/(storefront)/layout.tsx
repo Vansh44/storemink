@@ -42,6 +42,8 @@ import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { STOREMINK_ICONS } from "@/lib/brand-assets";
 import { buttonRootClasses } from "@/lib/themes/buttons";
 import { pageRootClasses } from "@/lib/themes/page";
+import { motionRootClasses, revealsOnScroll } from "@/lib/themes/motion";
+import { ScrollReveal } from "@/app/(storefront)/components/scroll-reveal";
 import { typographyRootClasses } from "@/lib/themes/typography";
 import "./storefront-theme.css";
 
@@ -220,6 +222,9 @@ export default async function StorefrontLayout({
     // Page width: a class only so a "Full width" section can opt out of it.
     // lib/themes/page.ts.
     ...pageRootClasses(design?.page),
+    // Sections revealed on scroll; none when the theme sets no motion, and
+    // none in the builder, where a hidden section is one you cannot edit.
+    ...(previewing ? [] : motionRootClasses(design?.motion)),
     `sm-pdp-${appearance.productDetail}`,
     `sm-cart-${appearance.cart}`,
     `sm-footer-${appearance.footer}`,
@@ -254,6 +259,9 @@ export default async function StorefrontLayout({
                   {children}
                   <Footer />
                 </div>
+                {!previewing && revealsOnScroll(design?.motion) ? (
+                  <ScrollReveal />
+                ) : null}
                 {/* Theme Studio acceptance measures only preview stores. */}
                 {studioPreviewMarker(store.settings) ? (
                   <StudioAcceptanceProbe />

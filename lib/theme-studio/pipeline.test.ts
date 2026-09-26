@@ -297,6 +297,15 @@ describe("theme generation pipeline", () => {
     });
   });
 
+  it("compiles motion from the intent's restrained preference", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    expect(outcome.package.definition.preset.design.motion).toEqual({
+      reveal: "fade",
+    });
+  });
+
   it("hands a button weight the body face lacks back as a repair", async () => {
     const seen: StructuredRequest[] = [];
     const fake = createFakeModelClient(base);

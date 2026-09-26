@@ -22,7 +22,7 @@ import {
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v12";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v13";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -76,6 +76,7 @@ Design tokens
 - Typography sets how headings look across the storefront; every key may be null to keep each heading's own default. headingFont "display" sets headings in the display font (use it whenever the display font is the design's signature face — otherwise it only appears in a few places) and "body" in the body font. headingScale is small, medium, large or xlarge. headingWeight is regular, medium, semibold, bold or heavy, and must be a weight the heading font really has: Instrument Serif has only regular, and Jost only up to medium, so with either as the heading face use regular or medium — if you set headingFont to one of them you must set headingWeight too. headingCase "uppercase" suits fashion and minimal themes; pair it with headingTracking "wide". headingTracking "tight" suits large sans or serif headlines.
 - Buttons set how buttons look across the storefront; every key may be null to keep each button's own default. Primary buttons are the one action a screen exists for (Shop now, Buy now, Checkout); secondary buttons sit beside them (Add to cart beside Buy now, Load more). shape is square, rounded or pill: square suits fashion and minimal themes, pill suits friendly and food themes. primary is solid or outline; outline draws the accent as text, so the accent must reach 4.5:1 on the page (cream) and on cards (surface) — use solid unless it does. secondary is solid, outline or text (an underlined label); outline and text carry the same contrast rule. case "uppercase" pairs with tracking "wide". weight is regular, medium, semibold or bold, and like headings must be a weight the body font really has: with Jost or Instrument Serif as the body face use regular or medium, and you must set weight. hover is darken, lift or invert.
 - Page (design.page, not the pages list) sets the store's width and rhythm; every key may be null to keep today's layout. width is narrow (1080px, a focused editorial or single-product store), standard (1240px), wide (1440px, large photography or big catalogues) or full (edge to edge); it lines up the header, homepage sections, shop, product page, cart and footer. sectionGap is compact (dense catalogue and grocery stores), standard or airy (editorial, luxury and fashion). gridGap is the space between product cards: tight for dense grids, roomy for large editorial photography.
+- Motion (design.motion) is restrained: reveal is none, fade (sections fade in as they scroll into view) or rise (they fade in and lift a short way). Follow the intent's visual.motion: none means reveal none, restrained means fade, expressive means rise. It never hides the first screen and is switched off for visitors who ask for reduced motion.
 
 Pages
 - Exactly one homepage, whose slug is the empty string. Other slugs are lowercase kebab-case and must not be any of: ${reserved}.

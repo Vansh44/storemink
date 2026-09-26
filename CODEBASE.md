@@ -2307,6 +2307,8 @@ wholesip/
 │   │       ├── studio-acceptance-probe.tsx # Theme Studio acceptance
 │   │       │                        # measurements; rendered ONLY on preview
 │   │       │                        # stores, answers only a platform-host parent
+│   │       ├── scroll-reveal.tsx     # sections revealed on scroll for a theme
+│   │       │                        # that sets design.motion (never in builder)
 │   │
 │   ├── dashboard/             # ★ STORE ADMIN DASHBOARD (per-store, auth-gated)
 │   │   ├── layout.tsx         # Sidebar + topbar shell (dashboard.css); independent
@@ -5395,6 +5397,41 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     Validation: `pageIssues` → `page` code. Theme Studio: Stage B
     `design.page`, compiler keeps chosen keys, contract admits `page`,
     prompt `theme-studio-v12`. Theme-level only, so no Help Centre update.
+    **★★ SECTIONS REVEALED ON SCROLL (Track 2.5, 2026-09-26).**
+    `lib/themes/motion.ts` (pure): `ThemeDesign.motion.reveal` is `none`,
+    `fade` or `rise` (fade plus a 24px lift). Absent/`none` = no class and no
+    observer. `motionRootClasses` → `sm-reveal` (+ `sm-reveal-rise`);
+    `ScrollReveal` (`app/(storefront)/components/scroll-reveal.tsx`) is
+    mounted by the layout only when `revealsOnScroll` and NOT `previewing` —
+    a hidden section in the builder is one the merchant cannot edit.
+    ★★ THE SERVER HIDES NOTHING. Every section renders visible; after
+    hydration the component marks only sections whose top is BELOW the
+    current viewport `data-reveal="pending"` (the only state the CSS hides),
+    and an IntersectionObserver (`rootMargin: 0 0 -8% 0`) flips each to
+    `shown`. So no-JS, slow hydration, the first screen, the hero and
+    anything already scrolled past are never hidden — no flash, and the
+    largest paint is never held back. One way: a shown section keeps its
+    state and loses the attribute ~900ms later (a timer, because
+    `transitionend` never fires when nothing moved), so no transform lingers
+    to become a fixed-position child's containing block.
+    ★ NEVER A TRAP: reduced motion or no IntersectionObserver → nothing is
+    hidden; `:focus-within` (CSS) and `focusin` (JS) show a pending section
+    the moment keyboard focus enters it; `beforeprint` and `@media print`
+    show everything; `REVEAL_ALL_EVENT` (`sm:reveal-all`) shows everything and
+    the Studio acceptance probe dispatches it BEFORE axe and the overflow
+    check, so they measure every section rather than skipping opacity-0 ones.
+    ★ Opacity and transform only, so no layout shift — measured CLS 0 across a
+    full scroll. It re-scans on `usePathname` change, clearing the old
+    page's marks first, so client-side navigation works.
+    ⚠ Chrome fires no native focus events while the document lacks focus (a
+    background pane), so a programmatic `.focus()` there shows the section
+    through the CSS rule only; a real `focusin` marks it shown.
+    Validation: `motionIssues` → `motion` code. Theme Studio: Stage B
+    `design.motion`, compiler keeps a chosen reveal, contract admits
+    `motion`, prompt `theme-studio-v13` — which finally gives the Phase 0
+    intent's `visual.motion` (none/restrained/expressive) something to drive:
+    none → none, restrained → fade, expressive → rise. Theme-level only, so
+    no Help Centre update.
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded

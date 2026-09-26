@@ -858,6 +858,44 @@
   }
 }
 
+/* ---- Theme motion: sections revealed on scroll (lib/themes/motion.ts) ----
+   ScrollReveal marks only sections wholly below the screen as "pending", then
+   "shown" as each arrives; the server renders every section visible, so
+   without the class, the script or its attribute, nothing is hidden.
+   ★ Opacity and transform only: nothing moves in layout, so no layout shift.
+   ★ A focused element inside a pending section shows it at once, so a
+     keyboard user never tabs into something invisible. */
+.sm-reveal.storefront-root .home-section[data-reveal="pending"] {
+  opacity: 0;
+}
+.sm-reveal-rise.storefront-root .home-section[data-reveal="pending"] {
+  transform: translateY(24px);
+}
+.sm-reveal.storefront-root .home-section[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 0.7s ease,
+    transform 0.7s cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+.sm-reveal.storefront-root .home-section[data-reveal="pending"]:focus-within {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sm-reveal.storefront-root .home-section[data-reveal] {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
+@media print {
+  .sm-reveal.storefront-root .home-section[data-reveal] {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 /* ---- Hover second-image swap (theme layout.cardHoverImage) -------------
    The card cross-fades to the product's SECOND photograph on hover — the one
    piece of motion a fashion grid is expected to have.

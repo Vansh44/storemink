@@ -308,6 +308,30 @@ describe("Theme Studio contracts", () => {
     }
   });
 
+  it("admits motion and refuses unknown settings", () => {
+    const ok = structuredClone(
+      themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
+    );
+    ok.definition.preset.design.motion = { reveal: "rise" };
+    expect(validateThemePackageV2(ok).ok).toBe(true);
+
+    for (const motion of [
+      { reveal: "spin" },
+      { reveal: "fade", speed: 2 },
+      "fade",
+    ]) {
+      const bad = structuredClone(ok);
+      bad.definition.preset.design.motion = motion as never;
+      const result = validateThemePackageV2(bad);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issues.join(" ")).toContain(
+          "definition.preset.design.motion",
+        );
+      }
+    }
+  });
+
   it("admits the shopping-chrome layout options and refuses other values", () => {
     const ok = structuredClone(
       themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),

@@ -14,6 +14,7 @@ import type {
 import type { ThemeDefinition } from "@/lib/themes/types";
 import { SECTION_SCHEMES } from "@/lib/themes/schemes";
 import { cleanButtons } from "@/lib/themes/buttons";
+import { cleanMotion } from "@/lib/themes/motion";
 import { cleanPage } from "@/lib/themes/page";
 import { cleanTypography } from "@/lib/themes/typography";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
@@ -1095,6 +1096,7 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
       "typography",
       "buttons",
       "page",
+      "motion",
     ],
     "definition.preset.design",
     issues,
@@ -1129,6 +1131,17 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
     } else if (!sameJson(cleanPage(value.page), value.page)) {
       issues.push(
         "definition.preset.design.page contains unknown settings or values.",
+      );
+    }
+  }
+  if (value.motion !== undefined) {
+    if (!isRecord(value.motion)) {
+      issues.push(
+        "definition.preset.design.motion must be an object when supplied.",
+      );
+    } else if (!sameJson(cleanMotion(value.motion), value.motion)) {
+      issues.push(
+        "definition.preset.design.motion contains unknown settings or values.",
       );
     }
   }

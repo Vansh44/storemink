@@ -222,6 +222,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         hover: "lift",
       },
       page: { width: "standard", sectionGap: "airy", gridGap: null },
+      motion: { reveal: "fade" },
     },
     pages: [
       {

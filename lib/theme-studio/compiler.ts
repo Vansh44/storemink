@@ -241,6 +241,11 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       if (typeof value === "string") page[key] = value;
     }
   }
+  // Motion: a null reveal keeps the storefront still.
+  const motion: Rec = {};
+  if (isRec(raw.motion) && typeof raw.motion.reveal === "string") {
+    motion.reveal = raw.motion.reveal;
+  }
   return {
     palette: palette as unknown as ThemeDesign["palette"],
     fonts: { body: text(raw.fonts.body), display: text(raw.fonts.display) },
@@ -262,6 +267,9 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       : {}),
     ...(Object.keys(page).length > 0
       ? { page: page as ThemeDesign["page"] }
+      : {}),
+    ...(Object.keys(motion).length > 0
+      ? { motion: motion as ThemeDesign["motion"] }
       : {}),
   };
 }

@@ -17,6 +17,7 @@ import {
   BUTTON_TRACKINGS,
   BUTTON_WEIGHTS,
 } from "@/lib/themes/buttons";
+import { MOTION_REVEALS } from "@/lib/themes/motion";
 import { GRID_GAPS, PAGE_WIDTHS, SECTION_GAPS } from "@/lib/themes/page";
 import {
   THEME_STUDIO_FEATURES,
@@ -273,6 +274,9 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       width: nullable(enumOf(PAGE_WIDTHS)),
       sectionGap: nullable(enumOf(SECTION_GAPS)),
       gridGap: nullable(enumOf(GRID_GAPS)),
+    }),
+    motion: obj({
+      reveal: nullable(enumOf(MOTION_REVEALS)),
     }),
   }),
   pages: {
