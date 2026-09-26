@@ -5080,6 +5080,54 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     ⚠ After an image run, publication is still blocked by the catalog card and
     the two screenshots, which only an upload fills today (Track 3.6).
     Operator-only: no Help Centre migration.
+    **Theme Studio generated imagery, Track 3.3 (2026-09-27; one photograph
+    per product, one staging across them).** Before this, nothing stopped
+    every product sharing one image slot, and the offline provider did exactly
+    that, so a generated catalogue could show eight products with one picture.
+    ★ A PRODUCT NAMES A BRIEF; ITS SLOT IS ITS OWN. Stage A runs before the
+    products exist and writes at most twelve briefs, so it cannot write one per
+    product. It now writes one product-photography brief for the whole range
+    (backdrop, light, camera), every product's `imageSlot` names it, and the
+    compiler gives each product its own slot, `productSlotId(brief, slug)` =
+    `<brief>--<slug>` (shortened with a hash past 80 characters;
+    `productSlotBrief` reads the brief back, longest match first). The slot is
+    kind `product`, its alt is the product's name, and its shape is the range
+    brief's ratio (square when the product named a brief not written for
+    products). The range brief itself becomes no image. ★ DETERMINISTIC, so a
+    revision that keeps a product keeps its slot and its image
+    (`carryOverSlotImages`); `currentThemeForRevision` shows a product slot as
+    its brief, and the compiler also resolves a copied product slot to its
+    brief, so a revision cannot fork a new one. A product naming no brief (or
+    a system slot such as `preview`) is a repair sentence. ★ `lib/themes/
+    validation.ts` gained `sample/product_image`: two products sharing one main
+    image is a production floor, so the compiler hands it back as a repair and
+    acceptance refuses it. It is deliberately NOT in the package contract,
+    which would make versions stored before this unreadable; no bundled theme
+    shares one (checked). ★ AN IMAGE RUN DESCRIBES A PRODUCT SLOT BY THE
+    PRODUCT (`generatableSlots`): subject = its name and description, art
+    direction = the range brief's subject and direction. A slot several
+    products still share (a version made before this) keeps its brief rather
+    than borrowing one product's name. ★★ ONE STAGING: the first product shot
+    that comes back becomes a second reference, `set`, and every later product
+    is drawn with the anchor AND it, so the range shares a backdrop, camera
+    height, framing and scale. Products are drawn one at a time until that
+    leader lands (a refused or unusable one is not a reference; if none lands
+    the rest match the anchor alone); hero, category and editorial slots need
+    no set shot and start alongside the leader. No extra images, so no extra
+    cost beyond one more reference per request. Stage A/B prompt
+    `theme-studio-v14`; the offline provider writes a `product-photo` brief.
+    ★ Placeholders are cached by SHAPE AND COLOUR, not slot (`pipeline.ts`):
+    they are solid colour, so a dozen product slots are one image, and the
+    worker already stores one row per digest. ★ LIVE-VERIFIED 2026-09-27
+    (`storemink-staging`): a ceramics theme's anchor, hero and eight products
+    came back as eight distinct pieces on one backdrop, camera, light and
+    scale, no text or people, $1.45 for ten images. ⚠ Two findings, not
+    changed here: the shared project's image quota rate-limited hard (6m20s for
+    ten images, mostly free 429 waits), so a full theme can approach the
+    19-minute run deadline, which keeps what was drawn; and one call returned
+    8,400 output tokens rather than 1,680 (about $0.50). Only the first image is
+    used, and the estimate and spend cap count the whole bill.
+    Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

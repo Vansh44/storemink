@@ -39,6 +39,14 @@ import { prepareSlotImage, type PreparedSlotImage } from "./slot-images";
 // ★ EVERY CALL'S USAGE IS RECORDED, refused and failed ones included: the
 // provider may have billed them, and the daily spend cap must count what was
 // spent, not only what was kept.
+//
+// ★ ONE STAGING ACROSS PRODUCTS (Track 3.3). The anchor sets the theme's look;
+// it does not set a camera. So the first product shot that comes back becomes
+// a second reference, SET, and every later product is matched to both: same
+// backdrop, camera height, framing and scale, a different product. Products
+// are drawn one at a time until that first one lands (a refused or unusable
+// leader is not a reference), while the other slots, which need no set shot,
+// start at once alongside it.
 // ---------------------------------------------------------------------------
 
 /** Images drawn at once. Enough to finish a dozen slots in a couple of minutes
@@ -167,18 +175,28 @@ export async function runThemeImageGeneration(
     base64: Buffer.from(anchorResult.bytes).toString("base64"),
   };
 
-  // 2. Every slot, a few at a time.
+  // 2. Every slot, a few at a time: the product leader first, the rest of
+  // the products once it is known, everything else from the start.
   const outcomes = new Map<string, SlotOutcome>();
   const images: { slotId: string; image: PreparedSlotImage }[] = [];
-  const queue = [...slots];
-  const drawOne = async (slot: GeneratableSlot) => {
+  /** Draws one slot; returns the provider's image when it was kept. */
+  const drawOne = async (
+    slot: GeneratableSlot,
+    references: ThemeImageReference[],
+  ): Promise<{
+    bytes: Uint8Array;
+    mediaType: ThemeImageReference["mediaType"];
+  } | null> => {
     if (signal.aborted) {
       outcomes.set(slot.slotId, { slotId: slot.slotId, status: "skipped" });
-      return;
+      return null;
     }
-    const request = buildAssetRequest(direction, slot.purpose, slot.brief, [
-      anchorRef,
-    ]);
+    const request = buildAssetRequest(
+      direction,
+      slot.purpose,
+      slot.brief,
+      references,
+    );
     const result = await client.generateImage(request, signal);
     record(request, result.usage);
     if (result.kind === "refused") {
@@ -187,7 +205,7 @@ export async function runThemeImageGeneration(
         status: "refused",
         reason: result.reason,
       });
-      return;
+      return null;
     }
     if (result.kind === "error") {
       outcomes.set(slot.slotId, {
@@ -195,7 +213,7 @@ export async function runThemeImageGeneration(
         status: "failed",
         code: result.code,
       });
-      return;
+      return null;
     }
     const prepared = await prepare(result.bytes, slot.target, slot.byteLimit);
     if (!prepared.ok) {
@@ -204,25 +222,69 @@ export async function runThemeImageGeneration(
         status: "unusable",
         code: prepared.code,
       });
-      return;
+      return null;
     }
     images.push({ slotId: slot.slotId, image: prepared.value });
     outcomes.set(slot.slotId, { slotId: slot.slotId, status: "generated" });
+    return { bytes: result.bytes, mediaType: result.mediaType };
   };
-  const workers = Array.from(
-    {
-      length: Math.max(
-        1,
-        Math.min(options.concurrency ?? IMAGE_CONCURRENCY, queue.length),
-      ),
-    },
-    async () => {
-      for (let slot = queue.shift(); slot; slot = queue.shift()) {
-        await drawOne(slot);
+
+  const products = slots.filter((s) => s.purpose === "product");
+  const others = slots.filter((s) => s.purpose !== "product");
+  const queue: (() => Promise<unknown>)[] = [];
+  let setRef: ThemeImageReference | null = null;
+  let leaderSettled = products.length === 0;
+  let releaseLeader: () => void = () => {};
+  const leaderDone = new Promise<void>((resolve) => {
+    releaseLeader = resolve;
+  });
+  if (products.length > 0) {
+    queue.push(async () => {
+      const waiting = [...products];
+      try {
+        while (!setRef && waiting.length > 0 && !signal.aborted) {
+          const kept = await drawOne(waiting.shift()!, [anchorRef]);
+          if (kept) {
+            setRef = {
+              role: "set",
+              mediaType: kept.mediaType,
+              base64: Buffer.from(kept.bytes).toString("base64"),
+            };
+          }
+        }
+      } finally {
+        const refs = setRef ? [anchorRef, setRef] : [anchorRef];
+        for (const slot of waiting) queue.push(() => drawOne(slot, refs));
+        leaderSettled = true;
+        releaseLeader();
       }
-    },
+    });
+  }
+  for (const slot of others) queue.push(() => drawOne(slot, [anchorRef]));
+
+  const worker = async () => {
+    for (;;) {
+      const task = queue.shift();
+      if (task) {
+        await task();
+      } else if (!leaderSettled) {
+        await leaderDone;
+      } else {
+        return;
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.max(
+          1,
+          Math.min(options.concurrency ?? IMAGE_CONCURRENCY, slots.length),
+        ),
+      },
+      worker,
+    ),
   );
-  await Promise.all(workers);
 
   // Package order, not completion order: the version's release note and the
   // stored asset order stay stable run to run.

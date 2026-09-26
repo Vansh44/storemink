@@ -1,5 +1,6 @@
 import { EMPTY_CONFIG, SECTION_TYPE_META } from "@/lib/homepage/section-types";
 import { RESERVED_PAGE_SLUGS } from "@/lib/sections/registry";
+import { THEME_ASSET_PREFIX, productSlotBrief } from "./compiler";
 import type { ThemeIntent, ThemePackageV2 } from "./contracts";
 import {
   THEME_STUDIO_FONT_VALUES,
@@ -22,7 +23,7 @@ import {
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v13";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v14";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -48,7 +49,7 @@ StoreMink themes are data rendered by one shared storefront. A theme can only us
 ${SECTION_LINES}
 It can also choose palette colours, two fonts, corner radii and a fixed set of header, product-card, product-page, cart and footer layout variants. When the brief needs something those cannot express — a new kind of section, an interaction, animation beyond simple transitions, a font or token that does not exist, or anything that would need custom code — record a capability gap with the matching code instead of approximating it silently. Mark it blocking when the brief makes it a hard requirement. Never propose custom code.
 
-Plan pages for at least the home, shop, product and cart surfaces. Describe desktop, tablet and mobile composition separately; mobile is not a shrunken desktop. Asset briefs describe imagery the theme needs; their ids are kebab-case and start with a letter, and each brief says whether the operator supplies it, it comes from a curated library, or it would be generated. Use at most twelve briefs.
+Plan pages for at least the home, shop, product and cart surfaces. Describe desktop, tablet and mobile composition separately; mobile is not a shrunken desktop. Asset briefs describe imagery the theme needs; their ids are kebab-case and start with a letter, and each brief says whether the operator supplies it, it comes from a curated library, or it would be generated. Use at most twelve briefs. Write exactly one product-photography brief (its purpose names product photography) describing how the whole range is photographed: backdrop, light, camera height and framing. Do not write a brief per product: every product is photographed separately from that one brief, so the catalogue reads as one shoot.
 
 Respond with JSON only, matching the provided schema.`;
 }
@@ -95,7 +96,7 @@ ${configExamples()}
 Navigation: header links point to /shop and to your pages. Footer groups hold two to four columns. Legal links are optional.
 - A header item may open a menu: its children are shown when a shopper opens it. Give a store with several categories a "Shop" item whose children group them — two to four children, each a column heading with two to six links such as "/collections/<slug>" — and set that item's image_url to a category or hero image slot to feature it. A child may have no children of its own. An item that only opens a menu may leave href "". Keep other header items plain: children [] and image_url "". Never nest deeper than a child's links.
 
-Sample catalogue: four to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot and each category may have one; both use asset-brief ids. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
+Sample catalogue: four to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot naming the product-photography brief, and each category may have one; both use asset-brief ids. Products may all name the same brief: StoreMink gives every product its own photograph drawn from it, of that product, so write each product's name and description as something that could be photographed. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
 
 Carry the intent's capability gaps forward and add any you discover. Respond with JSON only, matching the provided schema.`;
 }
@@ -188,16 +189,41 @@ export function stageARevisionUserText(
 
 /** The parts of a version's package a revision needs to carry forward: its
  * tokens, pages, navigation and sample catalogue. Provenance, the asset
- * manifest and release metadata are StoreMink's to set, never the model's. */
-export function currentThemeForRevision(pkg: ThemePackageV2): string {
+ * manifest and release metadata are StoreMink's to set, never the model's.
+ *
+ * A product's own photo slot is shown as the brief it was made from, which is
+ * what the draft schema asks a product for; the compiler makes the slot again
+ * from the same brief and slug, so the product keeps its image. */
+export function currentThemeForRevision(
+  pkg: ThemePackageV2,
+  baseIntent?: ThemeIntent,
+): string {
   const { preset } = pkg.definition;
+  const briefIds = baseIntent?.assetBriefs.map((b) => b.id) ?? [];
+  const asBrief = (url: string): string => {
+    if (!url.startsWith(THEME_ASSET_PREFIX)) return url;
+    const brief = productSlotBrief(
+      url.slice(THEME_ASSET_PREFIX.length),
+      briefIds,
+    );
+    return brief ? `${THEME_ASSET_PREFIX}${brief}` : url;
+  };
+  const sampleData = preset.sampleData
+    ? {
+        ...preset.sampleData,
+        products: preset.sampleData.products.map((product) => ({
+          ...product,
+          image_url: asBrief(product.image_url),
+        })),
+      }
+    : null;
   return JSON.stringify({
     description: pkg.definition.description,
     brand: preset.brand,
     design: preset.design,
     pages: preset.pages,
     menus: preset.menus,
-    sampleData: preset.sampleData ?? null,
+    sampleData,
     capabilityGaps: pkg.capabilityGaps,
   });
 }

@@ -419,6 +419,23 @@ export function validateThemeSampleData(
   if (hasDuplicates(sample.products.map((product) => product.slug))) {
     add("product_slug", "Two products share a slug.");
   }
+  // ★ Every product has its own photograph. A catalogue where eight products
+  // show one picture looks broken on a demo store, and a shopper cannot tell
+  // the products apart — so it is a floor, not a style choice.
+  const firstWithImage = new Map<string, string>();
+  for (const product of sample.products) {
+    const image = product.image_url.trim();
+    if (!image) continue;
+    const earlier = firstWithImage.get(image);
+    if (earlier) {
+      add(
+        "product_image",
+        `${product.slug}: shares its image with ${earlier}; give every product its own photograph.`,
+      );
+    } else {
+      firstWithImage.set(image, product.slug);
+    }
+  }
   for (const product of sample.products) {
     if (!categorySlugs.includes(product.category_slug)) {
       add(

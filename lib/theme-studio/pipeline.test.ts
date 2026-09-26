@@ -3,6 +3,7 @@ import {
   canAdvanceThemePackageToCandidate,
   validateThemePackageV2,
 } from "./contracts";
+import { productSlotId } from "./compiler";
 import { createFakeModelClient } from "./fake-provider";
 import { runThemeGeneration, type GenerationInput } from "./pipeline";
 import {
@@ -435,6 +436,62 @@ describe("theme generation pipeline", () => {
     expect(repairText).toMatch(/menus\.header\[0\]\.image_url must be ""/);
   });
 
+  it("gives a product its own slot even when it names another product's slot", async () => {
+    const fake = createFakeModelClient(base);
+    const copying: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        const draft = result.value as {
+          products: { imageSlot: string }[];
+        };
+        // As a model might copy from a revision's current theme.
+        draft.products[0].imageSlot = productSlotId(
+          "product-photo",
+          "sample-two",
+        );
+        return result;
+      },
+    };
+    const outcome = await run(undefined, copying);
+    if (outcome.kind !== "version") throw new Error(outcome.kind);
+    const products = outcome.package.definition.preset.sampleData!.products;
+    expect(products[0].image_url).toBe(
+      `theme-asset://${productSlotId("product-photo", products[0].slug)}`,
+    );
+    expect(new Set(products.map((p) => p.image_url)).size).toBe(
+      products.length,
+    );
+  });
+
+  it("hands back a product image that names no asset brief", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    const wrong: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        const draft = result.value as {
+          products: { imageSlot: string }[];
+        };
+        draft.products[1].imageSlot = "preview";
+        return result;
+      },
+    };
+    const outcome = await run(undefined, wrong);
+    expect(outcome).toMatchObject({ kind: "failed" });
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toContain(
+      'products[1].imageSlot "preview" must be one of the intent\'s asset-brief ids.',
+    );
+  });
+
   it("refuses a combination that repeats, then fails if never fixed", async () => {
     const seen: StructuredRequest[] = [];
     const fake = createFakeModelClient(base);
@@ -636,5 +693,53 @@ describe("theme generation pipeline", () => {
     });
     // Its placeholder is not stored again.
     expect(revised.placeholders.has("preview")).toBe(false);
+  });
+
+  it("keeps a product's generated photo through a revision, showing the product its brief", async () => {
+    const first = await run();
+    if (first.kind !== "version") throw new Error("expected a version");
+    const product = first.package.definition.preset.sampleData!.products[0];
+    const slotId = productSlotId("product-photo", product.slug);
+    const basePackage = {
+      ...first.package,
+      assets: first.package.assets.map((a) =>
+        a.id === slotId
+          ? {
+              ...a,
+              sha256: "c".repeat(64),
+              source: "generated" as const,
+              licenseNote: "Generated for this theme.",
+            }
+          : a,
+      ),
+    };
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient({ ...base, brief: "Warmer colours" });
+    const revised = await runThemeGeneration(
+      {
+        provider: "fake",
+        generate: (request, signal) => {
+          seen.push(request);
+          return fake.generate(request, signal);
+        },
+      },
+      {
+        ...input(),
+        messages: [{ kind: "revision", body: "Warmer colours" }],
+        revision: { baseIntent: first.intent, basePackage },
+      },
+      new AbortController().signal,
+    );
+    if (revised.kind !== "version") throw new Error("expected a version");
+    const stageB = seen.find((r) => r.stage === "draft")!;
+    const textB =
+      stageB.content[0].type === "text" ? stageB.content[0].text : "";
+    expect(textB).not.toContain(slotId);
+    expect(textB).toContain('"image_url":"theme-asset://product-photo"');
+    expect(revised.package.assets.find((a) => a.id === slotId)).toMatchObject({
+      sha256: "c".repeat(64),
+      source: "generated",
+    });
+    expect(revised.placeholders.has(slotId)).toBe(false);
   });
 });

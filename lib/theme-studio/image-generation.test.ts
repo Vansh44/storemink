@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { PLACEHOLDER_LICENSE_NOTE } from "./compiler";
+import { PLACEHOLDER_LICENSE_NOTE, productSlotId } from "./compiler";
 import {
   validateThemePackageV2,
   type ThemeIntent,
@@ -24,7 +24,23 @@ import {
 import { runThemeGeneration } from "./pipeline";
 import { describeSlots } from "./slot-images-core";
 
+/** Every image run here pushes a dozen real images through sharp, which on a
+ *  loaded parallel suite runs past the default 5s (slot-images.test.ts sets
+ *  the same ceiling for the same reason). */
+const IMAGE_RUN_TIMEOUT_MS = 20_000;
+
+let built: Promise<{ pkg: ThemePackageV2; intent: ThemeIntent }> | null = null;
+
+/** The offline theme, built once; every test gets its own copy. */
 async function fixture(): Promise<{
+  pkg: ThemePackageV2;
+  intent: ThemeIntent;
+}> {
+  built ??= buildFixture();
+  return structuredClone(await built);
+}
+
+async function buildFixture(): Promise<{
   pkg: ThemePackageV2;
   intent: ThemeIntent;
 }> {
@@ -70,9 +86,10 @@ async function fixture(): Promise<{
   return { pkg: outcome.package, intent: outcome.intent };
 }
 
-/** The fake theme has one art slot; this adds a product, a category and an
- *  editorial slot (each a placeholder with a brief), so ordering and
- *  concurrency have something to act on. */
+/** The fake theme has a hero slot and one slot per product; this adds a
+ *  product slot no product uses, a category and an editorial slot (each a
+ *  placeholder with a brief), so ordering and concurrency have more to act
+ *  on. */
 async function richFixture(): Promise<{
   pkg: ThemePackageV2;
   intent: ThemeIntent;
@@ -229,8 +246,58 @@ describe("choosing what to draw", () => {
   });
 });
 
-describe("the image run", () => {
-  it("draws the anchor first, then every slot matched to it", async () => {
+describe("product photographs", () => {
+  it("gives every product its own slot, made from the range's photography brief", async () => {
+    const { pkg } = await fixture();
+    const products = pkg.definition.preset.sampleData!.products;
+    expect(products.length).toBeGreaterThanOrEqual(8);
+    const paths = products.map((p) => p.image_url);
+    expect(new Set(paths).size).toBe(products.length);
+    for (const product of products) {
+      expect(product.image_url).toBe(
+        `theme-asset://${productSlotId("product-photo", product.slug)}`,
+      );
+      const asset = pkg.assets.find((a) => a.path === product.image_url)!;
+      expect(asset.kind).toBe("product");
+      expect(asset.alt).toBe(product.name);
+      // The range brief's 4:5, not the hero's 16:9.
+      expect(asset.width! / asset.height!).toBeCloseTo(4 / 5, 2);
+    }
+    // The range brief is a recipe, not an image of its own.
+    expect(pkg.assets.map((a) => a.id)).not.toContain("product-photo");
+  });
+
+  it("describes a product's slot by that product, staged by the range brief", async () => {
+    const { pkg, intent } = await fixture();
+    const range = intent.assetBriefs.find((b) => b.id === "product-photo")!;
+    const product = pkg.definition.preset.sampleData!.products[1];
+    const slot = generatableSlots(pkg, intent).find(
+      (s) => `theme-asset://${s.slotId}` === product.image_url,
+    )!;
+    expect(slot.purpose).toBe("product");
+    expect(slot.brief.subject).toBe(`${product.name}. ${product.description}`);
+    expect(slot.brief.artDirection).toBe(
+      `Range staging: ${range.subject}. ${range.artDirection}`,
+    );
+    expect(slot.brief.purpose).toBe(range.purpose);
+    expect(slot.brief.aspectRatio).toBe("4:5");
+  });
+
+  it("describes a slot several products still share by its brief, never by one of them", async () => {
+    const { pkg, intent } = await richFixture();
+    const shared = structuredClone(pkg);
+    const products = shared.definition.preset.sampleData!.products;
+    products[0].image_url = "theme-asset://product-mug";
+    products[1].image_url = "theme-asset://product-mug";
+    const slot = generatableSlots(shared, intent).find(
+      (s) => s.slotId === "product-mug",
+    )!;
+    expect(slot.brief.subject).toBe("A product-mug");
+  });
+});
+
+describe("the image run", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
+  it("draws the anchor first, then matches every later product to the first product shot", async () => {
     const { pkg, intent } = await fixture();
     const seen: ThemeImageRequest[] = [];
     const result = await runThemeImageGeneration(
@@ -239,11 +306,33 @@ describe("the image run", () => {
       new AbortController().signal,
     );
     const slots = generatableSlots(pkg, intent);
+    const productIds = slots
+      .filter((s) => s.purpose === "product")
+      .map((s) => s.slotId);
+    expect(productIds.length).toBeGreaterThanOrEqual(8);
     expect(seen[0].purpose).toBe("anchor");
     expect(seen).toHaveLength(slots.length + 1);
-    for (const request of seen.slice(1)) {
-      expect(request.references.map((r) => r.role)).toEqual(["anchor"]);
+    const roles = (id: string) =>
+      seen.find((r) => r.briefId === id)!.references.map((r) => r.role);
+    // The leader is matched to the anchor only; every other product to both.
+    expect(roles(productIds[0])).toEqual(["anchor"]);
+    for (const id of productIds.slice(1)) {
+      expect(roles(id)).toEqual(["anchor", "set"]);
     }
+    for (const slot of slots.filter((s) => s.purpose !== "product")) {
+      expect(roles(slot.slotId)).toEqual(["anchor"]);
+    }
+    // The set shot is the leader's own full-quality image.
+    const fake = createFakeImageClient();
+    const leader = await fake.generateImage(
+      seen.find((r) => r.briefId === productIds[0])!,
+      new AbortController().signal,
+    );
+    if (leader.kind !== "ok") throw new Error("fake failed");
+    const setRef = seen
+      .find((r) => r.briefId === productIds[1])!
+      .references.find((r) => r.role === "set")!;
+    expect(setRef.base64).toBe(Buffer.from(leader.bytes).toString("base64"));
     expect(result.anchorFailure).toBeNull();
     expect(result.anchor).not.toBeNull();
     expect(result.images.map((i) => i.slotId)).toEqual(
@@ -260,6 +349,106 @@ describe("the image run", () => {
     expect(result.telemetry.estimatedCostMicroUsd).toBe(
       (slots.length + 1) * (100 * 0.5 + 1680 * 60),
     );
+  });
+
+  it("makes the next kept product the set shot when the first is refused", async () => {
+    const { pkg, intent } = await fixture();
+    const productIds = generatableSlots(pkg, intent)
+      .filter((s) => s.purpose === "product")
+      .map((s) => s.slotId);
+    const seen: ThemeImageRequest[] = [];
+    const result = await runThemeImageGeneration(
+      scripted(
+        { [productIds[0]]: { kind: "refused", reason: "SAFETY" } },
+        seen,
+      ),
+      { pkg, intent },
+      new AbortController().signal,
+    );
+    const roles = (id: string) =>
+      seen.find((r) => r.briefId === id)!.references.map((r) => r.role);
+    expect(roles(productIds[0])).toEqual(["anchor"]);
+    expect(roles(productIds[1])).toEqual(["anchor"]);
+    for (const id of productIds.slice(2)) {
+      expect(roles(id)).toEqual(["anchor", "set"]);
+    }
+    expect(
+      result.outcomes.find((o) => o.slotId === productIds[0])?.status,
+    ).toBe("refused");
+  });
+
+  it("matches products to the anchor alone when no product shot comes back", async () => {
+    const { pkg, intent } = await fixture();
+    const productIds = generatableSlots(pkg, intent)
+      .filter((s) => s.purpose === "product")
+      .map((s) => s.slotId);
+    const seen: ThemeImageRequest[] = [];
+    await runThemeImageGeneration(
+      scripted(
+        Object.fromEntries(
+          productIds.map((id) => [
+            id,
+            { kind: "error" as const, code: "provider_unavailable" as const },
+          ]),
+        ),
+        seen,
+      ),
+      { pkg, intent },
+      new AbortController().signal,
+    );
+    for (const id of productIds) {
+      expect(
+        seen.find((r) => r.briefId === id)!.references.map((r) => r.role),
+      ).toEqual(["anchor"]);
+    }
+  });
+
+  it("starts the other slots while the first product shot is still being drawn", async () => {
+    const { pkg, intent } = await richFixture();
+    const slots = generatableSlots(pkg, intent);
+    const leader = slots.find((s) => s.purpose === "product")!.slotId;
+    const others = new Set(
+      slots.filter((s) => s.purpose !== "product").map((s) => s.slotId),
+    );
+    const fake = createFakeImageClient();
+    const order: string[] = [];
+    const client: ThemeStudioImageClient = {
+      provider: "fake",
+      async generateImage(request, signal) {
+        order.push(`start:${request.briefId}`);
+        if (request.briefId === leader) {
+          await new Promise((r) => setTimeout(r, 200));
+        }
+        const result = await fake.generateImage(request, signal);
+        order.push(`end:${request.briefId}`);
+        return result;
+      },
+    };
+    await runThemeImageGeneration(
+      client,
+      { pkg, intent },
+      new AbortController().signal,
+    );
+    const leaderEnd = order.indexOf(`end:${leader}`);
+    const otherStarts = order
+      .map((e, i) =>
+        e.startsWith("start:") && others.has(e.slice(6)) ? i : -1,
+      )
+      .filter((i) => i >= 0);
+    expect(otherStarts.length).toBe(others.size);
+    expect(Math.min(...otherStarts)).toBeLessThan(leaderEnd);
+    // No other product starts before the leader is back.
+    const productStarts = order
+      .map((e, i) =>
+        e.startsWith("start:") &&
+        !others.has(e.slice(6)) &&
+        e.slice(6) !== leader &&
+        e !== "start:anchor"
+          ? i
+          : -1,
+      )
+      .filter((i) => i >= 0);
+    expect(Math.min(...productStarts)).toBeGreaterThan(leaderEnd);
   });
 
   it("draws nothing else when the anchor is refused, and records the spent call", async () => {
@@ -440,68 +629,72 @@ describe("the image run", () => {
   });
 });
 
-describe("the next version's package", () => {
-  it("points each drawn slot at its image, marked generated and not a placeholder", async () => {
-    const { pkg, intent } = await fixture();
-    const result = await runThemeImageGeneration(
-      createFakeImageClient(),
-      { pkg, intent },
-      new AbortController().signal,
-    );
-    const applied = applyGeneratedImages(
-      pkg,
-      result.images.map(({ slotId, image }) => ({
-        slotId,
-        sha256: image.sha256,
-        width: image.width,
-        height: image.height,
-      })),
-      2,
-      "gemini-3.1-flash-image",
-    );
-    expect(applied.ok).toBe(true);
-    if (!applied.ok) return;
-    expect(
-      validateThemePackageV2(JSON.parse(JSON.stringify(applied.value))).ok,
-    ).toBe(true);
-    for (const { slotId, image } of result.images) {
-      const asset = applied.value.assets.find((a) => a.id === slotId)!;
-      expect(asset).toMatchObject({
-        sha256: image.sha256,
-        source: "generated",
-        licenseNote: GENERATED_LICENSE_NOTE,
-      });
-      expect(asset.licenseNote).not.toBe(PLACEHOLDER_LICENSE_NOTE);
-    }
-    expect(applied.value.definition.release.version).toBe("0.0.2");
-    expect(applied.value.definition.release.notes.at(-1)).toContain(
-      "Images generated with gemini-3.1-flash-image",
-    );
-    // The version filled is untouched.
-    expect(
-      pkg.assets.every((a) => a.licenseNote !== GENERATED_LICENSE_NOTE),
-    ).toBe(true);
-  });
-
-  it("refuses an unknown slot, a wrong shape and an empty set", async () => {
-    const { pkg } = await fixture();
-    const slot = pkg.assets.find((a) => a.width && a.height)!;
-    const image = {
-      sha256: "b".repeat(64),
-      width: slot.width!,
-      height: slot.height!,
-    };
-    expect(applyGeneratedImages(pkg, [], 2, "m").ok).toBe(false);
-    expect(
-      applyGeneratedImages(pkg, [{ slotId: "nope", ...image }], 2, "m").ok,
-    ).toBe(false);
-    expect(
-      applyGeneratedImages(
+describe(
+  "the next version's package",
+  { timeout: IMAGE_RUN_TIMEOUT_MS },
+  () => {
+    it("points each drawn slot at its image, marked generated and not a placeholder", async () => {
+      const { pkg, intent } = await fixture();
+      const result = await runThemeImageGeneration(
+        createFakeImageClient(),
+        { pkg, intent },
+        new AbortController().signal,
+      );
+      const applied = applyGeneratedImages(
         pkg,
-        [{ slotId: slot.id, ...image, height: image.height * 2 }],
+        result.images.map(({ slotId, image }) => ({
+          slotId,
+          sha256: image.sha256,
+          width: image.width,
+          height: image.height,
+        })),
         2,
-        "m",
-      ).ok,
-    ).toBe(false);
-  });
-});
+        "gemini-3.1-flash-image",
+      );
+      expect(applied.ok).toBe(true);
+      if (!applied.ok) return;
+      expect(
+        validateThemePackageV2(JSON.parse(JSON.stringify(applied.value))).ok,
+      ).toBe(true);
+      for (const { slotId, image } of result.images) {
+        const asset = applied.value.assets.find((a) => a.id === slotId)!;
+        expect(asset).toMatchObject({
+          sha256: image.sha256,
+          source: "generated",
+          licenseNote: GENERATED_LICENSE_NOTE,
+        });
+        expect(asset.licenseNote).not.toBe(PLACEHOLDER_LICENSE_NOTE);
+      }
+      expect(applied.value.definition.release.version).toBe("0.0.2");
+      expect(applied.value.definition.release.notes.at(-1)).toContain(
+        "Images generated with gemini-3.1-flash-image",
+      );
+      // The version filled is untouched.
+      expect(
+        pkg.assets.every((a) => a.licenseNote !== GENERATED_LICENSE_NOTE),
+      ).toBe(true);
+    });
+
+    it("refuses an unknown slot, a wrong shape and an empty set", async () => {
+      const { pkg } = await fixture();
+      const slot = pkg.assets.find((a) => a.width && a.height)!;
+      const image = {
+        sha256: "b".repeat(64),
+        width: slot.width!,
+        height: slot.height!,
+      };
+      expect(applyGeneratedImages(pkg, [], 2, "m").ok).toBe(false);
+      expect(
+        applyGeneratedImages(pkg, [{ slotId: "nope", ...image }], 2, "m").ok,
+      ).toBe(false);
+      expect(
+        applyGeneratedImages(
+          pkg,
+          [{ slotId: slot.id, ...image, height: image.height * 2 }],
+          2,
+          "m",
+        ).ok,
+      ).toBe(false);
+    });
+  },
+);

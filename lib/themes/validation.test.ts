@@ -129,6 +129,23 @@ describe("theme validation", () => {
     );
   });
 
+  it("sample: two products sharing one photograph are reported, once per repeat", () => {
+    const theme = clone();
+    const products = theme.preset.sampleData!.products;
+    expect(codes(validateThemeSampleData(theme))).not.toContain(
+      "product_image",
+    );
+    products[2].image_url = products[0].image_url;
+    products[3].image_url = products[0].image_url;
+    const found = validateThemeSampleData(theme).filter(
+      (f) => f.code === "product_image",
+    );
+    expect(found.map((f) => f.message)).toEqual([
+      `${products[2].slug}: shares its image with ${products[0].slug}; give every product its own photograph.`,
+      `${products[3].slug}: shares its image with ${products[0].slug}; give every product its own photograph.`,
+    ]);
+  });
+
   it("links: a menu link to an unseeded product is reported", () => {
     const theme = clone();
     theme.preset.menus.header.push({

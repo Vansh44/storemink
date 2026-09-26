@@ -352,7 +352,7 @@ with regeneration. Owner decision: no per-theme cost cap.
 | --- | -------------------------------------------------------------------------------------------------------------- | ------- |
 | 3.1 | Image client: allowlisted model, its own prompt, request builder (anchor, composition per purpose), fake, cost | ✅      |
 | 3.2 | Generation run: anchor first, every placeholder art slot matched to it, cropped to its slot, one new version   | ✅      |
-| 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | planned |
+| 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | ✅      |
 | 3.4 | Vision quality check with regeneration                                                                         | planned |
 | 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | planned |
 | 3.6 | Catalog card and screenshots captured from the preview store, so a generated theme can publish                 | planned |
@@ -402,6 +402,41 @@ with regeneration. Owner decision: no per-theme cost cap.
   providers: queueing, the run, every stored image, the new version and its
   parent, the package contract, a refused art-direction image and a retry.
   The live image model was checked separately with the same request shape.
+
+### Found and fixed while building 3.3
+
+- **Every product now gets its own photograph.** Theme Studio used to let all
+  products share one image slot, and its offline test provider did exactly
+  that. The design stage now writes one brief for how the whole range is
+  photographed, and each product gets its own slot drawn from that brief. A
+  revision that keeps a product keeps its photo.
+- **Two products sharing one photograph is now refused** by the production
+  sample-data checks, so the model is asked to fix it and acceptance refuses
+  it. No bundled theme shares one.
+- **The range reads as one shoot.** The first product photo that comes back is
+  sent with every later product photo, so they share a backdrop, camera
+  height, framing and scale. If it is refused, the next one that works takes
+  its place. The hero, category and editorial images start at the same time
+  and don't wait for it.
+- **Each product photo is described by the product itself**: its name and
+  description, staged the way the range brief says. A version made before this,
+  where several products still share a slot, keeps the old description instead
+  of borrowing one product's name.
+- No extra images and no meaningful extra cost: each later product request
+  carries one more reference image.
+- Checked live on 2026-09-27: a ceramics theme with eight products (mug,
+  ramen bowl, vase, plate, teapot, jug, platter, espresso cups), plus the
+  art-direction image and the hero. Every product came out as itself, on the
+  same warm seamless backdrop, at the same eye-level camera, light and scale.
+  None had text, a logo or a person. It cost $1.45 for ten images.
+- Found: the shared staging project rate-limits image requests hard. Ten
+  images took 6 minutes 20 seconds, mostly waiting out rate-limit refusals,
+  which cost nothing. A full theme (sixteen products plus art) could approach
+  the 19-minute run deadline. A run that hits it keeps what it drew, and the
+  rest stay placeholders. Not changed here.
+- Found: one product request came back with 8,400 output tokens instead of the
+  usual 1,680 (about $0.50 instead of $0.10). Only the first image is kept.
+  The cost estimate and daily spend cap already count the whole bill.
 
 ## Track 4 — fewer prompts
 

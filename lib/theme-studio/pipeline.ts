@@ -299,7 +299,10 @@ export async function runThemeGeneration(
     input.facts,
     intent,
     input.revision
-      ? currentThemeForRevision(input.revision.basePackage)
+      ? currentThemeForRevision(
+          input.revision.basePackage,
+          input.revision.baseIntent,
+        )
       : undefined,
   );
   const placeholders = new Map<string, PlaceholderImage>();
@@ -354,13 +357,19 @@ export async function runThemeGeneration(
     );
     const slotAssets = new Map<string, PlaceholderImage>();
     for (const slot of prepared.slots) {
-      const key = `${slot}|${color}`;
+      // Keyed by shape and colour, not slot: a placeholder is a solid colour,
+      // so every product slot of one ratio is the same image (and the worker
+      // stores one row per digest). Rendering it per slot was a dozen
+      // identical WebP encodes per draft once each product had its own slot.
+      const aspectRatio = slotSpec(
+        slot,
+        intent,
+        prepared.parts.productSlots,
+      ).aspectRatio;
+      const key = `${aspectRatio}|${color}`;
       let image = placeholders.get(key);
       if (!image) {
-        image = await renderPlaceholder(
-          placeholderSize(slotSpec(slot, intent).aspectRatio),
-          color,
-        );
+        image = await renderPlaceholder(placeholderSize(aspectRatio), color);
         placeholders.set(key, image);
       }
       slotAssets.set(slot, image);

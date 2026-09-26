@@ -1,4 +1,4 @@
-import { THEME_ASSET_PREFIX } from "./compiler";
+import { THEME_ASSET_PREFIX, productSlotBrief } from "./compiler";
 import {
   validateThemePackageV2,
   type ThemeIntent,
@@ -11,6 +11,7 @@ import {
   type ThemeImagePurpose,
 } from "./image-provider";
 import type { ThemeImageBrief, ThemeImageDirection } from "./image-prompt";
+import type { ThemeProductSeed } from "@/lib/themes/types";
 import {
   describeSlots,
   slotByteLimit,
@@ -30,6 +31,11 @@ import {
 // id, kind, shape and alt text; the subject and art direction the Stage A
 // model wrote live in the intent. A slot with no brief (a hand-edited package)
 // still gets an image, described by its alt text.
+//
+// ★ A PRODUCT'S SLOT IS DESCRIBED BY THE PRODUCT (Track 3.3). Its subject is
+// that product's own name and description; the range brief it was made from
+// supplies the staging, so the image shows THIS product, shot the way every
+// product in the theme is shot.
 // ---------------------------------------------------------------------------
 
 /** How many images one run may make, the anchor included: Stage A's own brief
@@ -77,27 +83,58 @@ export function generatableSlots(
   intent: ThemeIntent,
 ): GeneratableSlot[] {
   const briefs = new Map(intent.assetBriefs.map((b) => [b.id, b]));
+  // Only a slot exactly one product uses is described by that product: a
+  // version made before products had their own slots shares one among many,
+  // and naming one of them would draw the wrong picture for the rest.
+  const productsByPath = new Map<string, ThemeProductSeed[]>();
+  for (const p of pkg.definition.preset.sampleData?.products ?? []) {
+    productsByPath.set(p.image_url, [
+      ...(productsByPath.get(p.image_url) ?? []),
+      p,
+    ]);
+  }
   const out: GeneratableSlot[] = [];
   for (const slot of describeSlots(pkg)) {
     if (!slot.placeholder || !GENERATABLE_KINDS.has(slot.kind)) continue;
     if (slot.catalogPreview || slot.catalogScreenshot) continue;
     const target = slotTargetSize(slot);
     if (!target) continue;
-    const brief = briefs.get(slot.id);
     // A slot's shape came from its brief's ratio, which is one the model
     // accepts, so the nearest accepted ratio IS that ratio; for a slot of any
     // other shape it is the closest the crop can then finish.
     const ratio = nearestImageRatio(target.aspect);
+    const users = productsByPath.get(slot.path) ?? [];
+    const product =
+      slot.kind === "product" && users.length === 1 ? users[0] : undefined;
+    const rangeId = product ? productSlotBrief(slot.id, briefs.keys()) : null;
+    const range = rangeId ? briefs.get(rangeId) : undefined;
+    const brief = product ? undefined : briefs.get(slot.id);
     out.push({
       slotId: slot.id,
       purpose: slot.kind as GeneratableSlot["purpose"],
-      brief: {
-        id: slot.id,
-        purpose: brief?.purpose ?? "",
-        subject: brief?.subject || slot.alt,
-        artDirection: brief?.artDirection ?? "",
-        aspectRatio: ratio,
-      },
+      brief: product
+        ? {
+            id: slot.id,
+            purpose: range?.purpose ?? "",
+            subject: [product.name, product.description]
+              .map((part) => part.trim())
+              .filter(Boolean)
+              .join(". "),
+            artDirection: [
+              range?.subject ? `Range staging: ${range.subject}.` : "",
+              range?.artDirection ?? "",
+            ]
+              .filter(Boolean)
+              .join(" "),
+            aspectRatio: ratio,
+          }
+        : {
+            id: slot.id,
+            purpose: brief?.purpose ?? "",
+            subject: brief?.subject || slot.alt,
+            artDirection: brief?.artDirection ?? "",
+            aspectRatio: ratio,
+          },
       target,
       byteLimit: slotByteLimit(slot),
     });

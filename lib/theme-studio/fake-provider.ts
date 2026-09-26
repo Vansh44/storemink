@@ -119,6 +119,14 @@ export function runFakeProvider(
         artDirection: "Natural light, no third-party logos or copied artwork.",
         source: "operator",
       },
+      {
+        id: "product-photo",
+        purpose: "Product photography for the whole range",
+        subject: "Each product alone on a seamless warm backdrop",
+        aspectRatio: "4:5",
+        artDirection: "Soft window light from the left, eye-level camera.",
+        source: "generate",
+      },
     ],
     assumptions: [
       "Fake provider output: no model was called and no reference image was analysed.",
@@ -152,6 +160,10 @@ const FAKE_CATEGORIES = [
 
 function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
   const slot = intent.assetBriefs[0]?.id ?? "home-hero";
+  // Products name the range's photography brief; the compiler gives each its
+  // own slot from it (compiler.ts productSlotId).
+  const productBrief =
+    intent.assetBriefs.find((b) => /product/i.test(b.purpose))?.id ?? slot;
   const { palette, fonts, shape } = studio.preset.design;
   const noStyle = { scheme: null, padding: null, width: null };
   const section = (
@@ -308,7 +320,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         categorySlug: "everyday",
         basePrice: 999,
         sellingPrice: 899,
-        imageSlot: slot,
+        imageSlot: productBrief,
         featured: true,
         // One product with real option axes, so the offline path exercises
         // option compilation and the storefront pickers end to end.
@@ -343,7 +355,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
         categorySlug: "everyday",
         basePrice: 1499,
         sellingPrice: 1499,
-        imageSlot: slot,
+        imageSlot: productBrief,
         featured: false,
         options: [],
         variants: [],
@@ -356,7 +368,7 @@ function fakeDraft(intent: ThemeIntent, name: string): Record<string, unknown> {
           categorySlug: category.slug,
           basePrice: 499 + c * 100 + n * 50,
           sellingPrice: 499 + c * 100 + n * 50,
-          imageSlot: slot,
+          imageSlot: productBrief,
           featured: n === 0,
           options: [],
           variants: [],

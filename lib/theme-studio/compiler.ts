@@ -70,6 +70,75 @@ export const SYSTEM_SLOTS = {
   "screenshot-mobile": { aspectRatio: "9:19", alt: "Storefront on mobile" },
 } as const;
 
+// ---------------------------------------------------------------------------
+// Product photographs: one slot per product (Track 3.3).
+//
+// A product names the asset brief that says how the RANGE is photographed —
+// backdrop, light, camera — and the compiler gives that product its own slot,
+// `<brief>--<product slug>`. Stage A cannot write a brief per product: it runs
+// before the products exist, and its twelve briefs would not cover sixteen
+// products plus the rest of the theme. So the brief is shared and the slot is
+// not: every product gets its own image, drawn to one staging.
+//
+// ★ The id is deterministic from the brief and the slug, so a revision that
+// keeps a product keeps its slot — and the image carried into it.
+// ---------------------------------------------------------------------------
+
+export const PRODUCT_SLOT_SEPARATOR = "--";
+const MAX_SLOT_ID = 80;
+
+/** FNV-1a, base 36: a short, stable tag for an id too long to keep whole. */
+function shortHash(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36).padStart(7, "0").slice(0, 7);
+}
+
+/** The part of a brief id a shortened product slot keeps. */
+function briefHead(briefId: string): string {
+  return briefId.length <= 60 ? briefId : briefId.slice(0, 40);
+}
+
+/** The slot a product's photograph lives in. */
+export function productSlotId(briefId: string, productSlug: string): string {
+  const whole = `${briefId}${PRODUCT_SLOT_SEPARATOR}${productSlug}`;
+  if (whole.length <= MAX_SLOT_ID) return whole;
+  // Too long to keep whole: shorten the slug (and a very long brief), and tag
+  // with a hash of the full id so two long slugs sharing a prefix still get
+  // different slots.
+  const head = briefHead(briefId);
+  const room = MAX_SLOT_ID - head.length - PRODUCT_SLOT_SEPARATOR.length - 8;
+  const tail = productSlug.slice(0, room).replace(/-+$/, "");
+  return `${head}${PRODUCT_SLOT_SEPARATOR}${tail}-${shortHash(whole)}`;
+}
+
+/** The brief a product slot was made from: the longest brief id it starts
+ *  with. Null for any other slot. */
+export function productSlotBrief(
+  slotId: string,
+  briefIds: Iterable<string>,
+): string | null {
+  let best: string | null = null;
+  for (const id of briefIds) {
+    const matches = [id, briefHead(id)].some(
+      (head) =>
+        slotId.startsWith(`${head}${PRODUCT_SLOT_SEPARATOR}`) &&
+        slotId.length > head.length + PRODUCT_SLOT_SEPARATOR.length,
+    );
+    if (matches && (!best || id.length > best.length)) best = id;
+  }
+  return best;
+}
+
+/** A product slot the compiler made, and what it was made from. */
+export interface ProductSlot {
+  briefId: string;
+  productName: string;
+}
+
 export interface CompileFacts {
   themeId: string;
   name: string;
@@ -405,7 +474,9 @@ function withSeoDescriptions(
 function buildCatalogue(
   draft: Rec,
   known: Set<string>,
+  briefIds: Set<string>,
   used: Set<string>,
+  productSlots: Map<string, ProductSlot>,
   issues: string[],
 ): { categories: ThemeCategorySeed[]; products: ThemeProductSeed[] } {
   const slotUrl = (slot: unknown, where: string): string | null => {
@@ -441,9 +512,26 @@ function buildCatalogue(
     const selling = Number(raw.sellingPrice);
     if (selling > base)
       issues.push(`${where}.sellingPrice must not exceed basePrice.`);
-    const image = slotUrl(raw.imageSlot, `${where}.imageSlot`);
-    if (!image)
+    // A product names a BRIEF; its image is its own slot made from it. A
+    // product slot copied back from a revision's current theme resolves to
+    // the brief it was made from.
+    const named = text(raw.imageSlot);
+    const briefId = briefIds.has(named)
+      ? named
+      : productSlotBrief(named, briefIds);
+    let image: string | null = null;
+    if (!named) {
       issues.push(`${where} needs an imageSlot from the asset briefs.`);
+    } else if (!briefId) {
+      issues.push(
+        `${where}.imageSlot "${named}" must be one of the intent's asset-brief ids.`,
+      );
+    } else if (KEBAB_RE.test(slug)) {
+      const slot = productSlotId(briefId, slug);
+      used.add(slot);
+      productSlots.set(slot, { briefId, productName: text(raw.name) });
+      image = `${THEME_ASSET_PREFIX}${slot}`;
+    }
     const variants = list(raw.variants).flatMap((v, j) => {
       if (!isRec(v)) return [];
       const stock = Number(v.stock);
@@ -520,7 +608,9 @@ function buildCatalogue(
 function assetKind(
   slot: string,
   intent: ThemeIntent,
+  productSlots?: ReadonlyMap<string, ProductSlot>,
 ): ThemePackageAsset["kind"] {
+  if (productSlots?.has(slot)) return "product";
   if (slot === "preview" || slot.startsWith("screenshot-")) return "preview";
   const brief = intent.assetBriefs.find((b) => b.id === slot);
   const purpose = `${brief?.purpose ?? ""} ${slot}`.toLowerCase();
@@ -530,13 +620,30 @@ function assetKind(
   return "content";
 }
 
+/** A product photograph's shape when its brief was not written for products
+ *  (a model pointing a product at the hero brief): square, which every
+ *  product card crops cleanly. */
+export const PRODUCT_SLOT_FALLBACK_RATIO = "1:1";
+
 /** Aspect ratio and alt text for a slot's placeholder. */
 export function slotSpec(
   slot: string,
   intent: ThemeIntent,
+  productSlots?: ReadonlyMap<string, ProductSlot>,
 ): { aspectRatio: string; alt: string } {
   if (slot in SYSTEM_SLOTS)
     return SYSTEM_SLOTS[slot as keyof typeof SYSTEM_SLOTS];
+  const product = productSlots?.get(slot);
+  if (product) {
+    const brief = intent.assetBriefs.find((b) => b.id === product.briefId);
+    return {
+      aspectRatio:
+        brief && assetKind(brief.id, intent) === "product"
+          ? brief.aspectRatio
+          : PRODUCT_SLOT_FALLBACK_RATIO,
+      alt: (product.productName || slot).slice(0, 240),
+    };
+  }
   const brief = intent.assetBriefs.find((b) => b.id === slot);
   return {
     aspectRatio: brief?.aspectRatio ?? "4:3",
@@ -557,6 +664,7 @@ export function prepareDraft(
       categories: ThemeCategorySeed[];
       products: ThemeProductSeed[];
     };
+    productSlots: Map<string, ProductSlot>;
   } | null;
   slots: string[];
   issues: string[];
@@ -573,10 +681,19 @@ export function prepareDraft(
     ...intent.assetBriefs.map((b) => b.id),
     ...Object.keys(SYSTEM_SLOTS),
   ]);
+  const briefIds = new Set(intent.assetBriefs.map((b) => b.id));
   const used = new Set<string>(Object.keys(SYSTEM_SLOTS));
+  const productSlots = new Map<string, ProductSlot>();
   const design = buildDesign(draftInput.design, issues);
   const pages = buildPages(draftInput.pages, known, used, issues);
-  const catalogue = buildCatalogue(draftInput, known, used, issues);
+  const catalogue = buildCatalogue(
+    draftInput,
+    known,
+    briefIds,
+    used,
+    productSlots,
+    issues,
+  );
 
   const menus = isRec(draftInput.menus) ? draftInput.menus : {};
   // Header items nest (children, grandchildren) and a top-level item may name
@@ -612,7 +729,7 @@ export function prepareDraft(
   });
 
   return {
-    parts: { draft: draftInput, design, pages, catalogue },
+    parts: { draft: draftInput, design, pages, catalogue, productSlots },
     slots: [...used].sort(),
     issues,
   };
@@ -627,7 +744,7 @@ export function assemblePackage(
   priorIssues: string[],
 ): CompileResult {
   const issues = [...priorIssues];
-  const { draft, design, pages, catalogue } = prepared;
+  const { draft, design, pages, catalogue, productSlots } = prepared;
   const features = [
     ...new Set([
       ...list(draft.features).filter((f): f is ThemeFeature =>
@@ -662,12 +779,12 @@ export function assemblePackage(
     assets.push({
       id: slot,
       path: `${THEME_ASSET_PREFIX}${slot}`,
-      kind: assetKind(slot, intent),
+      kind: assetKind(slot, intent, productSlots),
       source: "generated",
       sha256: asset.sha256,
       width: asset.width,
       height: asset.height,
-      alt: slotSpec(slot, intent).alt,
+      alt: slotSpec(slot, intent, productSlots).alt,
       licenseNote: PLACEHOLDER_LICENSE_NOTE,
     });
   }
