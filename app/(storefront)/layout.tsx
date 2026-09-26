@@ -21,6 +21,11 @@ import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
 import { designOverrideCssVars } from "@/lib/chrome/design";
+import {
+  schemeCssVars,
+  schemeDesignFor,
+  withPaletteOverrides,
+} from "@/lib/themes/schemes";
 import { Toaster } from "@/components/ui/sonner";
 import { MerchantTracking } from "@/app/(storefront)/components/merchant-tracking";
 import { StudioAcceptanceProbe } from "@/app/(storefront)/components/studio-acceptance-probe";
@@ -35,6 +40,7 @@ import {
 } from "@/lib/seo/store-indexing";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { STOREMINK_ICONS } from "@/lib/brand-assets";
+import { typographyRootClasses } from "@/lib/themes/typography";
 import "./storefront-theme.css";
 
 // Per-store default title/template + canonical origin. Individual pages may set
@@ -162,9 +168,19 @@ export default async function StorefrontLayout({
   // un-overridden store keeps inheriting the theme and a later preset upgrade
   // still reaches it.
   const designOverrides = designOverrideCssVars(chrome.design);
+  // Section colour schemes, from the palette this store really paints —
+  // the theme's with the merchant's overrides on top, or the storefront
+  // defaults with no theme. Only the colours CSS cannot derive on its own
+  // are written (lib/themes/schemes.ts); they are read only inside a
+  // section that wears a scheme, so a store using none is unaffected.
+  const schemeVars = schemeCssVars(
+    withPaletteOverrides(schemeDesignFor(design), chrome.design.palette),
+    brand.primaryColor,
+  );
   const themeVars: Record<string, string> = {
     ...presetVars,
     ...designOverrides,
+    ...schemeVars,
   };
 
   // Theme defaults + the merchant's published builder overrides resolve into
@@ -193,6 +209,9 @@ export default async function StorefrontLayout({
     // defect §11 records for Vitrine. An un-themed store that overrides
     // NOTHING still gets no class, so its inherited font is untouched.
     design || chrome.design.fonts.body ? "sm-themed-type" : "",
+    // Heading face, weight, case and spacing the theme chose. A class per
+    // property, and none when the theme sets nothing — lib/themes/typography.ts.
+    ...typographyRootClasses(design?.typography),
     `sm-pdp-${appearance.productDetail}`,
     `sm-cart-${appearance.cart}`,
     `sm-footer-${appearance.footer}`,

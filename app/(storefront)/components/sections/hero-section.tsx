@@ -3,6 +3,7 @@ import type { HeroConfig, SectionStyle } from "@/lib/homepage/section-types";
 import { videoEmbedUrl } from "@/lib/homepage/video-embed";
 import { SectionShell } from "./section-shell";
 import { HeroImage, HeroOverlay, heroClasses } from "./hero-media";
+import { MediaTone } from "./media-tone";
 
 // First-class hero block. Three variants:
 //   banner  — inset rounded card on a solid colour field, copy left / image
@@ -103,6 +104,13 @@ export function HeroSection({
               theme={config.theme}
             />
           </div>
+        )}
+        {asBackground && config.image_url && !config.video_url && (
+          <MediaTone
+            preferred={config.theme}
+            copy=".home-hero-copy"
+            off={config.overlay_opacity !== undefined}
+          />
         )}
         <div className="home-hero-copy">
           {config.badge_text && (

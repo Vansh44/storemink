@@ -125,6 +125,27 @@ clip`. Fixed with `.storefront-root > main { width: 100% }`, and the
 - Deferred: filtering by option value (size, colour) and by tag, server-side
   pagination for catalogues too large to load at once, and a price slider.
 
+### Found and fixed after Track 1.8
+
+- **Text over a photo could be unreadable on every theme.** A section's text
+  colour is chosen per section, not per image. Each section that puts copy on
+  an image now measures the photo behind the words once it loads and uses
+  whichever text colour reads there; only when neither does (a busy photo)
+  does it add a soft gradient from the edge the copy sits on. A first attempt
+  painted a pale panel behind the words and was rejected as ugly.
+- Carousel copy is padded clear of the arrows, and the arrows are hidden on
+  touch phones, where swipe and the dots remain.
+- Full-width media + text bands keep the page margin; only the carousel, hero,
+  ticker, trust bar and newsletter run edge to edge.
+- The header no longer overlaps at tablet widths. It measures itself and
+  folds what does not fit into the drawer, one step at a time: the menu
+  (behind the hamburger), then the delivery control, then the search box (a
+  search icon opens it instead). A fixed breakpoint cannot do this, because
+  whether a header fits depends on the theme's font and the merchant's menu.
+  Checked on all four themes from 769px to 1440px. Delivery was also
+  unreachable between 769px and 900px; it now always lives in one place or
+  the other.
+
 ### First live Gemini run (2026-09-25, Gemini 3.8 Flash, prompt v6)
 
 The golden set was run against the real model for about $1.12. 15 of 32 cases
@@ -160,6 +181,73 @@ so it was project or shared capacity, not request pacing. They are unrun.
 
 Themes gain type scale, button styles, container width, spacing rhythm, named
 per-section colour schemes and restrained reveal-on-scroll motion.
+
+| #   | Step                                                                                              | Status  |
+| --- | ------------------------------------------------------------------------------------------------- | ------- |
+| 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅      |
+| 2.2 | Type scale and heading style (`design.typography`: face, scale, weight, case, spacing)            | ✅      |
+| 2.3 | Button styles                                                                                     | planned |
+| 2.4 | Container width and spacing rhythm                                                                | planned |
+| 2.5 | Restrained reveal-on-scroll motion                                                                | planned |
+
+### Found and fixed while building 2.1
+
+- **A section could change its background and nothing else.** The Style tab's
+  colour set one inline background, so text, cards and buttons stayed tuned
+  for the page. The "Contrast" preset put the default dark text on a
+  near-black band. A scheme changes all of them together, and both presets
+  now apply a scheme.
+- **A product card's tile stayed light inside a dark band while its text
+  turned white.** Cards, tiles and heroes whose copy sits on a photo carry
+  their own fill, so inside a band they keep the page's colours.
+- **A theme's button colours are not body-text colours.** Basket's white on
+  orange is 3.41:1, fine for a button and unreadable as a band of copy. A
+  derived Brand band picks a theme text colour that reaches 4.5:1, and black
+  or white when none does.
+- **The newsletter would have been a card inside a band.** Its own fill
+  flipped to a white card inside a dark band; inside a band it drops its
+  fill.
+- Opt-in: no stored section has a scheme, and the bundled themes keep their
+  hand-set section backgrounds. Generated themes use schemes through Stage B
+  (`theme-studio-v9`).
+- Checked on all four demo themes at 375, 768 and 1280px by rotating every
+  scheme through every eligible section. No text fell below 4.5:1 because of
+  a scheme, and nothing overflowed. The builder picker was tested in jsdom,
+  not looked at in a signed-in browser.
+- Deferred: migrating the bundled themes' hand-set backgrounds to declared
+  schemes, schemes on the header and footer, and more than four schemes.
+
+### Found and fixed while building 2.2
+
+- **Themes chose a display face and almost nothing used it.** Studio and
+  Ritual set Fraunces and Vitrine set Instrument Serif as the display font,
+  but every homepage heading read the body font; only the collection-page
+  title used the display slot. `typography.headingFont: "display"` puts the
+  display face on every page and section heading.
+- **A face with no bold weight fakes one.** Jost is loaded at 300–500 and
+  Instrument Serif at 400 only, while headings ask for 600–800, so the browser
+  smears regular glyphs into faux bold. Theme validation now refuses a
+  typography block whose heading face would do that, and Theme Studio gets it
+  back as a repair. Vitrine's current headings do this today (Jost at
+  650–800); it has no typography block, so it is not judged, and fixing it
+  means a new Vitrine release that sets a weight.
+- **A capitalised, extra-large product name overflowed the editorial product
+  page's narrow column** ("SNEAKER" at 1280px). Any typography setting lets a
+  word that does not fit wrap inside its heading.
+- Opt-in: a theme without `design.typography` writes no variable and no class,
+  and every heading computes the same size, face, weight and spacing as
+  before (checked on Vitrine at 1024px). Bundled themes were not changed.
+  Generated themes set it through Stage B (`theme-studio-v10`).
+- Checked on all four demo themes at 375, 768 and 1280px on the homepage,
+  shop, a product page, the cart and a collection page, under three extreme
+  settings (extra-large display capitals with wide spacing, extra-large heavy
+  body type with tight spacing, extra-large capitals only): no heading wider
+  than its box and no page overflow after the wrap fix. Phones get half the
+  scale (1.25 becomes 1.125 at 375px).
+- Deferred: a merchant control for heading style in the builder. Mink's
+  design proposals replace the whole design override set, so adding typography
+  there needs its own change to that contract. Utility page titles (checkout,
+  account, orders) keep their plain style.
 
 ## Track 3 — generated imagery
 

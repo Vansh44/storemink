@@ -12,6 +12,8 @@ import type {
   ThemeIndustry,
 } from "@/lib/themes/meta";
 import type { ThemeDefinition } from "@/lib/themes/types";
+import { SECTION_SCHEMES } from "@/lib/themes/schemes";
+import { cleanTypography } from "@/lib/themes/typography";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
 import { resolveOptionRows } from "@/lib/products/options";
 
@@ -301,6 +303,8 @@ function parsePublishedAssetPath(path: string) {
     : null;
 }
 const HEX_RE = /^#[0-9a-fA-F]{3,8}$/;
+// Scheme colours are mixed and contrast-checked, which needs all six digits.
+const SCHEME_HEX_RE = /^#[0-9a-fA-F]{6}$/;
 const RGB_TRIPLE_RE = /^\d{1,3},\s*\d{1,3},\s*\d{1,3}$/;
 const CSS_LENGTH_RE = /^\d+(?:\.\d+)?(?:px|rem|em|%)$/;
 const FONT_RE = /^var\(--font-[a-z0-9-]+\)$/;
@@ -1080,10 +1084,61 @@ function validateDefinitionDesign(value: unknown, issues: string[]): void {
   }
   rejectUnknownKeys(
     value,
-    ["palette", "fonts", "shape", "layout"],
+    ["palette", "fonts", "shape", "layout", "schemes", "typography"],
     "definition.preset.design",
     issues,
   );
+  if (value.typography !== undefined) {
+    if (!isRecord(value.typography)) {
+      issues.push(
+        "definition.preset.design.typography must be an object when supplied.",
+      );
+    } else if (!sameJson(cleanTypography(value.typography), value.typography)) {
+      issues.push(
+        "definition.preset.design.typography contains unknown settings or values.",
+      );
+    }
+  }
+  if (value.schemes !== undefined) {
+    if (!isRecord(value.schemes)) {
+      issues.push(
+        "definition.preset.design.schemes must be an object when supplied.",
+      );
+    } else {
+      rejectUnknownKeys(
+        value.schemes,
+        [...SECTION_SCHEMES],
+        "definition.preset.design.schemes",
+        issues,
+      );
+      for (const [id, scheme] of Object.entries(value.schemes)) {
+        const where = `definition.preset.design.schemes.${id}`;
+        if (!isRecord(scheme)) {
+          issues.push(`${where} must be an object.`);
+          continue;
+        }
+        rejectUnknownKeys(
+          scheme,
+          ["background", "text", "surface", "accent", "onAccent"],
+          where,
+          issues,
+        );
+        for (const key of ["background", "text"] as const) {
+          if (!SCHEME_HEX_RE.test(String(scheme[key] ?? ""))) {
+            issues.push(`${where}.${key} must be a hex colour.`);
+          }
+        }
+        for (const key of ["surface", "accent", "onAccent"] as const) {
+          if (
+            scheme[key] !== undefined &&
+            !SCHEME_HEX_RE.test(String(scheme[key]))
+          ) {
+            issues.push(`${where}.${key} must be a hex colour.`);
+          }
+        }
+      }
+    }
+  }
   const palette = isRecord(value.palette) ? value.palette : {};
   const paletteKeys = [
     "cream",

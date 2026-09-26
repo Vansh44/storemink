@@ -25,6 +25,14 @@ import {
   type ThemeStudioSurface,
 } from "./contracts";
 import type { ThemeStudioModelKey } from "./models";
+import { validateSectionStyle } from "@/lib/homepage/section-types";
+import {
+  isSectionScheme,
+  SCHEMELESS_SECTION_TYPES,
+  SECTION_SCHEMES,
+  type ThemeColorScheme,
+  type ThemeColorSchemes,
+} from "@/lib/themes/schemes";
 import { PALETTE_KEYS, THEME_STUDIO_SECTION_TYPES } from "./schemas";
 import { resolveOptionRows, type ProductOption } from "@/lib/products/options";
 import {
@@ -190,6 +198,35 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
       if (value !== null && value !== undefined) layout[key] = value;
     }
   }
+  // A null scheme means "derive it"; a null key inside one means the same
+  // for that colour. Values are passed through unchecked — the package
+  // contract and theme validation judge them and send problems back.
+  const schemes: ThemeColorSchemes = {};
+  if (isRec(raw.schemes)) {
+    for (const id of SECTION_SCHEMES) {
+      const scheme = raw.schemes[id];
+      if (!isRec(scheme)) continue;
+      const out: Rec = {};
+      for (const key of [
+        "background",
+        "text",
+        "surface",
+        "accent",
+        "onAccent",
+      ] as const) {
+        if (typeof scheme[key] === "string") out[key] = scheme[key];
+      }
+      schemes[id] = out as unknown as ThemeColorScheme;
+    }
+  }
+  // A null setting keeps each heading's own value, so only chosen ones are
+  // stored; theme validation judges the face against the weight.
+  const typography: Rec = {};
+  if (isRec(raw.typography)) {
+    for (const [key, value] of Object.entries(raw.typography)) {
+      if (typeof value === "string") typography[key] = value;
+    }
+  }
   return {
     palette: palette as unknown as ThemeDesign["palette"],
     fonts: { body: text(raw.fonts.body), display: text(raw.fonts.display) },
@@ -202,7 +239,36 @@ function buildDesign(raw: unknown, issues: string[]): ThemeDesign | null {
     ...(Object.keys(layout).length > 0
       ? { layout: layout as ThemeDesign["layout"] }
       : {}),
+    ...(Object.keys(schemes).length > 0 ? { schemes } : {}),
+    ...(Object.keys(typography).length > 0
+      ? { typography: typography as ThemeDesign["typography"] }
+      : {}),
   };
+}
+
+/**
+ * The draft's `{scheme, padding, width}` in the stored section-style shape.
+ * ★ A band with a scheme and no padding would put its copy against the
+ *   band's edge, so it gets the medium padding a merchant's preset gives.
+ * Everything else goes through the registry's own style validator, which
+ * also drops a scheme from a section type that cannot wear one.
+ */
+function buildSectionStyle(raw: unknown, type: string) {
+  if (!isRec(raw)) return undefined;
+  const scheme =
+    isSectionScheme(raw.scheme) && !SCHEMELESS_SECTION_TYPES.includes(type)
+      ? raw.scheme
+      : undefined;
+  const padding =
+    raw.padding === "sm" || raw.padding === "md" || raw.padding === "lg"
+      ? raw.padding
+      : scheme
+        ? "md"
+        : undefined;
+  return validateSectionStyle(
+    { scheme, padding_y: padding, width: raw.width ?? undefined },
+    type,
+  );
 }
 
 function buildPages(
@@ -249,12 +315,14 @@ function buildPages(
         if (section.type === "shop_by_category" && config.source !== "all") {
           issues.push(`${where}: shop_by_category must use source "all".`);
         }
+        const style = buildSectionStyle(section.style, String(section.type));
         return [
           {
             id: `${key}-${String(section.type).replace(/_/g, "-")}-${i + 1}`,
             type: section.type as PageSectionItem["type"],
             enabled: true,
             config: config as unknown as PageSectionItem["config"],
+            ...(style ? { style } : {}),
           },
         ];
       },

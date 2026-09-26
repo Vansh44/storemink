@@ -1,5 +1,13 @@
 import { DESIGN_FONTS } from "@/lib/chrome/design";
 import { HOMEPAGE_SECTION_TYPES } from "@/lib/homepage/section-types";
+import { SECTION_SCHEMES } from "@/lib/themes/schemes";
+import {
+  HEADING_CASES,
+  HEADING_FONTS,
+  HEADING_SCALES,
+  HEADING_TRACKINGS,
+  HEADING_WEIGHTS,
+} from "@/lib/themes/typography";
 import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
@@ -185,6 +193,16 @@ const PALETTE_KEYS = [
   "highlight",
 ] as const;
 
+// A band's own colours. Null keys fall back to the derived value
+// (lib/themes/schemes.ts), so most themes declare only background + text.
+const colorScheme = obj({
+  background: hex,
+  text: hex,
+  surface: nullable(hex),
+  accent: nullable(hex),
+  onAccent: nullable(hex),
+});
+
 export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
   description: str,
   keywords: strList,
@@ -220,6 +238,18 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       footer: nullable(enumOf(["rich", "minimal", "editorial"])),
       storefront: nullable(enumOf(["classic", "grocery"])),
     }),
+    schemes: obj(
+      Object.fromEntries(
+        SECTION_SCHEMES.map((id) => [id, nullable(colorScheme)]),
+      ),
+    ),
+    typography: obj({
+      headingFont: nullable(enumOf(HEADING_FONTS)),
+      headingScale: nullable(enumOf(HEADING_SCALES)),
+      headingWeight: nullable(enumOf(HEADING_WEIGHTS)),
+      headingCase: nullable(enumOf(HEADING_CASES)),
+      headingTracking: nullable(enumOf(HEADING_TRACKINGS)),
+    }),
   }),
   pages: {
     type: "array",
@@ -233,6 +263,11 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
         items: obj({
           type: enumOf(THEME_STUDIO_SECTION_TYPES),
           configJson: str,
+          style: obj({
+            scheme: nullable(enumOf(SECTION_SCHEMES)),
+            padding: nullable(enumOf(["sm", "md", "lg"])),
+            width: nullable(enumOf(["contained", "full"])),
+          }),
         }),
       },
     }),

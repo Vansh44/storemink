@@ -5161,6 +5161,149 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
     compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
     guide's section-type paragraph in place.
+    **★★ TEXT OVER A PHOTO PICKS THE COLOUR THAT READS (2026-09-26).** Every
+    section that sets copy ON an image — carousel slides, the minimal hero
+    with a background image, promo banners and image tiles — picks its text
+    colour per SECTION (`theme: dark|light`), never per picture, so dark ink
+    landed on a black boot (reported on Vitrine; true of every theme).
+    `MediaTone` (`sections/media-tone.tsx`) sits inside each such root, and
+    once the photo loads it reads the pixels directly behind the words (drawn
+    the way `object-fit: cover` and the focal point crop them) and applies
+    `chooseTone` (`lib/storefront/media-tone.ts`, pure): keep the configured
+    `theme-*` when it reads, swap to the other when only that reads, and add
+    `sm-scrim` — a soft gradient from the edge the copy sits against — only
+    when neither reads on a busy photo. ★ WORST TENTH, NOT AVERAGE: dark text
+    is judged against the darkest 10% of those pixels and light text against
+    the brightest 10%, at WCAG AA 4.5:1, because half-black-half-white
+    averages to a grey both colours "pass". ★ Nothing is painted behind the
+    words: a first attempt put a blurred panel there and it read as a sticker.
+    ★ It swaps a CLASS the section already styles, so each theme's own
+    dark/light text, button and built-in scrim come with it, and a future
+    theme needs nothing. It re-applies after every render (React writes the
+    configured class back — the builder does on every edit) and re-measures
+    on resize and image load. ★ It FAILS QUIET: a video, a cross-origin photo
+    the canvas cannot read, or no canvas at all leaves the merchant's colour
+    exactly as before, and a merchant who tuned the Overlay slider is left
+    alone (`off`). ⚠ The swap lands a beat after the photo, so the copy's
+    colour eases in over 0.3s. Carousel copy is also padded clear of the
+    arrows (`has-arrows`), which overlapped the subheading on desktop, and
+    the arrows are hidden on touch phones (`pointer: coarse`, ≤640px).
+    Pinned by `media-tone.test.ts` (the decision) and
+    `sections/media-tone.test.tsx` (where the probe sits and that nothing
+    changes unmeasured). No merchant action changes, so no Help Centre update.
+    **★ "Full width" is a band, not edge-to-edge text (2026-09-26).**
+    `.home-section.is-fullbleed` used to drop the page gutter for every
+    section, so a media + text band (Vitrine's "Occasion", Ritual's and
+    Studio's editorial bands) put its heading against the screen edge. The
+    band's BACKGROUND still spans the page; only sections whose content is its
+    own padded surface — carousel, hero, ticker, trust bar, newsletter — run
+    flush, via one `:has()` rule in homepage.css. Pinned by
+    `section-shell.test.tsx`.
+    **★★ PER-SECTION COLOUR SCHEMES (Track 2.1, 2026-09-26).**
+    `lib/themes/schemes.ts` (pure) is the vocabulary: `soft` (neutral band),
+    `tint` (12% brand wash), `accent` (the brand colour), `inverse` (dark),
+    merchant labels Soft / Tinted / Brand / Dark. `SectionStyle.scheme`
+    stores one; no scheme = the page's colours, so every stored section
+    renders as before. A scheme OWNS the section's colours:
+    `validateSectionStyle` drops a raw `background` beside it, and drops the
+    scheme itself from `SCHEMELESS_SECTION_TYPES` (hero_carousel,
+    promo_banner, custom_code — covered by their own photo or sandboxed).
+    ★ THE SECTION ONLY GETS A CLASS. `SectionShell` adds
+    `sm-scheme sm-scheme-<id>` (re-checked there: the builder preview renders
+    raw drafts and the string becomes a class name); homepage.css re-points
+    the page tokens inside it (`--sm-cream`, `--sm-ink`, `--sm-ink-soft`
+    76% mix, `--sm-border` 16%, `--sm-surface`, `--sm-accent`,
+    `--sm-on-accent`), so every section's existing CSS follows with no
+    per-section wiring. ★ `--sm-accent` is set DIRECTLY: on the root it is
+    `var(--brand-primary)`, already resolved there, so re-pointing
+    `--brand-primary` alone would not reach it. ★ `--sm-on-ink` becomes the
+    band's BACKGROUND, so an "ink block with on-ink text" inverts against
+    any band and stays readable.
+    ★ THE SCHEME COLOURS LIVE ON `.storefront-root` as
+    `--sm-scheme-<id>-{bg,fg,surface,accent,on-accent}`. Derived ones are
+    var() references in storefront-theme.css, resolved once against the
+    root palette, so a merchant's palette override reaches them live. A
+    theme may DECLARE a scheme (`ThemeDesign.schemes`, 6-digit hex
+    background + text, optional surface and button pair); `designToCssVars`
+    writes it inline. The storefront layout also writes
+    `schemeCssVars(withPaletteOverrides(schemeDesignFor(design),
+    chrome.design.palette), brand.primaryColor)`, the colours CSS cannot
+    derive: ★★ a derived Brand band takes the first of on-accent / on-ink /
+    ink that reaches 4.5:1 on the brand colour, else black or white (one of
+    which always reaches 4.58:1). A theme's on-accent only has to read on a
+    BUTTON (3:1), and Basket's white-on-orange was 3.41:1 as body copy.
+    `resolveScheme` mirrors the CSS exactly (`SCHEME_MIX`, pinned by a test
+    that reads both stylesheets).
+    ★★ BLOCKS WITH THEIR OWN FILL KEEP THE PAGE'S COLOURS. A product card's
+    tile, a tile-grid tile, and a hero whose copy sits on its own photo
+    (`variant-banner`, `:has(.home-hero-bgmedia)`) restore the page tokens
+    from `--sm-page-*` aliases on the root. Without it a dark band put white
+    card names on a card tile that stayed light. The USP bar and ticker
+    instead follow the band (their own light/dark setting was chosen against
+    the page), and the newsletter drops its own card fill inside a band so
+    the band is the card.
+    Contrast: `validateThemeDesign` checks every DECLARED scheme, and a
+    derived one only when a page uses it (text, 76% muted text and text on
+    cards at 4.5:1, buttons at 3:1). The builder's Style tab (`StyleForm`)
+    shows Page + four swatches painted in the real colours (with the
+    merchant's unsaved palette edits layered on), warns when a scheme is
+    hard to read, clears a custom background and adds medium padding on
+    pick; the Tinted and Contrast presets apply Soft and Dark instead of
+    #f6f7f9 / #111827 (Contrast used to leave dark text on a near-black
+    band). Theme Studio: Stage B `design.schemes` + per-section
+    `style {scheme, padding, width}`, prompt `theme-studio-v9`; the compiler
+    gives a banded section medium padding and drops a scheme from a photo
+    section; the package contract admits `design.schemes`. Help:
+    `20260926_0140_section_color_schemes_help`. Verified in the browser on
+    all four demo themes at 375, 768 and 1280px by rotating every scheme
+    through every eligible section: no scheme-caused text below 4.5:1, no
+    overflow. ⚠ Bundled themes still use their hand-set section
+    backgrounds; they were not migrated to schemes (opt-in rule).
+    **★★ HEADING TYPOGRAPHY (Track 2.2, 2026-09-26).**
+    `lib/themes/typography.ts` (pure): `ThemeDesign.typography` may set
+    `headingFont` (`body` | `display`), `headingScale` (`small` 0.88 |
+    `medium` 1 | `large` 1.12 | `xlarge` 1.25), `headingWeight` (`regular`
+    400 … `heavy` 800), `headingCase` (`none` | `uppercase`) and
+    `headingTracking` (`tight` | `normal` | `wide`). Absent = today's headings
+    exactly: no variable, no class. `HEADING_SELECTORS` names the 18 page and
+    section headings it reaches (homepage section headings, rich-text h1–h3,
+    shop/collection titles, both PDP names, both cart titles, blog title;
+    checkout/account/order titles deliberately not).
+    ★ SIZE: each heading rule multiplies its OWN size by `var(--sm-hs, 1)`;
+    `.storefront-root` sets `--sm-hs` from `--sm-heading-scale`, and at
+    ≤640px to half the difference (1.25 → 1.125), so a large theme does not
+    push hero copy off a phone. `.home-tile-title` takes the style but not
+    the scale.
+    ★★ FACE, WEIGHT, CASE, SPACING: ONE ROOT CLASS PER PROPERTY
+    (`sm-h-font`, `sm-h-weight`, `sm-h-upper`, `sm-h-track`, from
+    `typographyRootClasses`), each emitted only when the theme chose it.
+    The headings share no default — hero 800, editorial band 650, blog 600,
+    several rules set no face — so an unconditional
+    `font-weight: var(--sm-heading-weight)` would reset every heading the
+    theme left alone. The gated rules (storefront-theme.css, (0,3,0)) beat
+    every heading's own rule, variant rules included. Any class (plus
+    `sm-h-scale`) also turns on `overflow-wrap: break-word`, because an
+    extra-large capitalised product name overflowed the editorial PDP's
+    328px column.
+    ★ `headingFont` points at the LEGACY SLOT (`--font-outfit` /
+    `--font-stick-no-bills`), not the theme's font value, so a merchant font
+    override is followed. Until this, themes' display faces (Fraunces,
+    Instrument Serif) reached only the collection title.
+    ★★ FAUX BOLD IS REFUSED. `typographyIssues` checks the heading face's
+    real weights (the table mirrors app/layout.tsx: Jost 300–500, Instrument
+    Serif 400, Stick No Bills 800, the rest variable) against the chosen
+    weight, or against headings' default 600–800 when none is chosen, and
+    `validateThemeDesign` reports it as `typography` — only when a typography
+    block exists, so Vitrine (Jost headings at 650–800, faux bold today) is
+    not judged; fixing it is a new release that sets a weight.
+    Theme Studio: Stage B `design.typography` (nullable enums), compiler keeps
+    only chosen keys, package contract admits `typography` and refuses unknown
+    keys/values, prompt `theme-studio-v10`, offline provider sets a display
+    typography. Operator/theme-level only: no merchant control yet (Mink's
+    design proposals replace the whole override set, so it needs its own
+    contract change), hence no Help Centre update. Browser-checked on all
+    four demo themes at 375/768/1280px across five surfaces under three
+    extreme settings: no heading overflow after the wrap rule.
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded
@@ -5308,6 +5451,47 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     the root carries the theme tokens. The drawer's own search was removed;
     the merchant's `showSearch` switch now governs phone search as well
     (it used to show in the drawer regardless).
+    **★★ THE HEADER FOLDS BY FIT, NOT BY BREAKPOINT (2026-09-26).** Between
+    769px and ~1100px the menu ran into the delivery control and search box
+    on Vitrine, Studio and Ritual (at 800px Vitrine's header was 817px wide
+    and its links wrapped onto two lines). A breakpoint cannot fix that:
+    whether a header fits depends on the theme's font, the merchant's links
+    and their length, the logo, and whether search and cart are on.
+    `header/use-header-fit.ts` measures the live header and writes
+    `data-header-compact` on it; `lib/storefront/header-fit.ts` (pure) picks
+    the fewest steps from `COMPACT_STEPS`, in order: `nav` (menu hidden,
+    hamburger shown), `delivery` (header control hidden, the drawer's copy
+    shown), `search` (box hidden, the phone search icon shown). The CSS for
+    each step is in `Header.module.css` and `delivery-location.module.css`,
+    and a test fails if a step has none. Fits means: no horizontal overflow,
+    ≥12px between neighbouring items sorted by position (so the centred
+    variant, whose menu sits left of the logo, is judged correctly), and
+    search/delivery not squeezed below 140/120px. They can shrink to a
+    sliver without overlapping anything.
+    ★ Every check starts from the full header, so a tablet rotated to
+    landscape unfolds again.
+    ★ Transitions are switched off while measuring
+    (`data-header-measuring`). The search box animates its width and the
+    header its padding, and a mid-animation reading once passed a fit that
+    then closed to a 4px gap.
+    ★ A `ResizeObserver` on the header triggers it, not the window `resize`
+    event, which can fire before the new width is laid out. So do
+    `document.fonts.ready` and the header's content deps.
+    ★ The attribute is written to the DOM, never rendered, so React never
+    writes it back, and the fold lands before paint rather than after a
+    state round trip.
+    ★ Phones (≤768px) stay plain CSS and are not measured: their row
+    overlaps hit areas on purpose.
+    ★ Nav links are `white-space: nowrap`, so a wrapped link shows up as
+    overlap instead of hiding it.
+    ★ The header has a 24px `column-gap` above 768px. The market header's
+    growing search pill had put its delivery control flush against the last
+    menu link.
+    ★★ The delivery control was unreachable between 769px and 900px: the
+    header's copy hid below 900px while the drawer's only appeared below
+    768px. It is now always in exactly one of the two.
+    ⚠ The server cannot measure, so on a tablet the first paint before
+    hydration can still show the unfolded header for a moment.
     **Shop page and collection pages (1.8).** Every active category has its
     own page, `(pages)/collections/[slug]/page.tsx`: self-canonical, the
     category's name as title and h1, its description as meta description

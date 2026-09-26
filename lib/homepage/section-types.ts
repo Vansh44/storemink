@@ -14,6 +14,12 @@
 // No DB migration needed — config lives in a JSONB column.
 // ---------------------------------------------------------------------------
 
+import {
+  isSectionScheme,
+  SCHEMELESS_SECTION_TYPES,
+  type SectionScheme,
+} from "@/lib/themes/schemes";
+
 export type HomepageSectionType =
   | "hero"
   | "hero_carousel"
@@ -868,6 +874,10 @@ export interface SectionStyle {
   width?: "contained" | "full";
   /** Slug-shaped element id for in-page anchor links (#story). */
   anchor?: string;
+  /** A named colour scheme (lib/themes/schemes.ts): background, text, cards
+   *  and buttons together. It owns the section's colours, so a stored
+   *  `background` is dropped beside it. Absent = the page's own colours. */
+  scheme?: SectionScheme;
 }
 
 const COLOR_RE = /^(#[0-9a-f]{3,8}|(?:rgb|hsl)a?\(\s*[\d.,%\s/-]+\s*\))$/i;
@@ -878,14 +888,29 @@ const PADDING_VALUES: SectionPaddingY[] = ["none", "sm", "md", "lg"];
  * Validate + normalise a section's shared style. Returns undefined when
  * nothing valid remains, so the stored JSON omits the key entirely.
  */
-export function validateSectionStyle(raw: unknown): SectionStyle | undefined {
+export function validateSectionStyle(
+  raw: unknown,
+  /** The section's type, when known: some types cannot wear a scheme. */
+  type?: string,
+): SectionStyle | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const input = raw as Record<string, unknown>;
   const out: SectionStyle = {};
 
+  const scheme =
+    isSectionScheme(input.scheme) &&
+    !(type && SCHEMELESS_SECTION_TYPES.includes(type))
+      ? input.scheme
+      : undefined;
+  if (scheme) out.scheme = scheme;
+
+  // ★ A scheme owns the section's colours. Keeping a raw background beside
+  //   it would paint the band one colour and its text for another — the very
+  //   dark-text-on-dark-band failure schemes exist to end.
   const background =
     typeof input.background === "string" ? input.background.trim() : "";
-  if (background && COLOR_RE.test(background)) out.background = background;
+  if (!scheme && background && COLOR_RE.test(background))
+    out.background = background;
 
   if (PADDING_VALUES.includes(input.padding_y as SectionPaddingY)) {
     out.padding_y = input.padding_y as SectionPaddingY;

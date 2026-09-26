@@ -11,6 +11,7 @@ import type {
 import { videoEmbedUrl } from "@/lib/homepage/video-embed";
 import { SectionShell } from "./section-shell";
 import { HeroImage, HeroOverlay, heroClasses } from "./hero-media";
+import { MediaTone } from "./media-tone";
 
 /** Horizontal travel, in px, that counts as a swipe rather than a tap. */
 const SWIPE_PX = 40;
@@ -76,7 +77,7 @@ export function HeroCarouselSection({
   return (
     <SectionShell sectionId={sectionId} style={style}>
       <div
-        className={`home-carousel${config.height && config.height !== "auto" ? ` height-${config.height}` : ""}`}
+        className={`home-carousel${count > 1 ? " has-arrows" : ""}${config.height && config.height !== "auto" ? ` height-${config.height}` : ""}`}
         onMouseEnter={() => setPaused(true)}
         onMouseLeave={() => setPaused(false)}
         onFocus={() => setPaused(true)}
@@ -193,6 +194,13 @@ function Slide({
         />
       ) : null}
       <HeroOverlay opacity={slide.overlay_opacity} theme={slide.theme} />
+      {slide.image_url && !slide.video_url && (
+        <MediaTone
+          preferred={slide.theme}
+          copy=".home-carousel-copy"
+          off={slide.overlay_opacity !== undefined}
+        />
+      )}
 
       {(slide.heading || slide.subheading || hasCta) && (
         <div className="home-carousel-copy">

@@ -24,6 +24,63 @@
      keeps the clean default look. */
   --sm-accent: var(--brand-primary, #17130f);
   --sm-accent-deep: color-mix(in srgb, var(--brand-primary, #17130f) 86%, #000);
+
+  /* ★ Section colour schemes (lib/themes/schemes.ts), DERIVED from the page
+     tokens. Declared here, on the root, so each resolves ONCE against the
+     root's own palette — including a merchant's palette override — and is
+     then inherited as a finished colour; a section re-pointing --sm-ink
+     cannot feed back into these. A theme that declares a scheme writes the
+     same names inline, which beats these defaults. `resolveScheme` mirrors
+     every line: change them together. */
+  --sm-scheme-soft-bg: var(--sm-cream-deep);
+  --sm-scheme-soft-fg: var(--sm-ink);
+  --sm-scheme-soft-surface: var(--sm-surface);
+  --sm-scheme-soft-accent: var(--sm-accent);
+  --sm-scheme-soft-on-accent: var(--sm-on-accent);
+  --sm-scheme-tint-bg: color-mix(
+    in srgb,
+    var(--sm-accent) 12%,
+    var(--sm-cream)
+  );
+  --sm-scheme-tint-fg: var(--sm-ink);
+  --sm-scheme-tint-surface: var(--sm-surface);
+  --sm-scheme-tint-accent: var(--sm-accent);
+  --sm-scheme-tint-on-accent: var(--sm-on-accent);
+  --sm-scheme-accent-bg: var(--sm-accent);
+  --sm-scheme-accent-fg: var(--sm-on-accent);
+  --sm-scheme-accent-surface: color-mix(
+    in srgb,
+    var(--sm-on-accent) 10%,
+    var(--sm-accent)
+  );
+  --sm-scheme-accent-accent: var(--sm-on-accent);
+  --sm-scheme-accent-on-accent: var(--sm-accent);
+  --sm-scheme-inverse-bg: var(--sm-ink);
+  --sm-scheme-inverse-fg: var(--sm-on-ink);
+  --sm-scheme-inverse-surface: color-mix(
+    in srgb,
+    var(--sm-on-ink) 8%,
+    var(--sm-ink)
+  );
+  --sm-scheme-inverse-accent: var(--sm-on-ink);
+  --sm-scheme-inverse-on-accent: var(--sm-ink);
+
+  /* The page's own colours under a second name, resolved here once, so a
+     block that carries its own fill (a product card's tile) can put them back
+     inside a band. See `.home-section.sm-scheme .shop-card` in homepage.css. */
+  --sm-page-cream: var(--sm-cream);
+  --sm-page-cream-deep: var(--sm-cream-deep);
+  --sm-page-surface: var(--sm-surface);
+  --sm-page-sand: var(--sm-sand);
+  --sm-page-tile: var(--sm-tile);
+  --sm-page-ink: var(--sm-ink);
+  --sm-page-ink-soft: var(--sm-ink-soft);
+  --sm-page-ink-faint: var(--sm-ink-faint);
+  --sm-page-border: var(--sm-border);
+  --sm-page-on-ink: var(--sm-on-ink);
+  --sm-page-accent: var(--sm-accent);
+  --sm-page-accent-deep: var(--sm-accent-deep);
+  --sm-page-on-accent: var(--sm-on-accent);
 }
 
 /* ★★ EVERY PAGE'S <main> TAKES THE FULL WIDTH. `.storefront-root` is a flex
@@ -475,6 +532,154 @@
    ------------------------------------------------------------------------ */
 .sm-themed-type.storefront-root {
   font-family: var(--font-outfit), sans-serif;
+}
+
+/* ---- Theme heading typography (lib/themes/typography.ts) ----------------
+   A theme may choose the face, size, weight, case and letter spacing of its
+   headings. Absent settings change nothing.
+
+   ★ SIZE: every heading rule multiplies its own size by --sm-hs, which is 1
+   unless the theme sets a scale. On a phone it gets half the difference, so
+   an "xlarge" theme does not push hero copy off a 375px screen.
+
+   ★ FACE, WEIGHT, CASE, SPACING: one root class each, emitted only when the
+   theme chose that property. The headings do not share one default (the hero
+   is 800, the editorial band 650, several rules set no face), so a rule that
+   applied unconditionally would reset the ones the theme left alone.
+   (0,3,0) beats every heading's own rule, variant rules included.
+   ------------------------------------------------------------------------ */
+.storefront-root {
+  --sm-hs: var(--sm-heading-scale, 1);
+}
+@media (max-width: 640px) {
+  .storefront-root {
+    --sm-hs: calc(1 + (var(--sm-heading-scale, 1) - 1) * 0.5);
+  }
+}
+/* A larger, wider or capitalised heading can hold a word longer than its
+   column — an uppercase product name in the editorial page's narrow side
+   column did. Break the word rather than overflow; it only ever applies to
+   a word that does not fit. */
+:is(
+    .sm-h-scale,
+    .sm-h-font,
+    .sm-h-weight,
+    .sm-h-upper,
+    .sm-h-track
+  ).storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  overflow-wrap: break-word;
+}
+.sm-h-font.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  font-family: var(--sm-heading-font), sans-serif;
+}
+.sm-h-weight.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  font-weight: var(--sm-heading-weight);
+}
+.sm-h-upper.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  text-transform: uppercase;
+}
+.sm-h-track.storefront-root
+  :is(
+    .home-section-title,
+    .home-hero-heading,
+    .home-carousel-heading,
+    .home-banner-heading,
+    .home-media-text-heading,
+    .home-newsletter-heading,
+    .home-tile-title,
+    .home-rich-text-content h1,
+    .home-rich-text-content h2,
+    .home-rich-text-content h3,
+    .shop-title,
+    .shop-title-grocery,
+    .shop-collection-title,
+    .pdp-name,
+    .gpdp-name,
+    .cart-title,
+    .gcart-title,
+    .blog-detail-title
+  ) {
+  letter-spacing: var(--sm-heading-tracking);
 }
 
 /* ---- Hover second-image swap (theme layout.cardHoverImage) -------------

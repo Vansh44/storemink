@@ -196,6 +196,62 @@ describe("Theme Studio contracts", () => {
     }
   });
 
+  it("admits declared colour schemes and section schemes, refuses junk", () => {
+    const ok = structuredClone(
+      themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
+    );
+    ok.definition.preset.design.schemes = {
+      inverse: { background: "#101010", text: "#fafafa" },
+    };
+    const section = ok.definition.preset.pages[0].sections.find(
+      (s) => s.type === "featured_products",
+    )!;
+    section.style = { scheme: "inverse", padding_y: "md" };
+    expect(validateThemePackageV2(ok).ok).toBe(true);
+
+    const bad = structuredClone(ok);
+    bad.definition.preset.design.schemes = {
+      inverse: { background: "#fff", text: "red" },
+      neon: { background: "#101010", text: "#fafafa" },
+    } as never;
+    const result = validateThemePackageV2(bad);
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    const issues = result.issues.join(" ");
+    // Six digits: scheme colours are mixed and contrast-checked.
+    expect(issues).toContain("schemes.inverse.background must be a hex colour");
+    expect(issues).toContain("schemes.inverse.text must be a hex colour");
+    expect(issues).toContain("neon");
+  });
+
+  it("admits heading typography and refuses unknown settings", () => {
+    const ok = structuredClone(
+      themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
+    );
+    ok.definition.preset.design.typography = {
+      headingFont: "display",
+      headingScale: "xlarge",
+      headingCase: "uppercase",
+    };
+    expect(validateThemePackageV2(ok).ok).toBe(true);
+
+    for (const typography of [
+      { headingScale: "huge" },
+      { headingFont: "display", fontSize: "40px" },
+      "large",
+    ]) {
+      const bad = structuredClone(ok);
+      bad.definition.preset.design.typography = typography as never;
+      const result = validateThemePackageV2(bad);
+      expect(result.ok).toBe(false);
+      if (!result.ok) {
+        expect(result.issues.join(" ")).toContain(
+          "definition.preset.design.typography",
+        );
+      }
+    }
+  });
+
   it("admits the shopping-chrome layout options and refuses other values", () => {
     const ok = structuredClone(
       themeDefinitionToPackageV2(THEME_DEFINITIONS[0]),
