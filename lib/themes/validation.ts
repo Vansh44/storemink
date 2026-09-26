@@ -1,5 +1,12 @@
 import { validatePageSlug, validateSections } from "@/lib/sections/registry";
 import { contrastRatio } from "@/lib/chrome/design";
+import {
+  isSectionScheme,
+  resolveScheme,
+  schemeContrastIssues,
+  schemesUsed,
+  SECTION_SCHEMES,
+} from "./schemes";
 import { normalizeMenus } from "@/lib/menus";
 import { flattenNav } from "@/lib/chrome/nav";
 import { STORE_POLICY_SLUGS } from "@/lib/legal/store-policies";
@@ -681,6 +688,51 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
         "contrast",
         `${label} is hard to read (${ratio.toFixed(2)}:1, needs ${minimum}:1).`,
       );
+    }
+  }
+
+  // Section colour schemes. A declared scheme must be plain hex and is always
+  // checked; a DERIVED one only when a page uses it — a theme is not failed
+  // for a scheme nobody wears, and the builder marks an unreadable one when a
+  // merchant goes to pick it.
+  const declared = (design.schemes ?? {}) as Record<string, unknown>;
+  for (const [id, raw] of Object.entries(declared)) {
+    if (!isSectionScheme(id)) {
+      issue("scheme", `schemes.${id} is not a known colour scheme.`);
+      continue;
+    }
+    const scheme = raw as Record<string, unknown> | null;
+    for (const key of ["background", "text", "surface", "accent", "onAccent"]) {
+      const value = scheme?.[key];
+      const required = key === "background" || key === "text";
+      if ((required || value !== undefined) && !hex(value)) {
+        issue("scheme", `schemes.${id}.${key} must be a hex colour.`);
+      }
+    }
+    const hasAccent = hex(scheme?.accent) !== null;
+    const hasOnAccent = hex(scheme?.onAccent) !== null;
+    if (hasAccent !== hasOnAccent) {
+      issue(
+        "scheme",
+        `schemes.${id} must set accent and onAccent together, or neither.`,
+      );
+    }
+  }
+  const paletteReady =
+    ["cream", "creamDeep", "surface", "ink", "onInk", "onAccent"].every(
+      (key) => hex(palette[key]) !== null,
+    ) && hex(design.palette.accent ?? brand.primaryColor) !== null;
+  if (paletteReady) {
+    const check = new Set([
+      ...Object.keys(declared).filter(isSectionScheme),
+      ...schemesUsed(theme.preset.pages),
+    ]);
+    for (const id of SECTION_SCHEMES) {
+      if (!check.has(id)) continue;
+      const resolved = resolveScheme(id, design, brand.primaryColor);
+      for (const problem of schemeContrastIssues(id, resolved)) {
+        issue("scheme_contrast", problem.message);
+      }
     }
   }
   return out;

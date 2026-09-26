@@ -182,6 +182,41 @@ so it was project or shared capacity, not request pacing. They are unrun.
 Themes gain type scale, button styles, container width, spacing rhythm, named
 per-section colour schemes and restrained reveal-on-scroll motion.
 
+| #   | Step                                                                                              | Status  |
+| --- | ------------------------------------------------------------------------------------------------- | ------- |
+| 2.1 | Per-section colour schemes: Soft, Tinted, Brand, Dark (`style.scheme`, theme-declared or derived) | ✅      |
+| 2.2 | Type scale and heading style                                                                      | planned |
+| 2.3 | Button styles                                                                                     | planned |
+| 2.4 | Container width and spacing rhythm                                                                | planned |
+| 2.5 | Restrained reveal-on-scroll motion                                                                | planned |
+
+### Found and fixed while building 2.1
+
+- **A section could change its background and nothing else.** The Style tab's
+  colour set one inline background, so text, cards and buttons stayed tuned
+  for the page. The "Contrast" preset put the default dark text on a
+  near-black band. A scheme changes all of them together, and both presets
+  now apply a scheme.
+- **A product card's tile stayed light inside a dark band while its text
+  turned white.** Cards, tiles and heroes whose copy sits on a photo carry
+  their own fill, so inside a band they keep the page's colours.
+- **A theme's button colours are not body-text colours.** Basket's white on
+  orange is 3.41:1, fine for a button and unreadable as a band of copy. A
+  derived Brand band picks a theme text colour that reaches 4.5:1, and black
+  or white when none does.
+- **The newsletter would have been a card inside a band.** Its own fill
+  flipped to a white card inside a dark band; inside a band it drops its
+  fill.
+- Opt-in: no stored section has a scheme, and the bundled themes keep their
+  hand-set section backgrounds. Generated themes use schemes through Stage B
+  (`theme-studio-v9`).
+- Checked on all four demo themes at 375, 768 and 1280px by rotating every
+  scheme through every eligible section. No text fell below 4.5:1 because of
+  a scheme, and nothing overflowed. The builder picker was tested in jsdom,
+  not looked at in a signed-in browser.
+- Deferred: migrating the bundled themes' hand-set backgrounds to declared
+  schemes, schemes on the header and footer, and more than four schemes.
+
 ## Track 3 — generated imagery
 
 Theme Studio generates every asset brief with the Gemini image model already

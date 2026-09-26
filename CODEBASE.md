@@ -5199,6 +5199,66 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     own padded surface — carousel, hero, ticker, trust bar, newsletter — run
     flush, via one `:has()` rule in homepage.css. Pinned by
     `section-shell.test.tsx`.
+    **★★ PER-SECTION COLOUR SCHEMES (Track 2.1, 2026-09-26).**
+    `lib/themes/schemes.ts` (pure) is the vocabulary: `soft` (neutral band),
+    `tint` (12% brand wash), `accent` (the brand colour), `inverse` (dark),
+    merchant labels Soft / Tinted / Brand / Dark. `SectionStyle.scheme`
+    stores one; no scheme = the page's colours, so every stored section
+    renders as before. A scheme OWNS the section's colours:
+    `validateSectionStyle` drops a raw `background` beside it, and drops the
+    scheme itself from `SCHEMELESS_SECTION_TYPES` (hero_carousel,
+    promo_banner, custom_code — covered by their own photo or sandboxed).
+    ★ THE SECTION ONLY GETS A CLASS. `SectionShell` adds
+    `sm-scheme sm-scheme-<id>` (re-checked there: the builder preview renders
+    raw drafts and the string becomes a class name); homepage.css re-points
+    the page tokens inside it (`--sm-cream`, `--sm-ink`, `--sm-ink-soft`
+    76% mix, `--sm-border` 16%, `--sm-surface`, `--sm-accent`,
+    `--sm-on-accent`), so every section's existing CSS follows with no
+    per-section wiring. ★ `--sm-accent` is set DIRECTLY: on the root it is
+    `var(--brand-primary)`, already resolved there, so re-pointing
+    `--brand-primary` alone would not reach it. ★ `--sm-on-ink` becomes the
+    band's BACKGROUND, so an "ink block with on-ink text" inverts against
+    any band and stays readable.
+    ★ THE SCHEME COLOURS LIVE ON `.storefront-root` as
+    `--sm-scheme-<id>-{bg,fg,surface,accent,on-accent}`. Derived ones are
+    var() references in storefront-theme.css, resolved once against the
+    root palette, so a merchant's palette override reaches them live. A
+    theme may DECLARE a scheme (`ThemeDesign.schemes`, 6-digit hex
+    background + text, optional surface and button pair); `designToCssVars`
+    writes it inline. The storefront layout also writes
+    `schemeCssVars(withPaletteOverrides(schemeDesignFor(design),
+    chrome.design.palette), brand.primaryColor)`, the colours CSS cannot
+    derive: ★★ a derived Brand band takes the first of on-accent / on-ink /
+    ink that reaches 4.5:1 on the brand colour, else black or white (one of
+    which always reaches 4.58:1). A theme's on-accent only has to read on a
+    BUTTON (3:1), and Basket's white-on-orange was 3.41:1 as body copy.
+    `resolveScheme` mirrors the CSS exactly (`SCHEME_MIX`, pinned by a test
+    that reads both stylesheets).
+    ★★ BLOCKS WITH THEIR OWN FILL KEEP THE PAGE'S COLOURS. A product card's
+    tile, a tile-grid tile, and a hero whose copy sits on its own photo
+    (`variant-banner`, `:has(.home-hero-bgmedia)`) restore the page tokens
+    from `--sm-page-*` aliases on the root. Without it a dark band put white
+    card names on a card tile that stayed light. The USP bar and ticker
+    instead follow the band (their own light/dark setting was chosen against
+    the page), and the newsletter drops its own card fill inside a band so
+    the band is the card.
+    Contrast: `validateThemeDesign` checks every DECLARED scheme, and a
+    derived one only when a page uses it (text, 76% muted text and text on
+    cards at 4.5:1, buttons at 3:1). The builder's Style tab (`StyleForm`)
+    shows Page + four swatches painted in the real colours (with the
+    merchant's unsaved palette edits layered on), warns when a scheme is
+    hard to read, clears a custom background and adds medium padding on
+    pick; the Tinted and Contrast presets apply Soft and Dark instead of
+    #f6f7f9 / #111827 (Contrast used to leave dark text on a near-black
+    band). Theme Studio: Stage B `design.schemes` + per-section
+    `style {scheme, padding, width}`, prompt `theme-studio-v9`; the compiler
+    gives a banded section medium padding and drops a scheme from a photo
+    section; the package contract admits `design.schemes`. Help:
+    `20260926_0140_section_color_schemes_help`. Verified in the browser on
+    all four demo themes at 375, 768 and 1280px by rotating every scheme
+    through every eligible section: no scheme-caused text below 4.5:1, no
+    overflow. ⚠ Bundled themes still use their hand-set section
+    backgrounds; they were not migrated to schemes (opt-in rule).
     **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
     `{name, values, swatches?}`) and `product_variants.option_values` (text[],
     positional) — migration `20260925_0136_product_options`, both CHECK-bounded

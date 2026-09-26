@@ -1236,3 +1236,63 @@
   background: none;
   cursor: pointer;
 }
+
+/* Section colour schemes (Style tab). Each swatch is painted in the scheme's
+   real colours — background, text ("Aa") and button dot — so a merchant sees
+   the band they are choosing, not a name. */
+.sm-builder-schemes {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+}
+.sm-builder-scheme {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 2px 3px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: none;
+  cursor: pointer;
+}
+.sm-builder-scheme:hover {
+  background: var(--b-surface-2);
+}
+.sm-builder-scheme.active {
+  border-color: var(--b-accent);
+  background: var(--b-accent-tint);
+}
+.sm-builder-scheme:focus-visible {
+  outline: 2px solid var(--b-accent);
+  outline-offset: 1px;
+}
+.sm-builder-scheme-swatch {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 100%;
+  aspect-ratio: 1;
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 700;
+}
+.sm-builder-scheme-swatch.is-page {
+  background: repeating-linear-gradient(-45deg, #fff 0 6px, #f3f4f6 6px 12px);
+  color: #374151;
+}
+.sm-builder-scheme-swatch i {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.5);
+}
+.sm-builder-scheme-label {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--b-text-2);
+}

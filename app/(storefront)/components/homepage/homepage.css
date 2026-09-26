@@ -73,6 +73,130 @@
   padding-block: clamp(56px, 8vw, 96px);
 }
 
+/* ---- Colour schemes (SectionShell `sm-scheme sm-scheme-<id>`) ----
+   Re-points the page tokens inside the section, so every block's own CSS —
+   headings, muted copy, cards, hairlines, buttons — follows the band with no
+   per-section rule. The weights (76/56/16/6) are SCHEME_MIX in
+   lib/themes/schemes.ts, which checks contrast on these exact mixes.
+   ★ --sm-on-ink becomes the band's BACKGROUND: an element that paints an
+     "ink" block with "on-ink" text (the newsletter card, a filled chip) then
+     inverts against the band and stays readable in every scheme.
+   ★ --sm-accent is set directly: on the root it is var(--brand-primary),
+     already resolved there, so re-pointing --brand-primary alone here would
+     not reach it. */
+.home-section.sm-scheme {
+  --sm-cream: var(--sm-scheme-bg);
+  --sm-cream-deep: color-mix(
+    in srgb,
+    var(--sm-scheme-fg) 6%,
+    var(--sm-scheme-bg)
+  );
+  --sm-sand: var(--sm-cream-deep);
+  --sm-taupe: var(--sm-cream-deep);
+  --sm-tile: var(--sm-cream-deep);
+  --sm-surface: var(--sm-scheme-surface);
+  --sm-ink: var(--sm-scheme-fg);
+  --sm-ink-soft: color-mix(
+    in srgb,
+    var(--sm-scheme-fg) 76%,
+    var(--sm-scheme-bg)
+  );
+  --sm-ink-faint: color-mix(
+    in srgb,
+    var(--sm-scheme-fg) 56%,
+    var(--sm-scheme-bg)
+  );
+  --sm-border: color-mix(in srgb, var(--sm-scheme-fg) 16%, var(--sm-scheme-bg));
+  --sm-on-ink: var(--sm-scheme-bg);
+  --brand-primary: var(--sm-scheme-accent);
+  --sm-accent: var(--sm-scheme-accent);
+  --sm-accent-deep: color-mix(
+    in srgb,
+    var(--sm-scheme-accent) 86%,
+    var(--sm-scheme-fg)
+  );
+  --sm-on-accent: var(--sm-scheme-on-accent);
+  background: var(--sm-scheme-bg);
+  color: var(--sm-scheme-fg);
+}
+.home-section.sm-scheme-soft {
+  --sm-scheme-bg: var(--sm-scheme-soft-bg);
+  --sm-scheme-fg: var(--sm-scheme-soft-fg);
+  --sm-scheme-surface: var(--sm-scheme-soft-surface);
+  --sm-scheme-accent: var(--sm-scheme-soft-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-soft-on-accent);
+}
+.home-section.sm-scheme-tint {
+  --sm-scheme-bg: var(--sm-scheme-tint-bg);
+  --sm-scheme-fg: var(--sm-scheme-tint-fg);
+  --sm-scheme-surface: var(--sm-scheme-tint-surface);
+  --sm-scheme-accent: var(--sm-scheme-tint-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-tint-on-accent);
+}
+.home-section.sm-scheme-accent {
+  --sm-scheme-bg: var(--sm-scheme-accent-bg);
+  --sm-scheme-fg: var(--sm-scheme-accent-fg);
+  --sm-scheme-surface: var(--sm-scheme-accent-surface);
+  --sm-scheme-accent: var(--sm-scheme-accent-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-accent-on-accent);
+}
+.home-section.sm-scheme-inverse {
+  --sm-scheme-bg: var(--sm-scheme-inverse-bg);
+  --sm-scheme-fg: var(--sm-scheme-inverse-fg);
+  --sm-scheme-surface: var(--sm-scheme-inverse-surface);
+  --sm-scheme-accent: var(--sm-scheme-inverse-accent);
+  --sm-scheme-on-accent: var(--sm-scheme-inverse-on-accent);
+}
+/* A strip's own "light/dark text" setting was chosen against the page, and
+   under a scheme it would pick the band's background colour for its text.
+   Inside a band the text follows the band. */
+.home-section.sm-scheme .home-usp,
+.home-section.sm-scheme .home-ticker {
+  color: var(--sm-ink);
+}
+/* A product card paints its own tile (a per-product colour, or the theme's
+   card surface) and was designed for the page's text on that tile; a tile in
+   a tile grid paints the merchant's own colour and picks light or dark text
+   against it. Inside a band both keep the page's colours — light cards on a
+   dark band — rather than taking the band's text onto a fill that stayed
+   what it was. A hero whose copy sits on its own photo is the same case:
+   that copy was chosen against the photo, not the band. */
+.home-section.sm-scheme .shop-card,
+.home-section.sm-scheme .home-tile,
+.home-section.sm-scheme .home-hero.variant-banner,
+.home-section.sm-scheme .home-hero:has(.home-hero-bgmedia) {
+  --sm-cream: var(--sm-page-cream);
+  --sm-cream-deep: var(--sm-page-cream-deep);
+  --sm-surface: var(--sm-page-surface);
+  --sm-sand: var(--sm-page-sand);
+  --sm-taupe: var(--sm-page-cream-deep);
+  --sm-tile: var(--sm-page-tile);
+  --sm-ink: var(--sm-page-ink);
+  --sm-ink-soft: var(--sm-page-ink-soft);
+  --sm-ink-faint: var(--sm-page-ink-faint);
+  --sm-border: var(--sm-page-border);
+  --sm-on-ink: var(--sm-page-on-ink);
+  --brand-primary: var(--sm-page-accent);
+  --sm-accent: var(--sm-page-accent);
+  --sm-accent-deep: var(--sm-page-accent-deep);
+  --sm-on-accent: var(--sm-page-on-accent);
+  color: var(--sm-ink);
+}
+/* The newsletter paints its own card. Inside a band that card would be a
+   second band — and its "light" setting would flip it to the band's text
+   colour, a white card inside a dark band. In a band, the band IS the card:
+   no fill of its own, and the band's padding instead of its own. */
+.home-section.sm-scheme .home-newsletter {
+  padding-block: 0;
+  background: transparent;
+  color: var(--sm-ink);
+}
+.home-section.sm-scheme .home-newsletter .home-section-eyebrow,
+.home-section.sm-scheme .home-newsletter .home-newsletter-sub,
+.home-section.sm-scheme .home-newsletter .home-newsletter-consent {
+  color: var(--sm-ink-soft);
+}
+
 /* ---- Rich text ---- */
 .home-rich-text-content {
   max-width: 760px;

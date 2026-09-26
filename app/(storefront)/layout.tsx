@@ -21,6 +21,11 @@ import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
 import { designOverrideCssVars } from "@/lib/chrome/design";
+import {
+  schemeCssVars,
+  schemeDesignFor,
+  withPaletteOverrides,
+} from "@/lib/themes/schemes";
 import { Toaster } from "@/components/ui/sonner";
 import { MerchantTracking } from "@/app/(storefront)/components/merchant-tracking";
 import { StudioAcceptanceProbe } from "@/app/(storefront)/components/studio-acceptance-probe";
@@ -162,9 +167,19 @@ export default async function StorefrontLayout({
   // un-overridden store keeps inheriting the theme and a later preset upgrade
   // still reaches it.
   const designOverrides = designOverrideCssVars(chrome.design);
+  // Section colour schemes, from the palette this store really paints —
+  // the theme's with the merchant's overrides on top, or the storefront
+  // defaults with no theme. Only the colours CSS cannot derive on its own
+  // are written (lib/themes/schemes.ts); they are read only inside a
+  // section that wears a scheme, so a store using none is unaffected.
+  const schemeVars = schemeCssVars(
+    withPaletteOverrides(schemeDesignFor(design), chrome.design.palette),
+    brand.primaryColor,
+  );
   const themeVars: Record<string, string> = {
     ...presetVars,
     ...designOverrides,
+    ...schemeVars,
   };
 
   // Theme defaults + the merchant's published builder overrides resolve into

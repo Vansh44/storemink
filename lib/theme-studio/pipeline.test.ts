@@ -195,6 +195,95 @@ describe("theme generation pipeline", () => {
     expect(outcome.package.assets.map((a) => a.path)).toContain(shop.image_url);
   });
 
+  it("compiles colour schemes and section styles into the stored shape", async () => {
+    const outcome = await run();
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    const { design, pages } = outcome.package.definition.preset;
+    // A declared scheme keeps its colours; the null keys are simply absent.
+    expect(design.schemes).toEqual({
+      tint: { background: "#dfe4ff", text: design.palette.ink },
+    });
+    const home = pages.find((p) => p.slug === "")!;
+    const style = (type: string) =>
+      home.sections.find((s) => s.type === type)?.style;
+    // A banded section with no padding gets the preset's medium padding.
+    expect(style("shop_by_category")).toEqual({
+      scheme: "tint",
+      padding_y: "md",
+      width: "full",
+    });
+    expect(style("newsletter")).toEqual({
+      scheme: "inverse",
+      padding_y: "lg",
+      width: "full",
+    });
+    // An all-null style stores nothing at all.
+    expect(style("featured_products")).toBeUndefined();
+  });
+
+  it("drops a scheme from a photo section rather than padding it", async () => {
+    const fake = createFakeModelClient(base);
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        const draft = result.value as {
+          pages: { sections: { type: string; style: unknown }[] }[];
+        };
+        for (const section of draft.pages[0].sections) {
+          if (section.type === "promo_banner") {
+            section.style = { scheme: "inverse", padding: null, width: null };
+          }
+        }
+        return result;
+      },
+    };
+    const outcome = await run(undefined, client);
+    expect(outcome.kind).toBe("version");
+    if (outcome.kind !== "version") return;
+    const banner = outcome.package.definition.preset.pages
+      .find((p) => p.slug === "")!
+      .sections.find((s) => s.type === "promo_banner");
+    expect(banner?.style).toBeUndefined();
+  });
+
+  it("hands an unreadable colour scheme back as a repair", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    let drafts = 0;
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        const result = await fake.generate(request, signal);
+        if (request.stage !== "draft" || result.kind !== "ok") return result;
+        drafts += 1;
+        if (drafts === 1) {
+          const draft = result.value as {
+            design: { schemes: Record<string, unknown> };
+          };
+          draft.design.schemes.tint = {
+            background: "#dddddd",
+            text: "#bbbbbb",
+            surface: null,
+            accent: null,
+            onAccent: null,
+          };
+        }
+        return result;
+      },
+    };
+    const outcome = await run(undefined, client);
+    expect(outcome.kind).toBe("version");
+    const repairText = seen
+      .filter((r) => r.stage === "draft")[1]
+      .content.map((b) => (b.type === "text" ? b.text : ""))
+      .join("");
+    expect(repairText).toMatch(/Text in the Tinted scheme is hard to read/);
+  });
+
   it("refuses a menu image that is not one of the theme's slots", async () => {
     const seen: StructuredRequest[] = [];
     const fake = createFakeModelClient(base);

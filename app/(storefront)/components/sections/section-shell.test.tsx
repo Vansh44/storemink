@@ -89,3 +89,47 @@ describe("full-width band gutter", () => {
     expect(rule![1]).not.toContain(".home-media-text");
   });
 });
+
+// A colour scheme is a class; its colours come from the theme on the root.
+describe("colour scheme", () => {
+  it("adds the scheme class and paints no inline colour", () => {
+    const { container } = render(
+      <SectionShell
+        sectionId="s5"
+        style={{ scheme: "inverse", background: "#123456", padding_y: "md" }}
+      >
+        <span>x</span>
+      </SectionShell>,
+    );
+    const el = container.firstElementChild as HTMLElement;
+    expect(el.className).toBe(
+      "home-section home-pad-md sm-scheme sm-scheme-inverse",
+    );
+    // The scheme owns the colours: a stray background is not painted.
+    expect(el.getAttribute("style")).toBeNull();
+  });
+
+  it("ignores a scheme it does not know (the preview renders raw drafts)", () => {
+    const { container } = render(
+      <SectionShell
+        sectionId="s6"
+        style={{ scheme: "x sm-evil" as never, background: "#123456" }}
+      >
+        <span>x</span>
+      </SectionShell>,
+    );
+    const el = container.firstElementChild as HTMLElement;
+    expect(el.className).toBe("home-section");
+    expect(el.style.background).toBe("rgb(18, 52, 86)");
+  });
+
+  it("a band's strip text follows the band, not its own light/dark setting", () => {
+    const css = readFileSync(
+      "app/(storefront)/components/homepage/homepage.css",
+      "utf8",
+    );
+    expect(css).toMatch(
+      /\.home-section\.sm-scheme \.home-usp,\s*\.home-section\.sm-scheme \.home-ticker\s*\{\s*color: var\(--sm-ink\);/,
+    );
+  });
+});

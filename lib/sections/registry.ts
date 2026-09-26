@@ -94,7 +94,7 @@ export function validateSections(
       return { error: `${label} (${type}): ${validated.error}` };
     }
 
-    const style = validateSectionStyle(item.style);
+    const style = validateSectionStyle(item.style, type);
     sections.push({
       id,
       type,
