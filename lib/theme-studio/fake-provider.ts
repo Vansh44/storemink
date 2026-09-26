@@ -58,6 +58,11 @@ export function runFakeProvider(
   }
   const large = input.catalogSizes.includes("large");
   const wantsFaq = input.requiredFeatures.includes("faq");
+  // The offline image reviewer's drill hooks ride on the hero brief, so an
+  // operator can exercise a redraw end to end (image-fake.ts).
+  const reviewHooks = (
+    input.brief.match(/\[\[fake-review:[a-z_]+(?::always)?\]\]/g) ?? []
+  ).join(" ");
   const intent: ThemeIntent = {
     schemaVersion: THEME_INTENT_SCHEMA_VERSION,
     summary: `${input.name}: ${firstSentence(input.brief, 400)}`,
@@ -114,7 +119,7 @@ export function runFakeProvider(
       {
         id: "home-hero",
         purpose: "Homepage hero",
-        subject: "The store's own products in use",
+        subject: `The store's own products in use${reviewHooks ? ` ${reviewHooks}` : ""}`,
         aspectRatio: "16:9",
         artDirection: "Natural light, no third-party logos or copied artwork.",
         source: "operator",

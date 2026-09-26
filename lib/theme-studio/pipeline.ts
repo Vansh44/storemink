@@ -145,7 +145,7 @@ type StageFailure = {
 
 async function call(
   client: ThemeStudioModelClient,
-  request: StructuredRequest,
+  request: StructuredRequest & { stage: "intent" | "draft" },
   telemetry: Telemetry,
   attempt: number,
   signal: AbortSignal,

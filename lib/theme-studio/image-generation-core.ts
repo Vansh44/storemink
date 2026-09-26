@@ -235,3 +235,29 @@ export function applyGeneratedImages(
   }
   return { ok: true, value: validated.value };
 }
+
+/** List-price figures behind the "Generate images" cost statement: about
+ *  $0.10 per 2K image (cost.ts) and a fraction of a cent per review (a Flash
+ *  call with up to three small images). */
+export const IMAGE_LIST_PRICE_USD = 0.1;
+export const IMAGE_REVIEW_LIST_PRICE_USD = 0.003;
+
+/**
+ * What an image run for `slots` slots is expected to cost, and the most it can
+ * cost: every image (the anchor included) drawn and reviewed once, and at most
+ * every one of them redrawn and reviewed again (image-review.ts allows one
+ * redraw). Stated before the click because every image is paid.
+ */
+export function imageRunEstimate(slots: number): {
+  images: number;
+  expectedUsd: number;
+  mostUsd: number;
+} {
+  const images = slots + 1;
+  const once = images * (IMAGE_LIST_PRICE_USD + IMAGE_REVIEW_LIST_PRICE_USD);
+  return {
+    images,
+    expectedUsd: Math.round(once * 100) / 100,
+    mostUsd: Math.round(once * 2 * 100) / 100,
+  };
+}

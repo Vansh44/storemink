@@ -186,11 +186,28 @@ const PURPOSE_LABEL: Record<ThemeImagePurpose, string> = {
   content: "Editorial image",
 };
 
-function briefText(purpose: ThemeImagePurpose, brief: ThemeImageBrief): string {
+/** Why an earlier attempt at this image was rejected, for a redraw. The
+ *  problems are StoreMink's own fixed sentences; the note is the reviewer's,
+ *  cleaned and bounded like every other model-written line here. */
+export interface ThemeImageRetake {
+  problems: readonly string[];
+  note: string;
+}
+
+function briefText(
+  purpose: ThemeImagePurpose,
+  brief: ThemeImageBrief,
+  retake?: ThemeImageRetake,
+): string {
   return [
     `Purpose: ${PURPOSE_LABEL[purpose]}${brief.purpose.trim() ? ` — ${clean(brief.purpose, 200)}` : ""}`,
     `Subject: ${clean(brief.subject, 600)}`,
     `Art direction: ${clean(brief.artDirection, 600) || "follow the theme direction"}`,
+    ...(retake
+      ? [
+          `Redraw: an earlier attempt at this image was rejected. ${retake.problems.map((p) => clean(p, 200)).join(" ")}${retake.note.trim() ? ` Reviewer's note: ${clean(retake.note, 300)}` : ""} Fix every one of these.`,
+        ]
+      : []),
   ].join("\n");
 }
 
@@ -267,6 +284,7 @@ function orderedReferences(
 export function buildAnchorRequest(
   direction: ThemeImageDirection,
   template?: string,
+  retake?: ThemeImageRetake,
 ): ThemeImageRequest {
   const brief: ThemeImageBrief = {
     id: "anchor",
@@ -282,7 +300,7 @@ export function buildAnchorRequest(
     prompt: renderThemeImagePrompt(
       {
         theme_direction: directionText(direction),
-        asset_brief: briefText("anchor", brief),
+        asset_brief: briefText("anchor", brief, retake),
         composition: compositionFor("anchor", ANCHOR_ASPECT_RATIO),
         reference_guidance: referenceText([]),
       },
@@ -302,6 +320,7 @@ export function buildAssetRequest(
   brief: ThemeImageBrief,
   references: readonly ThemeImageReference[],
   template?: string,
+  retake?: ThemeImageRetake,
 ): ThemeImageRequest {
   const aspectRatio = supportedRatio(brief.aspectRatio);
   const refs = orderedReferences(references);
@@ -312,7 +331,7 @@ export function buildAssetRequest(
     prompt: renderThemeImagePrompt(
       {
         theme_direction: directionText(direction),
-        asset_brief: briefText(purpose, brief),
+        asset_brief: briefText(purpose, brief, retake),
         composition: compositionFor(purpose, aspectRatio),
         reference_guidance: referenceText(refs),
       },

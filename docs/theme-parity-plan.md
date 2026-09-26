@@ -353,7 +353,7 @@ with regeneration. Owner decision: no per-theme cost cap.
 | 3.1 | Image client: allowlisted model, its own prompt, request builder (anchor, composition per purpose), fake, cost | ✅      |
 | 3.2 | Generation run: anchor first, every placeholder art slot matched to it, cropped to its slot, one new version   | ✅      |
 | 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | ✅      |
-| 3.4 | Vision quality check with regeneration                                                                         | planned |
+| 3.4 | Vision quality check with regeneration                                                                         | ✅      |
 | 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | planned |
 | 3.6 | Catalog card and screenshots captured from the preview store, so a generated theme can publish                 | planned |
 
@@ -437,6 +437,41 @@ with regeneration. Owner decision: no per-theme cost cap.
 - Found: one product request came back with 8,400 output tokens instead of the
   usual 1,680 (about $0.50 instead of $0.10). Only the first image is kept.
   The cost estimate and daily spend cap already count the whole bill.
+
+### Found and fixed while building 3.4
+
+- **Every generated image is now checked before it is used.** A fast vision
+  model looks at each image as the storefront will crop it, next to the
+  art-direction image and, for products, the first product photo. It can only
+  name problems from a fixed list: wrong subject, lettering or a logo, a
+  person, something malformed, more than one product, off-style, a different
+  setup, or a bad crop.
+- **A problem means one redraw**, told what was wrong. If a serious problem
+  (the first five) is still there after it, the slot keeps its placeholder so
+  a bad image never reaches a store. If only a minor one is, the better image
+  is kept and the problem noted. A refusal or provider error is not redrawn.
+- **If the art-direction image is rejected twice, nothing else is drawn**, as
+  when it is refused. A rejected product photo is never used as the setup for
+  the others.
+- **If the checker is unavailable, the images are kept** and marked
+  unchecked: it is a quality check, and the image model's own safety filters
+  have already run.
+- **Cost:** about $0.003 a check. The Generate panel now gives the likely cost
+  and the most a run can cost if every image has to be redrawn, and checks
+  count toward the daily spend limit.
+- Checked live on 2026-09-27: on a ceramics set the checker caught
+  hand-painted lettering on a mug, and sent two product photos on a different
+  backdrop back to match the first; the redraws matched.
+- **Found and fixed:** the lettering-free redraw of that mug was first
+  rejected as the wrong subject, because the product's description asked for
+  the words. The checker is now told a store image never carries lettering,
+  so leaving it out is never the wrong subject. Rechecked live: the redraw
+  passed.
+- **Found, not changed:** redraws add requests, and on the staging project's
+  image quota two product photos failed after the rate-limit waits ran out.
+  They keep their placeholders.
+- Checked end to end against the local database with the offline providers:
+  a redraw that passes, and one whose serious problem remains.
 
 ## Track 4 — fewer prompts
 

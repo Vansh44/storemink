@@ -5128,6 +5128,50 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     8,400 output tokens rather than 1,680 (about $0.50). Only the first image is
     used, and the estimate and spend cap count the whole bill.
     Operator-only: no Help Centre migration.
+    **Theme Studio generated imagery, Track 3.4 (2026-09-27; a vision check
+    of every image, with one redraw).** `image-review.ts`: each image, as
+    cropped and stored for its slot (WebP), is shown to Gemini 3.8 Flash
+    (`THEME_IMAGE_REVIEW_MODEL_KEY`, low effort, closed schema, prompt
+    `theme-studio-image-review-v2`) with the stored anchor and, for a later
+    product, the first product shot. ★ THE REVIEWER NAMES PROBLEMS FROM A
+    FIXED LIST; CODE DECIDES: `wrong_subject`, `text_or_logo`, `person`,
+    `malformed`, `multiple_subjects` (pack shots only), `off_style` (only
+    with an anchor), `staging_mismatch` (only with a set shot), `poor_crop`;
+    a problem that cannot apply is dropped by `parseThemeImageReview`, and an
+    image passes when none survives. ★ A problem means ONE REDRAW
+    (`THEME_IMAGE_REDRAWS`), carrying StoreMink's own sentence for each
+    problem plus the reviewer's cleaned note (`ThemeImageRetake`, rendered
+    into the asset brief by `image-prompt.ts`). After it, a BLOCKING problem
+    (the first five) keeps the slot's placeholder (outcome `rejected`), and a
+    minor one keeps the best image, noted (`review: "flagged"`); a redraw that
+    is worse or does not come back falls back to the earlier image when that
+    one had only minor problems. A provider refusal or error is never redrawn
+    (the one-paid-attempt rule stands). The anchor is reviewed too: rejected
+    twice, nothing else is drawn (`images_anchor_rejected`); a rejected leader
+    is never the set shot. ★ AN UNAVAILABLE REVIEW KEEPS THE IMAGE,
+    `review: "unreviewed"`: it is a quality check, and the image model's own
+    filters are the safety boundary. The worker's `imageReviewerFor` gives
+    fake runs `createFakeImageReviewClient` (passes; `[[fake-review:<problem>]]`
+    in the brief fails a first attempt, `…:always]]` every attempt — the
+    offline provider copies these hooks from the operator's brief onto its
+    hero brief) and returns none when an operator has disabled Flash, so the
+    run keeps its images unreviewed rather than failing.
+    `runThemeImageGeneration` takes `reviewer` as a REQUIRED input so every
+    caller decides. Every outcome now records `attempts`; telemetry gains
+    `reviews` and `reviewCostMicroUsd`, and `estimatedCostMicroUsd` (what the
+    daily spend cap sums) includes the reviews. `imageRunEstimate` gives the
+    Generate panel the likely cost and the ceiling with every image redrawn.
+    ★ LIVE-VERIFIED 2026-09-27: a review costs about $0.003 (Flash with two or
+    three small images); on a ceramics set it caught hand-painted lettering on
+    a mug and passed the lettering-free redraw, and sent two product shots on
+    a different backdrop back to match the first. ⚠ Found and fixed: the first
+    prompt called that lettering-free redraw the wrong subject because the
+    product's description asked for the words. ⚠ Found, not changed: redraws
+    add requests, and on staging's image quota two product slots failed after
+    the rate-limit backoff ran out; they keep their placeholders.
+    Offline end to end against the local database (queue, worker, stored run
+    and version) for a redraw that passes and one that stays rejected.
+    Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

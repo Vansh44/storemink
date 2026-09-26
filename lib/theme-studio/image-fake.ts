@@ -7,6 +7,7 @@ import {
   assertThemeImageRequest,
   type ThemeStudioImageClient,
 } from "./image-provider";
+import { ZERO_USAGE, type ThemeStudioModelClient } from "./provider";
 
 // ---------------------------------------------------------------------------
 // The offline image client: deterministic pictures, no network, no cost.
@@ -80,6 +81,42 @@ export function createFakeImageClient(): ThemeStudioImageClient {
         bytes: new Uint8Array(bytes),
         mediaType: "image/png",
         usage: ZERO_IMAGE_USAGE,
+      };
+    },
+  };
+}
+
+// ---------------------------------------------------------------------------
+// The offline image REVIEWER (Track 3.4): passes every image, no cost.
+//
+// Hooks, read from the brief the reviewer is shown: [[fake-review:<problem>]]
+// reports that problem on a first attempt only, so the redraw passes;
+// [[fake-review:<problem>:always]] reports it on every attempt.
+// ---------------------------------------------------------------------------
+
+export function createFakeImageReviewClient(): ThemeStudioModelClient {
+  return {
+    provider: "fake",
+    async generate(request, signal) {
+      if (signal.aborted) {
+        return { kind: "error", code: "cancelled", usage: ZERO_USAGE };
+      }
+      const text = request.content
+        .map((block) => (block.type === "text" ? block.text : ""))
+        .join("\n");
+      const redraw = text.includes("It is a redraw");
+      const problems = [
+        ...text.matchAll(/\[\[fake-review:([a-z_]+)(:always)?\]\]/g),
+      ]
+        .filter((match) => match[2] || !redraw)
+        .map((match) => match[1]);
+      return {
+        kind: "ok",
+        usage: ZERO_USAGE,
+        value: {
+          problems,
+          note: problems.length ? "Offline reviewer drill." : "",
+        },
       };
     },
   };

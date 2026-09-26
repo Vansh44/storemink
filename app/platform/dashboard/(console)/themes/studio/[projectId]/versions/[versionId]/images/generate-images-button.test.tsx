@@ -18,7 +18,7 @@ const props = {
   revision: 4,
   packageDigest: "d".repeat(64),
   slots: 6,
-  estimate: "about $0.70",
+  estimate: { images: 7, expectedUsd: 0.72, mostUsd: 1.44 },
   blockedReason: null,
 };
 
@@ -29,8 +29,11 @@ describe("GenerateImagesButton", () => {
     render(<GenerateImagesButton {...props} />);
     expect(screen.getByText(/6 placeholder slots/)).toBeTruthy();
     expect(
-      screen.getByText(/7 images, about \$0.70 at list price/),
+      screen.getByText(
+        /7 images, about \$0\.72 at list price, or at most \$1\.44 if every image has to be redrawn/,
+      ),
     ).toBeTruthy();
+    expect(screen.getByText(/one with a problem is redrawn once/)).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Generate images/ }));
     expect(action).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Draw 7 images" })).toBeTruthy();

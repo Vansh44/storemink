@@ -27,13 +27,18 @@ import {
   type ThemePackageV2,
 } from "./contracts";
 import { createFakeModelClient } from "./fake-provider";
-import { createFakeImageClient } from "./image-fake";
+import {
+  createFakeImageClient,
+  createFakeImageReviewClient,
+} from "./image-fake";
+import { THEME_IMAGE_REVIEW_MODEL_KEY } from "./image-review";
 import {
   applyGeneratedImages,
   generatableSlots,
 } from "./image-generation-core";
 import {
   runThemeImageGeneration,
+  type ThemeImageReviewer,
   type ThemeImageRunResult,
 } from "./image-generation";
 import {
@@ -42,7 +47,11 @@ import {
 } from "./image-models";
 import type { ThemeStudioImageClient } from "./image-provider";
 import { createVertexImageClient } from "./image-vertex";
-import { THEME_STUDIO_MODELS, type ThemeStudioModelKey } from "./models";
+import {
+  THEME_STUDIO_MODELS,
+  resolveThemeStudioModel,
+  type ThemeStudioModelKey,
+} from "./models";
 import { runThemeGeneration, type GenerationOutcome } from "./pipeline";
 import type { ThemeStudioModelClient } from "./provider";
 import { digestThemeStudioJson, recordThemeStudioEvent } from "./repository";
@@ -448,6 +457,29 @@ function imageClientFor(provider: string): ThemeStudioImageClient | null {
   return null;
 }
 
+/**
+ * The vision reviewer for an image run (Track 3.4): the fast Studio text
+ * model. Null when the provider has no reviewer or an operator has switched
+ * that model off — the run then keeps its images, marked unreviewed, rather
+ * than failing: the review is a quality check, not the safety boundary.
+ */
+function imageReviewerFor(provider: string): ThemeImageReviewer | null {
+  if (provider === "fake") {
+    return { client: createFakeImageReviewClient(), providerModel: "fake" };
+  }
+  if (provider !== "vertex-gemini") return null;
+  if (getThemeStudioConfig().disabledModels.has(THEME_IMAGE_REVIEW_MODEL_KEY)) {
+    return null;
+  }
+  const vertex = getVertexConfig();
+  if (!vertex) return null;
+  return {
+    client: createVertexModelClient(vertex),
+    providerModel: resolveThemeStudioModel(THEME_IMAGE_REVIEW_MODEL_KEY)
+      .providerModel,
+  };
+}
+
 async function executeImages(run: ClaimedRun): Promise<Outcome> {
   if (!getThemeStudioConfig().generationEnabled) {
     return { kind: "failed", errorCode: "generation_disabled" };
@@ -477,7 +509,11 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
     // finish(), which sees cancel_requested_at and writes no version.
     const result = await runThemeImageGeneration(
       client,
-      { pkg: input.package, intent: input.intent },
+      {
+        pkg: input.package,
+        intent: input.intent,
+        reviewer: imageReviewerFor(run.provider),
+      },
       controller.signal,
     );
     return {
@@ -842,10 +878,13 @@ async function finishImages(
       : {}),
   };
   if (result.anchorFailure) {
+    const failure = result.anchorFailure;
     return failRun(
-      result.anchorFailure.kind === "refused"
+      failure.kind === "refused"
         ? "images_anchor_refused"
-        : `images_anchor_${result.anchorFailure.code}`.slice(0, 64),
+        : failure.kind === "rejected"
+          ? "images_anchor_rejected"
+          : `images_anchor_${failure.code}`.slice(0, 64),
       detail,
     );
   }

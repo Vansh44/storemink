@@ -9,6 +9,7 @@ import { StudioStatusBadge, SuperadminOnly } from "../../../../studio-ui";
 import { SlotImagesEditor } from "./slot-images-editor";
 import { GenerateImagesButton } from "./generate-images-button";
 import { getThemeStudioConfig } from "@/lib/theme-studio/config";
+import { imageRunEstimate } from "@/lib/theme-studio/image-generation-core";
 
 export const metadata = { title: "Theme images — StoreMink Admin" };
 
@@ -82,8 +83,7 @@ export default async function ThemeStudioSlotImagesPage({
         estimate={
           getThemeStudioConfig().provider === "fake"
             ? null
-            : // About $0.10 per 2K image at list price (lib/theme-studio/cost.ts).
-              `about $${((listing.generatable + 1) * 0.1).toFixed(2)}`
+            : imageRunEstimate(listing.generatable)
         }
         blockedReason={
           canEdit

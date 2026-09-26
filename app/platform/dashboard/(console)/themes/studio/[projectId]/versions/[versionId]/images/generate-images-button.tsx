@@ -8,6 +8,9 @@ import { queueThemeStudioImagesAction } from "@/app/actions/theme-studio-actions
 
 // Queues an image run for one version (Track 3.2). The cost is stated before
 // the click because every image is paid and a run is never retried on its own.
+// Each image is checked by a vision model and redrawn once if it has a
+// problem (Track 3.4), so the statement gives the likely cost and the most a
+// run can cost.
 export function GenerateImagesButton({
   projectId,
   versionId,
@@ -23,8 +26,8 @@ export function GenerateImagesButton({
   packageDigest: string;
   /** Placeholder slots the run would draw. */
   slots: number;
-  /** A readable estimate, e.g. "about $1.30", or null for the test provider. */
-  estimate: string | null;
+  /** List-price figures (imageRunEstimate), or null for the test provider. */
+  estimate: { images: number; expectedUsd: number; mostUsd: number } | null;
   blockedReason: string | null;
 }) {
   const router = useRouter();
@@ -62,9 +65,10 @@ export function GenerateImagesButton({
             Draw an image for each of the {slots} placeholder slot
             {slots === 1 ? "" : "s"}, all matched to one art-direction image so
             they read as a set. The images become a new version; this one stays
-            as it is.{" "}
+            as it is. Each image is checked, and one with a problem is redrawn
+            once.{" "}
             {estimate
-              ? `That is ${images} images, ${estimate} at list price.`
+              ? `That is ${images} images, about $${estimate.expectedUsd.toFixed(2)} at list price, or at most $${estimate.mostUsd.toFixed(2)} if every image has to be redrawn.`
               : "The test provider draws placeholder pictures at no cost."}
           </p>
           {blockedReason ? (
