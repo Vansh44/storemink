@@ -60,3 +60,31 @@ export function estimateCostMicroUsd(
     1_000_000;
   return Math.round(dollars * 1_000_000);
 }
+
+// ── Images ───────────────────────────────────────────────────────────────────
+//
+// ★ Google's published list price for gemini-3.1-flash-image (ai.google.dev
+// pricing page, standard tier, read 2026-09-26): $0.50 per million input tokens
+// (text and image) and $60 per million image output tokens, where a 2K image is
+// about 1,680 tokens — roughly $0.10 an image. Vertex billing is the source of
+// truth; the version names the source so a wrong rate is repairable from the
+// stored counts.
+//
+// ★ All output tokens are priced at the image rate. The response may carry a
+// few text tokens beside the image; pricing them as image tokens overstates the
+// estimate by a fraction of a cent, which is the safe direction for a number
+// the daily spend cap reads.
+
+export const THEME_STUDIO_IMAGE_PRICING_VERSION = "gemini-image-list-2026-09";
+
+const IMAGE_RATE = { input: 0.5, output: 60 } as const;
+
+/** Whole micro-USD for ONE image request. */
+export function estimateImageCostMicroUsd(usage: {
+  inputTokens: number;
+  outputTokens: number;
+}): number {
+  const input = Math.max(usage.inputTokens, 0);
+  const output = Math.max(usage.outputTokens, 0);
+  return Math.round(input * IMAGE_RATE.input + output * IMAGE_RATE.output);
+}

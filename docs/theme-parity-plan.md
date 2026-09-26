@@ -348,6 +348,38 @@ used by Mink: one art-direction anchor per theme so the set is coherent,
 consistent product pack shots, crop to each slot's ratio, a vision quality check
 with regeneration. Owner decision: no per-theme cost cap.
 
+| #   | Step                                                                                                           | Status  |
+| --- | -------------------------------------------------------------------------------------------------------------- | ------- |
+| 3.1 | Image client: allowlisted model, its own prompt, request builder (anchor, composition per purpose), fake, cost | ✅      |
+| 3.2 | Generation run: anchor first, every generate brief matched to it, cropped to its slot, saved as one version    | planned |
+| 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | planned |
+| 3.4 | Vision quality check with regeneration                                                                         | planned |
+| 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | planned |
+
+### Found and fixed while building 3.1
+
+- **Theme Studio had no way to call an image model.** Its client sends JSON
+  requests only, no image model was allowlisted, and cost was priced in text
+  tokens. The image client uses the same model Mink already calls, behind its
+  own allowlist entry, prompt and safety settings, so a theme's demo images
+  meet the same bar as a merchant's.
+- **Where a subject sits is decided by code, not the brief.** A hero is cut
+  taller on phones and a category tile to a circle; the model writing the
+  brief cannot know that, so the composition for each kind of image is fixed.
+- **Every image after the first is matched to an art-direction anchor**, and a
+  product shot can also be matched to an earlier product shot, so a set reads
+  as one shoot.
+- **One paid attempt per image.** A timeout may already have been billed, so
+  only a rate-limit refusal (which bills nothing) is retried.
+- **Cost:** about $0.10 per 2K image at Google's list price.
+- The offline run works end to end: requests are built, fake images are
+  cropped to their slot and compressed well under the size limit. The live
+  run could not start because the local Google login needs re-authentication;
+  the model and settings were verified live for Mink on 2026-09-21, but this
+  request shape (inline reference images) is not yet.
+- Found, for 3.3: nothing stops every product sharing one image slot, and the
+  offline test provider does exactly that.
+
 ## Track 4 — fewer prompts
 
 Industry playbooks (page structures, section order, palette families, image

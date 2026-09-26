@@ -87,7 +87,10 @@ export function resolveThemeStudioModel(
 // silent substitution this registry exists to forbid.
 const VERSION_SUFFIX = /^-(?:\d{3}|\d{2}-\d{4}|\d{2}-\d{2})$/;
 
-function isAllowedProviderVersion(base: string, candidate: string): boolean {
+export function isAllowedProviderVersion(
+  base: string,
+  candidate: string,
+): boolean {
   return (
     candidate === base ||
     (candidate.startsWith(base) &&

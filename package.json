@@ -37,6 +37,7 @@
     "mink:eval": "node scripts/mink-eval.mjs",
     "theme-studio:model-check": "node scripts/theme-studio-model-check.mjs",
     "theme-studio:eval": "tsx --tsconfig tsconfig.scripts.json scripts/theme-studio-eval.ts",
+    "theme-studio:image-check": "tsx --tsconfig tsconfig.scripts.json scripts/theme-studio-image-check.ts",
     "theme-registry:import": "tsx --tsconfig tsconfig.scripts.json scripts/theme-registry-import.ts",
     "db:lint": "node scripts/migration-lint.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",

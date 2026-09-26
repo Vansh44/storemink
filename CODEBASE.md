@@ -3991,6 +3991,9 @@ wholesip/
 │   │                          # --max-usd AND --yes, because GCP_PROJECT_ID in a dev .env
 │   │                          # would otherwise be all it takes to spend money. Exits 1 on
 │   │                          # any package safety violation.
+│   ├── theme-studio-image-check.ts # ★ Track 3 image client end to end, no DB:
+│   │                          # anchor → product → product. Offline (fake) by
+│   │                          # default; --live needs --yes (three paid calls).
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
 │   │                          # the two Theme Studio Gemini models. --dry-run makes no
 │   │                          # request; a live probe sends one FREE countTokens call per
@@ -4978,6 +4981,54 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `docs/mink-ai-theme-studio-phase6.md`, which includes the production
     runbook and the staging canary still to run. Operator-only: no Help
     Centre migration.
+    **Theme Studio generated imagery, Track 3.1 (2026-09-26; the image
+    client — nothing yet stores, runs or shows a generated image).**
+    `image-models.ts` allowlists ONE image model, `gemini-3.1-flash-image`:
+    the model merchant Mink already calls, reusing Mink's live evidence
+    (2026-09-21) but NOT Mink's client, which is bound to a store, a merchant
+    prompt and five fixed purposes. `THEME_STUDIO_IMAGE_MODEL` may pin only a
+    version of that model (`isAllowedProviderVersion`, now exported from
+    `models.ts`); `-flash-lite-image` is refused. `image-provider.ts` is the
+    pure seam: `ThemeImageRequest {purpose, briefId, aspectRatio, prompt,
+    references}`, results ok / refused / error, the model's ten aspect ratios
+    (every Stage A brief ratio is one; a slot's exact ratio comes from the
+    existing crop), purposes `anchor | hero | product | category | content`
+    (`preview` is absent — the catalog card and screenshots are pictures of the
+    storefront, not art), and `assertThemeImageRequest` (the anchor carries no
+    references; at most 3).
+    ★ `image-prompt.ts` renders `docs/theme-studio-image-prompt.md` (its own
+    executable prompt, validated like Mink's, traced into the standalone build
+    and excepted in `.dockerignore`): fictional unbranded goods, one shoot's
+    look across the set, no text/people/real brands. ★★ ONE-PASS RENDER: the
+    four placeholders are filled by a single replace, so brief text containing
+    `{{composition}}` is inserted, never expanded, and braces are stripped from
+    model-written text anyway. ★ COMPOSITION IS CODE, NOT BRIEF
+    (`compositionFor`): where the subject sits depends on how the storefront
+    crops the slot (a hero is cut taller on phones, a category tile to a
+    circle), which the brief-writer cannot know. `buildAnchorRequest` makes the
+    theme's first image (4:3, no references); `buildAssetRequest` matches the
+    ANCHOR (light, palette, materials) and, for a product, a SET shot (same
+    camera, backdrop, scale) — references ordered anchor-first, capped at 3,
+    each sent inline after a text label.
+    ★ `image-vertex.ts` fixes Mink's verified safety values in code (four harm
+    filters at BLOCK_LOW_AND_ABOVE, `personGeneration: ALLOW_NONE`, prominent
+    people blocked, one candidate, 2K JPEG q95). ★★ ONE PAID ATTEMPT: the SDK
+    never retries (a timeout or 5xx may have billed); only a 429, which bills
+    nothing, waits out the text client's slow backoff. A refusal is a normal
+    result carrying its reason; no image and no reason is a failure, never an
+    empty success. 90s per request.
+    ★ `image-fake.ts` returns the same PNG for the same request, at the
+    requested ratio and 2K long edge, so the offline path exercises the real
+    crop; `[[fake-image:refuse]]` / `[[fake-image:error]]` hooks.
+    `estimateImageCostMicroUsd` (`cost.ts`, `gemini-image-list-2026-09`):
+    $0.50/M input and $60/M output from Google's list — a 2K image is ~1,680
+    tokens, ≈ $0.10; text tokens priced at the image rate (the safe direction
+    for a number the spend cap will read). `npm run theme-studio:image-check`
+    runs anchor → product → product offline (fake), or live with `--live
+    --yes` (three calls, ≈ $0.30), writing raw and cropped files.
+    ⚠ The live run on 2026-09-26 stopped at `provider_auth`: local ADC needed
+    re-authentication, so the Theme-Studio-shaped request (inline references,
+    4:5) is not yet live-verified. Operator-only: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -13950,6 +14001,10 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   **`THEME_STUDIO_GEMINI_31_PRO_MODEL`** variables after verification in the
   target project. These do not configure merchant Mink; since Phase 3 the
   same project/location variables configure the Studio model worker.
+  The Studio image client (Track 3) uses the same project, its own
+  **`THEME_STUDIO_IMAGE_LOCATION`** (default `global`) and
+  **`THEME_STUDIO_IMAGE_MODEL`**, which may only pin a version of
+  `gemini-3.1-flash-image`.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with
