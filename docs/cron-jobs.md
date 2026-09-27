@@ -208,9 +208,12 @@ with its own image (headless Chromium, `jobs/theme-studio-capture/`), executed
 by a Cloud Scheduler job every 5 minutes; each execution claims queued captures
 from `/api/internal/theme-studio/captures/claim` with `CRON_SECRET`, photographs
 the preview store and posts the pictures back, and exits at once when nothing is
-queued. Until it exists, captures queued from a version's Images page wait
-(the project stays `generating`), and catalog pictures can still be uploaded by
-hand. Build, deploy and schedule: `docs/theme-studio-capture-job.md`.
+queued. The web deployment keeps `THEME_STUDIO_CAPTURE_ENABLED=false`, so the
+Images page disables the button and the server action refuses direct calls
+until the job and scheduler both exist; catalog pictures can still be uploaded
+by hand. After deploying both, set the environment's
+`_THEME_STUDIO_CAPTURE_ENABLED` Cloud Build substitution to `true`. Build,
+deploy and schedule: `docs/theme-studio-capture-job.md`.
 
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole

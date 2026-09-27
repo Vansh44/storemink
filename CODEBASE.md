@@ -5254,10 +5254,15 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `generating` while a capture is active, a capture refuses to finish if
     another version became current, a reported error is retried once, a lease
     that lapses is claimed again up to two attempts, and a failed capture
-    returns the project to `ready`. ⚠ The Cloud Run job and its schedule do
-    NOT exist yet; `docs/theme-studio-capture-job.md` is the build, deploy and
-    schedule runbook, and `npm run theme-studio:capture` runs it locally
-    against the installed Chrome. ★ Preview storefronts now show the theme's
+    returns the project to `ready`. ★★ CAPTURE IS FAIL-CLOSED until the worker
+    exists: `THEME_STUDIO_CAPTURE_ENABLED` defaults false, the Images panel
+    disables the control and names upload as the available path, and
+    `queueThemeStudioCapture` independently refuses direct calls before any
+    queue/project state can change. Cloud Build's corresponding substitution
+    also defaults false. ⚠ The Cloud Run job and its schedule do NOT exist yet;
+    deploy both before enabling the flag. `docs/theme-studio-capture-job.md` is
+    the build, deploy and schedule runbook, and `npm run theme-studio:capture`
+    runs it locally against the installed Chrome. ★ Preview storefronts now show the theme's
     own name as the brand (the store row keeps its version suffix), which the
     pictures need. Verified locally end to end with real Chrome: two captures,
     three correctly sized pictures each, and a version whose publication
@@ -5744,6 +5749,11 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     added axis with its first value, and maps a legacy free-text name onto the
     first option), and the storefront helpers `usesOptionPickers`,
     `valueStates`, `selectValue`, `initialVariant`.
+    ★★ PRODUCT AXES AND THEIR COMPLETE VARIANT MATRIX SAVE IN ONE TRANSACTION.
+    `createProduct` / `updateProduct` pass their existing `withUser` transaction
+    into the variant reconciler, so a failed insert/update or an order-protected
+    variant deletion rolls back `products.options` and every variant write;
+    the stored axes and rows cannot be left describing different combinations.
     ★★ THE VARIANT NAME IS COMPOSED ("M / Black") AND STORED. The cart line,
     `order_items.variant_name`, invoices, the till, CSV and Mink all read
     `variants.name`, so composing it at save means none of them needed a
@@ -5954,7 +5964,10 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `productIsSoldOut` — the card's own rules. ★ State changes go through
     `history.replaceState`: every product is already loaded, so a sort is a
     re-order, not a round trip, and Back leaves the shop rather than undoing
-    one filter at a time. ★ "Load more" reveals already-loaded products;
+    one filter at a time. When Next reuses `ShopClient` for a new same-route URL
+    (header search, navigation or history), it adopts the complete server-parsed
+    query/sort/stock/price/page state; a filter removed from the URL therefore
+    cannot remain active invisibly. ★ "Load more" reveals already-loaded products;
     it paginates the DOM, not the query. `shop/shop-filter-panel.tsx` is a
     dialog (side drawer; bottom sheet at ≤600px), PORTALLED into
     `.storefront-root` for the theme tokens, with a focus trap and scroll
@@ -14231,6 +14244,8 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   and must not be set until the dedicated worker job exists — §4
   `api/internal/theme-studio/runs`), **`THEME_STUDIO_GENERATION_ENABLED`**
   (`false` stops new Studio runs without affecting merchant Mink),
+  **`THEME_STUDIO_CAPTURE_ENABLED`** (default false; enables catalog-picture
+  queueing only after the separate Chromium capture job and scheduler exist),
   **`THEME_STUDIO_DISABLED_MODELS`** (comma-separated model KEYS to switch
   off) and **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
   estimated-spend ceiling, default 25). Preview tokens are signed with

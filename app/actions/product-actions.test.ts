@@ -84,6 +84,7 @@ import { getBrandSoulForStore } from "@/lib/ai/brand-voice";
 import { consumeAiQuota } from "@/lib/ai/quota";
 import { callGemini } from "@/lib/ai/gemini";
 import { after } from "next/server";
+import { productVariants } from "@/drizzle/schema";
 
 const validForm = {
   name: "Almonds",
@@ -349,6 +350,21 @@ describe("product-actions", () => {
       expect(inserted[0].optionValues).toEqual(["S", "Black"]);
     });
 
+    it("fails the whole create when its option variants cannot be saved", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "p1", slug: "almonds" }],
+        failInsertFor: [productVariants],
+      });
+      const result = await createProduct({
+        ...validForm,
+        options,
+        variants: [{ ...smallVariant, option_values: ["S", "Black"] }],
+      });
+      expect(result.success).not.toBe(true);
+      expect(result.error).toMatch(/could not save variants/i);
+      expect(result.error).not.toMatch(/product saved/i);
+    });
+
     it("refuses an incomplete or duplicate combination before writing anything", async () => {
       const incomplete = await createProduct({
         ...validForm,
@@ -410,6 +426,30 @@ describe("product-actions", () => {
       const result = await updateProduct("foreign-product", validForm);
       expect(result.error).toMatch(/product not found/i);
       expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    it("fails the whole update when an old variant cannot be deleted", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "p1" }],
+        selectQueue: [
+          [],
+          [{ published_at: null }],
+          [],
+          [],
+          [{ id: "v-on-an-order" }],
+        ],
+        failDeleteFor: [productVariants],
+      });
+
+      const result = await updateProduct("p1", {
+        ...validForm,
+        options: [{ name: "Size", values: ["S"] }],
+        variants: [{ ...smallVariant, option_values: ["S"] }],
+      });
+
+      expect(result.success).not.toBe(true);
+      expect(result.error).toMatch(/could not save variants/i);
+      expect(result.error).not.toMatch(/product saved/i);
     });
 
     it("backfills an explicit zero cost without converting it to unknown", async () => {

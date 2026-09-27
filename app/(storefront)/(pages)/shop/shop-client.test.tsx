@@ -175,6 +175,26 @@ describe("ShopClient with the shop-filters option", () => {
     expect(screen.getByRole("button", { name: /in stock/i })).toBeTruthy();
   });
 
+  it("drops filters that disappear when the same route receives a new URL", () => {
+    const view = renderShop({
+      initialShop: { ...DEFAULT_SHOP_QUERY, inStock: true },
+    });
+    expect(names()).toEqual(["Mango", "Chips"]);
+
+    view.rerender(
+      <ShopClient
+        products={products}
+        categories={categories}
+        shopFilters
+        initialQuery="apple"
+        initialShop={DEFAULT_SHOP_QUERY}
+      />,
+    );
+
+    expect(names()).toEqual(["Apple"]);
+    expect(screen.queryByRole("button", { name: /^in stock/i })).toBeNull();
+  });
+
   it("applies the filter panel only on Show, quoting the count first", () => {
     renderShop();
     fireEvent.click(screen.getByRole("button", { name: /^filter/i }));

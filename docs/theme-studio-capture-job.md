@@ -9,6 +9,12 @@ pictures back to the web app, which saves them as a new version.
 An operator starts a capture from a version's **Images** page ("Capture
 catalog pictures"). That only queues it. This job does the work.
 
+The button and server action remain fail-closed until the web service has
+`THEME_STUDIO_CAPTURE_ENABLED=true`. Deploy the job and scheduler first, then
+set the corresponding `_THEME_STUDIO_CAPTURE_ENABLED` Cloud Build substitution
+to `true` for that environment and deploy the web service. Never enable the
+flag while either worker component is absent.
+
 ## How it fits together
 
 ```

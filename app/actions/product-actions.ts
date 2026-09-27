@@ -5,7 +5,12 @@ import { revalidatePath, revalidateTag } from "next/cache";
 import { after } from "next/server";
 import { readFile } from "fs/promises";
 import path from "path";
-import { withService, withUser, type UserIdentity } from "@/lib/db/client";
+import {
+  withService,
+  withUser,
+  type Db,
+  type UserIdentity,
+} from "@/lib/db/client";
 import {
   isUniqueViolation,
   pgErrorCode,
@@ -245,33 +250,44 @@ function sanitizeVariants(variants: VariantFormData[], costsEnabled: boolean) {
     });
 }
 
+class VariantWriteError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "VariantWriteError";
+  }
+}
+
 // Reconcile strategy: UPDATE existing variants by id, INSERT new ones (no id),
 // DELETE removed ones. Stock is NEVER overwritten by the product form — stock
 // flows only through inventory RPCs. Variant ids are stable so order_items
-// references and the stock_movements ledger are preserved. Runs under the
-// admin's identity (RLS applies); returns an error message or null.
-async function replaceVariants(
-  admin: UserIdentity,
+// references and the stock_movements ledger are preserved.
+//
+// ★ The caller supplies the SAME transaction that writes products.options.
+// A variant failure must roll back the option axes and every preceding variant
+// write; otherwise a failed option rename leaves a product whose axes and rows
+// describe different combinations.
+async function replaceVariantsWithDb(
+  db: Db,
   productId: string,
   variants: VariantFormData[],
   storeId: string,
   costsEnabled: boolean,
-): Promise<string | null> {
+): Promise<void> {
   const rows = sanitizeVariants(variants, costsEnabled);
 
   // 1. Fetch existing variant ids for this product.
-  let existingIds: Set<string>;
+  let existing: { id: string }[];
   try {
-    const existing = await withUser(admin, (db) =>
-      db
-        .select({ id: productVariants.id })
-        .from(productVariants)
-        .where(eq(productVariants.productId, productId)),
-    );
-    existingIds = new Set(existing.map((v) => v.id));
+    existing = await db
+      .select({ id: productVariants.id })
+      .from(productVariants)
+      .where(eq(productVariants.productId, productId));
   } catch (err) {
-    return dbErrorMessage(err, "Failed to read existing variants.");
+    throw new VariantWriteError(
+      dbErrorMessage(err, "Failed to read existing variants."),
+    );
   }
+  const existingIds = new Set(existing.map((v) => v.id));
 
   const formIds = new Set(rows.filter((r) => r.id).map((r) => r.id!));
 
@@ -283,19 +299,19 @@ async function replaceVariants(
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const { id: _id, stock: _stock, ...updates } = row;
     try {
-      await withUser(admin, (db) =>
-        db
-          .update(productVariants)
-          .set(updates)
-          .where(
-            and(
-              eq(productVariants.id, row.id!),
-              eq(productVariants.productId, productId),
-            ),
+      await db
+        .update(productVariants)
+        .set(updates)
+        .where(
+          and(
+            eq(productVariants.id, row.id!),
+            eq(productVariants.productId, productId),
           ),
-      );
+        );
     } catch (err) {
-      return dbErrorMessage(err, "Failed to update a variant.");
+      throw new VariantWriteError(
+        dbErrorMessage(err, "Failed to update a variant."),
+      );
     }
   }
 
@@ -309,15 +325,15 @@ async function replaceVariants(
       storeId,
     }));
     try {
-      await withUser(admin, (db) =>
-        db
-          .insert(productVariants)
-          // sku / variant_no are NOT NULL but owned by the BEFORE-INSERT
-          // trigger — never sent by the app, so the type is asserted.
-          .values(inserts as (typeof productVariants.$inferInsert)[]),
-      );
+      await db
+        .insert(productVariants)
+        // sku / variant_no are NOT NULL but owned by the BEFORE-INSERT
+        // trigger — never sent by the app, so the type is asserted.
+        .values(inserts as (typeof productVariants.$inferInsert)[]);
     } catch (err) {
-      return dbErrorMessage(err, "Failed to add a variant.");
+      throw new VariantWriteError(
+        dbErrorMessage(err, "Failed to add a variant."),
+      );
     }
   }
 
@@ -327,22 +343,24 @@ async function replaceVariants(
   const toDelete = [...existingIds].filter((id) => !formIds.has(id));
   if (toDelete.length > 0) {
     try {
-      await withUser(admin, (db) =>
-        db.delete(productVariants).where(inArray(productVariants.id, toDelete)),
-      );
+      await db
+        .delete(productVariants)
+        .where(inArray(productVariants.id, toDelete));
     } catch (err) {
       // RESTRICT FK violation — variant has order references.
       if (
         pgErrorCode(err) === "23503" ||
         dbErrorMessage(err, "").toLowerCase().includes("violates foreign key")
       ) {
-        return "Cannot delete one or more variants because they have existing orders. Disable them instead.";
+        throw new VariantWriteError(
+          "Cannot delete one or more variants because they have existing orders. Disable them instead.",
+        );
       }
-      return dbErrorMessage(err, "Failed to delete a variant.");
+      throw new VariantWriteError(
+        dbErrorMessage(err, "Failed to delete a variant."),
+      );
     }
   }
-
-  return null;
 }
 
 /**
@@ -610,20 +628,32 @@ export async function createProduct(
     try {
       const [row0] = await withUser(admin, async (db) => {
         await assertCanCreateProduct(db, storeId);
-        return (
-          db
-            .insert(products)
-            // sku / sku_no are NOT NULL but owned by the BEFORE-INSERT trigger
-            // (identifiers_04_triggers.sql) — the app must never send them, so
-            // the insert type is asserted past those two columns.
-            .values(row(slug) as typeof products.$inferInsert)
-            .returning()
-        );
+        const created = await db
+          .insert(products)
+          // sku / sku_no are NOT NULL but owned by the BEFORE-INSERT trigger
+          // (identifiers_04_triggers.sql) — the app must never send them, so
+          // the insert type is asserted past those two columns.
+          .values(row(slug) as typeof products.$inferInsert)
+          .returning();
+        if (created[0]) {
+          await replaceVariantsWithDb(
+            db,
+            created[0].id,
+            resolved.variants,
+            storeId,
+            costsEnabled,
+          );
+        }
+        return created;
       });
       inserted = row0 as Record<string, unknown>;
     } catch (err) {
       if (err instanceof PlanEntitlementError) {
         return { error: err.message };
+      }
+      if (err instanceof VariantWriteError) {
+        console.error("createProduct variants error:", err.message);
+        return { error: `Could not save variants: ${err.message}` };
       }
       if (!isUniqueViolation(err)) {
         console.error("createProduct error:", err);
@@ -633,17 +663,6 @@ export async function createProduct(
       continue;
     }
 
-    const variantError = await replaceVariants(
-      admin,
-      inserted.id as string,
-      resolved.variants,
-      storeId,
-      costsEnabled,
-    );
-    if (variantError) {
-      console.error("createProduct variants error:", variantError);
-      return { error: `Product saved but variants failed: ${variantError}` };
-    }
     revalidateProduct(slug);
     await notifyProductsPublished([slug], formData.status === "published");
     emitEvent({
@@ -761,17 +780,31 @@ export async function updateProduct(
 
   for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
     try {
-      // Own transaction per attempt; RLS confines the update to the caller's
-      // own store.
-      const updated = await withUser(admin, (db) =>
-        db
+      // Product options and their complete variant matrix are one transaction:
+      // a refused deletion or failed insert leaves both exactly as they were.
+      const updated = await withUser(admin, async (db) => {
+        const saved = await db
           .update(products)
           .set(row(slug))
           .where(and(eq(products.id, id), eq(products.storeId, storeId)))
-          .returning({ id: products.id }),
-      );
+          .returning({ id: products.id });
+        if (saved.length > 0) {
+          await replaceVariantsWithDb(
+            db,
+            id,
+            resolved.variants,
+            storeId,
+            costsEnabled,
+          );
+        }
+        return saved;
+      });
       if (updated.length === 0) return { error: "Product not found." };
     } catch (err) {
+      if (err instanceof VariantWriteError) {
+        console.error("updateProduct variants error:", err.message);
+        return { error: `Could not save variants: ${err.message}` };
+      }
       if (!isUniqueViolation(err)) {
         console.error("updateProduct error:", err);
         return { error: dbErrorMessage(err, "Failed to update product.") };
@@ -780,19 +813,6 @@ export async function updateProduct(
       continue;
     }
 
-    const variantError = await replaceVariants(
-      admin,
-      id,
-      resolved.variants,
-      storeId,
-      costsEnabled,
-    );
-    if (variantError) {
-      console.error("updateProduct variants error:", variantError);
-      return {
-        error: `Product saved but variants failed: ${variantError}`,
-      };
-    }
     if (costsEnabled) {
       await backfillMissingOrderCosts(
         storeId,

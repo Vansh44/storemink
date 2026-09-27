@@ -136,15 +136,24 @@ export default function ShopClient({
 
   const basePath = collection ? collectionPath(collection.slug) : "/shop";
 
-  // The header search pushes a new ?q= onto the SAME route, so this component
-  // is reused rather than remounted — adopt the new deep link during render
-  // (React's "adjusting state when a prop changes" pattern). A new search
-  // starts again from the first page.
-  const [lastInitialQuery, setLastInitialQuery] = useState(initialQuery);
-  if (lastInitialQuery !== initialQuery) {
-    setLastInitialQuery(initialQuery);
+  // The header search and browser history can replace this SAME route without
+  // remounting the client component. Adopt the complete server-parsed URL
+  // state during render (React's "adjusting state when a prop changes"
+  // pattern), so a filter absent from the new URL cannot survive invisibly.
+  const incomingShop = shopFilters ? initialShop : DEFAULT_SHOP_QUERY;
+  const incomingKey = [
+    initialQuery ?? "",
+    incomingShop.sort,
+    incomingShop.inStock ? "1" : "0",
+    incomingShop.min ?? "",
+    incomingShop.max ?? "",
+    incomingShop.pages,
+  ].join("\u0000");
+  const [lastIncomingKey, setLastIncomingKey] = useState(incomingKey);
+  if (lastIncomingKey !== incomingKey) {
+    setLastIncomingKey(incomingKey);
     setQuery(initialQuery ?? "");
-    if (shop.pages !== 1) setShop({ ...shop, pages: 1 });
+    setShop(incomingShop);
   }
 
   /**

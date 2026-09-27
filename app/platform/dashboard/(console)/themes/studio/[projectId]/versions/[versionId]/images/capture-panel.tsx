@@ -57,6 +57,7 @@ export function CapturePanel({
   packageDigest,
   isCurrent,
   canEdit,
+  captureEnabled,
   blockers,
   latest,
   resultVersionNumber,
@@ -70,6 +71,8 @@ export function CapturePanel({
   isCurrent: boolean;
   /** The project is ready or a candidate. */
   canEdit: boolean;
+  /** True only after the separate browser worker and scheduler are deployed. */
+  captureEnabled: boolean;
   blockers: string[];
   /** The project's most recent capture, if any. */
   latest: ThemeStudioCaptureView | null;
@@ -80,13 +83,15 @@ export function CapturePanel({
   const [pending, startTransition] = useTransition();
   if (slots.length === 0) return null;
   const active = latest?.status === "queued" || latest?.status === "running";
-  const reason = !isCurrent
-    ? "Only the current version can be captured."
-    : active
-      ? null
-      : !canEdit
-        ? "Pictures can be captured only while the project is ready or a candidate."
-        : (blockers[0] ?? null);
+  const reason = !captureEnabled
+    ? "Catalog capture is unavailable until its browser worker is deployed. You can upload these pictures instead."
+    : !isCurrent
+      ? "Only the current version can be captured."
+      : active
+        ? null
+        : !canEdit
+          ? "Pictures can be captured only while the project is ready or a candidate."
+          : (blockers[0] ?? null);
 
   const capture = () =>
     startTransition(async () => {

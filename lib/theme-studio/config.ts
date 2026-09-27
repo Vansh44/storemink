@@ -23,6 +23,9 @@ export interface ThemeStudioConfig {
    * target Vertex project. Never silently replaced by another model. */
   disabledModels: ReadonlySet<ThemeStudioModelKey>;
   dailySpendMicroUsd: number;
+  /** Catalog screenshots require the separately deployed Chromium job. This
+   * stays off until that job and its scheduler are both live. */
+  captureEnabled: boolean;
 }
 
 export function getThemeStudioConfig(
@@ -46,6 +49,8 @@ export function getThemeStudioConfig(
       env.THEME_STUDIO_GENERATION_ENABLED?.trim().toLowerCase() !== "false",
     provider,
     disabledModels,
+    captureEnabled:
+      env.THEME_STUDIO_CAPTURE_ENABLED?.trim().toLowerCase() === "true",
     dailySpendMicroUsd: Math.round(
       (Number.isFinite(spend) && spend >= 0 ? spend : DEFAULT_DAILY_SPEND_USD) *
         1_000_000,

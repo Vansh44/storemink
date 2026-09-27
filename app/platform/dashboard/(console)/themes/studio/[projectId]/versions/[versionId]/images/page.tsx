@@ -69,6 +69,7 @@ export default async function ThemeStudioSlotImagesPage({
   const isCurrent = project.currentVersionId === versionId;
   const canEdit = project.status === "ready" || project.status === "candidate";
   const placeholders = listing.slots.filter((slot) => slot.placeholder).length;
+  const studioConfig = getThemeStudioConfig();
 
   return (
     <div className="w-full space-y-5">
@@ -104,6 +105,7 @@ export default async function ThemeStudioSlotImagesPage({
         packageDigest={listing.packageDigest}
         isCurrent={isCurrent}
         canEdit={canEdit}
+        captureEnabled={studioConfig.captureEnabled}
         blockers={listing.captureBlockers}
         latest={latestCapture}
         resultVersionNumber={
@@ -119,7 +121,7 @@ export default async function ThemeStudioSlotImagesPage({
         packageDigest={listing.packageDigest}
         slots={listing.generatable}
         estimate={
-          getThemeStudioConfig().provider === "fake"
+          studioConfig.provider === "fake"
             ? null
             : imageRunEstimate(listing.generatable)
         }
@@ -134,7 +136,7 @@ export default async function ThemeStudioSlotImagesPage({
       <SlotImagesEditor
         anchorReusable={listing.anchorReusable}
         prices={
-          getThemeStudioConfig().provider === "fake"
+          studioConfig.provider === "fake"
             ? null
             : {
                 imageUsd: IMAGE_LIST_PRICE_USD,

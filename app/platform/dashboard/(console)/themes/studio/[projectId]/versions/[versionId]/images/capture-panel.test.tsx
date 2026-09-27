@@ -38,6 +38,7 @@ const props = {
   packageDigest: "d".repeat(64),
   isCurrent: true,
   canEdit: true,
+  captureEnabled: true,
   blockers: [] as string[],
   latest: null,
   resultVersionNumber: null,
@@ -85,6 +86,13 @@ describe("the catalog pictures panel", () => {
       screen.getByText("Only the current version can be captured."),
     ).toBeTruthy();
     expect(button().disabled).toBe(true);
+  });
+
+  it("stays disabled until the browser worker is deployed", () => {
+    render(<CapturePanel {...props} captureEnabled={false} />);
+    expect(screen.getByText(/browser worker is deployed/)).toBeTruthy();
+    expect(button().disabled).toBe(true);
+    expect(queue).not.toHaveBeenCalled();
   });
 
   it("follows a capture in flight, and names a failure", () => {

@@ -6,7 +6,19 @@ describe("Theme Studio config", () => {
     expect(getThemeStudioConfig({})).toMatchObject({
       generationEnabled: true,
       provider: "fake",
+      captureEnabled: false,
     });
+  });
+
+  it("enables catalog capture only after an explicit deployment flag", () => {
+    expect(
+      getThemeStudioConfig({ THEME_STUDIO_CAPTURE_ENABLED: "true" })
+        .captureEnabled,
+    ).toBe(true);
+    expect(
+      getThemeStudioConfig({ THEME_STUDIO_CAPTURE_ENABLED: "1" })
+        .captureEnabled,
+    ).toBe(false);
   });
 
   it("has an emergency stop independent of merchant Mink", () => {

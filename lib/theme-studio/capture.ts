@@ -33,6 +33,7 @@ import {
 } from "./repository";
 import { prepareSlotImage } from "./slot-images";
 import type { SlotImageRow } from "./slot-images-core";
+import { getThemeStudioConfig } from "./config";
 
 // ---------------------------------------------------------------------------
 // Track 3.6: capturing a version's catalog card and screenshots.
@@ -104,6 +105,12 @@ export async function queueThemeStudioCapture(
     idempotencyKey: string;
   },
 ): Promise<{ captureId: string; duplicate: boolean }> {
+  if (!getThemeStudioConfig().captureEnabled) {
+    throw new ThemeStudioError(
+      "generation_disabled",
+      "Catalog capture is not available until its browser worker is deployed.",
+    );
+  }
   if (!isUuid(input.projectId) || !isUuid(input.versionId)) {
     throw new ThemeStudioError("not_found", "That version no longer exists.");
   }
