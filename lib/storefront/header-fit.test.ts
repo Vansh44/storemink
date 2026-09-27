@@ -156,3 +156,42 @@ describe("every step folds something", () => {
     }
   });
 });
+
+describe("a store name too long for the row", () => {
+  // Found by the catalog capture (Track 3.6): a 29-character name ran 209px
+  // under the icons of a 375px phone. Layout is not measurable in jsdom, so
+  // the rules themselves are pinned; the browser check is in the parity plan.
+  const header = readFileSync(
+    "app/(storefront)/components/header/Header.module.css",
+    "utf8",
+  );
+  const body = (css: string, selector: string, from = 0) => {
+    const at = css.indexOf(selector, from);
+    if (at < 0) return null;
+    const open = css.indexOf("{", at);
+    return css.slice(open + 1, css.indexOf("}", open));
+  };
+
+  it("truncates on phones instead of running under the icons", () => {
+    const phone = header.slice(header.indexOf("@media (max-width: 768px)"));
+    const text = body(phone, ".brandNameText {");
+    expect(text).toMatch(/text-overflow:\s*ellipsis/);
+    expect(text).toMatch(/white-space:\s*nowrap/);
+    expect(text).toMatch(/overflow:\s*hidden/);
+    expect(body(phone, ".logo {")).toMatch(/min-width:\s*0/);
+  });
+
+  it("on wider screens, truncates only once the last fold is taken", () => {
+    // `search` is the one step chooseCompaction applies without measuring,
+    // so letting the name shrink there cannot stand in for folding the menu.
+    expect(COMPACT_STEPS.at(-1)).toBe("search");
+    const text = body(
+      header,
+      '.header[data-header-compact~="search"] .brandNameText',
+    );
+    expect(text).toMatch(/text-overflow:\s*ellipsis/);
+    expect(header).not.toMatch(
+      /\[data-header-compact~="(nav|delivery)"\][^{]*\.brandNameText/,
+    );
+  });
+});

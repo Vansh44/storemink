@@ -23,6 +23,7 @@ import { cookies } from "next/headers";
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { logError } from "@/lib/observability/logger";
 import { getThemeStudioActor } from "@/lib/theme-studio/access";
+import { queueThemeStudioCapture } from "@/lib/theme-studio/capture";
 import {
   archiveThemeStudioProject,
   cancelThemeStudioRun,
@@ -329,6 +330,36 @@ export async function queueThemeStudioImagesAction(input: {
     return { ok: true, id: runId };
   } catch (error) {
     return failure(error, "generate images");
+  }
+}
+
+/**
+ * Queue a capture of the current version's catalog card and screenshots
+ * (Track 3.6). The headless-Chromium job runs separately and picks it up on
+ * its next pass; nothing is kicked here, and a capture costs no model spend.
+ */
+export async function queueThemeStudioCaptureAction(input: {
+  projectId: string;
+  versionId: string;
+  expectedRevision: number;
+  expectedPackageDigest: string;
+  idempotencyKey: string;
+}): Promise<ThemeStudioActionResult> {
+  const actor = await getThemeStudioActor();
+  if (!actor) return NOT_AUTHORIZED;
+  if (!Number.isInteger(input?.expectedRevision)) return MALFORMED;
+  try {
+    const { captureId } = await queueThemeStudioCapture(actor, {
+      projectId: String(input.projectId),
+      versionId: String(input.versionId),
+      expectedRevision: input.expectedRevision,
+      expectedPackageDigest: String(input.expectedPackageDigest ?? ""),
+      idempotencyKey: String(input.idempotencyKey),
+    });
+    revalidatePath(`${STUDIO_PATH}/${input.projectId}`);
+    return { ok: true, id: captureId };
+  } catch (error) {
+    return failure(error, "capture the catalog pictures");
   }
 }
 

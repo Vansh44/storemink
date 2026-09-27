@@ -946,6 +946,26 @@
     height: auto;
   }
 
+  /* A long store NAME gives way to the icons instead of running under them
+     and off the screen: it truncates with an ellipsis. A name that fits is
+     unchanged. Found by the catalog capture (Track 3.6): a 29-character name
+     ran 209px under the icons of a 375px phone. */
+  .headerLeft,
+  .logo {
+    min-width: 0;
+    flex-shrink: 1;
+  }
+  /* The row's free space absorbs this until a long name needs it. */
+  .headerLeft {
+    margin-inline-end: 12px;
+  }
+  .brandNameText {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .headerRight {
     gap: 16px; /* Tightened the gap slightly so everything fits */
   }
@@ -1007,6 +1027,25 @@
 }
 .header[data-header-compact~="search"] .phoneSearchBtn {
   display: flex;
+}
+/* Everything has folded and the row is still too tight: only a long store
+   name is left, so it truncates rather than running under the controls (the
+   phone rule above, for wider screens). `search` is the LAST fold and
+   chooseCompaction applies it without measuring, so letting the name shrink
+   here can never stand in for folding the menu first. */
+.header[data-header-compact~="search"] .headerLeft,
+.header[data-header-compact~="search"] .logo {
+  min-width: 0;
+  flex-shrink: 1;
+}
+.header[data-header-compact~="search"] .headerLeft {
+  margin-inline-end: 12px;
+}
+.header[data-header-compact~="search"] .brandNameText {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 /* Added query for very small phones to prevent horizontal scrolling */

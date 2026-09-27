@@ -2412,6 +2412,36 @@ export const themeStudioVersions = pgTable("theme_studio_versions", {
     .notNull(),
 });
 
+/** Track 3.6: catalog pictures rendered from a version's preview store by the
+ *  headless-Chromium capture job. Service-only; a finished row is final. */
+export const themeStudioCaptures = pgTable("theme_studio_captures", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  packageDigest: text("package_digest").notNull(),
+  status: text().default("queued").notNull(),
+  previousStatus: text("previous_status").notNull(),
+  idempotencyKey: text("idempotency_key").notNull(),
+  leaseOwner: uuid("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(2).notNull(),
+  errorCode: text("error_code"),
+  resultVersionId: uuid("result_version_id"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+  finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
 /** A private, demo-flagged store materialized from one Studio version. */
 export const themeStudioPreviews = pgTable("theme_studio_previews", {
   id: uuid().defaultRandom().primaryKey().notNull(),

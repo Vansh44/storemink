@@ -5836,6 +5836,37 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260927_0143_theme_studio_captures",
+      "description": "Theme Studio captures: the queue and record of catalog pictures rendered from a version's preview store",
+      "file": "sql/20260927_0143_theme_studio_captures.sql",
+      "transaction": true,
+      "requires": ["20260927_0142_theme_studio_image_slots"],
+      "verify": {
+        "tables": ["theme_studio_captures"],
+        "constraints": [
+          "theme_studio_captures_status_check",
+          "theme_studio_captures_shape_check",
+          "theme_studio_captures_lifecycle_check",
+          "theme_studio_events_type_check"
+        ],
+        "indexes": ["theme_studio_captures_one_active"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "captures are service-only",
+            "sql": "select count(*)::text from information_schema.role_table_grants where table_schema = 'public' and table_name = 'theme_studio_captures' and grantee = 'app_user'",
+            "equals": "0"
+          },
+          {
+            "name": "capture events are event types",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%capture_succeeded%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

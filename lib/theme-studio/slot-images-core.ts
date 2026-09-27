@@ -262,6 +262,8 @@ export function applySlotReplacements(
   replacements: readonly SlotReplacement[],
   rows: ReadonlyMap<string, SlotImageRow>,
   versionNumber: number,
+  /** The release note; defaults to naming an operator's replacement. */
+  releaseNote?: string,
 ): { ok: true; value: ThemePackageV2 } | { ok: false; error: string } {
   const next: ThemePackageV2 = structuredClone(pkg);
   const screenshotSrcs = new Set(
@@ -322,7 +324,9 @@ export function applySlotReplacements(
     version: `0.0.${versionNumber}`,
     notes: [
       ...next.definition.release.notes.slice(-4),
-      `Images replaced by an operator: ${slots.join(", ")}.`.slice(0, 500),
+      (
+        releaseNote ?? `Images replaced by an operator: ${slots.join(", ")}.`
+      ).slice(0, 500),
     ],
   };
   const validated = validateThemePackageV2(next);

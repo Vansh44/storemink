@@ -348,14 +348,14 @@ used by Mink: one art-direction anchor per theme so the set is coherent,
 consistent product pack shots, crop to each slot's ratio, a vision quality check
 with regeneration. Owner decision: no per-theme cost cap.
 
-| #   | Step                                                                                                           | Status  |
-| --- | -------------------------------------------------------------------------------------------------------------- | ------- |
-| 3.1 | Image client: allowlisted model, its own prompt, request builder (anchor, composition per purpose), fake, cost | ✅      |
-| 3.2 | Generation run: anchor first, every placeholder art slot matched to it, cropped to its slot, one new version   | ✅      |
-| 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | ✅      |
-| 3.4 | Vision quality check with regeneration                                                                         | ✅      |
-| 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | ✅      |
-| 3.6 | Catalog card and screenshots captured from the preview store, so a generated theme can publish                 | planned |
+| #   | Step                                                                                                           | Status |
+| --- | -------------------------------------------------------------------------------------------------------------- | ------ |
+| 3.1 | Image client: allowlisted model, its own prompt, request builder (anchor, composition per purpose), fake, cost | ✅     |
+| 3.2 | Generation run: anchor first, every placeholder art slot matched to it, cropped to its slot, one new version   | ✅     |
+| 3.3 | Consistent product pack shots: one staging across products, a distinct slot per product                        | ✅     |
+| 3.4 | Vision quality check with regeneration                                                                         | ✅     |
+| 3.5 | Studio screens: generate, regenerate a slot, show the brief and the cost                                       | ✅     |
+| 3.6 | Catalog card and screenshots captured from the preview store, so a generated theme can publish                 | ✅     |
 
 ### Found and fixed while building 3.1
 
@@ -494,6 +494,30 @@ with regeneration. Owner decision: no per-theme cost cap.
   teapot matched the existing set's linen and light, for $0.105.
 - Not checked in a browser: the Studio needs a superadmin sign-in. The screens
   are covered by component tests.
+
+### Found and fixed while building 3.6
+
+- **A generated theme can now publish without an upload.** On a version's
+  Images page, "Capture catalog pictures" has a real browser open the
+  version's private preview and photograph its home page as the catalog card
+  and the desktop and phone screenshots, saved as a new version. It waits
+  until the theme's own images are real, since the pictures show them.
+- **The pictures are taken by a separate job with headless Chromium**
+  (owner-approved), which Track 5's automated checks can reuse. It can only
+  open the one preview it was given, and only while that capture is running.
+  The job still has to be deployed and scheduled:
+  `docs/theme-studio-capture-job.md`.
+- Checked locally with real Chrome: two captures, each producing three
+  correctly sized pictures, and a version whose publication check went from
+  "3 image slots still have a placeholder" to nothing. Failure paths checked
+  against the local database.
+- **Found: preview stores showed "Name · v7 preview" as the shop's name**, which
+  the pictures would have shown. Previews now show the theme's own name.
+- **Found and fixed in the storefront: a long shop name ran under the header
+  icons on phones** (by 209px for a 29-character name on a 375px screen). It
+  now shortens with an ellipsis; on wider screens it does so only once the
+  menu, delivery control and search have all folded away. Names that fit look
+  exactly as before on all four demo themes.
 
 ## Track 4 — fewer prompts
 

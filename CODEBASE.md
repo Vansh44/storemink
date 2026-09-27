@@ -2728,6 +2728,8 @@ wholesip/
 │       │                      # work remains, and returns 503 on provider failure
 │       ├── cron/mink-publications/ # ★ Every minute: CRON_SECRET-gated bounded Phase 5D
 │       │                      # due-blog publisher; exact-version conflict detection + SKIP LOCKED.
+│       ├── internal/theme-studio/captures/ # ★ Track 3.6: claim + [captureId] finish
+│       │                      # for the headless-Chromium capture job (CRON_SECRET).
 │       ├── internal/theme-studio/runs/ # ★ Theme Studio Phase 3 MODEL worker: CRON_SECRET
 │       │                      # bearer, maxDuration 1200, ONE run of any provider per call.
 │       │                      # Needs its own Scheduler job (1200s deadline, no retries) and a
@@ -3985,6 +3987,10 @@ wholesip/
 │                              # own audit insert — 0071's lesson on the sibling table;
 │                              # missing/draft/empty guide drift is repaired before publication.
 │                              # It follows the 0049/0050 UX migrations.
+├── jobs/theme-studio-capture/ # ★ Track 3.6 Cloud Run JOB: headless Chromium photographs
+│                              # a version's preview store (catalog card + screenshots).
+│                              # Own package.json (playwright-core) and Dockerfile; not in
+│                              # the web image. Runbook: docs/theme-studio-capture-job.md
 ├── scripts/
 │   ├── theme-studio-eval.ts   # ★ Phase 0 golden set through the Phase 3 pipeline, no DB.
 │   │                          # Offline (fake) by default and grades nothing; --live needs
@@ -5214,6 +5220,62 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     sent the stored WebP anchor and product photo as references, and the new
     teapot matched the set's linen and light for $0.105.
     Operator-only: no Help Centre migration.
+    **Theme Studio catalog pictures, Track 3.6 (2026-09-27; captured from the
+    preview store, so a generated theme can publish).** Publication needs a
+    catalog card and two screenshots, and only an upload could provide them.
+    A version's Images page now has a **Catalog pictures** panel
+    (`capture-panel.tsx`): "Capture catalog pictures" queues a capture
+    (`queueThemeStudioCapture`, `lib/theme-studio/capture.ts`) of the CURRENT
+    version, refused while any art slot is still a placeholder
+    (`captureBlockers`, `capture-core.ts`: a card of solid-colour blocks would
+    pass every check and sell nothing). ★★ A SEPARATE CLOUD RUN JOB TAKES THE
+    PICTURES (owner-approved): `jobs/theme-studio-capture/` (its own
+    `package.json` pinning `playwright-core`, its own Dockerfile with Debian's
+    Chromium and Noto fonts; kept out of the web image by `.dockerignore`).
+    Each execution claims through `POST /api/internal/theme-studio/captures/claim`
+    and answers through `POST /api/internal/theme-studio/captures/[captureId]`,
+    both `CRON_SECRET`; a claim hands over only a capture id, a lease token,
+    the preview origin, a cookie and the shots. `captureShots`: the card at
+    1280px CSS and 2×, the desktop screenshot at 1440px and 2×, the phone at
+    390px, 3× and a mobile device, each rendered LARGER than its slot because
+    the crop never upscales; reduced motion, the reveal-all event, lazy images
+    forced and fonts awaited, JPEG q92 in transit. Every picture is
+    re-decoded, cropped and compressed server-side (`prepareSlotImage`), bound
+    to the claim's lease (a stale lease is told it lost, 409), and saved as an
+    `asset_edit` version (`edit_detail.kind = "capture"`) marked operator-owned
+    with `CAPTURED_LICENSE_NOTE` and alt text that no longer says placeholder.
+    ★★ THE JOB HAS NO SESSION, so the preview gate
+    (`preview-access.ts`) accepts a capture token (`CAPTURE_COOKIE`, type
+    `capture`, bound to one store, one version and one capture id) ONLY while
+    that capture is `running` with an unexpired lease: it dies with the lease.
+    ★ `theme_studio_captures` (migration `20260927_0143`, service-only,
+    one active capture per project, immutable once finished except a removed
+    operator's `created_by`) is the queue and the record; the project is
+    `generating` while a capture is active, a capture refuses to finish if
+    another version became current, a reported error is retried once, a lease
+    that lapses is claimed again up to two attempts, and a failed capture
+    returns the project to `ready`. ⚠ The Cloud Run job and its schedule do
+    NOT exist yet; `docs/theme-studio-capture-job.md` is the build, deploy and
+    schedule runbook, and `npm run theme-studio:capture` runs it locally
+    against the installed Chrome. ★ Preview storefronts now show the theme's
+    own name as the brand (the store row keeps its version suffix), which the
+    pictures need. Verified locally end to end with real Chrome: two captures,
+    three correctly sized pictures each, and a version whose publication
+    blockers went from "3 image slots still have a placeholder" to none;
+    failure paths (placeholder art refused, a retry then failure, a stale
+    lease, a version changing mid-capture, the cookie refused once the capture
+    ended) against the local database. Operator-only: no Help Centre
+    migration.
+    ★ **Found by the capture, fixed in the storefront: a long store name ran
+    under the header icons.** On phones the logo was `flex-shrink: 0`, so a
+    29-character name ran 209px under the icons of a 375px screen and off its
+    edge. It now truncates with an ellipsis and keeps 12px clear
+    (`Header.module.css`); on wider screens the same applies only once the
+    header has taken its last fold (`data-header-compact~="search"`, which
+    `chooseCompaction` applies without measuring, so it can never stand in for
+    folding the menu first). A name that fits renders exactly as before
+    (measured on all four demo themes); pinned in `header-fit.test.ts`. No
+    merchant action changes, so no Help Centre update.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

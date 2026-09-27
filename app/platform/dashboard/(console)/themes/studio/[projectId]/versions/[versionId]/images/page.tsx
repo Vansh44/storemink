@@ -8,6 +8,9 @@ import { requireOperator } from "../../../../../../require-operator";
 import { StudioStatusBadge, SuperadminOnly } from "../../../../studio-ui";
 import { SlotImagesEditor } from "./slot-images-editor";
 import { GenerateImagesButton } from "./generate-images-button";
+import { CapturePanel } from "./capture-panel";
+import { listThemeStudioCaptures } from "@/lib/theme-studio/capture";
+import { CAPTURED_LICENSE_NOTE } from "@/lib/theme-studio/capture-core";
 import { getThemeStudioConfig } from "@/lib/theme-studio/config";
 import {
   IMAGE_LIST_PRICE_USD,
@@ -43,11 +46,26 @@ export default async function ThemeStudioSlotImagesPage({
       </div>
     );
   }
-  const [project, listing] = await Promise.all([
+  const [project, listing, captures] = await Promise.all([
     getThemeStudioProject(projectId),
     listThemeStudioSlots(projectId, versionId),
+    listThemeStudioCaptures(projectId),
   ]);
   if (!project || !listing) notFound();
+  const latestCapture = captures[0] ?? null;
+  const catalogSlots = listing.slots
+    .filter((slot) => slot.catalogPreview || slot.catalogScreenshot)
+    .map((slot) => ({
+      id: slot.id,
+      label: slot.catalogPreview
+        ? "Catalog card"
+        : slot.id.includes("mobile")
+          ? "Phone screenshot"
+          : "Desktop screenshot",
+      url: slot.url,
+      placeholder: slot.placeholder,
+      captured: slot.licenseNote === CAPTURED_LICENSE_NOTE,
+    }));
   const isCurrent = project.currentVersionId === versionId;
   const canEdit = project.status === "ready" || project.status === "candidate";
   const placeholders = listing.slots.filter((slot) => slot.placeholder).length;
@@ -79,6 +97,21 @@ export default async function ThemeStudioSlotImagesPage({
             : " No placeholders remain."}
         </p>
       </header>
+      <CapturePanel
+        projectId={project.id}
+        versionId={versionId}
+        revision={project.revision}
+        packageDigest={listing.packageDigest}
+        isCurrent={isCurrent}
+        canEdit={canEdit}
+        blockers={listing.captureBlockers}
+        latest={latestCapture}
+        resultVersionNumber={
+          project.versions.find((v) => v.id === latestCapture?.resultVersionId)
+            ?.versionNumber ?? null
+        }
+        slots={catalogSlots}
+      />
       <GenerateImagesButton
         projectId={project.id}
         versionId={versionId}

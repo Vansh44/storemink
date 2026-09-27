@@ -31,6 +31,20 @@ describe("Theme Studio preview tokens", () => {
     expect(verifyPreviewToken(enter, "grant")).toBeNull();
   });
 
+  it("keeps a capture token apart from both preview tokens", () => {
+    vi.stubEnv("THEME_STUDIO_PREVIEW_SECRET", "explicit-secret");
+    const capture = signPreviewToken("capture", CLAIMS, 60);
+    expect(verifyPreviewToken(capture, "capture")).toMatchObject({
+      t: "studio-preview-capture",
+      aid: CLAIMS.actorId,
+    });
+    expect(verifyPreviewToken(capture, "grant")).toBeNull();
+    expect(verifyPreviewToken(capture, "enter")).toBeNull();
+    expect(
+      verifyPreviewToken(signPreviewToken("grant", CLAIMS, 60), "capture"),
+    ).toBeNull();
+  });
+
   it("refuses an expired token", () => {
     vi.stubEnv("THEME_STUDIO_PREVIEW_SECRET", "explicit-secret");
     const now = Date.now();

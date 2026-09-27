@@ -27,7 +27,17 @@ export const PREVIEW_COOKIE = "sm_studio_preview";
 export const PREVIEW_ENTER_TTL_SECONDS = 10 * 60;
 export const PREVIEW_GRANT_TTL_SECONDS = 60 * 60;
 
-export type PreviewTokenType = "enter" | "grant";
+/**
+ * Track 3.6: the headless capture job's grant. It has no session to satisfy
+ * the grant's third condition (preview-access.ts), so it carries its own
+ * cookie, bound to one store, one version and ONE capture (in `aid`), and the
+ * gate honours it only while that capture is running in the database — so
+ * it dies with the capture's lease however long its signature would last.
+ */
+export const CAPTURE_COOKIE = "sm_studio_capture";
+export const CAPTURE_TOKEN_TTL_SECONDS = 15 * 60;
+
+export type PreviewTokenType = "enter" | "grant" | "capture";
 
 export interface PreviewClaims {
   t: `studio-preview-${PreviewTokenType}`;
@@ -35,7 +45,8 @@ export interface PreviewClaims {
   sid: string;
   /** Studio version id. */
   vid: string;
-  /** platform_admins.id of the superadmin who minted it. */
+  /** platform_admins.id of the superadmin who minted it; for a capture
+   *  token, the theme_studio_captures.id it was minted for. */
   aid: string;
   exp: number;
 }
@@ -60,7 +71,12 @@ function mac(payload: string, key: string): string {
 
 export function signPreviewToken(
   type: PreviewTokenType,
-  claims: { storeId: string; versionId: string; actorId: string },
+  claims: {
+    storeId: string;
+    versionId: string;
+    /** The minting superadmin, or the capture id for a capture token. */
+    actorId: string;
+  },
   ttlSeconds: number,
   now: number = Date.now(),
 ): string {

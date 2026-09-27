@@ -2,12 +2,16 @@ import "server-only";
 
 import { cache } from "react";
 import { cookies, headers } from "next/headers";
-import { eq } from "drizzle-orm";
-import { platformAdmins } from "@/drizzle/schema";
+import { and, eq, gt, sql } from "drizzle-orm";
+import { platformAdmins, themeStudioCaptures } from "@/drizzle/schema";
 import { withService } from "@/lib/db/client";
 import { cookieDomainForHost } from "@/lib/store/host";
 import { getThemeStudioActor } from "./access";
-import { PREVIEW_COOKIE, verifyPreviewToken } from "./preview-token";
+import {
+  CAPTURE_COOKIE,
+  PREVIEW_COOKIE,
+  verifyPreviewToken,
+} from "./preview-token";
 
 // ---------------------------------------------------------------------------
 // The gate in front of a Theme Studio preview store.
@@ -31,6 +35,12 @@ import { PREVIEW_COOKIE, verifyPreviewToken } from "./preview-token";
 // Condition 3 cannot hold on a host-only-cookie environment such as local
 // development, where the platform's session never reaches a store subdomain;
 // there the grant plus condition 2 is the gate.
+//
+// ★ OR a capture cookie (Track 3.6): the headless capture job has no session,
+// so it presents a token minted for one capture, and the gate honours it only
+// while THAT capture is running with an unexpired lease, for exactly the
+// version it captures. A leaked capture cookie is worthless once the capture
+// ends, which is minutes, and it can open nothing but that one preview.
 // ---------------------------------------------------------------------------
 
 async function actorIsSuperadmin(actorId: string): Promise<boolean> {
@@ -63,9 +73,48 @@ export async function actorMayPreview(
 }
 
 /** Request-deduplicated: the resolver runs many times per render. */
+/** A capture cookie whose capture is running now, for this version. */
+async function captureIsRunning(
+  captureId: string,
+  versionId: string,
+): Promise<boolean> {
+  if (!/^[0-9a-f-]{36}$/i.test(captureId)) return false;
+  try {
+    const rows = await withService((db) =>
+      db
+        .select({ id: themeStudioCaptures.id })
+        .from(themeStudioCaptures)
+        .where(
+          and(
+            eq(themeStudioCaptures.id, captureId),
+            eq(themeStudioCaptures.versionId, versionId),
+            eq(themeStudioCaptures.status, "running"),
+            gt(themeStudioCaptures.leaseExpiresAt, sql`now()`),
+          ),
+        )
+        .limit(1),
+    );
+    return rows.length === 1;
+  } catch {
+    return false; // fail closed
+  }
+}
+
 export const studioPreviewAllowed = cache(
   async (storeId: string, versionId: string): Promise<boolean> => {
     const jar = await cookies();
+    const capture = verifyPreviewToken(
+      jar.get(CAPTURE_COOKIE)?.value,
+      "capture",
+    );
+    if (
+      capture &&
+      capture.sid === storeId &&
+      capture.vid === versionId &&
+      (await captureIsRunning(capture.aid, versionId))
+    ) {
+      return true;
+    }
     const claims = verifyPreviewToken(jar.get(PREVIEW_COOKIE)?.value, "grant");
     if (!claims || claims.sid !== storeId || claims.vid !== versionId) {
       return false;

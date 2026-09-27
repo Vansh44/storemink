@@ -222,6 +222,8 @@ export async function slotUrls(
 
 export interface OpenedPreview {
   previewId: string;
+  /** The preview store's id (a capture token is bound to it). */
+  storeId: string;
   origin: string;
   enterToken: string;
   pages: PreviewPage[];
@@ -380,6 +382,9 @@ export async function openThemeStudioPreview(
       await slotUrls(db, project.id, parsed.value),
     );
     const slug = newPreviewSlug();
+    // The store row names the version, for anyone reading the database; the
+    // storefront shows the theme's own name, as a merchant installing it would
+    // see it — and as the catalog pictures captured from it must (Track 3.6).
     const name = `${definition.name} · v${version.versionNumber} preview`;
     const [store] = await db
       .insert(stores)
@@ -391,7 +396,7 @@ export async function openThemeStudioPreview(
         settings: {
           demo: true,
           studioPreview: { projectId: project.id, versionId: version.id },
-          brand: { name },
+          brand: { name: definition.name },
         },
       })
       .returning({ id: stores.id });
@@ -480,6 +485,7 @@ export async function openThemeStudioPreview(
   }
   return {
     previewId: prepared.previewId,
+    storeId: prepared.storeId,
     origin: subdomainOrigin(prepared.slug),
     enterToken: signPreviewToken(
       "enter",

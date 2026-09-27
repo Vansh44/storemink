@@ -38,6 +38,7 @@
     "theme-studio:model-check": "node scripts/theme-studio-model-check.mjs",
     "theme-studio:eval": "tsx --tsconfig tsconfig.scripts.json scripts/theme-studio-eval.ts",
     "theme-studio:image-check": "tsx --tsconfig tsconfig.scripts.json scripts/theme-studio-image-check.ts",
+    "theme-studio:capture": "node jobs/theme-studio-capture/capture-job.mjs",
     "theme-registry:import": "tsx --tsconfig tsconfig.scripts.json scripts/theme-registry-import.ts",
     "db:lint": "node scripts/migration-lint.mjs",
     "db:migrate": "node scripts/db-migrate.mjs",

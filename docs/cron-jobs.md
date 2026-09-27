@@ -202,6 +202,16 @@ runs queue and wait; nothing is lost. The path is under `/api/internal/`, not
 `/api/cron/`, because it is a worker rather than a heartbeat. Full rollout list:
 `docs/mink-ai-theme-studio-phase3.md` §6.
 
+⚠ **The Theme Studio capture job (Track 3.6) is not a Scheduler → HTTP job
+and does NOT exist yet.** It is a Cloud Run JOB, `storemink-theme-studio-capture`,
+with its own image (headless Chromium, `jobs/theme-studio-capture/`), executed
+by a Cloud Scheduler job every 5 minutes; each execution claims queued captures
+from `/api/internal/theme-studio/captures/claim` with `CRON_SECRET`, photographs
+the preview store and posts the pictures back, and exits at once when nothing is
+queued. Until it exists, captures queued from a version's Images page wait
+(the project stays `generating`), and catalog pictures can still be uploaded by
+hand. Build, deploy and schedule: `docs/theme-studio-capture-job.md`.
+
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole
 system: on a daily schedule some merchants would get nearly a day of unearned

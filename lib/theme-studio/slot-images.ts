@@ -42,6 +42,7 @@ import {
   ThemeStudioError,
 } from "./repository";
 import { generatableSlots, redrawableSlotIds } from "./image-generation-core";
+import { captureBlockers } from "./capture-core";
 import {
   hasReusableAnchor,
   slotDrawHistory,
@@ -494,6 +495,8 @@ export async function listThemeStudioSlots(
   /** A redraw can match an existing art-direction image, so it draws no
    *  new one (Track 3.5). */
   anchorReusable: boolean;
+  /** Why the catalog pictures cannot be captured yet (Track 3.6). */
+  captureBlockers: string[];
   slots: ThemeStudioSlotView[];
 } | null> {
   const version = await loadVersion(projectId, versionId);
@@ -527,6 +530,7 @@ export async function listThemeStudioSlots(
       ? generatableSlots(version.pkg, version.intent).length
       : 0,
     anchorReusable: hasReusableAnchor(runs),
+    captureBlockers: captureBlockers(version.pkg),
     slots: slots.map((slot) => ({
       ...slot,
       url: urls.get(slot.id) ?? null,
