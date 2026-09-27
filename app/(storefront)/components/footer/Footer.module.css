@@ -73,7 +73,7 @@
 }
 
 .newsletterInner {
-  max-width: 1400px;
+  max-width: var(--sm-page-width, 1400px);
   margin: 0 auto;
   display: flex;
   justify-content: space-between;
@@ -188,7 +188,7 @@
 }
 
 .trustInner {
-  max-width: 1400px;
+  max-width: var(--sm-page-width, 1400px);
   margin: 0 auto;
   display: flex;
   justify-content: center;
@@ -217,7 +217,10 @@
    ============================================ */
 
 .mainGrid {
-  max-width: 1400px;
+  /* Its 64px padding sits INSIDE this cap, unlike the bars above, so the cap
+     is the page width plus that padding: the columns then start where the
+     page content does. Unset: 1272 + 128 = today's 1400px. */
+  max-width: calc(var(--sm-page-width, 1272px) + 128px);
   margin: 0 auto;
   padding: 32px 64px 24px;
   display: grid;
@@ -352,7 +355,7 @@
    ============================================ */
 
 .bottomSection {
-  max-width: 1400px;
+  max-width: calc(var(--sm-page-width, 1272px) + 128px);
   margin: 0 auto;
   padding: 16px 64px;
   border-top: 1px solid var(--sm-border);

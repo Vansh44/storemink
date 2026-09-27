@@ -1,37 +1,39 @@
 import type { Metadata } from "next";
-import {
-  getPublishedProducts,
-  getActiveCategories,
-} from "@/lib/storefront/queries";
+import { permanentRedirect } from "next/navigation";
 import { requireStorefrontStoreId } from "@/lib/store/resolve";
-import { getStorefrontLayout } from "@/lib/store/storefront-layout";
-import { getStoreSetting } from "@/lib/settings/resolve";
 import { getStoreBrand } from "@/lib/store/brand";
-import { loadOffersForStorefront } from "@/lib/offers/cart";
-import { offerBadgeFor, offerTagFor } from "@/lib/offers/badge";
-import { effectivePricing } from "@/lib/pricing";
-import ShopClient, { type ShopProduct, type ShopCategory } from "./shop-client";
+import { parseShopQuery } from "@/lib/storefront/shop-filters";
+import { legacyCategoryRedirect } from "@/lib/storefront/collection-links";
+import { getActiveCategories } from "@/lib/storefront/queries";
+import ShopClient from "./shop-client";
+import { loadShopView } from "./shop-view";
 import "./shop.css";
+
+type ShopSearchParams = Record<string, string | string[] | undefined>;
+
+const first = (value: string | string[] | undefined) =>
+  Array.isArray(value) ? value[0] : value;
 
 // Per-store metadata — the layout templates the title as "%s | {brand}", so
 // this returns just "Shop" and a brand-aware description (never WholeSip).
 //
-// ?category= and ?q= are client-side facets over the same catalog, not
-// distinct pages, so every variant canonicalises to /shop to consolidate link
-// equity. Internal search-result pages (?q=) are additionally noindex'd —
-// Google discourages indexing site-search results.
+// Sort and filter parameters are views of this one page, so every variant
+// canonicalises to /shop. A category has its own page now
+// (/collections/<slug>), which this redirects to. Internal search-result
+// pages (?q=) are additionally noindex'd — Google discourages indexing
+// site-search results.
 export async function generateMetadata({
   searchParams,
 }: {
-  searchParams: Promise<{ category?: string; q?: string }>;
+  searchParams: Promise<ShopSearchParams>;
 }): Promise<Metadata> {
-  const [brand, { q }] = await Promise.all([getStoreBrand(), searchParams]);
+  const [brand, params] = await Promise.all([getStoreBrand(), searchParams]);
   const description = `Browse the full ${brand.name} range.`;
   return {
     title: "Shop",
     description,
     alternates: { canonical: "/shop" },
-    robots: q ? { index: false, follow: true } : undefined,
+    robots: first(params.q) ? { index: false, follow: true } : undefined,
     openGraph: {
       title: `Shop | ${brand.name}`,
       description,
@@ -44,97 +46,37 @@ export async function generateMetadata({
 export default async function ShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ category?: string; q?: string }>;
+  searchParams: Promise<ShopSearchParams>;
 }) {
-  const { category: initialCategorySlug, q: initialQuery } = await searchParams;
+  const params = await searchParams;
   const storeId = await requireStorefrontStoreId();
 
-  const [
-    products,
-    categories,
-    layout,
-    lowStockThreshold,
-    showBadges,
-    offerBundle,
-  ] = await Promise.all([
-    getPublishedProducts(storeId),
-    getActiveCategories(storeId),
-    getStorefrontLayout(),
-    getStoreSetting("inventory.lowStockThreshold"),
-    getStoreSetting("offers.showBadges"),
-    // Joins the same concurrent batch rather than adding a serial read, and
-    // fails open to no offers on its own — a shop that cannot show a badge
-    // still sells.
-    loadOffersForStorefront(storeId, null, []),
-  ]);
-
-  const shopProducts = products as unknown as ShopProduct[];
-  const shopCategories = categories as unknown as ShopCategory[];
-
-  // Resolved HERE, per product, through the engine itself — so a badge is
-  // literally what the cart would give and cannot overstate a saving. See
-  // lib/offers/badge.ts for the three ordinary cases a naive "the offer says
-  // 20%" badge gets wrong.
-  const offerBadges: Record<string, { label: string }> = {};
-  if (showBadges !== false) {
-    for (const p of shopProducts) {
-      const priced = effectivePricing(p);
-      const badge = offerBadgeFor(
-        {
-          productId: p.id,
-          categoryId:
-            (p as { category_id?: string | null }).category_id ?? null,
-          unitPrice: priced.selling,
-          // ★★ THE PRICE IT IS ON SALE FROM, NOT THE MRP. This passed
-          // `priced.base`, the struck-through list price — so every product
-          // with an MRP set read as on sale, and under the default `best` mode
-          // the offer was measured against that MRP and scored nothing. The
-          // badge was therefore absent on most of a catalogue and present only
-          // on products with no MRP. `regularSelling` is the variant's own
-          // pre-special price, which is what `placeOrder` passes.
-          regularUnitPrice: priced.regularSelling,
-        },
-        offerBundle.offers,
-        offerBundle.policy,
-      );
-      if (badge) {
-        offerBadges[p.id] = { label: badge.label };
-        continue;
-      }
-      // ★★ NO PRICE BADGE IS NOT NO OFFER. `offerBadgeFor` prices ONE unit, so
-      // buy-X-get-Y, bundles and quantity breaks all correctly score zero
-      // there — none of them is a claim about buying one. Until now that meant
-      // the whole family showed NOTHING on the shop, and a merchant's
-      // buy-1-get-1 was invisible to every shopper browsing the grid.
-      //
-      // The tag states the offer's TERMS instead of a saving, which is honest
-      // at any quantity, and it still proves the offer would apply (see
-      // `offerTagFor`). Second choice deliberately: where a real per-unit
-      // saving exists, "20% off" beats "there is an offer on this".
-      const tag = offerTagFor(
-        {
-          productId: p.id,
-          categoryId:
-            (p as { category_id?: string | null }).category_id ?? null,
-          unitPrice: priced.selling,
-          regularUnitPrice: priced.regularSelling,
-        },
-        offerBundle.offers,
-        offerBundle.policy,
-      );
-      if (tag) offerBadges[p.id] = { label: tag.label };
-    }
-  }
+  // ★ ONE ADDRESS PER CATEGORY. `/shop?category=<slug>` was how a category was
+  // linked before it had a page of its own, and it still appears in menus,
+  // homepage tiles and theme packages already installed in stores — so it
+  // redirects rather than 404s, carrying the search and any sort or filter
+  // across. An unknown slug is not redirected: it shows the whole shop, as it
+  // always has.
+  // Checked before the full view loads: a redirect should not pay for it.
+  const target = legacyCategoryRedirect(
+    params,
+    await getActiveCategories(storeId),
+  );
+  if (target) permanentRedirect(target);
+  const view = await loadShopView(storeId);
+  const categorySlug = first(params.category);
 
   return (
     <ShopClient
-      products={shopProducts}
-      categories={shopCategories}
-      initialCategorySlug={initialCategorySlug}
-      initialQuery={initialQuery}
-      grocery={layout.card === "grocery"}
-      storeLowStockThreshold={lowStockThreshold as number}
-      offerBadges={offerBadges}
+      products={view.products}
+      categories={view.categories}
+      uncategorized={categorySlug === "uncategorized"}
+      initialQuery={first(params.q)}
+      initialShop={parseShopQuery(params)}
+      grocery={view.layout.card === "grocery"}
+      shopFilters={view.layout.shopFilters}
+      storeLowStockThreshold={view.lowStockThreshold}
+      offerBadges={view.offerBadges}
     />
   );
 }

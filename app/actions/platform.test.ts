@@ -19,7 +19,9 @@ vi.mock("@/lib/store/resolve", () => ({
   FALLBACK_STORE_ID: "a0000000-0000-4000-8000-000000000001",
 }));
 // Unrelated heavyweight imports of platform.ts — stub so the module loads lean.
-vi.mock("@/lib/themes", () => ({ getThemeDefinition: vi.fn() }));
+vi.mock("@/lib/themes/runtime-registry", () => ({
+  resolveThemeDefinition: vi.fn(),
+}));
 vi.mock("@/lib/themes/apply", () => ({ applyTheme: vi.fn() }));
 vi.mock("@/lib/storage/cleanup", () => ({
   deleteStorageUrls: vi.fn(async () => ({
@@ -352,6 +354,7 @@ describe("deleteStore", () => {
       failed: 1,
       unmanaged: 0,
       foreign: 0,
+      shared: 0,
     });
     vi.mocked(gcsDeletePrefix).mockResolvedValueOnce({
       deleted: 0,

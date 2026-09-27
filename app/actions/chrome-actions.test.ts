@@ -28,6 +28,17 @@ vi.mock("@/lib/db/client", () => ({
   withService: vi.fn((fn: any) => Promise.resolve(fn(dbHolder.current.db))),
   withAnon: vi.fn((fn: any) => Promise.resolve(fn(dbHolder.current.db))),
 }));
+vi.mock("@/lib/themes/runtime-registry", () => ({
+  resolveInstalledThemeDefinition: vi.fn(
+    async (selection: { id: string; version?: string } | null) => {
+      const { getThemeDefinition, isBundledThemeId } =
+        await import("@/lib/themes");
+      return selection && isBundledThemeId(selection.id)
+        ? getThemeDefinition(selection.id, selection.version)
+        : null;
+    },
+  ),
+}));
 
 import {
   saveChromeDraft,

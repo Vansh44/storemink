@@ -33,6 +33,7 @@ single scroll, under a metric row. Three consequences, all of them real:
 |                    | Mink AI        | `/dashboard/mink`          | Are agent runs reliable and affordable? |
 | **ADMINISTRATION** | Help Centre    | `/dashboard/help`          | Platform docs                           |
 |                    | Themes         | `/dashboard/themes`        | The catalog + demo stores               |
+|                    | ↳ Theme Studio | `/dashboard/themes/studio` | Draft new themes _(superadmin only)_    |
 |                    | Pricing        | `/dashboard/pricing`       | What StoreMink charges                  |
 |                    | Analytics      | `/dashboard/analytics`     | Platform Analytics availability         |
 |                    | Operators      | `/dashboard/operators`     | Who runs the platform                   |
@@ -140,6 +141,64 @@ capabilities; **Disable Mink AI** shuts those gates together. The actor is
 recorded in the access rows. Staff permissions, credits, plan limits and each
 exact human action approval still apply. This store switch is independent of
 `MINK_AI_ENABLED`, which remains the deployment-wide emergency shutdown.
+
+### ★ Theme Studio is superadmin data, not a superadmin write
+
+`/dashboard/themes/studio` (`lib/theme-studio/`) is the one console area a
+platform **member** cannot even read. Studio prompts, reference screenshots and
+generated drafts are superadmin-only, so every page shows a member a notice
+instead of data, and every action and route re-derives a superadmin actor from
+the session (`getThemeStudioActor`) before touching anything. Reference images
+are stored sanitized in Postgres and served only through a gated, no-store
+route. Full record: `docs/mink-ai-theme-studio-phase2.md`.
+
+Since Phase 3 a run can call a paid Gemini model on Vertex AI. Each run shows
+its tokens and estimated cost, and a per-operator ceiling on estimated spend in
+any 24 hours refuses new runs once reached. A model that asks for details
+leaves the project **blocked** until the operator answers in the workspace.
+Every image in a generated version is a marked placeholder, so a version is a
+draft to review, never something to publish. Record:
+`docs/mink-ai-theme-studio-phase3.md`.
+
+Since Phase 4 each version has a **Preview**: a private store built from that
+version and rendered by the live storefront, in laptop, iPad and mobile
+frames, with a pop-out. It takes no orders, is hidden from search and from the
+Stores list and overview counts, and is removed a day after it was last opened.
+A version can be **revised** (revising an older one starts a branch),
+**compared** with its parent or the current version, and **made current**
+again. Record: `docs/mink-ai-theme-studio-phase4.md`.
+
+Since Phase 5 each version has **Checks**: automated acceptance gates for the
+current version. The server checks the package and the preview's rendered
+pages; this browser then measures layout, accessibility and images at laptop,
+iPad and mobile sizes. Passing makes the project a **candidate**. A quality
+failure keeps it `ready`, a security failure blocks it, and a deploy makes a
+candidate's evidence stale until the checks run again. Placeholder images
+fail the checks until an operator replaces them under **Images**. Record:
+`docs/mink-ai-theme-studio-phase5.md`.
+
+Each version also has **Images**: every picture slot with its current image
+and where it appears. An operator uploads an image per slot (cropped to the
+slot's shape and compressed to storefront limits), says whether it is theirs
+or licensed, and saves the staged images as one new version. Revisions keep
+those images. Record: `docs/mink-ai-theme-studio-slot-images.md`.
+
+A candidate has **Review and release** (Phase 6). Two superadmins score it on
+the theme-acceptance scorecard — one for design, one for commerce — and at
+least one of them must not have worked on the theme. Once both approve, a
+superadmin approves it for publication and publishes it by typing its id.
+Publishing:
+
+1. copies its images to permanent public storage;
+2. stores an immutable release;
+3. seeds and renders its demo store;
+4. only then adds it to the public catalog and signup.
+
+A failed publication stays hidden and can be retried. Afterwards the same
+screen hides it from new stores, shows it again, or restores an earlier
+release. Each change is written to an audit, and a store that already
+installed the theme keeps its exact version. Record:
+`docs/mink-ai-theme-studio-phase6.md`.
 
 ## Phases
 

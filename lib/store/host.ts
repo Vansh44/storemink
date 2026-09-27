@@ -22,6 +22,13 @@ export const ROOT_DOMAIN = (
 const schemeFor = (host: string): string =>
   /^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) ? "http" : "https";
 
+/** Origin of a store's own `{slug}.{root}` subdomain, with the scheme this
+ * environment actually serves (plain http for a localhost root). */
+export function subdomainOrigin(slug: string): string {
+  const host = `${slug}.${ROOT_DOMAIN}`;
+  return `${schemeFor(ROOT_DOMAIN)}://${host}`;
+}
+
 export const PLATFORM_URL = ((): string => {
   const fromEnv = process.env.NEXT_PUBLIC_APP_URL;
   const raw = fromEnv

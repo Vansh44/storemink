@@ -3,7 +3,10 @@ import {
   gcsPathFromUrl,
   gcsDeletePaths,
 } from "@/lib/storage/gcs";
-import { isOtherStoreObjectPath } from "@/lib/storage/paths";
+import {
+  isOtherStoreObjectPath,
+  isThemeReleaseObjectPath,
+} from "@/lib/storage/paths";
 import { logError } from "@/lib/observability/logger";
 
 // Server-only helpers to keep object storage in sync with the database.
@@ -63,17 +66,27 @@ export async function deleteStorageUrls(
   failed: number;
   unmanaged: number;
   foreign: number;
+  /** Published theme images, which belong to no store and are never swept. */
+  shared: number;
 }> {
   const gcsPaths = new Set<string>();
   const unmanagedUrls = new Set<string>();
   const storeId = options?.ownedByStoreId;
   let foreign = 0;
+  let shared = 0;
 
   for (const url of urls) {
     if (!url) continue;
     const gcsPath = gcsPathFromUrl(url);
     if (!gcsPath) {
       unmanagedUrls.add(url);
+      continue;
+    }
+    // Unconditional, unlike the tenant scope below: a published theme image is
+    // referenced by every store the theme seeded, so no caller — not even the
+    // platform store purge — may treat it as its own orphan.
+    if (isThemeReleaseObjectPath(gcsPath)) {
+      shared += 1;
       continue;
     }
     if (storeId && isOtherStoreObjectPath(gcsPath, storeId)) {
@@ -101,6 +114,7 @@ export async function deleteStorageUrls(
         failed: failed.length,
         unmanaged: unmanagedUrls.size,
         foreign,
+        shared,
       };
     } catch (err) {
       logError("deleteStorageUrls: GCS delete failed", err);
@@ -109,8 +123,15 @@ export async function deleteStorageUrls(
         failed: gcsPaths.size,
         unmanaged: unmanagedUrls.size,
         foreign,
+        shared,
       };
     }
   }
-  return { attempted: 0, failed: 0, unmanaged: unmanagedUrls.size, foreign };
+  return {
+    attempted: 0,
+    failed: 0,
+    unmanaged: unmanagedUrls.size,
+    foreign,
+    shared,
+  };
 }

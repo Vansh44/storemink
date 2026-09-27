@@ -59,6 +59,8 @@ export interface ProductVariant {
   image_url: string | null;
   images: string[] | null;
   sort_order: number;
+  /** Positional values on the product's options; empty without options. */
+  option_values?: string[];
   created_at: string;
 }
 
@@ -83,6 +85,8 @@ export interface Product {
   featured: boolean;
   sort_order: number;
   card_color: string | null;
+  /** Raw stored option axes; read through normalizeOptions before use. */
+  options?: unknown;
   seo_title: string | null;
   seo_description: string | null;
   published_at: string | null;

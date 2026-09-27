@@ -11,6 +11,9 @@ npm-debug.log*
 .env.*
 !.env.example
 
+# The capture job has its own image (jobs/theme-studio-capture/Dockerfile).
+jobs
+
 # Editor / OS / tooling
 .vscode
 .idea
@@ -33,3 +36,4 @@ docs
 docs/*
 !docs/mink-ai-system-prompt.md
 !docs/mink-ai-image-prompt.md
+!docs/theme-studio-image-prompt.md

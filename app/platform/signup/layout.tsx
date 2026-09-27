@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { BRAND_TAGLINE } from "@/lib/seo/brand-identity";
+import { getThemeCatalog } from "@/lib/themes/runtime-registry";
+import { SignupThemeCatalogProvider } from "./theme-catalog-context";
 
 // page.tsx is a client component (the signup wizard), so its metadata lives
 // here. Without this it inherited the platform layout's metadata wholesale and
@@ -18,10 +20,15 @@ export const metadata: Metadata = {
   },
 };
 
-export default function SignupLayout({
+export default async function SignupLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  return children;
+  const themes = await getThemeCatalog();
+  return (
+    <SignupThemeCatalogProvider themes={themes}>
+      {children}
+    </SignupThemeCatalogProvider>
+  );
 }

@@ -942,7 +942,7 @@
 }
 
 .blog-detail-title {
-  font-size: clamp(2rem, 4.5vw, 3.2rem);
+  font-size: calc(clamp(2rem, 4.5vw, 3.2rem) * var(--sm-hs, 1));
   font-weight: 600;
   letter-spacing: -0.02em;
   line-height: 1.15;

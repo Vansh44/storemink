@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   clampLimit,
+  heroImageOptions,
   validateConfig,
   summarizeSection,
   EMPTY_CONFIG,
@@ -212,6 +213,117 @@ describe("validateConfig", () => {
         video_url: "javascript:alert(1)",
       });
       expect((bad as { config: HeroConfig }).config.video_url).toBe("");
+    });
+  });
+
+  // --- hero image controls (Track 1.4) ---------------------------------------
+  describe("hero image controls", () => {
+    it("stores nothing extra when every control is at its default", () => {
+      // Untouched content must serialise exactly as it did before 1.4.
+      const out = validateConfig("hero", {
+        heading: "x",
+        height: "auto",
+        focal_x: 50,
+        focal_y: 50,
+        content_position: "middle",
+      });
+      const config = (out as { config: HeroConfig }).config;
+      for (const key of [
+        "height",
+        "focal_x",
+        "focal_y",
+        "overlay_opacity",
+        "content_position",
+        "mobile_image_url",
+      ]) {
+        expect(config).not.toHaveProperty(key);
+      }
+    });
+
+    it("keeps set controls and clamps them into range", () => {
+      const out = validateConfig("hero", {
+        heading: "x",
+        height: "screen",
+        focal_x: 130,
+        focal_y: "-4",
+        overlay_opacity: 95,
+        content_position: "bottom",
+        mobile_image_url: "https://cdn.example.com/phone.webp",
+      });
+      const config = (out as { config: HeroConfig }).config;
+      expect(config.height).toBe("screen");
+      expect(config.focal_x).toBe(100);
+      expect(config.focal_y).toBe(0);
+      expect(config.overlay_opacity).toBe(80);
+      expect(config.content_position).toBe("bottom");
+      expect(config.mobile_image_url).toBe(
+        "https://cdn.example.com/phone.webp",
+      );
+    });
+
+    it("reads null and blank as ABSENT, never as 0", () => {
+      // Number(null) === 0: a cleared field must not become a 0% focal point
+      // or a fully transparent overlay that switches the built-in scrim off.
+      const opts = heroImageOptions({
+        focal_x: null,
+        focal_y: "",
+        overlay_opacity: null,
+      });
+      expect(opts).toEqual({});
+    });
+
+    it("keeps a real 0 overlay and a one-axis focal point", () => {
+      expect(heroImageOptions({ overlay_opacity: 0 })).toEqual({
+        overlay_opacity: 0,
+      });
+      expect(heroImageOptions({ focal_y: 20 })).toEqual({
+        focal_x: 50,
+        focal_y: 20,
+      });
+    });
+
+    it("drops unknown heights and positions and unsafe phone images", () => {
+      const out = validateConfig("hero", {
+        heading: "x",
+        height: "huge",
+        content_position: "left",
+        mobile_image_url: "javascript:alert(1)",
+      });
+      const config = (out as { config: HeroConfig }).config;
+      expect(config).not.toHaveProperty("height");
+      expect(config).not.toHaveProperty("content_position");
+      expect(config).not.toHaveProperty("mobile_image_url");
+    });
+
+    it("applies per slide and to the carousel height", () => {
+      const out = validateConfig("hero_carousel", {
+        height: "medium",
+        slides: [
+          { heading: "a", focal_x: 30, overlay_opacity: 40 },
+          { heading: "b" },
+        ],
+      });
+      const config = (out as { config: HeroCarouselConfig }).config;
+      expect(config.height).toBe("medium");
+      expect(config.slides[0]).toMatchObject({
+        focal_x: 30,
+        focal_y: 50,
+        overlay_opacity: 40,
+      });
+      expect(config.slides[1]).not.toHaveProperty("focal_x");
+    });
+
+    it("is idempotent, so a re-save changes nothing", () => {
+      const first = validateConfig("hero", {
+        heading: "x",
+        height: "large",
+        focal_x: 25,
+        overlay_opacity: 30,
+      }) as { config: HeroConfig };
+      const second = validateConfig("hero", first.config) as {
+        config: HeroConfig;
+      };
+      expect(second.config).toEqual(first.config);
     });
   });
 

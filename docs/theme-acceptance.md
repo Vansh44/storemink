@@ -7,7 +7,9 @@ human-review gates below all pass for the release being published.
 
 - **Theme implementation plan:** `docs/vertical-templates-plan.md`
 - **Theme packages:** `lib/themes/`
-- **Automated package checks:** `lib/themes/themes.test.ts`
+- **Automated package checks:** `lib/themes/validation.ts` (production
+  functions), asserted for every bundled theme by `lib/themes/themes.test.ts`
+  and run over Theme Studio candidates by `lib/theme-studio/acceptance-gates.ts`
 - **Asset provenance:** `docs/theme-assets.md`
 - **★ marks a non-obvious invariant** that deserves explicit regression
   coverage.
@@ -36,8 +38,9 @@ affected theme back to Candidate until the impacted gates are rerun.
 
 ## 2. Automated package gate
 
-These checks run in Vitest for every definition registered in
-`THEME_DEFINITIONS`. They are necessary, but they do not approve a theme on
+These checks are production functions in `lib/themes/validation.ts`. Vitest
+runs them for every definition registered in `THEME_DEFINITIONS`, and Theme
+Studio runs the same functions over every generated candidate. They are necessary, but they do not approve a theme on
 their own.
 
 **TA-2.1 ★ — Catalog metadata and definitions agree**
@@ -79,6 +82,15 @@ preview is at least 800 × 600, uses a 4:3 aspect ratio, and is no larger than
 
 Every palette, typography, shape, and selected layout value is valid and can be
 flattened into the storefront CSS-variable contract.
+
+**TA-2.9 ★ — Links and colours hold up as rendered**
+
+Every link that names a category, product or page reaches something the store
+seeds, or a storefront route. Menus are read as the storefront renders them, so
+an empty legal row's default links count; merchant-written policy pages
+(terms, refund, shipping, privacy, cookie) are exempt. Six colour pairs meet
+WCAG AA as rendered: body, card, muted and ink-surface text, header text, and
+muted labels on sand. Button labels on the accent need 3:1.
 
 **TA-2.8 ★ — Shared capability contracts are enforceable**
 
@@ -282,6 +294,22 @@ Automatic rejection conditions:
 - It needs custom code to render its core advertised design.
 - Placeholder copy or inaccessible text is visible in the demo.
 
+**Theme Studio themes record this gate in the product** (Studio → project →
+Review and release; `docs/mink-ai-theme-studio-phase6.md`). The rows, the bar
+and the rejection conditions above are `lib/theme-studio/scorecard.ts` — change
+them together. The database enforces what it can:
+
+- an approving scorecard below the bar, or with a condition ticked, cannot be
+  stored;
+- each chair is reviewed once per piece of acceptance evidence, and one person
+  cannot take both chairs;
+- a project cannot be approved without an approving review from each chair on
+  its latest passing evidence, one of them by a reviewer who did not author
+  the theme.
+
+"Author" is derived from the project's history: whoever created it, ran it,
+answered it, revised it or replaced its images.
+
 ---
 
 ## 6. Release evidence
@@ -303,6 +331,18 @@ Every Candidate keeps this evidence in its launch PR or linked release record:
 
 An exception cannot waive tenant isolation, broken purchasing, critical/serious
 accessibility violations, or a non-working demo.
+
+A **Theme Studio** release keeps its evidence in the database instead of a PR,
+bound by digest:
+
+- the acceptance run (package, asset bytes, build);
+- the two scorecards on that run;
+- the publication attempt;
+- the demo render check;
+- the catalog audit.
+
+Production-build Lighthouse and the browser matrix are still manual for Studio
+releases.
 
 ---
 

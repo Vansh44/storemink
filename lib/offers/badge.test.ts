@@ -150,8 +150,10 @@ describe("offerBadgeFor", () => {
 describe("★ the shop grid asks for the right price", () => {
   it("passes the ON-SALE-FROM price, never the MRP", async () => {
     const { readFile } = await import("node:fs/promises");
+    // The shop and every collection page load through one shared view, so
+    // that is where the badge is priced.
     const src = await readFile(
-      "app/(storefront)/(pages)/shop/page.tsx",
+      "app/(storefront)/(pages)/shop/shop-view.ts",
       "utf8",
     );
     expect(src).toContain("regularUnitPrice: priced.regularSelling");

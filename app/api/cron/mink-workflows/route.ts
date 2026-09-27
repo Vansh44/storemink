@@ -5,6 +5,8 @@ import { logError } from "@/lib/observability/logger";
 import { purgeExpiredMinkMemories } from "@/lib/mink/memories";
 import { reconcileMinkRunCredits } from "@/lib/mink/run-credit-reconcile";
 import { getMinkConfig } from "@/lib/mink/config";
+import { sweepThemeStudioPreviews } from "@/lib/theme-studio/preview";
+import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -62,6 +64,34 @@ async function handle(request: Request) {
     } catch (error) {
       passError ??= error;
     }
+    // ★ Theme Studio rides this heartbeat for the same reason the credit
+    //   reconciler does: it needs a per-minute authorised backstop, and a new
+    //   Scheduler entry is the kind that gets documented and never created.
+    //   It is a BACKSTOP — queueing kicks the worker in-process — and it is
+    //   isolated: a Studio failure must never fail merchant Mink workflows,
+    //   so its error is logged and deliberately not propagated.
+    let themeStudio: Awaited<ReturnType<typeof runThemeStudioWorker>> | null =
+      null;
+    try {
+      // Offline runs and lease reaping only. Model runs take minutes and have
+      // their own worker route, so they never hold this heartbeat open.
+      themeStudio = await runThemeStudioWorker({
+        maxRuns: 5,
+        budgetMs: 15_000,
+        providers: ["fake"],
+      });
+    } catch (error) {
+      logError("mink workflow cron: theme studio pass failed", error);
+    }
+    // Theme Studio preview retention, isolated the same way: an idle or
+    // abandoned preview store is removed; a failure waits for the next pass.
+    let themeStudioPreviewsRemoved = 0;
+    try {
+      ({ removed: themeStudioPreviewsRemoved } =
+        await sweepThemeStudioPreviews());
+    } catch (error) {
+      logError("mink workflow cron: theme studio preview sweep failed", error);
+    }
     if (passError) throw passError;
     if (!result) throw new Error("Workflow heartbeat returned no result.");
     return NextResponse.json({
@@ -70,6 +100,8 @@ async function handle(request: Request) {
       watchesQueued,
       watchAlerts,
       creditsSettled,
+      themeStudio,
+      themeStudioPreviewsRemoved,
     });
   } catch (error) {
     // 503, not an unhandled 500, so Cloud Scheduler's retries engage — the

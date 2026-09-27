@@ -48,13 +48,14 @@ async function main() {
 
   // Imported AFTER the env is loaded: lib/db/client builds its pool from
   // process.env at module scope.
-  const { getThemeDefinition } = await import("@/lib/themes");
+  const { resolveThemeDefinition } =
+    await import("@/lib/themes/runtime-registry");
   const { applyTheme } = await import("@/lib/themes/apply");
   const { withService } = await import("@/lib/db/client");
   const { stores } = await import("@/drizzle/schema");
   const { eq } = await import("drizzle-orm");
 
-  const theme = getThemeDefinition(themeId);
+  const theme = await resolveThemeDefinition(themeId);
   if (theme.id !== themeId) {
     console.error(
       `Unknown theme "${themeId}". Registered: nothing resolves to that id.`,

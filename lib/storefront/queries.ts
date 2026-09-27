@@ -77,6 +77,8 @@ export interface ProductCardRow {
    * source; see supabase/seo_01_product_content_timestamp.sql.
    */
   content_updated_at: string;
+  /** When the product was created — the shop's "Newest" sort. */
+  created_at: string;
   /** Resolved category name (flattened from the joined categories row). */
   category: string | null;
   variants: {
@@ -95,6 +97,8 @@ export interface CategoryRow {
   id: string;
   name: string;
   slug: string;
+  /** Shown by a collection page's banner (theme `collectionBanner`). */
+  description: string | null;
   image_url: string | null;
   sort_order: number;
 }
@@ -144,6 +148,7 @@ export const getPublishedProducts = unstable_cache(
             // Sitemap lastmod. Selected here rather than in a separate query so
             // it rides the existing unstable_cache read and costs nothing.
             content_updated_at: products.contentUpdatedAt,
+            created_at: products.createdAt,
             category: categories.name,
           })
           .from(products)
@@ -199,7 +204,9 @@ export const getPublishedProducts = unstable_cache(
       return [];
     }
   },
-  ["storefront-published-products"],
+  // v2: rows gained created_at; a new key keeps an older cached entry (which
+  // lacks it) from being served after a deploy.
+  ["storefront-published-products-v2"],
   { tags: [TAGS.products], revalidate: REVALIDATE },
 );
 
@@ -212,6 +219,7 @@ export const getActiveCategories = unstable_cache(
             id: categories.id,
             name: categories.name,
             slug: categories.slug,
+            description: categories.description,
             image_url: categories.imageUrl,
             sort_order: categories.sortOrder,
           })
@@ -232,7 +240,8 @@ export const getActiveCategories = unstable_cache(
       return [];
     }
   },
-  ["storefront-active-categories"],
+  // v2: rows gained description (see storefront-published-products-v2).
+  ["storefront-active-categories-v2"],
   { tags: [TAGS.categories], revalidate: REVALIDATE },
 );
 

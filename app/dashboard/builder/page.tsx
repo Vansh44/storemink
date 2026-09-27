@@ -7,8 +7,9 @@ import { getStoreBrand } from "@/lib/store/brand";
 import { getDraftChromeForEditor } from "@/lib/chrome/queries";
 import { DEFAULT_CHROME } from "@/lib/chrome/types";
 import { themeDesignDefaults } from "@/lib/chrome/design";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
+import { schemeDesignFor } from "@/lib/themes/schemes";
 import { BuilderClient } from "./builder-client";
 import type { BlogOption, CategoryOption, ProductOption } from "./section-form";
 import "./builder.css";
@@ -76,12 +77,14 @@ export default async function BuilderPage() {
       .limit(1),
   );
   const themeSelection = readThemeSelection(storeRow?.settings);
+  const themeDefinition = await resolveInstalledThemeDefinition(themeSelection);
   const themeDefaults = themeDesignDefaults(
-    themeSelection
-      ? getThemeDefinition(themeSelection.id, themeSelection.version).preset
-          .design
-      : null,
+    themeDefinition?.preset.design ?? null,
   );
+  // The colours each section scheme is built from, so the Style tab can show
+  // real swatches. The merchant's own palette edits are layered on in the
+  // browser, where they change live.
+  const schemeDesign = schemeDesignFor(themeDefinition?.preset.design ?? null);
 
   const blogOptions: BlogOption[] = storeData.blogRows.map((b) => ({
     id: b.id,
@@ -102,6 +105,7 @@ export default async function BuilderPage() {
       storeName={brand.name}
       initialChrome={chrome}
       themeDefaults={themeDefaults}
+      schemeDesign={schemeDesign}
       initialBrand={{
         name: brand.name,
         primaryColor: brand.primaryColor,

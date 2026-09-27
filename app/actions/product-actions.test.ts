@@ -84,6 +84,7 @@ import { getBrandSoulForStore } from "@/lib/ai/brand-voice";
 import { consumeAiQuota } from "@/lib/ai/quota";
 import { callGemini } from "@/lib/ai/gemini";
 import { after } from "next/server";
+import { productVariants } from "@/drizzle/schema";
 
 const validForm = {
   name: "Almonds",
@@ -324,6 +325,81 @@ describe("product-actions", () => {
     });
   });
 
+  describe("option axes", () => {
+    const options = [
+      { name: "Size", values: ["S", "M"] },
+      { name: "Colour", values: ["Black"], swatches: { Black: "#111111" } },
+    ];
+
+    it("stores the options and composes every variant's name from its values", async () => {
+      await createProduct({
+        ...validForm,
+        options,
+        variants: [
+          // The browser's name is ignored: the server derives it.
+          { ...smallVariant, name: "whatever", option_values: ["s", "black"] },
+          { ...smallVariant, name: "M", option_values: ["M", "Black"] },
+        ],
+      });
+      expect(dbHolder.current.calls.values[0].options).toEqual(options);
+      const inserted = dbHolder.current.calls.values[1];
+      expect(inserted.map((v: { name: string }) => v.name)).toEqual([
+        "S / Black",
+        "M / Black",
+      ]);
+      expect(inserted[0].optionValues).toEqual(["S", "Black"]);
+    });
+
+    it("fails the whole create when its option variants cannot be saved", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "p1", slug: "almonds" }],
+        failInsertFor: [productVariants],
+      });
+      const result = await createProduct({
+        ...validForm,
+        options,
+        variants: [{ ...smallVariant, option_values: ["S", "Black"] }],
+      });
+      expect(result.success).not.toBe(true);
+      expect(result.error).toMatch(/could not save variants/i);
+      expect(result.error).not.toMatch(/product saved/i);
+    });
+
+    it("refuses an incomplete or duplicate combination before writing anything", async () => {
+      const incomplete = await createProduct({
+        ...validForm,
+        options,
+        variants: [{ ...smallVariant, option_values: ["S"] }],
+      });
+      expect(incomplete.error).toMatch(/needs a value for every option/);
+      const duplicate = await updateProduct("p1", {
+        ...validForm,
+        options,
+        variants: [
+          { ...smallVariant, option_values: ["S", "Black"] },
+          { ...smallVariant, option_values: ["s", "BLACK"] },
+        ],
+      });
+      expect(duplicate.error).toBe('Two variants are both "S / Black".');
+      expect(dbHolder.current.calls.values).toHaveLength(0);
+      expect(dbHolder.current.calls.set).toHaveLength(0);
+    });
+
+    it("refuses options with no variants generated", async () => {
+      const out = await createProduct({ ...validForm, options, variants: [] });
+      expect(out.error).toMatch(/Generate the variants/);
+    });
+
+    it("keeps plain named variants untouched when there are no options", async () => {
+      await createProduct({ ...validForm, variants: [smallVariant] });
+      expect(dbHolder.current.calls.values[0].options).toEqual([]);
+      expect(dbHolder.current.calls.values[1][0]).toMatchObject({
+        name: "Small",
+        optionValues: [],
+      });
+    });
+  });
+
   describe("updateProduct", () => {
     // Auth gate.
     it("rejects unauthorised callers", async () => {
@@ -350,6 +426,30 @@ describe("product-actions", () => {
       const result = await updateProduct("foreign-product", validForm);
       expect(result.error).toMatch(/product not found/i);
       expect(dbHolder.current.calls.update).toHaveLength(0);
+    });
+
+    it("fails the whole update when an old variant cannot be deleted", async () => {
+      dbHolder.current = makeDbMock({
+        returning: [{ id: "p1" }],
+        selectQueue: [
+          [],
+          [{ published_at: null }],
+          [],
+          [],
+          [{ id: "v-on-an-order" }],
+        ],
+        failDeleteFor: [productVariants],
+      });
+
+      const result = await updateProduct("p1", {
+        ...validForm,
+        options: [{ name: "Size", values: ["S"] }],
+        variants: [{ ...smallVariant, option_values: ["S"] }],
+      });
+
+      expect(result.success).not.toBe(true);
+      expect(result.error).toMatch(/could not save variants/i);
+      expect(result.error).not.toMatch(/product saved/i);
     });
 
     it("backfills an explicit zero cost without converting it to unknown", async () => {

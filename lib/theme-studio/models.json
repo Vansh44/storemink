@@ -1,0 +1,16 @@
+[
+  {
+    "key": "gemini-3.8-flash",
+    "label": "Gemini 3.8 Flash",
+    "providerModel": "gemini-3.8-flash",
+    "envOverride": "THEME_STUDIO_GEMINI_38_FLASH_MODEL",
+    "purpose": "Default for theme analysis and package synthesis"
+  },
+  {
+    "key": "gemini-3.1-pro",
+    "label": "Gemini 3.1 Pro (preview)",
+    "providerModel": "gemini-3.1-pro-preview",
+    "envOverride": "THEME_STUDIO_GEMINI_31_PRO_MODEL",
+    "purpose": "Deeper reasoning for difficult briefs; a Preview model, never the only option"
+  }
+]

@@ -133,6 +133,11 @@ describe("resolveStorefrontAppearance", () => {
       card: "classic",
       cardQuickAdd: true,
       cardHoverImage: false,
+      stickyAddToCart: false,
+      gridColumnsMobile: 1,
+      gridColumnsDesktop: 4,
+      shopFilters: false,
+      collectionBanner: false,
       productDetail: "editorial",
       cart: "compact",
       footer: "minimal",
@@ -162,6 +167,47 @@ describe("resolveStorefrontAppearance", () => {
     ).toBe(false);
   });
 
+  it("keeps shopping chrome off unless the theme opts in", () => {
+    // No existing storefront gains a sticky bar or a new grid.
+    expect(resolveStorefrontAppearance(undefined)).toMatchObject({
+      stickyAddToCart: false,
+      gridColumnsMobile: 1,
+      gridColumnsDesktop: 4,
+      shopFilters: false,
+      collectionBanner: false,
+    });
+    expect(
+      resolveStorefrontAppearance({
+        stickyAddToCart: true,
+        gridColumnsMobile: 2,
+        gridColumnsDesktop: 5,
+        shopFilters: true,
+        collectionBanner: true,
+      }),
+    ).toMatchObject({
+      stickyAddToCart: true,
+      gridColumnsMobile: 2,
+      gridColumnsDesktop: 5,
+      shopFilters: true,
+      collectionBanner: true,
+    });
+    // Only a real `true` opts in — a stored string does not.
+    expect(
+      resolveStorefrontAppearance({
+        shopFilters: "true" as never,
+        collectionBanner: 1 as never,
+      }),
+    ).toMatchObject({ shopFilters: false, collectionBanner: false });
+    // A stored value outside the choices falls back to the default rather
+    // than emitting a class nothing styles.
+    expect(
+      resolveStorefrontAppearance({
+        gridColumnsMobile: 3 as never,
+        gridColumnsDesktop: 7 as never,
+      }),
+    ).toMatchObject({ gridColumnsMobile: 1, gridColumnsDesktop: 4 });
+  });
+
   it("preserves pinned legacy grocery storefronts", () => {
     expect(
       resolveStorefrontAppearance({ storefront: "grocery" }),
@@ -188,6 +234,11 @@ describe("resolveStorefrontAppearance", () => {
       card: "overlay",
       cardQuickAdd: false,
       cardHoverImage: false,
+      stickyAddToCart: false,
+      gridColumnsMobile: 1,
+      gridColumnsDesktop: 4,
+      shopFilters: false,
+      collectionBanner: false,
       productDetail: "classic",
       cart: "classic",
       footer: "editorial",

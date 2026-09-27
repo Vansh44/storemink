@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { ImageIcon } from "lucide-react";
+import { collectionPath } from "@/lib/storefront/collection-links";
 import type {
   SectionStyle,
   ShopByCategoryConfig,
@@ -16,8 +17,8 @@ export interface CategoryTile {
   image_url: string | null;
 }
 
-// Presentational: receives the resolved, ordered categories. Tiles link to the
-// shop. Renders nothing when there are no categories.
+// Presentational: receives the resolved, ordered categories. Tiles link to
+// each category's own page. Renders nothing when there are no categories.
 export function ShopByCategorySection({
   sectionId,
   style,
@@ -32,11 +33,7 @@ export function ShopByCategorySection({
   if (categories.length === 0) return null;
 
   const content = categories.map((c) => (
-    <Link
-      key={c.id}
-      href={`/shop?category=${encodeURIComponent(c.slug)}`}
-      className="home-cat-tile"
-    >
+    <Link key={c.id} href={collectionPath(c.slug)} className="home-cat-tile">
       <div className="home-cat-img">
         {c.image_url ? (
           <Image

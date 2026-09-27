@@ -46,6 +46,8 @@ export function DeliveryLocationControl({
     <div
       ref={rootRef}
       className={`${styles.root}${drawer ? ` ${styles.drawerRoot}` : ""}`}
+      // The header's fit check (use-header-fit.ts) finds it by this.
+      data-delivery-control={drawer ? undefined : ""}
     >
       <button
         type="button"

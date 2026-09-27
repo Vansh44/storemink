@@ -54,7 +54,7 @@ export function GroceryCart() {
           <p className="gcart-empty-sub">
             Add some fresh picks and they&apos;ll show up here.
           </p>
-          <Link href="/shop" className="gcart-empty-cta">
+          <Link href="/shop" className="gcart-empty-cta sm-btn-primary">
             Start shopping
           </Link>
         </div>
@@ -156,7 +156,7 @@ export function GroceryCart() {
 
           <Link
             href="/checkout"
-            className="gcart-checkout-btn block text-center"
+            className="gcart-checkout-btn sm-btn-primary block text-center"
           >
             Proceed to checkout
           </Link>

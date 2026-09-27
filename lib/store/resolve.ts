@@ -6,6 +6,7 @@ import { withAnon } from "@/lib/db/client";
 import { stores } from "@/drizzle/schema";
 import { parseHost } from "@/lib/store/host";
 import { PLAN_LIMITS, effectivePlan } from "@/lib/plans";
+import { studioPreviewMarker } from "@/lib/theme-studio/preview-store";
 
 // Re-exported so existing importers (and resolve.test.ts) keep working.
 export { parseHost, type HostKind } from "@/lib/store/host";
@@ -146,6 +147,22 @@ export const lookupStoreById = unstable_cache(
   { tags: [STORE_TAG], revalidate: 300 },
 );
 
+// A Theme Studio preview store (lib/theme-studio/preview-store.ts) resolves only
+// for a request carrying its preview grant; for anyone else its host is as
+// unknown as an unclaimed subdomain. The cached host lookup above is unchanged —
+// the grant is per request, so it is checked AFTER the cache, never inside it.
+// Dynamically imported so the ordinary request path never loads the Studio's
+// server modules: the marker check is the only cost for every other store.
+async function withStudioPreviewGate(store: Store): Promise<Store | null> {
+  const marker = studioPreviewMarker(store.settings);
+  if (!marker) return store;
+  const { studioPreviewAllowed } =
+    await import("@/lib/theme-studio/preview-access");
+  return (await studioPreviewAllowed(store.id, marker.versionId))
+    ? store
+    : null;
+}
+
 // Resolve the store for the current request's Host, or null when the host
 // doesn't map to a real active store. Use this at the STOREFRONT render
 // boundary (the (storefront) layout) so an unclaimed subdomain / unknown
@@ -156,7 +173,8 @@ export async function getCurrentStoreOrNull(): Promise<Store | null> {
   const headersList = await headers();
   const host = headersList.get("x-forwarded-host") || headersList.get("host");
   try {
-    return await lookupStoreByHost(host ?? "");
+    const store = await lookupStoreByHost(host ?? "");
+    return store ? await withStudioPreviewGate(store) : null;
   } catch (err) {
     // Expected unknown/ineligible host. The throw is internal cache control:
     // rejected unstable_cache calls are not persisted, so a slug created a

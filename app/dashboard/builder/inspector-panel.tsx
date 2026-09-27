@@ -21,6 +21,15 @@ import {
 } from "@/lib/homepage/section-types";
 import type { PageSectionItem } from "@/lib/sections/registry";
 import type { ThemeDesignDefaults } from "@/lib/chrome/design";
+import {
+  SCHEMELESS_SECTION_TYPES,
+  SECTION_SCHEMES,
+  SECTION_SCHEME_META,
+  schemePreviews,
+  withPaletteOverrides,
+  type SchemeDesign,
+  type SectionScheme,
+} from "@/lib/themes/schemes";
 import type { PageDraft } from "@/app/actions/page-actions";
 import type { StoreChrome } from "@/lib/chrome/types";
 import {
@@ -66,6 +75,7 @@ export function InspectorPanel({
   chrome,
   onChromeChange,
   themeDefaults,
+  schemeDesign,
   onClearChrome,
   brand,
   onBrandChange,
@@ -88,6 +98,7 @@ export function InspectorPanel({
   onClearChrome: () => void;
   brand: BrandAppearance;
   themeDefaults: ThemeDesignDefaults;
+  schemeDesign: SchemeDesign;
   onBrandChange: (next: BrandAppearance) => void;
   /** A page is being opened — do not tell the merchant to pick one. */
   loading: boolean;
@@ -238,6 +249,11 @@ export function InspectorPanel({
             sectionType={section.type}
             style={section.style ?? {}}
             onChange={onStyleChange}
+            schemeDesign={withPaletteOverrides(
+              schemeDesign,
+              chrome.design.palette,
+            )}
+            brandPrimary={brand.primaryColor}
           />
         )}
 
@@ -316,25 +332,66 @@ const PADDING_OPTIONS: { value: SectionPaddingY; label: string }[] = [
 // Quick style presets: each chip is just a SectionStyle partial layered over
 // the current style. Pure data — the strict per-field validation still runs
 // server-side on save.
-const STYLE_PRESETS: { label: string; patch: Partial<SectionStyle> }[] = [
-  { label: "Plain", patch: { background: undefined, padding_y: "none" } },
-  { label: "Tinted", patch: { background: "#f6f7f9", padding_y: "md" } },
-  { label: "Contrast", patch: { background: "#111827", padding_y: "lg" } },
+// ★ "Tinted" and "Contrast" pick a colour SCHEME, not a raw background. They
+//   used to set #f6f7f9 and #111827, and "Contrast" left the section's text
+//   dark — dark text on a near-black band. A scheme changes text and buttons
+//   with the background, in the theme's own colours.
+const STYLE_PRESETS: {
+  label: string;
+  patch: Partial<SectionStyle>;
+  scheme?: boolean;
+}[] = [
+  {
+    label: "Plain",
+    patch: { background: undefined, scheme: undefined, padding_y: "none" },
+  },
+  {
+    label: "Tinted",
+    patch: { background: undefined, scheme: "soft", padding_y: "md" },
+    scheme: true,
+  },
+  {
+    label: "Contrast",
+    patch: { background: undefined, scheme: "inverse", padding_y: "lg" },
+    scheme: true,
+  },
   { label: "Airy", patch: { background: undefined, padding_y: "lg" } },
   { label: "Band", patch: { width: "full", padding_y: "md" } },
 ];
 
-function StyleForm({
+export function StyleForm({
   sectionType,
   style,
   onChange,
+  schemeDesign,
+  brandPrimary,
 }: {
   sectionType: PageSectionItem["type"];
   style: SectionStyle;
   onChange: (style: SectionStyle) => void;
+  schemeDesign: SchemeDesign;
+  brandPrimary: string;
 }) {
   const set = <K extends keyof SectionStyle>(key: K, value: SectionStyle[K]) =>
     onChange({ ...style, [key]: value });
+
+  // A carousel or promo banner is covered by its own photo and custom code
+  // cannot see the theme; neither takes a scheme (the server drops one too).
+  const canScheme = !SCHEMELESS_SECTION_TYPES.includes(sectionType);
+  const scheme = canScheme ? style.scheme : undefined;
+  const previews = schemePreviews(schemeDesign, brandPrimary);
+  const pickScheme = (next: SectionScheme | undefined) =>
+    onChange({
+      ...style,
+      scheme: next,
+      // A scheme owns the colours, so a custom background is cleared.
+      background: next ? undefined : style.background,
+      // A band with no padding puts its copy against the band's edge.
+      padding_y:
+        next && (!style.padding_y || style.padding_y === "none")
+          ? "md"
+          : style.padding_y,
+    });
 
   // rich_text has its own width control (Content tab); banners and custom code
   // are already edge-to-edge by design.
@@ -347,7 +404,7 @@ function StyleForm({
       <div>
         <label className={labelClass}>Presets</label>
         <div className="sm-builder-presets">
-          {STYLE_PRESETS.map((p) => (
+          {STYLE_PRESETS.filter((p) => canScheme || !p.scheme).map((p) => (
             <button
               key={p.label}
               type="button"
@@ -363,39 +420,100 @@ function StyleForm({
         </p>
       </div>
 
-      <div>
-        <label className={labelClass}>Background color</label>
-        <div className="flex items-center gap-2">
-          <input
-            type="color"
-            className="h-9 w-11 cursor-pointer rounded-md border p-0.5"
-            value={
-              /^#[0-9a-f]{6}$/i.test(style.background ?? "")
-                ? (style.background as string)
-                : "#ffffff"
-            }
-            onChange={(e) => set("background", e.target.value)}
-          />
-          <input
-            className={fieldClass}
-            value={style.background ?? ""}
-            onChange={(e) => set("background", e.target.value)}
-            placeholder="transparent"
-          />
-          {style.background && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => set("background", undefined)}
+      {canScheme && (
+        <div>
+          <label className={labelClass}>Colour scheme</label>
+          <div
+            className="sm-builder-schemes"
+            role="radiogroup"
+            aria-label="Colour scheme"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={!scheme}
+              className={`sm-builder-scheme ${!scheme ? "active" : ""}`}
+              onClick={() => pickScheme(undefined)}
             >
-              Clear
-            </Button>
+              <span className="sm-builder-scheme-swatch is-page">Aa</span>
+              <span className="sm-builder-scheme-label">Page</span>
+            </button>
+            {SECTION_SCHEMES.map((id) => {
+              const p = previews[id];
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  role="radio"
+                  aria-checked={scheme === id}
+                  title={SECTION_SCHEME_META[id].description}
+                  className={`sm-builder-scheme ${scheme === id ? "active" : ""}`}
+                  onClick={() => pickScheme(id)}
+                >
+                  <span
+                    className="sm-builder-scheme-swatch"
+                    style={{ background: p.background, color: p.text }}
+                  >
+                    Aa
+                    <i style={{ background: p.accent }} />
+                  </span>
+                  <span className="sm-builder-scheme-label">
+                    {SECTION_SCHEME_META[id].label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {scheme && !previews[scheme].readable ? (
+            <p className="mt-1 text-[11px] text-amber-700">
+              Some text is hard to read in this scheme with your current
+              colours. Try another, or adjust your colours under Brand.
+            </p>
+          ) : (
+            <p className="text-muted-foreground mt-1 text-[11px]">
+              {scheme
+                ? `${SECTION_SCHEME_META[scheme].description}. Text, cards and buttons change with it.`
+                : "Uses your page's colours."}
+            </p>
           )}
         </div>
-        <p className="text-muted-foreground mt-1 text-[11px]">
-          Hex, rgb() or hsl(). Leave empty for the page background.
-        </p>
-      </div>
+      )}
+
+      {!scheme && (
+        <div>
+          <label className={labelClass}>Background color</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              className="h-9 w-11 cursor-pointer rounded-md border p-0.5"
+              value={
+                /^#[0-9a-f]{6}$/i.test(style.background ?? "")
+                  ? (style.background as string)
+                  : "#ffffff"
+              }
+              onChange={(e) => set("background", e.target.value)}
+            />
+            <input
+              className={fieldClass}
+              value={style.background ?? ""}
+              onChange={(e) => set("background", e.target.value)}
+              placeholder="transparent"
+            />
+            {style.background && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => set("background", undefined)}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+          <p className="text-muted-foreground mt-1 text-[11px]">
+            Hex, rgb() or hsl(). Leave empty for the page background.
+          </p>
+        </div>
+      )}
 
       <div>
         <label className={labelClass}>Vertical padding</label>

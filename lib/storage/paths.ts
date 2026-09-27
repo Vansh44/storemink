@@ -62,3 +62,24 @@ export function isOtherStoreObjectPath(path: string, storeId: string): boolean {
   if (!path || !path.startsWith(STORE_OBJECT_ROOT)) return false;
   return !isStoreOwnedObjectPath(path, storeId);
 }
+
+/**
+ * Published Theme Studio images (Phase 6): one immutable object per slot of a
+ * published theme release, shared by the demo store and by every merchant
+ * store the theme seeded.
+ *
+ * ★★ NO STORE OWNS THESE, SO NO STORE'S CLEAN-UP MAY DELETE THEM. Seeding
+ * copies the URL into a merchant's product and page rows, and every orphan
+ * sweep would otherwise read "a URL in our bucket this store no longer uses"
+ * and delete the one object a published theme — and every other store on it —
+ * still renders.
+ */
+export const THEME_RELEASE_OBJECT_ROOT = "theme-releases/";
+
+export function isThemeReleaseObjectPath(path: string): boolean {
+  return (
+    Boolean(path) &&
+    path.startsWith(THEME_RELEASE_OBJECT_ROOT) &&
+    !path.split("/").includes("..")
+  );
+}

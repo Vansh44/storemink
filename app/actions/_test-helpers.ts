@@ -170,12 +170,14 @@ export function makeDbMock(
     // REJECT when awaited — for rollback-path tests. Compare by table identity.
     failInsertFor?: any[];
     failUpdateFor?: any[];
+    failDeleteFor?: any[];
   } = {},
 ): DbMock {
   const returning = opts.returning ?? [{ id: "row-1" }];
   const returningQueue = [...(opts.returningQueue ?? [])];
   const failInsertFor = opts.failInsertFor ?? [];
   const failUpdateFor = opts.failUpdateFor ?? [];
+  const failDeleteFor = opts.failDeleteFor ?? [];
   // A step whose await / terminals reject — models a failing write.
   const failStep = (): any => ({
     where: vi.fn(() => failStep()),
@@ -334,7 +336,7 @@ export function makeDbMock(
     }),
     delete: vi.fn((t: any) => {
       calls.delete.push(t);
-      return step({ rowCount: 1 });
+      return failDeleteFor.includes(t) ? failStep() : step({ rowCount: 1 });
     }),
   };
 

@@ -3,7 +3,7 @@
 //
 // ★★ UNTIL NOW THERE WAS NO PER-STORE DESIGN LAYER AT ALL. The storefront's
 // palette, fonts and radii came SOLELY from the pinned immutable theme preset
-// (app/(storefront)/layout.tsx resolves `design` from `getThemeDefinition`),
+// (app/(storefront)/layout.tsx resolves `design` from the runtime registry),
 // and `StorefrontAppearance` carried only layout VARIANT overrides. The single
 // per-store visual control was `--brand-primary` plus the logo. So "make my
 // shop look like this" could not change one colour or one typeface — for a

@@ -1,6 +1,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 "use client";
 
+import type { SchemeDesign } from "@/lib/themes/schemes";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState, useTransition } from "react";
 import {
@@ -91,6 +92,7 @@ export function BuilderClient({
   initialChrome,
   initialBrand,
   themeDefaults,
+  schemeDesign,
 }: Options & {
   initialPages: PageListItem[];
   storeName: string;
@@ -99,6 +101,8 @@ export function BuilderClient({
   /** What the pinned theme supplies for each overridable design token, so the
    *  panel can show a real fallback instead of an empty box. */
   themeDefaults: ThemeDesignDefaults;
+  /** What the section colour schemes are built from (lib/themes/schemes). */
+  schemeDesign: SchemeDesign;
 }) {
   const [pages, setPages] = useState(initialPages);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -966,6 +970,7 @@ export function BuilderClient({
           onChromeChange={updateChrome}
           brand={brand}
           themeDefaults={themeDefaults}
+          schemeDesign={schemeDesign}
           onBrandChange={updateBrand}
           onClearChrome={() => setChromeTarget(null)}
           loading={loadingDraft}

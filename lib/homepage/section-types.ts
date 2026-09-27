@@ -14,6 +14,12 @@
 // No DB migration needed — config lives in a JSONB column.
 // ---------------------------------------------------------------------------
 
+import {
+  isSectionScheme,
+  SCHEMELESS_SECTION_TYPES,
+  type SectionScheme,
+} from "@/lib/themes/schemes";
+
 export type HomepageSectionType =
   | "hero"
   | "hero_carousel"
@@ -108,8 +114,48 @@ export interface PromoBannerConfig {
  */
 export type HeroVariant = "banner" | "split" | "minimal";
 
-export interface HeroConfig {
+/** Hero/carousel height preset. "auto" is the long-standing clamp each
+ *  variant already had, so an existing hero is unchanged. */
+export type HeroHeight = "auto" | "small" | "medium" | "large" | "screen";
+export const HERO_HEIGHTS: readonly HeroHeight[] = [
+  "auto",
+  "small",
+  "medium",
+  "large",
+  "screen",
+];
+
+/** Where overlaid copy sits vertically. "middle" is today's placement. */
+export type HeroContentPosition = "top" | "middle" | "bottom";
+
+/**
+ * Image controls shared by the hero and every carousel slide — the ones a
+ * paid Shopify theme gives a merchant for a banner photograph.
+ *
+ * ★ ALL OPTIONAL, AND OMITTED AT THEIR DEFAULT. `validateConfig` writes a key
+ *   only when it differs from today's behaviour, so every stored hero and
+ *   every bundled theme stays byte-identical and renders exactly as before.
+ */
+export interface HeroImageOptions {
+  /** A separate photograph for phones, composed for a tall screen. Shown
+   *  below 768px through <picture>, so a phone never downloads the desktop
+   *  image as well. "" / absent = the main image everywhere. */
+  mobile_image_url?: string;
+  /** Focal point of the MAIN image, 0–100 on each axis; absent = centred.
+   *  It sets `object-position`, so the subject survives every crop. */
+  focal_x?: number;
+  focal_y?: number;
+  /** Strength of the legibility overlay over media, 0–80 (%). Absent = the
+   *  text theme's built-in scrim, exactly as before. */
+  overlay_opacity?: number;
+  /** Vertical placement of overlaid copy. Absent = middle. */
+  content_position?: HeroContentPosition;
+}
+
+export interface HeroConfig extends HeroImageOptions {
   variant: HeroVariant;
+  /** Absent = "auto". */
+  height?: HeroHeight;
   heading: string;
   subheading: string;
   cta_label: string;
@@ -133,7 +179,7 @@ export interface HeroConfig {
  * with overlaid copy. Media covers the slide; `background` (strict colour)
  * shows where there is no media. Same field rules as HeroConfig.
  */
-export interface HeroSlide {
+export interface HeroSlide extends HeroImageOptions {
   heading: string;
   subheading: string;
   cta_label: string;
@@ -151,6 +197,8 @@ export interface HeroSlide {
  */
 export interface HeroCarouselConfig {
   slides: HeroSlide[];
+  /** Absent = "auto". */
+  height?: HeroHeight;
   autoplay: boolean;
   /** Seconds per slide, clamped 2–15. */
   interval_seconds: number;
@@ -826,6 +874,10 @@ export interface SectionStyle {
   width?: "contained" | "full";
   /** Slug-shaped element id for in-page anchor links (#story). */
   anchor?: string;
+  /** A named colour scheme (lib/themes/schemes.ts): background, text, cards
+   *  and buttons together. It owns the section's colours, so a stored
+   *  `background` is dropped beside it. Absent = the page's own colours. */
+  scheme?: SectionScheme;
 }
 
 const COLOR_RE = /^(#[0-9a-f]{3,8}|(?:rgb|hsl)a?\(\s*[\d.,%\s/-]+\s*\))$/i;
@@ -836,14 +888,29 @@ const PADDING_VALUES: SectionPaddingY[] = ["none", "sm", "md", "lg"];
  * Validate + normalise a section's shared style. Returns undefined when
  * nothing valid remains, so the stored JSON omits the key entirely.
  */
-export function validateSectionStyle(raw: unknown): SectionStyle | undefined {
+export function validateSectionStyle(
+  raw: unknown,
+  /** The section's type, when known: some types cannot wear a scheme. */
+  type?: string,
+): SectionStyle | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const input = raw as Record<string, unknown>;
   const out: SectionStyle = {};
 
+  const scheme =
+    isSectionScheme(input.scheme) &&
+    !(type && SCHEMELESS_SECTION_TYPES.includes(type))
+      ? input.scheme
+      : undefined;
+  if (scheme) out.scheme = scheme;
+
+  // ★ A scheme owns the section's colours. Keeping a raw background beside
+  //   it would paint the band one colour and its text for another — the very
+  //   dark-text-on-dark-band failure schemes exist to end.
   const background =
     typeof input.background === "string" ? input.background.trim() : "";
-  if (background && COLOR_RE.test(background)) out.background = background;
+  if (!scheme && background && COLOR_RE.test(background))
+    out.background = background;
 
   if (PADDING_VALUES.includes(input.padding_y as SectionPaddingY)) {
     out.padding_y = input.padding_y as SectionPaddingY;
@@ -886,6 +953,46 @@ function safeColor(v: unknown): string {
 const textTheme = (v: unknown, fallback: BannerTheme): BannerTheme =>
   v === "light" || v === "dark" ? v : fallback;
 
+/** An integer percentage clamped to [min, max], or null when the value is
+ *  absent or not a number. `null`/`""` are ABSENT, never 0 — the
+ *  `Number(null) === 0` trap that once squared off every card. */
+function percent(v: unknown, min: number, max: number): number | null {
+  if (typeof v === "number" && Number.isFinite(v)) {
+    return Math.min(max, Math.max(min, Math.round(v)));
+  }
+  if (typeof v === "string" && v.trim() !== "" && Number.isFinite(Number(v))) {
+    return Math.min(max, Math.max(min, Math.round(Number(v))));
+  }
+  return null;
+}
+
+/** The optional image controls, emitted only where they differ from the
+ *  default so untouched content is stored exactly as it always was. */
+export function heroImageOptions(
+  input: Record<string, unknown>,
+): HeroImageOptions {
+  const out: HeroImageOptions = {};
+  const mobile = safeHref(input.mobile_image_url);
+  if (mobile) out.mobile_image_url = mobile;
+  const x = percent(input.focal_x, 0, 100);
+  const y = percent(input.focal_y, 0, 100);
+  if ((x !== null && x !== 50) || (y !== null && y !== 50)) {
+    out.focal_x = x ?? 50;
+    out.focal_y = y ?? 50;
+  }
+  const overlay = percent(input.overlay_opacity, 0, 80);
+  if (overlay !== null) out.overlay_opacity = overlay;
+  if (input.content_position === "top" || input.content_position === "bottom")
+    out.content_position = input.content_position;
+  return out;
+}
+
+function heroHeight(v: unknown): { height?: HeroHeight } {
+  return v === "small" || v === "medium" || v === "large" || v === "screen"
+    ? { height: v }
+    : {};
+}
+
 /**
  * "publish" (default) enforces COMPLETENESS ("Pick at least one product") on
  * top of safety normalisation — used for publishing and theme seeding.
@@ -922,6 +1029,7 @@ export function validateConfig(
         input.variant === "split" || input.variant === "minimal"
           ? input.variant
           : "banner",
+      ...heroHeight(input.height),
       heading,
       subheading: str(input.subheading),
       cta_label: str(input.cta_label),
@@ -932,6 +1040,7 @@ export function validateConfig(
       background: safeColor(input.background),
       theme: textTheme(input.theme, "dark"),
       alignment: input.alignment === "center" ? "center" : "left",
+      ...heroImageOptions(input),
     };
     return { config };
   }
@@ -953,6 +1062,7 @@ export function validateConfig(
         video_url: safeHref(s.video_url),
         background: safeColor(s.background),
         theme: textTheme(s.theme, "dark"),
+        ...heroImageOptions(s),
       };
       // Drop slides with nothing to show (draft keeps them so the editor
       // doesn't lose a row mid-edit).
@@ -968,6 +1078,7 @@ export function validateConfig(
     const rawInterval = Number(input.interval_seconds);
     const config: HeroCarouselConfig = {
       slides,
+      ...heroHeight(input.height),
       autoplay: input.autoplay !== false,
       interval_seconds: Number.isFinite(rawInterval)
         ? Math.min(15, Math.max(2, Math.trunc(rawInterval)))

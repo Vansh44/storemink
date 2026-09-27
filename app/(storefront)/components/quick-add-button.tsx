@@ -1,20 +1,27 @@
 "use client";
 
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import { useCart, lineKey } from "./cart/CartProvider";
 import { effectivePricing } from "@/lib/pricing";
 import { cartLineMax, productIsSoldOut } from "@/lib/inventory/status";
 import type { ShopCardProduct } from "./shop-card";
+import { QuickAddDialog } from "./quick-add-dialog";
 
 // The "+ Add" button on product cards (theme layout.card = "quick_add").
 // Rendered by every ShopCard but hidden by CSS unless the storefront root has
 // .sm-card-quickadd, so classic themes pay no visual cost.
 //
 // Products WITHOUT variants add straight to the cart. Products WITH variants
-// need a size choice, so the click falls through to the card link (no
-// preventDefault) and opens the product page.
+// open a small chooser (quick-add-dialog.tsx) with the same size and colour
+// pickers as the product page, so buying from the grid never needs a page
+// load. A product with every variant sold out still falls through to the card
+// link, where the product page can say so properly.
 export function QuickAddButton({ product }: { product: ShopCardProduct }) {
   const { addItem, items } = useCart();
+  // The "+ Add" element while the chooser is open; null when it is closed.
+  const [chooserAnchor, setChooserAnchor] = useState<HTMLElement | null>(null);
+  const closeChooser = useCallback(() => setChooserAnchor(null), []);
   const pr = effectivePricing(product);
 
   const isOutOfStock = productIsSoldOut(product.variants ?? [], product);
@@ -32,9 +39,13 @@ export function QuickAddButton({ product }: { product: ShopCardProduct }) {
     )?.quantity ?? 0;
 
   const onClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (pr.hasVariants || isOutOfStock) return; // bubble to the card link → detail page
+    if (isOutOfStock) return; // bubble to the card link → detail page
     e.preventDefault();
     e.stopPropagation();
+    if (pr.hasVariants) {
+      setChooserAnchor(e.currentTarget);
+      return;
+    }
     if (inCart >= max) {
       toast.error(
         `Only ${max} of ${product.name} available — already in your cart.`,
@@ -60,30 +71,40 @@ export function QuickAddButton({ product }: { product: ShopCardProduct }) {
   };
 
   return (
-    <div
-      role="button"
-      tabIndex={0}
-      className="shop-card-add flex items-center justify-center cursor-pointer"
-      onClick={onClick}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          onClick(e as unknown as React.MouseEvent<HTMLDivElement>);
+    <>
+      <div
+        role="button"
+        aria-haspopup={pr.hasVariants ? "dialog" : undefined}
+        tabIndex={0}
+        className="shop-card-add flex items-center justify-center cursor-pointer"
+        onClick={onClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onClick(e as unknown as React.MouseEvent<HTMLDivElement>);
+          }
+        }}
+        aria-label={
+          pr.hasVariants
+            ? `Choose options for ${product.name}`
+            : isOutOfStock
+              ? `${product.name} is out of stock`
+              : `Add ${product.name} to cart`
         }
-      }}
-      aria-label={
-        pr.hasVariants
-          ? `Choose options for ${product.name}`
-          : isOutOfStock
-            ? `${product.name} is out of stock`
-            : `Add ${product.name} to cart`
-      }
-      style={{
-        opacity: isOutOfStock && !pr.hasVariants ? 0.5 : 1,
-        cursor: isOutOfStock && !pr.hasVariants ? "not-allowed" : "pointer",
-      }}
-    >
-      {isOutOfStock && !pr.hasVariants ? "Sold Out" : "+ Add"}
-    </div>
+        style={{
+          opacity: isOutOfStock && !pr.hasVariants ? 0.5 : 1,
+          cursor: isOutOfStock && !pr.hasVariants ? "not-allowed" : "pointer",
+        }}
+      >
+        {isOutOfStock && !pr.hasVariants ? "Sold Out" : "+ Add"}
+      </div>
+      {chooserAnchor && (
+        <QuickAddDialog
+          productId={product.id}
+          anchor={chooserAnchor}
+          onClose={closeChooser}
+        />
+      )}
+    </>
   );
 }

@@ -14,7 +14,7 @@ import {
   type PageSectionItem,
 } from "@/lib/sections/registry";
 import { brandFromSettings } from "@/lib/store/brand";
-import { getThemeDefinition } from "@/lib/themes";
+import { resolveInstalledThemeDefinitionWithDb } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
 import { designToCssVars } from "@/lib/themes/types";
 import { MinkToolInputError } from "./errors";
@@ -310,9 +310,10 @@ export async function readMinkStorefrontDesignContext(actor: MinkActorContext) {
     const settings = isRecord(row.settings) ? row.settings : {};
     const brand = brandFromSettings(settings, row.name, "");
     const themeSelection = readThemeSelection(settings);
-    const theme = themeSelection
-      ? getThemeDefinition(themeSelection.id, themeSelection.version)
-      : null;
+    const theme = await resolveInstalledThemeDefinitionWithDb(
+      db,
+      themeSelection,
+    );
     const draftChrome = row.chrome_store_id
       ? sanitizeChromeForSave(row.draft)
       : DEFAULT_CHROME;

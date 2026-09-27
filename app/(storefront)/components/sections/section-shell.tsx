@@ -1,4 +1,5 @@
 import type { SectionStyle } from "@/lib/homepage/section-types";
+import { isSectionScheme } from "@/lib/themes/schemes";
 
 // The shared ROOT element of every rendered section. It REPLACES each section
 // component's own `<section className="home-section …">` (never wraps it — an
@@ -11,6 +12,10 @@ import type { SectionStyle } from "@/lib/homepage/section-types";
 //   • shared per-section style (background / padding_y / width / anchor id),
 //     validated by validateSectionStyle — background is a strict color, safe
 //     for an inline style attribute.
+//   • a colour scheme (`style.scheme`) is a CLASS, never inline colours: the
+//     theme's scheme colours live on .storefront-root and homepage.css
+//     re-points the page tokens inside `.sm-scheme-<id>`. A scheme owns the
+//     section's colours, so a raw background is not painted beside it.
 // Absent `style` renders exactly the classes sections had before this shell.
 export function SectionShell({
   sectionId,
@@ -23,6 +28,9 @@ export function SectionShell({
   className?: string;
   children: React.ReactNode;
 }) {
+  // Checked again here, not only at save: the builder preview renders drafts
+  // straight from the editor, and this string becomes a class name.
+  const scheme = isSectionScheme(style?.scheme) ? style.scheme : null;
   const cls = [
     "home-section",
     className,
@@ -30,6 +38,7 @@ export function SectionShell({
       ? `home-pad-${style.padding_y}`
       : null,
     style?.width === "full" ? "is-fullbleed" : null,
+    scheme ? `sm-scheme sm-scheme-${scheme}` : null,
   ]
     .filter(Boolean)
     .join(" ");
@@ -39,7 +48,11 @@ export function SectionShell({
       id={style?.anchor || undefined}
       data-section-id={sectionId}
       className={cls}
-      style={style?.background ? { background: style.background } : undefined}
+      style={
+        !scheme && style?.background
+          ? { background: style.background }
+          : undefined
+      }
     >
       {children}
     </section>
