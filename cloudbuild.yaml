@@ -387,7 +387,7 @@ substitutions:
   # `--set-env-vars` replaces the complete Cloud Run environment on each deploy.
   _THEME_STUDIO_PROVIDER: vertex-gemini
   _THEME_STUDIO_GENERATION_ENABLED: "true"
-  _THEME_STUDIO_DAILY_SPEND_USD: "25"
+  _THEME_STUDIO_DAILY_SPEND_USD: "unlimited"
   _THEME_STUDIO_GCP_PROJECT_ID: storemink-prod
   _THEME_STUDIO_VERTEX_LOCATION: global
   _THEME_STUDIO_CAPTURE_ENABLED: "true"

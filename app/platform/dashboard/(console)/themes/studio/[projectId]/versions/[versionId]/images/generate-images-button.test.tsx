@@ -30,10 +30,12 @@ describe("GenerateImagesButton", () => {
     expect(screen.getByText(/6 placeholder slots/)).toBeTruthy();
     expect(
       screen.getByText(
-        /7 images, about \$0\.72 at list price, or at most \$1\.44 if every image has to be redrawn/,
+        /7 images, about \$0\.72 at list price, or at most \$1\.44 if every image needs every redraw/,
       ),
     ).toBeTruthy();
-    expect(screen.getByText(/one with a problem is redrawn once/)).toBeTruthy();
+    expect(
+      screen.getByText(/one with a problem is redrawn up to twice/),
+    ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: /Generate images/ }));
     expect(action).not.toHaveBeenCalled();
     expect(screen.getByRole("button", { name: "Draw 7 images" })).toBeTruthy();

@@ -33,6 +33,7 @@ import type {
   ThemeStudioProjectDetail,
   ThemeStudioRunView,
 } from "@/lib/theme-studio/repository";
+import { THEME_IMAGE_PROBLEM_LABEL } from "@/lib/theme-studio/image-history";
 import { StudioStatusBadge, studioDate } from "../studio-ui";
 
 // The project workspace. Everything shown was read server-side behind the
@@ -68,7 +69,7 @@ const ERROR_TEXT: Record<string, string> = {
   images_anchor_refused:
     "The image model refused the art-direction image, so nothing else was drawn.",
   images_anchor_rejected:
-    "The art-direction image failed its check twice, so nothing else was drawn.",
+    "The art-direction image failed its check on every attempt, so nothing else was drawn.",
   images_none: "No image came back, so no version was made.",
   images_package_invalid:
     "The theme with the new images no longer passed its checks.",
@@ -645,6 +646,17 @@ export function ProjectWorkspace({
                         <span className="font-mono">({r.errorCode})</span>
                         {r.refusalCategory
                           ? ` · category ${r.refusalCategory}`
+                          : ""}
+                      </p>
+                    ) : null}
+                    {r.images?.anchorRejection ? (
+                      <p className="text-xs text-red-700">
+                        Check found:{" "}
+                        {r.images.anchorRejection.problems
+                          .map((p) => THEME_IMAGE_PROBLEM_LABEL[p])
+                          .join(", ") || "a problem"}
+                        {r.images.anchorRejection.note
+                          ? ` — ${r.images.anchorRejection.note}`
                           : ""}
                       </p>
                     ) : null}

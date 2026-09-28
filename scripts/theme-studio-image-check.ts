@@ -8,7 +8,7 @@
  *   npm run theme-studio:image-check -- --live --yes
  *       Live. Calls the image model on Vertex AI three times — an anchor, a
  *       product shot matched to it, and a second product shot matched to both —
- *       about $0.30 at list price. --yes is required. Needs ADC and
+ *       about $0.40 at list price. --yes is required. Needs ADC and
  *       THEME_STUDIO_GCP_PROJECT_ID (or GCP_PROJECT_ID).
  *
  * Options: --out=<dir> (default: a new temp directory) receives each raw
@@ -36,7 +36,7 @@ async function main() {
   const live = process.argv.includes("--live");
   if (live && !process.argv.includes("--yes")) {
     console.error(
-      "A live run calls a paid image model three times (about $0.30). Re-run with --yes.",
+      "A live run calls a paid image model three times (about $0.40). Re-run with --yes.",
     );
     process.exit(2);
   }

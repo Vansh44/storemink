@@ -11,6 +11,7 @@ import {
   type ThemeImagePurpose,
 } from "./image-provider";
 import type { ThemeImageBrief, ThemeImageDirection } from "./image-prompt";
+import { THEME_ANCHOR_REDRAWS, THEME_IMAGE_REDRAWS } from "./image-review";
 import type { ThemeProductSeed } from "@/lib/themes/types";
 import {
   describeSlots,
@@ -179,6 +180,33 @@ export function generatableSlots(
   return out.slice(0, MAX_IMAGES_PER_RUN - 1);
 }
 
+/**
+ * What the Stage A model saw about the PHOTOGRAPHY in the operator's reference
+ * screenshots (intent.referenceAnalysis[].imagery), de-duplicated and bounded.
+ * The screenshots themselves never reach the image model — they are another
+ * storefront, whose photographs are not ours to reproduce — so this is how the
+ * look the operator pointed at reaches every image.
+ */
+export function referenceImagery(intent: ThemeIntent): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const reading of intent.referenceAnalysis ?? []) {
+    for (const line of reading.imagery ?? []) {
+      const text = line
+        .replace(/[{}]/g, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 200);
+      const key = text.toLowerCase();
+      if (!text || seen.has(key)) continue;
+      seen.add(key);
+      out.push(text);
+      if (out.length >= 8) return out;
+    }
+  }
+  return out;
+}
+
 /** The theme-wide direction for an image run, from the version itself. */
 export function directionFromPackage(
   pkg: ThemePackageV2,
@@ -200,6 +228,7 @@ export function directionFromPackage(
       ink: palette.ink,
       accent: palette.accent ?? preset.brand.primaryColor,
     },
+    referenceImagery: referenceImagery(intent),
   };
 }
 
@@ -274,16 +303,16 @@ export function applyGeneratedImages(
 }
 
 /** List-price figures behind the "Generate images" cost statement: about
- *  $0.10 per 2K image (cost.ts) and a fraction of a cent per review (a Flash
- *  call with up to three small images). */
-export const IMAGE_LIST_PRICE_USD = 0.1;
-export const IMAGE_REVIEW_LIST_PRICE_USD = 0.003;
+ *  $0.135 per 2K Pro image (cost.ts) and about a cent per review (a Flash call
+ *  at high effort with up to three images read at ultra-high resolution). */
+export const IMAGE_LIST_PRICE_USD = 0.135;
+export const IMAGE_REVIEW_LIST_PRICE_USD = 0.01;
 
 /**
  * What an image run for `slots` slots is expected to cost, and the most it can
  * cost: every image (the anchor included) drawn and reviewed once, and at most
- * every one of them redrawn and reviewed again (image-review.ts allows one
- * redraw). Stated before the click because every image is paid.
+ * every one of them redrawn and reviewed as often as it may be
+ * (image-review.ts: THEME_IMAGE_REDRAWS, THEME_ANCHOR_REDRAWS). Stated before the click because every image is paid.
  */
 export function imageRunEstimate(slots: number): {
   images: number;
@@ -291,10 +320,14 @@ export function imageRunEstimate(slots: number): {
   mostUsd: number;
 } {
   const images = slots + 1;
-  const once = images * (IMAGE_LIST_PRICE_USD + IMAGE_REVIEW_LIST_PRICE_USD);
+  const each = IMAGE_LIST_PRICE_USD + IMAGE_REVIEW_LIST_PRICE_USD;
+  const once = images * each;
+  const most =
+    once * (1 + THEME_IMAGE_REDRAWS) +
+    each * (THEME_ANCHOR_REDRAWS - THEME_IMAGE_REDRAWS);
   return {
     images,
     expectedUsd: Math.round(once * 100) / 100,
-    mostUsd: Math.round(once * 2 * 100) / 100,
+    mostUsd: Math.round(most * 100) / 100,
   };
 }

@@ -14,7 +14,11 @@ import {
   runThemeImageGeneration,
   type ThemeImageReviewer,
 } from "./image-generation";
-import { THEME_IMAGE_PROBLEM_TEXT } from "./image-review";
+import {
+  THEME_ANCHOR_REDRAWS,
+  THEME_IMAGE_PROBLEM_TEXT,
+  THEME_IMAGE_REDRAWS,
+} from "./image-review";
 import {
   ZERO_USAGE,
   type StructuredRequest,
@@ -240,11 +244,12 @@ describe("choosing what to draw", () => {
   });
 
   it("states a run's likely cost and its ceiling with every image redrawn", () => {
-    // 6 slots + the anchor = 7 images at $0.10, each reviewed at $0.003.
+    // 6 slots + the anchor = 7 images at $0.135, each reviewed at $0.01;
+    // at most every slot drawn three times and the anchor four.
     expect(imageRunEstimate(6)).toEqual({
       images: 7,
-      expectedUsd: 0.72,
-      mostUsd: 1.44,
+      expectedUsd: 1.02,
+      mostUsd: 3.19,
     });
     expect(imageRunEstimate(0).images).toBe(1);
   });
@@ -373,7 +378,7 @@ describe("the image run", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       expect(image.mediaType).toBe("image/webp");
     }
     expect(result.telemetry.estimatedCostMicroUsd).toBe(
-      (slots.length + 1) * (100 * 0.5 + 1680 * 60),
+      (slots.length + 1) * (100 * 2 + 1680 * 120),
     );
   });
 
@@ -811,7 +816,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       imageCost + result.telemetry.reviewCostMicroUsd,
     );
     expect(result.telemetry.reviewPromptVersion).toBe(
-      "theme-studio-image-review-v2",
+      "theme-studio-image-review-v3",
     );
   });
 
@@ -859,7 +864,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     expect(result.outcomes.find((o) => o.slotId === "home-hero")).toEqual({
       slotId: "home-hero",
       status: "rejected",
-      attempts: 2,
+      attempts: 1 + THEME_IMAGE_REDRAWS,
       problems: ["person"],
       note: "Seen: person.",
     });
@@ -887,7 +892,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     expect(result.outcomes.find((o) => o.slotId === "home-hero")).toEqual({
       slotId: "home-hero",
       status: "generated",
-      attempts: 2,
+      attempts: 1 + THEME_IMAGE_REDRAWS,
       review: "flagged",
       problems: ["poor_crop"],
       note: "Seen: poor_crop.",
@@ -917,7 +922,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     expect(result.outcomes.find((o) => o.slotId === "home-hero")).toEqual({
       slotId: "home-hero",
       status: "generated",
-      attempts: 2,
+      attempts: 1 + THEME_IMAGE_REDRAWS,
       review: "flagged",
       problems: ["off_style"],
       note: "Seen: off_style.",
@@ -1005,7 +1010,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     ).toBe(true);
   });
 
-  it("draws nothing else when the anchor is rejected on both attempts", async () => {
+  it("draws nothing else when the anchor shows a person on every attempt", async () => {
     const { pkg, intent } = await fixture();
     const seen: ThemeImageRequest[] = [];
     const result = await runThemeImageGeneration(
@@ -1014,19 +1019,53 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         pkg,
         intent,
         reviewer: scriptedReviewer((text) =>
-          text.includes(ANCHOR) ? ["malformed"] : [],
+          text.includes(ANCHOR) ? ["person"] : [],
         ),
       },
       new AbortController().signal,
     );
-    expect(seen.map((r) => r.purpose)).toEqual(["anchor", "anchor"]);
+    expect(seen.map((r) => r.purpose)).toEqual(
+      Array(1 + THEME_ANCHOR_REDRAWS).fill("anchor"),
+    );
     expect(result.anchorFailure).toEqual({
       kind: "rejected",
-      problems: ["malformed"],
-      note: "Seen: malformed.",
+      problems: ["person"],
+      note: "Seen: person.",
     });
     expect(result.images).toEqual([]);
     expect(result.outcomes.every((o) => o.status === "skipped")).toBe(true);
+  });
+
+  // The production failure: the anchor was turned down once as malformed and
+  // once for an embossed mark, and all seventeen slots were skipped. It is a
+  // hidden reference, so those are redrawn and then kept, and the run goes on.
+  it("keeps an anchor whose only problems are minor for a hidden reference, and draws the set", async () => {
+    const { pkg, intent } = await fixture();
+    const slots = generatableSlots(pkg, intent);
+    const seen: ThemeImageRequest[] = [];
+    let anchorReviews = 0;
+    const result = await runThemeImageGeneration(
+      scripted({}, seen),
+      {
+        pkg,
+        intent,
+        reviewer: scriptedReviewer((text) => {
+          if (!text.includes(ANCHOR)) return [];
+          anchorReviews++;
+          return anchorReviews === 1 ? ["malformed"] : ["text_or_logo"];
+        }),
+      },
+      new AbortController().signal,
+    );
+    expect(seen.filter((r) => r.purpose === "anchor")).toHaveLength(
+      1 + THEME_ANCHOR_REDRAWS,
+    );
+    // Each redraw carries what the check found.
+    expect(seen[1].prompt).toContain(THEME_IMAGE_PROBLEM_TEXT.malformed);
+    expect(seen[2].prompt).toContain(THEME_IMAGE_PROBLEM_TEXT.text_or_logo);
+    expect(result.anchorFailure).toBeNull();
+    expect(result.anchor).not.toBeNull();
+    expect(result.images).toHaveLength(slots.length);
   });
 
   it("shows the reviewer each stored crop, with the anchor and, after the first product, the set shot", async () => {
@@ -1103,7 +1142,9 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       seen
         .filter((r) => r.briefId === id)
         .map((r) => r.references.map((ref) => ref.role));
-    expect(roles(productIds[0])).toEqual([["anchor"], ["anchor"]]);
+    expect(roles(productIds[0])).toEqual(
+      Array(1 + THEME_IMAGE_REDRAWS).fill(["anchor"]),
+    );
     expect(roles(productIds[1])).toEqual([["anchor"]]);
     for (const id of productIds.slice(2)) {
       expect(roles(id)).toEqual([["anchor", "set"]]);
@@ -1263,5 +1304,24 @@ describe("redrawing chosen slots", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     );
     expect(seen.map((r) => r.purpose)).toEqual(["anchor", "hero"]);
     expect(redraw.anchor).not.toBeNull();
+  });
+});
+
+describe("the direction's reference imagery", () => {
+  it("is read from every screenshot's analysis, de-duplicated and bounded", async () => {
+    const { referenceImagery } = await import("./image-generation-core");
+    const reading = (imagery: string[]) => ({ imagery }) as never;
+    const intent = {
+      referenceAnalysis: [
+        reading(["Warm oak rooms", "  White {pack} shots "]),
+        reading([
+          "warm oak rooms",
+          ...Array.from({ length: 10 }, (_, i) => `Line ${i}`),
+        ]),
+      ],
+    } as unknown as Parameters<typeof referenceImagery>[0];
+    const lines = referenceImagery(intent);
+    expect(lines.slice(0, 2)).toEqual(["Warm oak rooms", "White pack shots"]);
+    expect(lines).toHaveLength(8);
   });
 });

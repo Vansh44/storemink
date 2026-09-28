@@ -4839,8 +4839,10 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     thinking tokens; the estimate uses Gemini API list prices
     (`gemini-api-list-2026-09`) — Vertex billing is authoritative.
     Controls: per-model `THEME_STUDIO_DISABLED_MODELS`, a per-operator
-    rolling-24h ESTIMATED spend cap `THEME_STUDIO_DAILY_SPEND_USD` (default 25,
-    checked at queue/retry/answer; the fake is exempt), and the Phase 2
+    rolling-24h ESTIMATED spend cap `THEME_STUDIO_DAILY_SPEND_USD` (checked at
+    queue/retry/answer; the fake is exempt; since 2026-09-29 there is NO cap
+    unless it is set to a positive number — see "Theme Studio at full
+    capacity" below), and the Phase 2
     emergency stop. `npm run theme-studio:eval` runs the Phase 0 golden set.
     Record and rollout steps: `docs/mink-ai-theme-studio-phase3.md`.
     Operator-only: no Help Centre migration.
@@ -5162,9 +5164,49 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     minor one keeps the best image, noted (`review: "flagged"`); a redraw that
     is worse or does not come back falls back to the earlier image when that
     one had only minor problems. A provider refusal or error is never redrawn
-    (the one-paid-attempt rule stands). The anchor is reviewed too: rejected
-    twice, nothing else is drawn (`images_anchor_rejected`); a rejected leader
-    is never the set shot. ★ AN UNAVAILABLE REVIEW KEEPS THE IMAGE,
+    (the one-paid-attempt rule stands). The anchor is reviewed too, and
+    still gates the run (`images_anchor_rejected`); a rejected leader is never
+    the set shot. ★★ BUT THE ANCHOR HAS ITS OWN RULE (2026-09-29): it is a
+    hidden reference, so only `person` or `wrong_subject` block it
+    (`ANCHOR_BLOCKING_PROBLEMS`) and it gets two redraws
+    (`THEME_ANCHOR_REDRAWS`). A production run was turned down once as
+    "malformed" and once for "an embossed number 8" on a jar, and all 17
+    slots were skipped over a picture no shopper would ever see. Review
+    prompt `theme-studio-image-review-v3` also stops failing blank labels,
+    stitching, hardware and marks it cannot read, and the image prompt now
+    forbids embossed marks outright rather than allowing "simple abstract
+    marks". The run row shows the check's reason (`anchorRejection`). ★ The
+    operator's reference screenshots reach the images as TEXT only:
+    `referenceImagery` feeds `intent.referenceAnalysis[].imagery` into the
+    theme direction, while the screenshots themselves — another store's
+    photographs — are never sent to the image model.
+    **★★ THEME STUDIO AT FULL CAPACITY (2026-09-29, owner: "the model should
+    be used at highest capacity with no limitation in terms of cost, tokens").**
+    Every lever that traded quality for money is released, each verified live
+    in `storemink-prod` before it was changed: (1) images use
+    **`gemini-3-pro-image`** (GA; metadata read 200) instead of
+    `gemini-3.1-flash-image` — our exact safety/people/2K/JPEG q95 config plus
+    an inline ANCHOR returned STOP and a 1856×2304 pack shot in 26.4 s at 1,120
+    output tokens; priced $2/$120 per M (`gemini-pro-image-list-2026-09`,
+    ≈$0.135/image, not yet reconciled against an invoice), request timeout
+    180 s. ⚠ 2K is kept, not 4K: every slot is stored at ≤1600 px, so 4K would
+    be paid for and then downscaled away. (2) Every image reaching a text model
+    (Stage A references, the image reviewer, visual QA) is sent at
+    `MEDIA_RESOLUTION_ULTRA_HIGH` — 2,240 tokens per image instead of 1,120 —
+    accepted by both allowlisted models with a JSON schema and HIGH thinking.
+    (3) The reviewer runs at HIGH effort and visual QA with no `maxTokens`: a
+    4,096 ceiling on a HIGH-thinking call only ever truncated the reasoning.
+    The reviewer stays on 3.8 Flash on evidence — the 3.1 Pro preview returned
+    coordinate points instead of an answer on the same probe. (4) Slots get two
+    redraws (`THEME_IMAGE_REDRAWS`), the anchor three, Stage A/B three repairs
+    and auto QA three revision iterations. (5) No spend ceiling by default:
+    unset, empty, `unlimited`, `0` or junk all mean none (`0` used to mean a
+    zero ceiling, which blocks every paid run), and `cloudbuild.yaml` sets
+    `unlimited`. ⚠ Deliberately NOT raised: per-operator run concurrency (2),
+    projects per day (20), image concurrency (3 — the shared project's image
+    quota already rate-limits) and the 20-minute run wall time, which is the
+    Cloud Run/Scheduler deadline rather than a Studio setting.
+    ★ AN UNAVAILABLE REVIEW KEEPS THE IMAGE,
     `review: "unreviewed"`: it is a quality check, and the image model's own
     filters are the safety boundary. The worker's `imageReviewerFor` gives
     fake runs `createFakeImageReviewClient` (passes; `[[fake-review:<problem>]]`
@@ -14303,7 +14345,7 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   queueing only after the separate Chromium capture job and scheduler exist),
   **`THEME_STUDIO_DISABLED_MODELS`** (comma-separated model KEYS to switch
   off), **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
-  estimated-spend ceiling, default 25), and
+  estimated-spend ceiling; none unless set to a positive number), and
   **`THEME_STUDIO_AUTO_QA_ENABLED`** (code default false and effective only
   with capture enabled). Cloud Build explicitly sets the provider to
   `vertex-gemini` and enables generation, capture and automatic QA in dev and
@@ -14326,7 +14368,7 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   The Studio image client (Track 3) uses the same project, its own
   **`THEME_STUDIO_IMAGE_LOCATION`** (default `global`) and
   **`THEME_STUDIO_IMAGE_MODEL`**, which may only pin a version of
-  `gemini-3.1-flash-image`.
+  `gemini-3-pro-image`.
 - **Razorpay** (§18, §16): two SEPARATE credential sets. Per-store BYO gateway
   creds live in the DB (`store_payment_providers`, encrypted with env
   **`PAYMENT_CRED_KEY`** — 32-byte base64; generate with

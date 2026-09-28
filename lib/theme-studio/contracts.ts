@@ -43,7 +43,7 @@ export const THEME_STUDIO_LIMITS = {
   concurrentRunsPerOperator: 2,
   runWallTimeSeconds: 20 * 60,
   modelRetries: 2,
-  repairAttempts: 2,
+  repairAttempts: 3,
   packageChars: 2 * 1024 * 1024,
   pages: 20,
   assetBriefs: 40,

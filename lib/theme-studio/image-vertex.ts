@@ -57,9 +57,10 @@ const SAFETY_CATEGORIES = [
   HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT,
 ] as const;
 
-/** A 2K image measured 20 s against Mink's 45 s ceiling; a request carrying
- *  up to three references is given more room. */
-export const IMAGE_REQUEST_TIMEOUT_MS = 90_000;
+/** A 2K Pro image with one reference measured 26 s; a request carrying up to
+ *  three references on a busy shared project is given generous room, since a
+ *  timed-out image may still have been billed. */
+export const IMAGE_REQUEST_TIMEOUT_MS = 180_000;
 
 /** The fixed provider configuration for one image. Exported so a test can pin
  *  every safety value rather than trust a comment. */

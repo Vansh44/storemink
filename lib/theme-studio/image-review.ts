@@ -45,9 +45,11 @@ import {
 // shown to the operator and, cleaned, to the image model on a redraw.
 // ---------------------------------------------------------------------------
 
-export const THEME_IMAGE_REVIEW_PROMPT_VERSION = "theme-studio-image-review-v2";
+export const THEME_IMAGE_REVIEW_PROMPT_VERSION = "theme-studio-image-review-v3";
 
-/** The reviewer: fast and cheap, since it runs once per image. */
+/** The reviewer. Flash, deliberately, not the 3.1 Pro preview: on the same
+ *  screenshot at high effort (2026-09-29) Flash described the image and the
+ *  preview returned coordinate points instead of an answer. */
 export const THEME_IMAGE_REVIEW_MODEL_KEY: ThemeStudioModelKey =
   "gemini-3.8-flash";
 
@@ -76,7 +78,7 @@ export const BLOCKING_IMAGE_PROBLEMS: ReadonlySet<ThemeImageProblem> = new Set([
 export const THEME_IMAGE_PROBLEM_TEXT: Record<ThemeImageProblem, string> = {
   wrong_subject: "It did not show the subject that was asked for.",
   text_or_logo:
-    "It contained lettering, numbers, a logo, a label, a brand mark or a watermark.",
+    "It contained legible lettering, numbers, a logo, a brand mark or a watermark.",
   person: "It showed a person or part of a person, such as a hand.",
   malformed:
     "Something in it was malformed, melted, duplicated or physically impossible.",
@@ -90,8 +92,28 @@ export const THEME_IMAGE_PROBLEM_TEXT: Record<ThemeImageProblem, string> = {
     "The subject was cut off at an edge or badly placed for this image's shape.",
 };
 
-/** Redraws after the first attempt. Every image is paid for, so one. */
-export const THEME_IMAGE_REDRAWS = 1;
+/** Redraws after the first attempt. Quality over cost (owner, 2026-09-29):
+ *  two, so an image gets three chances before its slot keeps a placeholder. */
+export const THEME_IMAGE_REDRAWS = 2;
+
+/**
+ * ★★ THE ANCHOR IS JUDGED DIFFERENTLY, BECAUSE IT GATES THE WHOLE RUN AND IS
+ * NEVER SHOWN. Every other image is only matched to its light, palette and
+ * surfaces (the prompt says not to copy its objects), and each of those images
+ * gets its own check. So a faint mark on the anchor's jar or a slightly odd
+ * handle cannot reach a storefront — but under the storefront rules it threw
+ * away the whole run: a production run was rejected once as "malformed" and
+ * once for "an embossed number 8 or logo on the front" of a jar, and all
+ * seventeen slots were skipped. Only a person (which later images could pick
+ * up as styling) or the wrong subject altogether block an anchor; anything
+ * else is worth a redraw and then kept. It also gets one more attempt than a
+ * slot: one extra image (~$0.14) is cheap next to a run that draws nothing.
+ */
+export const THEME_ANCHOR_REDRAWS = 3;
+
+export const ANCHOR_BLOCKING_PROBLEMS: ReadonlySet<ThemeImageProblem> = new Set(
+  ["wrong_subject", "person"],
+);
 
 const NOTE_MAX = 300;
 
@@ -137,9 +159,15 @@ export function applicableProblems(input: {
   });
 }
 
-/** Whether a reviewed image must not be used. */
-export function isBlocking(problems: readonly ThemeImageProblem[]): boolean {
-  return problems.some((p) => BLOCKING_IMAGE_PROBLEMS.has(p));
+/** Whether a reviewed image must not be used. The anchor has its own, narrower
+ *  set (ANCHOR_BLOCKING_PROBLEMS). */
+export function isBlocking(
+  problems: readonly ThemeImageProblem[],
+  purpose?: ThemeImagePurpose,
+): boolean {
+  const blocking =
+    purpose === "anchor" ? ANCHOR_BLOCKING_PROBLEMS : BLOCKING_IMAGE_PROBLEMS;
+  return problems.some((p) => blocking.has(p));
 }
 
 export const THEME_IMAGE_REVIEW_SCHEMA: Record<string, unknown> = {
@@ -173,7 +201,7 @@ export function themeImageReviewSystem(): string {
 Report a problem only when you can see it clearly in the CANDIDATE. When the image is acceptable, return an empty list. The problems are:
 ${THEME_IMAGE_PROBLEMS.map((p) => `- ${p}: ${THEME_IMAGE_PROBLEM_TEXT[p]}`).join("\n")}
 
-Report off_style only when an ANCHOR image is supplied, and staging_mismatch only when a SET image is supplied. Report multiple_subjects only for a pack shot. Generated images of objects are expected: do not report an object for looking generated, only for being malformed. Faint glaze marks, wood grain and fabric texture are not lettering. Storefront images never carry lettering, even when the subject mentions words, a slogan or a logo: report text_or_logo when lettering is present, and never report wrong_subject because lettering the subject mentions is missing.
+Report off_style only when an ANCHOR image is supplied, and staging_mismatch only when a SET image is supplied. Report multiple_subjects only for a pack shot. Generated images of objects are expected: do not report an object for looking generated, only for being malformed, and report malformed only for a defect a shopper would notice at a glance (an object melted, fused into another, duplicated or physically impossible) — never for slight asymmetry, a stylised shape, soft focus or a handcrafted irregularity. Report text_or_logo only when you can actually read letters or numbers, or clearly see a brand mark, logo or watermark; when you are unsure, do not report it. Blank labels, tags and swing tickets, stitching, seams, buttons, hardware, embossed or debossed abstract shapes, reflections, faint glaze marks, wood grain and fabric texture are not lettering. Storefront images never carry lettering, even when the subject mentions words, a slogan or a logo: never report wrong_subject because lettering the subject mentions is missing.
 
 The note is one or two short sentences, at most ${NOTE_MAX} characters, naming what is wrong in plain words (for example "The mug has a printed logo on the side."). Leave it empty when there are no problems.
 
@@ -257,8 +285,9 @@ export async function reviewThemeImage(
     system: themeImageReviewSystem(),
     content: themeImageReviewContent(input),
     schema: THEME_IMAGE_REVIEW_SCHEMA,
-    maxTokens: 4096,
-    effort: "low",
+    // No output ceiling and high reasoning: the answer is a few enum values,
+    // so a ceiling only ever truncated the thinking behind them.
+    effort: "high",
   };
   let result;
   try {

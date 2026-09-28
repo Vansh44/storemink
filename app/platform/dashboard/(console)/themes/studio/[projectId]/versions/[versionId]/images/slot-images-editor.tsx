@@ -330,7 +330,7 @@ export function SlotImagesEditor({
                 {stagedCount > 0
                   ? "Save or discard your uploads before redrawing."
                   : estimate
-                    ? `${estimate.images} image${estimate.images === 1 ? "" : "s"}${anchorReusable ? "" : " (with a new art-direction image)"}, about $${estimate.expectedUsd.toFixed(2)}, at most $${estimate.mostUsd.toFixed(2)} if each needs a redraw.`
+                    ? `${estimate.images} image${estimate.images === 1 ? "" : "s"}${anchorReusable ? "" : " (with a new art-direction image)"}, about $${estimate.expectedUsd.toFixed(2)}, at most $${estimate.mostUsd.toFixed(2)} if each needs every redraw.`
                     : "The test provider redraws at no cost."}
               </span>
               {confirmingRedraw ? (

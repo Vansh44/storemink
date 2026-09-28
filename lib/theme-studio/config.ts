@@ -11,8 +11,22 @@ export type ThemeStudioProvider = (typeof THEME_STUDIO_PROVIDERS)[number];
 
 export const THEME_STUDIO_FAKE_PROMPT_VERSION = "theme-studio-fake-v1";
 
-/** Default per-operator ceiling on ESTIMATED model spend in any 24 hours. */
-const DEFAULT_DAILY_SPEND_USD = 25;
+/**
+ * ★ NO SPEND CEILING BY DEFAULT (owner, 2026-09-29: "no limitation in terms of
+ * cost"). THEME_STUDIO_DAILY_SPEND_USD set to a positive number of dollars
+ * restores a per-operator ceiling on ESTIMATED spend in any 24 hours — an
+ * emergency brake, not a budget. Unset, empty, "unlimited" or "0" means none.
+ * ⚠ "0" used to mean a ceiling of zero, which stops every paid run; nothing
+ * set it, and a switch whose off position is the digit zero is one somebody
+ * reads as "no limit".
+ */
+function parseDailySpendMicroUsd(raw: string | undefined): number | null {
+  const value = raw?.trim().toLowerCase() ?? "";
+  if (!value || value === "unlimited") return null;
+  const dollars = Number(value);
+  if (!Number.isFinite(dollars) || dollars <= 0) return null;
+  return Math.round(dollars * 1_000_000);
+}
 
 export interface ThemeStudioConfig {
   /** Global emergency stop for NEW generation. Viewing, cancelling and
@@ -22,7 +36,8 @@ export interface ThemeStudioConfig {
   /** Models switched off by deployment, e.g. one not yet enabled in the
    * target Vertex project. Never silently replaced by another model. */
   disabledModels: ReadonlySet<ThemeStudioModelKey>;
-  dailySpendMicroUsd: number;
+  /** Null: no ceiling. */
+  dailySpendMicroUsd: number | null;
   /** Catalog screenshots require the separately deployed Chromium job. This
    * stays off until that job and its scheduler are both live. */
   captureEnabled: boolean;
@@ -46,7 +61,6 @@ export function getThemeStudioConfig(
       .map((key) => parseThemeStudioModelKey(key.trim()))
       .filter((key): key is ThemeStudioModelKey => key !== null),
   );
-  const spend = Number(env.THEME_STUDIO_DAILY_SPEND_USD);
   const captureEnabled =
     env.THEME_STUDIO_CAPTURE_ENABLED?.trim().toLowerCase() === "true";
   return {
@@ -58,9 +72,8 @@ export function getThemeStudioConfig(
     autoQaEnabled:
       captureEnabled &&
       env.THEME_STUDIO_AUTO_QA_ENABLED?.trim().toLowerCase() === "true",
-    dailySpendMicroUsd: Math.round(
-      (Number.isFinite(spend) && spend >= 0 ? spend : DEFAULT_DAILY_SPEND_USD) *
-        1_000_000,
+    dailySpendMicroUsd: parseDailySpendMicroUsd(
+      env.THEME_STUDIO_DAILY_SPEND_USD,
     ),
   };
 }
