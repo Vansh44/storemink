@@ -42,11 +42,10 @@ export const BRAND_SAME_AS: readonly string[] = [
 
 export const SUPPORT_EMAIL = "support@storemink.com";
 
-export const BRAND_TAGLINE =
-  "Create your store. Sell everywhere. Grow with AI.";
+export const BRAND_TAGLINE = "Build what's yours.";
 
 export const BRAND_DESCRIPTION =
-  "StoreMink is an AI-powered commerce platform that lets you create a store in minutes and manage products, orders, inventory, locations, sales and POS.";
+  "StoreMink is the AI-native business operating system for independent brands, bringing commerce, operations and intelligence together in one platform.";
 
 /**
  * Safe fallbacks for Google's automated site-name system.
@@ -56,7 +55,7 @@ export const BRAND_DESCRIPTION =
  * care. Google explicitly supports the lowercase domain as the final fallback
  * when the preferred site name is not yet recognised.
  */
-const ALTERNATE_NAMES = ["Storemink", "storemink.com"];
+const ALTERNATE_NAMES = ["Storemink", "storemink.com", "StoreMink", "storemink", "store mink", "Store Mink", "storemink.com | Build what's yours."];
 
 /**
  * The platform Organization node. Emitted on the apex AND the help centre under

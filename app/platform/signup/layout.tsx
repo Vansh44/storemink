@@ -10,12 +10,12 @@ import { SignupThemeCatalogProvider } from "./theme-catalog-context";
 export const metadata: Metadata = {
   title: `${BRAND_TAGLINE} — StoreMink`,
   description:
-    "Create your StoreMink storefront in minutes, then manage orders, inventory, locations, sales and POS from one connected dashboard with AI built in.",
+    "Turn your idea into a distinctive brand and a working business with StoreMink, the AI-native business operating system for independent brands.",
   alternates: { canonical: "/signup" },
   openGraph: {
     title: `${BRAND_TAGLINE} — StoreMink`,
     description:
-      "Create your storefront in minutes, sell online and in person, and manage everything from one connected dashboard with AI built in.",
+      "Turn your idea into a distinctive brand and a working business with StoreMink, the AI-native business operating system for independent brands.",
     url: "/signup",
   },
 };

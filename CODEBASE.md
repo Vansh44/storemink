@@ -6,11 +6,11 @@
 
 ## 1. What this project is
 
-**StoreMink** (storemink.com) is a multi-tenant, AI-powered commerce platform
-for Indian brands and retailers. Anyone can create an online store in minutes,
-then manage online and in-person commerce from one connected system. Its public
-positioning is **"Create your store. Sell everywhere. Grow with AI."** Every
-store gets:
+**StoreMink** (storemink.com) is a multi-tenant, AI-native business operating
+system for independent brands. It brings commerce, operations and intelligence
+together on one foundation. It competes in commerce software and retail
+technology, while the broader space is entrepreneurship infrastructure. Its
+public positioning is **"Build what's yours."** Every store gets:
 
 - A **storefront** on its own subdomain (`{slug}.storemink.com`) or a verified custom domain.
 - A full **admin dashboard** (`/dashboard`) to manage products, orders,

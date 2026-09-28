@@ -31,8 +31,8 @@ export function SiteFooter({ anchorBase = "" }: { anchorBase?: string }) {
             </span>
           </Link>
           <p>
-            {BRAND_TAGLINE} One connected platform for online and in-person
-            commerce.
+            {BRAND_TAGLINE} The AI-native business operating system for
+            independent brands.
           </p>
           <span>
             Made in India <Globe2 size={14} />

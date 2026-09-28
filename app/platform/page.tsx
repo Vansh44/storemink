@@ -525,22 +525,20 @@ export default async function StoreminkLanding() {
             <div className="smh-hero-wash" aria-hidden="true" />
             <div className="smh-container smh-hero-copy">
               <p className="smh-eyebrow">
-                <span>AI-powered</span> commerce, made for India{" "}
+                <span>AI-native</span> business platform, built in India{" "}
                 <ArrowRight size={13} />
               </p>
               <h1>
-                Create your store. <em>Sell everywhere.</em> Grow with AI.
+                Build <em>what&apos;s yours.</em>
               </h1>
               <p className="smh-hero-lead">
-                Create your online store in minutes, then manage products,
-                orders, customers, inventory, locations, online sales and POS
-                from one connected dashboard. Mink AI, currently in beta, helps
-                you understand your business and prepare everyday work using
-                simple prompts.
+                Turn your idea into a distinctive brand, a working business and
+                something that can grow. StoreMink brings your commerce,
+                operations and intelligence together in one place.
               </p>
               <div className="smh-hero-actions">
                 <Link href="/signup" className="smh-button smh-button-primary">
-                  Create your store free <ArrowRight size={17} />
+                  Start building free <ArrowRight size={17} />
                 </Link>
                 <a href="#platform" className="smh-button smh-button-soft">
                   Explore the platform
@@ -586,18 +584,15 @@ export default async function StoreminkLanding() {
 
           <section className="smh-intro" id="platform">
             <div className="smh-container">
-              <p className="smh-section-label">
-                The complete commerce platform
-              </p>
+              <p className="smh-section-label">One business operating system</p>
               <h2>
-                Everything your brand needs.
+                Everything behind your brand.
                 <br />
                 <em>Nothing to stitch together.</em>
               </h2>
               <p className="smh-section-lead">
-                Start with a storefront. Add a counter, a team and new locations
-                when you are ready. Your data stays in one place through every
-                stage.
+                Start with an idea. Build the brand, shape how it sells and run
+                the business behind it without outgrowing the platform.
               </p>
             </div>
           </section>
