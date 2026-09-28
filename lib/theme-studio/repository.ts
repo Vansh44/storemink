@@ -1140,7 +1140,9 @@ async function assertSpendHeadroom(
   actor: ThemeStudioActor,
   resolved: ReturnType<typeof resolveProviderForQueue>,
 ) {
-  if (resolved.provider === "fake") return;
+  if (resolved.provider === "fake" || resolved.dailySpendMicroUsd === null) {
+    return;
+  }
   const [row] = await db
     .select({
       spent: sql<string>`coalesce(sum((${themeStudioRuns.usage} ->> 'estimatedCostMicroUsd')::bigint), 0)`,

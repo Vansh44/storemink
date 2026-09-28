@@ -26,6 +26,7 @@ import {
   type ThemeStudioImageClient,
 } from "./image-provider";
 import {
+  THEME_ANCHOR_REDRAWS,
   THEME_IMAGE_PROBLEM_TEXT,
   THEME_IMAGE_REDRAWS,
   THEME_IMAGE_REVIEW_MODEL_KEY,
@@ -46,7 +47,9 @@ import { prepareSlotImage, type PreparedSlotImage } from "./slot-images";
 // ★ THE ANCHOR GATES THE RUN. Every later image is asked to match it, so if it
 // is refused, fails or is rejected by the reviewer, nothing else is attempted
 // — twenty images drawn without a shared look are twenty images that do not
-// belong together, and each one is paid for.
+// belong together, and each one is paid for. Because it gates everything and
+// is never shown in the store, it gets two redraws and only a person or the
+// wrong subject can reject it (image-review.ts, THEME_ANCHOR_REDRAWS).
 //
 // ★ A FAILED SLOT KEEPS ITS PLACEHOLDER. A refusal, an error, an image the
 // crop cannot use or one the reviewer rejects is recorded per slot and the run
@@ -280,7 +283,10 @@ export async function runThemeImageGeneration(
     reviewAnchor: string | null;
     reviewSet: string | null;
     allowUnprepared?: boolean;
+    /** Redraws after the first attempt; THEME_IMAGE_REDRAWS by default. */
+    redraws?: number;
   }): Promise<DrawResult> => {
+    const redraws = args.redraws ?? THEME_IMAGE_REDRAWS;
     // The best image so far with no blocking problem, and why an earlier
     // attempt was turned down.
     let fallback: Kept | null = null;
@@ -375,12 +381,12 @@ export async function runThemeImageGeneration(
       if (review.kind === "unavailable") return kept("unreviewed");
       if (review.problems.length === 0) return kept("passed");
 
-      if (isBlocking(review.problems)) {
+      if (isBlocking(review.problems, args.purpose)) {
         lastRejection = { problems: review.problems, note: review.note };
       } else {
         fallback = kept("flagged", review.problems, review.note);
       }
-      if (attempt > THEME_IMAGE_REDRAWS) {
+      if (attempt > redraws) {
         return settle(attempt, {
           status: "rejected",
           attempts: attempt,
@@ -433,6 +439,7 @@ export async function runThemeImageGeneration(
         reviewAnchor: null,
         reviewSet: null,
         allowUnprepared: true,
+        redraws: THEME_ANCHOR_REDRAWS,
       });
   if (anchorResult.status !== "kept") {
     return finish({

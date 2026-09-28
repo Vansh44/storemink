@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  THEME_STUDIO_LIMITS,
   canAdvanceThemePackageToCandidate,
   validateThemePackageV2,
 } from "./contracts";
@@ -135,8 +136,10 @@ describe("theme generation pipeline", () => {
     });
     expect(
       outcome.telemetry.calls.filter((c) => c.stage === "intent"),
-    ).toHaveLength(3);
-    expect(outcome.telemetry.repairs.intent).toBe(2);
+    ).toHaveLength(1 + THEME_STUDIO_LIMITS.repairAttempts);
+    expect(outcome.telemetry.repairs.intent).toBe(
+      THEME_STUDIO_LIMITS.repairAttempts,
+    );
   });
 
   it("repairs an invalid draft using the validator's issues", async () => {

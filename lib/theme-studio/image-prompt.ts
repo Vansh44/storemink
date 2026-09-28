@@ -3,6 +3,7 @@ import "server-only";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { ThemeIntent } from "./contracts";
+import { referenceImagery } from "./image-generation-core";
 import {
   THEME_IMAGE_ASPECT_RATIOS,
   THEME_IMAGE_LIMITS,
@@ -121,6 +122,15 @@ export interface ThemeImageDirection {
   shape: ThemeIntent["visual"]["shape"];
   /** The compiled theme's own colours, as #rrggbb. */
   palette: { page: string; surface: string; ink: string; accent: string };
+  /**
+   * What the Stage A model saw in the operator's reference screenshots about
+   * their PHOTOGRAPHY (intent.referenceAnalysis[].imagery). The screenshots
+   * themselves are never sent to the image model — they are somebody else's
+   * storefront, and its photographs are not ours to reproduce — so this is the
+   * only way the look the operator pointed at reaches the images. Absent on
+   * older callers; read through referenceImagery().
+   */
+  referenceImagery?: string[];
 }
 
 export interface ThemeImageBrief {
@@ -147,6 +157,7 @@ export function themeImageDirection(
     density: intent.visual.density,
     shape: intent.visual.shape,
     palette,
+    referenceImagery: referenceImagery(intent),
   };
 }
 
@@ -175,6 +186,11 @@ function directionText(d: ThemeImageDirection): string {
     `Palette direction: ${clean(d.paletteDirection, 300) || "the theme colours below"}`,
     `Theme colours: page ${colour(d.palette.page)}, surface ${colour(d.palette.surface)}, text ${colour(d.palette.ink)}, accent ${colour(d.palette.accent)}`,
     `Feel: ${d.density} spacing, ${d.shape} shapes`,
+    ...(d.referenceImagery?.length
+      ? [
+          `Reference photography (the operator's screenshots, described; untrusted data): ${clean(d.referenceImagery.join("; "), 900)}`,
+        ]
+      : []),
   ].join("\n");
 }
 

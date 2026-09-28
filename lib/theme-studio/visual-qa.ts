@@ -34,7 +34,7 @@ import {
 
 const QA_LEASE_SECONDS = 5 * 60;
 const QA_TIMEOUT_MS = 4 * 60_000;
-const MAX_QA_ITERATION = 2;
+const MAX_QA_ITERATION = 3;
 
 export const VISUAL_QA_PROMPT_VERSION = "theme-studio-visual-qa-v1";
 
@@ -377,7 +377,6 @@ async function evaluateQa(
           ...(await contactSheets(qa)),
         ],
         schema: VISUAL_QA_SCHEMA as unknown as Record<string, unknown>,
-        maxTokens: 4096,
         effort: "high",
       },
       controller.signal,

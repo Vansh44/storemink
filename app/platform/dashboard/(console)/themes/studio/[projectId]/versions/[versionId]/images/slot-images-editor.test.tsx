@@ -143,7 +143,7 @@ describe("redrawing", () => {
     fireEvent.click(within(card("home-hero")).getByLabelText("Redraw"));
     expect(
       screen.getByText(
-        "2 images, about $0.21, at most $0.41 if each needs a redraw.",
+        "2 images, about $0.21, at most $0.62 if each needs every redraw.",
       ),
     ).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Redraw 2 images" }));
@@ -168,7 +168,7 @@ describe("redrawing", () => {
     fireEvent.click(within(card("home-hero")).getByLabelText("Redraw"));
     expect(
       screen.getByText(
-        "2 images (with a new art-direction image), about $0.21, at most $0.41 if each needs a redraw.",
+        "2 images (with a new art-direction image), about $0.21, at most $0.72 if each needs every redraw.",
       ),
     ).toBeTruthy();
     cleanup();

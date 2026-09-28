@@ -163,6 +163,7 @@ describe("an image run in the run list", () => {
       }),
     );
     expect(summary).toEqual({
+      anchorRejection: null,
       redraw: true,
       slots: 6,
       generated: 3,
@@ -198,12 +199,33 @@ describe("reusing the art-direction image", () => {
     expect(redrawEstimate(2, true, prices)).toEqual({
       images: 2,
       expectedUsd: 0.21,
-      mostUsd: 0.41,
+      // Every slot drawn three times (THEME_IMAGE_REDRAWS = 2).
+      mostUsd: 0.62,
     });
     expect(redrawEstimate(2, false, prices)).toEqual({
       images: 3,
       expectedUsd: 0.31,
-      mostUsd: 0.62,
+      // …and a new anchor four times (THEME_ANCHOR_REDRAWS = 3).
+      mostUsd: 1.03,
+    });
+  });
+
+  it("names what the check found when it turned down the anchor", () => {
+    const summary = imageRunSummary(
+      run({
+        outcomeDetail: {
+          outcomes: [{ slotId: "a", status: "skipped" }],
+          anchorFailure: {
+            kind: "rejected",
+            problems: ["person", "made_up"],
+            note: "A hand holds the jar.",
+          },
+        },
+      }),
+    );
+    expect(summary?.anchorRejection).toEqual({
+      problems: ["person"],
+      note: "A hand holds the jar.",
     });
   });
 });

@@ -30,8 +30,8 @@ const REQUEST: ThemeImageRequest = {
 const CONFIG = {
   projectId: "p",
   location: "global",
-  modelKey: "gemini-3.1-flash-image" as const,
-  providerModel: "gemini-3.1-flash-image",
+  modelKey: "gemini-3-pro-image" as const,
+  providerModel: "gemini-3-pro-image",
 };
 
 const IMAGE = Buffer.from("fake-jpeg").toString("base64");
@@ -61,7 +61,7 @@ function status(code: number) {
 const signal = () => new AbortController().signal;
 
 describe("the image model registry", () => {
-  it("is off without a project, and defaults to Mink's model on the global endpoint", () => {
+  it("is off without a project, and defaults to the Pro image model on the global endpoint", () => {
     expect(getThemeStudioImageConfig({})).toBeNull();
     expect(getThemeStudioImageConfig({ GCP_PROJECT_ID: "p" })).toEqual(CONFIG);
   });
@@ -70,15 +70,18 @@ describe("the image model registry", () => {
     expect(
       getThemeStudioImageConfig({
         GCP_PROJECT_ID: "p",
-        THEME_STUDIO_IMAGE_MODEL: "gemini-3.1-flash-image-001",
+        THEME_STUDIO_IMAGE_MODEL: "gemini-3-pro-image-001",
       })?.providerModel,
-    ).toBe("gemini-3.1-flash-image-001");
-    expect(() =>
-      getThemeStudioImageConfig({
-        GCP_PROJECT_ID: "p",
-        THEME_STUDIO_IMAGE_MODEL: "gemini-3.1-flash-lite-image",
-      }),
-    ).toThrow(/model family/);
+    ).toBe("gemini-3-pro-image-001");
+    // The cheaper Flash image model is a different model, never a version.
+    for (const other of ["gemini-3.1-flash-image", "gemini-3-pro-image-lite"]) {
+      expect(() =>
+        getThemeStudioImageConfig({
+          GCP_PROJECT_ID: "p",
+          THEME_STUDIO_IMAGE_MODEL: other,
+        }),
+      ).toThrow(/model family/);
+    }
   });
 });
 
@@ -273,13 +276,13 @@ describe("the fake image client", () => {
 });
 
 describe("image cost", () => {
-  it("a 2K image is about ten cents at the list price", () => {
+  it("a 2K Pro image is about 13.5 cents at the list price", () => {
     expect(
-      estimateImageCostMicroUsd({ inputTokens: 0, outputTokens: 1680 }),
-    ).toBe(100_800);
+      estimateImageCostMicroUsd({ inputTokens: 0, outputTokens: 1120 }),
+    ).toBe(134_400);
     expect(
-      estimateImageCostMicroUsd({ inputTokens: 1_000, outputTokens: 1_680 }),
-    ).toBe(101_300);
+      estimateImageCostMicroUsd({ inputTokens: 1_000, outputTokens: 1_120 }),
+    ).toBe(136_400);
     expect(
       estimateImageCostMicroUsd({ inputTokens: -5, outputTokens: 0 }),
     ).toBe(0);

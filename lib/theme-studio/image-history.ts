@@ -1,4 +1,9 @@
-import { THEME_IMAGE_PROBLEMS, type ThemeImageProblem } from "./image-review";
+import {
+  THEME_ANCHOR_REDRAWS,
+  THEME_IMAGE_PROBLEMS,
+  THEME_IMAGE_REDRAWS,
+  type ThemeImageProblem,
+} from "./image-review";
 
 // ---------------------------------------------------------------------------
 // What the Studio screens show about generated images (Track 3.5), read from
@@ -52,6 +57,9 @@ export interface ImageRunSummary {
   unreviewed: number;
   imageCostMicroUsd: number;
   reviewCostMicroUsd: number;
+  /** Why the art-direction image was turned down, when that stopped the run:
+   *  the check's problems and its note, so the operator can see what it saw. */
+  anchorRejection: { problems: ThemeImageProblem[]; note: string } | null;
 }
 
 export interface StoredImageRun {
@@ -189,6 +197,23 @@ export function imageRunSummary(run: StoredImageRun): ImageRunSummary | null {
       (sum, r) => sum + num(r.estimatedCostMicroUsd),
       0,
     ),
+    anchorRejection: anchorRejectionOf(run.outcomeDetail),
+  };
+}
+
+function anchorRejectionOf(
+  detail: unknown,
+): ImageRunSummary["anchorRejection"] {
+  if (!isRec(detail) || !isRec(detail.anchorFailure)) return null;
+  const failure = detail.anchorFailure;
+  if (failure.kind !== "rejected") return null;
+  return {
+    problems: Array.isArray(failure.problems)
+      ? failure.problems.filter((p): p is ThemeImageProblem =>
+          PROBLEMS.has(p as string),
+        )
+      : [],
+    note: str(failure.note).slice(0, 300),
   };
 }
 
@@ -226,10 +251,14 @@ export function redrawEstimate(
   prices: { imageUsd: number; reviewUsd: number },
 ): { images: number; expectedUsd: number; mostUsd: number } {
   const images = count + (anchorReusable ? 0 : 1);
-  const once = images * (prices.imageUsd + prices.reviewUsd);
+  const each = prices.imageUsd + prices.reviewUsd;
+  const once = images * each;
+  const most =
+    once * (1 + THEME_IMAGE_REDRAWS) +
+    (anchorReusable ? 0 : each * (THEME_ANCHOR_REDRAWS - THEME_IMAGE_REDRAWS));
   return {
     images,
     expectedUsd: Math.round(once * 100) / 100,
-    mostUsd: Math.round(once * 2 * 100) / 100,
+    mostUsd: Math.round(most * 100) / 100,
   };
 }

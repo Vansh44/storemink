@@ -80,10 +80,12 @@ describe("Theme Studio config", () => {
     // Only allowlisted KEYS disable anything; a raw provider id is ignored.
     expect([...config.disabledModels]).toEqual(["gemini-3.1-pro"]);
     expect(config.dailySpendMicroUsd).toBe(12_500_000);
-    expect(getThemeStudioConfig({}).dailySpendMicroUsd).toBe(25_000_000);
-    expect(
-      getThemeStudioConfig({ THEME_STUDIO_DAILY_SPEND_USD: "-3" })
-        .dailySpendMicroUsd,
-    ).toBe(25_000_000);
+    // No ceiling unless one is set: unset, empty, "unlimited", zero or junk.
+    for (const raw of [undefined, "", "unlimited", "0", "-3", "lots"]) {
+      expect(
+        getThemeStudioConfig({ THEME_STUDIO_DAILY_SPEND_USD: raw })
+          .dailySpendMicroUsd,
+      ).toBeNull();
+    }
   });
 });

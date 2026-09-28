@@ -2,6 +2,7 @@ import "server-only";
 
 import {
   GoogleGenAI,
+  PartMediaResolutionLevel,
   ThinkingLevel,
   type GenerateContentResponse,
   type Part,
@@ -148,11 +149,24 @@ export function classifyProviderError(
   return "provider_unavailable";
 }
 
+/**
+ * ★ Every image is read at ULTRA_HIGH media resolution: 2,240 tokens per image
+ * instead of the default 1,120 (countTokens, gemini-3.8-flash, 2026-09-29), so
+ * a reference screenshot's small type, card spacing and photography, and the
+ * reviewer's view of a lettered label, are read at twice the detail. Accepted
+ * by both allowlisted models in a live call with a JSON schema and HIGH
+ * thinking. Cost is not the constraint here (owner, 2026-09-29).
+ */
 function toParts(request: StructuredRequest): Part[] {
   return request.content.map((block) =>
     block.type === "text"
       ? { text: block.text }
-      : { inlineData: { mimeType: block.mediaType, data: block.base64 } },
+      : {
+          inlineData: { mimeType: block.mediaType, data: block.base64 },
+          mediaResolution: {
+            level: PartMediaResolutionLevel.MEDIA_RESOLUTION_ULTRA_HIGH,
+          },
+        },
   );
 }
 

@@ -121,7 +121,11 @@ describe("Gemini on Vertex client", () => {
     expect(sent.model).toBe("gemini-3.1-pro-preview");
     expect(sent.contents[0].parts).toEqual([
       { text: "brief" },
-      { inlineData: { mimeType: "image/webp", data: "AAAA" } },
+      {
+        inlineData: { mimeType: "image/webp", data: "AAAA" },
+        // Every image is read at the most detailed resolution offered.
+        mediaResolution: { level: "MEDIA_RESOLUTION_ULTRA_HIGH" },
+      },
     ]);
     expect(sent.config).toMatchObject({
       systemInstruction: "system text",

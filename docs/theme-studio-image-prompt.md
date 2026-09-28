@@ -35,14 +35,14 @@ REFERENCE IMAGES
 {{reference_guidance}}
 
 SET RULES
-1. Follow the theme direction for mood, palette, light, surfaces, materials and camera style. The palette colours are the theme's own; let the backdrop, props and grade sit comfortably with them without turning the image into a flat colour field.
+1. Follow the theme direction for mood, palette, light, surfaces, materials and camera style. When it describes the photography of the operator's reference screenshots, match that photographic approach (setting, styling, light, crop and product presentation) while inventing your own products: never reproduce a specific photograph, product or brand from the references. The palette colours are the theme's own; let the backdrop, props and grade sit comfortably with them without turning the image into a flat colour field.
 2. The goods are fictional demonstration products for a theme preview. Invent believable, well-made, unbranded products that fit the store's industry. Never depict a real brand, a recognisable trademarked design, a celebrity product or a competitor's packaging.
 3. Photograph real-looking physical objects with believable scale, contact shadows, reflections and material texture. It must look shot, not rendered or pasted.
 4. Keep the whole subject inside the crop-safe area described in the composition, with breathing room on every edge, and extend the background naturally so a responsive crop never cuts the subject.
 
 OUTPUT RULES
 - One photograph only: not a collage, grid, contact sheet, split panel, mockup frame or design board.
-- No text of any kind in the pixels: no headlines, captions, prices, labels with words, logos, monograms, watermarks, signatures or UI. Packaging may carry simple abstract marks or blank labels only.
+- No text of any kind in the pixels: no headlines, captions, prices, labels with words, logos, monograms, watermarks, signatures or UI. Packaging may carry blank labels only: no embossed, engraved or printed marks, numbers, monograms or symbols on any product.
 - No people, faces, hands or body parts.
 - Crisp commercial quality: sharp edges, clean tonal detail, no blur, no compression artefacts, no smeared shapes, no obvious upscaling.
 - Avoid duplicated or malformed objects, floating items, clipped subjects and unrelated clutter.
