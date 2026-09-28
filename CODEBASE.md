@@ -4813,7 +4813,13 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     `validateConfig`, then `validateThemePackageV2`. Invalid output gets ≤2
     fresh single-turn repairs per stage and then FAILS the run
     (`invalid_output`); refusal, truncation and provider errors are terminal
-    with closed codes, and there is no model fallback. ★ A 429 is the one
+    with closed codes, and there is no model fallback. ★ Full Stage A/B theme
+    generation does not send `maxOutputTokens`, so the selected model can use
+    its model-defined output allowance; compact image-review and visual-QA
+    calls retain their own 4,096-token ceilings. The removed 16,000 Stage A
+    cap failed a live reference-analysis run after 12,080 thinking + 3,905
+    answer tokens because Gemini counts both against the same allowance. ★ A
+    429 is the one
     exception to "terminal": `rate-limit-backoff.ts` takes it away from the
     SDK's one-second retry and waits 15s/30s/60s/120s/120s (jittered, ≤6 min,
     never past the run's abort signal) — safe because Vertex refuses a 429

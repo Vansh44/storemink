@@ -104,8 +104,6 @@ export type GenerationOutcome =
       telemetry: GenerationTelemetry;
     };
 
-const STAGE_A_MAX_TOKENS = 16_000;
-const STAGE_B_MAX_TOKENS = 64_000;
 const MAX_QUESTIONS = 5;
 
 class Telemetry {
@@ -238,7 +236,6 @@ export async function runThemeGeneration(
         system: stageASystemPrompt(),
         content: [{ type: "text", text: userText }, ...images],
         schema: STAGE_A_ENVELOPE_SCHEMA,
-        maxTokens: STAGE_A_MAX_TOKENS,
         effort: "high",
       },
       telemetry,
@@ -353,7 +350,6 @@ export async function runThemeGeneration(
         system: stageBSystemPrompt(),
         content: [{ type: "text", text: userText }],
         schema: STAGE_B_DRAFT_SCHEMA,
-        maxTokens: STAGE_B_MAX_TOKENS,
         effort: "high",
       },
       telemetry,

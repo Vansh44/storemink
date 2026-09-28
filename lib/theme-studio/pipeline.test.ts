@@ -81,6 +81,26 @@ describe("theme generation pipeline", () => {
     }
   });
 
+  it("leaves full generation at the provider model's output allowance", async () => {
+    const seen: StructuredRequest[] = [];
+    const fake = createFakeModelClient(base);
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        seen.push(request);
+        return fake.generate(request, signal);
+      },
+    };
+
+    expect((await run(undefined, client)).kind).toBe("version");
+    const intent = seen.find((request) => request.stage === "intent")!;
+    const draft = seen.find((request) => request.stage === "draft")!;
+    expect(intent.effort).toBe("high");
+    expect(draft.effort).toBe("high");
+    expect(intent).not.toHaveProperty("maxTokens");
+    expect(draft).not.toHaveProperty("maxTokens");
+  });
+
   it("gives every page an SEO description the production validator accepts", async () => {
     // The offline draft leaves every seoDescription null, as a model may.
     const outcome = await run();

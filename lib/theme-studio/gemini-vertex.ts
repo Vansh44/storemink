@@ -226,7 +226,9 @@ export function createVertexModelClient(
           config: {
             abortSignal: signal,
             systemInstruction: request.system,
-            maxOutputTokens: request.maxTokens,
+            ...(request.maxTokens === undefined
+              ? {}
+              : { maxOutputTokens: request.maxTokens }),
             responseMimeType: "application/json",
             responseJsonSchema: request.schema,
             thinkingConfig: {

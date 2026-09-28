@@ -17,9 +17,11 @@ export interface StructuredRequest {
   system: string;
   content: ThemeStudioContentBlock[];
   schema: Record<string, unknown>;
-  maxTokens: number;
+  /** Omit to use the provider model's output allowance. Compact review tasks
+   * set an explicit ceiling; full theme generation deliberately does not. */
+  maxTokens?: number;
   /** Maps to the provider's thinking level. */
-  effort: "low" | "high";
+  effort: "high";
 }
 
 export interface ProviderUsage {

@@ -133,6 +133,19 @@ describe("Gemini on Vertex client", () => {
     expect(sent.config).not.toHaveProperty("tools");
   });
 
+  it("omits the provider output cap when the request has no app ceiling", async () => {
+    state.next = () => Promise.resolve(response());
+    const client = createVertexModelClient({
+      projectId: "p",
+      region: "global",
+    });
+
+    await client.generate({ ...request, maxTokens: undefined }, signal());
+
+    const sent = state.requests[0] as { config: Record<string, unknown> };
+    expect(sent.config).not.toHaveProperty("maxOutputTokens");
+  });
+
   it("reports cached tokens as a subset and thinking separately", async () => {
     state.next = () => Promise.resolve(response());
     const client = createVertexModelClient({

@@ -43,13 +43,18 @@ Phase 6 publication must refuse a package that still carries one.
 `lib/theme-studio/pipeline.ts` `runThemeGeneration` is pure over a model
 client — it touches no database; the worker records its outcome.
 
-| Stage | Input                                    | Output                                                              | Max tokens |
-| ----- | ---------------------------------------- | ------------------------------------------------------------------- | ---------- |
-| A     | project facts, brief history, references | `proceed` + intent, `clarify` + ≤5 questions, or `decline` + reason | 16,000     |
-| B     | project facts and the validated intent   | a theme **draft** the server compiles                               | 64,000     |
+| Stage | Input                                    | Output                                                              | Output allowance |
+| ----- | ---------------------------------------- | ------------------------------------------------------------------- | ---------------- |
+| A     | project facts, brief history, references | `proceed` + intent, `clarify` + ≤5 questions, or `decline` + reason | Model default    |
+| B     | project facts and the validated intent   | a theme **draft** the server compiles                               | Model default    |
 
 Both run with `thinkingConfig.thinkingLevel: HIGH`. Thought parts in the
-response are discarded before parsing; only the answer text is read.
+response are discarded before parsing; only the answer text is read. Gemini
+still counts those hidden thinking tokens against its output allowance. Full
+theme generation deliberately omits `maxOutputTokens`, allowing the selected
+model to use its model-defined allowance; the provider's hard output ceiling
+still applies. This replaced an explicit 16,000-token Stage A ceiling that was
+exhausted in production by 12,080 thinking tokens plus 3,905 answer tokens.
 
 **The model never writes a package.** Stage B returns a closed draft —
 palette, allowlisted fonts, shape, pages of `{type, configJson}` sections,
