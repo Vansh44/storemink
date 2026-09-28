@@ -539,7 +539,7 @@ uses `rich_text` instead.
 
 ## Track 5 — automated QA and self-critique
 
-**Implemented 2026-09-28, deployment-gated.** With both
+**Implemented 2026-09-28 and deployed 2026-09-29.** With both
 `THEME_STUDIO_CAPTURE_ENABLED=true` and `THEME_STUDIO_AUTO_QA_ENABLED=true`, a
 generation or revision remains internal while the worker automatically draws
 its imagery and captures its catalog pictures. The existing Chromium job then
@@ -562,8 +562,10 @@ version list before one of those terminal outcomes.
 
 The queue/evidence record is `theme_studio_visual_qa_runs`; migration
 `20260927_0144` also adds internal/operator visibility and QA state to versions,
-automation metadata to runs/captures, and `qa_screenshot` assets. Enable the
-capture worker first, then the auto-QA flag; Cloud Build defaults both off.
+automation metadata to runs/captures, and `qa_screenshot` assets. Dev and
+production now run the one-minute model worker and five-minute Chromium job;
+Cloud Build durably enables the real provider, capture and automatic QA after
+both workers completed their empty-queue smoke checks.
 
 Found while implementing: the original immutable-version trigger also blocked
 the one safe mutation this design needs. The migration replaces it with a

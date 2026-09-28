@@ -5867,6 +5867,69 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260927_0144_theme_studio_auto_qa",
+      "description": "Theme Studio hidden automatic imagery, responsive browser QA and bounded visual self-critique",
+      "file": "sql/20260927_0144_theme_studio_auto_qa.sql",
+      "transaction": true,
+      "requires": ["20260927_0143_theme_studio_captures"],
+      "verify": {
+        "tables": ["theme_studio_visual_qa_runs"],
+        "columns": [
+          "theme_studio_versions.visibility",
+          "theme_studio_versions.qa_status",
+          "theme_studio_versions.qa_iteration",
+          "theme_studio_runs.automatic",
+          "theme_studio_runs.qa_iteration",
+          "theme_studio_captures.automatic",
+          "theme_studio_captures.qa_iteration"
+        ],
+        "constraints": [
+          "theme_studio_versions_visibility_check",
+          "theme_studio_versions_qa_check",
+          "theme_studio_runs_qa_iteration_check",
+          "theme_studio_captures_qa_iteration_check",
+          "theme_studio_captures_shape_check",
+          "theme_studio_visual_qa_version_fkey",
+          "theme_studio_visual_qa_revision_run_fkey",
+          "theme_studio_visual_qa_status_check",
+          "theme_studio_visual_qa_shape_check",
+          "theme_studio_visual_qa_lifecycle_check",
+          "theme_studio_assets_purpose_check",
+          "theme_studio_events_type_check"
+        ],
+        "rlsTables": ["theme_studio_visual_qa_runs"],
+        "functions": [
+          "theme_studio_version_qa_guard()",
+          "theme_studio_capture_guard()",
+          "theme_studio_visual_qa_guard()"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "visual QA is service-only",
+            "sql": "select count(*)::text from information_schema.role_table_grants where table_schema = 'public' and table_name = 'theme_studio_visual_qa_runs' and grantee = 'app_user'",
+            "equals": "0"
+          },
+          {
+            "name": "visual QA queue indexes exist",
+            "sql": "select count(*)::text from pg_indexes where schemaname = 'public' and indexname in ('theme_studio_visual_qa_one_active', 'theme_studio_visual_qa_queue_idx', 'theme_studio_visual_qa_version_idx')",
+            "equals": "3"
+          },
+          {
+            "name": "QA screenshots are an asset purpose",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_assets_purpose_check' and pg_get_constraintdef(oid) like '%qa_screenshot%'",
+            "equals": "1"
+          },
+          {
+            "name": "automatic QA events are event types",
+            "sql": "select count(*)::text from pg_constraint where conname = 'theme_studio_events_type_check' and pg_get_constraintdef(oid) like '%auto_qa_failed%'",
+            "equals": "1"
+          }
+        ]
+      }
     }
   ]
 }

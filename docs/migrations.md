@@ -213,6 +213,7 @@ deploys; merging to `main` does the same for production.
 | Rail                                                              | What it stops                                                                               |
 | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
 | Checksummed ledger (`public.schema_migrations`)                   | an edited or unknown migration being applied                                                |
+| SQL-directory enrollment test                                     | a migration file shipping without a manifest entry, so deploy code outruns its schema       |
 | Advisory lock, bounded wait (`MIGRATION_LOCK_WAIT_SECONDS`, 300s) | two runners applying at once; an unbounded wait inside a build                              |
 | Primary key + one transaction per migration                       | double-apply, independently of the lock — a race loser's DDL rolls back with its ledger row |
 | `SET LOCAL lock_timeout` (`MIGRATION_LOCK_TIMEOUT_MS`, 5000ms)    | a migration queueing behind a live query and freezing the site                              |

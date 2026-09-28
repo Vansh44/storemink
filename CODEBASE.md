@@ -5259,13 +5259,14 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     another version became current, a reported error is retried once, a lease
     that lapses is claimed again up to two attempts, and a failed capture
     returns the project to `ready`. ★★ CAPTURE IS FAIL-CLOSED until the worker
-    exists: `THEME_STUDIO_CAPTURE_ENABLED` defaults false, the Images panel
+    exists: `THEME_STUDIO_CAPTURE_ENABLED` defaults false in code, the Images panel
     disables the control and names upload as the available path, and
     `queueThemeStudioCapture` independently refuses direct calls before any
-    queue/project state can change. Cloud Build's corresponding substitution
-    also defaults false. ⚠ The Cloud Run job and its schedule do NOT exist yet;
-    deploy both before enabling the flag. `docs/theme-studio-capture-job.md` is
-    the build, deploy and schedule runbook, and `npm run theme-studio:capture`
+    queue/project state can change. As of 2026-09-29, dev and production each
+    have a deployed Cloud Run capture job and five-minute schedule; both passed
+    empty-queue executions before Cloud Build's durable flag was enabled.
+    `docs/theme-studio-capture-job.md` is the build, deploy and schedule runbook,
+    and `npm run theme-studio:capture`
     runs it locally against the installed Chrome. ★ Preview storefronts now show the theme's
     own name as the brand (the store row keeps its version suffix), which the
     pictures need. Verified locally end to end with real Chrome: two captures,
@@ -5324,10 +5325,11 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     run and capture QA columns, the service-only visual queue, QA asset/event
     vocabularies and a narrow version guard: package, intent, lineage and
     digests remain immutable; only `internal/pending → operator/passed|failed`
-    is mutable. Both deployment substitutions default false; capture must be
-    deployed before auto QA. `docs/theme-studio-capture-job.md` is the shared
-    job runbook. Operator-only and no merchant workflow changes: no Help Centre
-    migration.
+    is mutable. As of 2026-09-29, dev and production run the one-minute model
+    worker and five-minute Chromium job, use a 1,200-second web-service timeout,
+    and enable `vertex-gemini`, capture and automatic QA through Cloud Build.
+    `docs/theme-studio-capture-job.md` is the shared job runbook. Operator-only
+    and no merchant workflow changes: no Help Centre migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and
@@ -14286,16 +14288,21 @@ npm run theme-studio:eval # Phase 0 golden set through the generation pipeline, 
   Sarvam Saaras v4 requires server-only **`SARVAM_API_KEY`**. The Cloud Run
   service account holds least-privilege **`roles/speech.client`** to call
   Speech-to-Text. Neither credential is exposed to the dashboard.
-  Theme Studio reads **`THEME_STUDIO_PROVIDER`** (default `fake`, the offline
+  Theme Studio reads **`THEME_STUDIO_PROVIDER`** (code default `fake`, the offline
   test provider; `vertex-gemini` sends new runs to the allowlisted models
   and must not be set until the dedicated worker job exists — §4
   `api/internal/theme-studio/runs`), **`THEME_STUDIO_GENERATION_ENABLED`**
   (`false` stops new Studio runs without affecting merchant Mink),
-  **`THEME_STUDIO_CAPTURE_ENABLED`** (default false; enables catalog-picture
+  **`THEME_STUDIO_CAPTURE_ENABLED`** (code default false; enables catalog-picture
   queueing only after the separate Chromium capture job and scheduler exist),
   **`THEME_STUDIO_DISABLED_MODELS`** (comma-separated model KEYS to switch
-  off) and **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
-  estimated-spend ceiling, default 25). Preview tokens are signed with
+  off), **`THEME_STUDIO_DAILY_SPEND_USD`** (per-operator rolling-24h
+  estimated-spend ceiling, default 25), and
+  **`THEME_STUDIO_AUTO_QA_ENABLED`** (code default false and effective only
+  with capture enabled). Cloud Build explicitly sets the provider to
+  `vertex-gemini` and enables generation, capture and automatic QA in dev and
+  production; both worker schedules were deployed and smoke-checked on
+  2026-09-29. Preview tokens are signed with
   **`THEME_STUDIO_PREVIEW_SECRET`** when set, otherwise with a key derived
   from `CRON_SECRET` under a purpose label; with neither, previews refuse.
   Acceptance evidence is bound to **`THEME_STUDIO_BUILD_ID`** when set,

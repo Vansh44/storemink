@@ -9,17 +9,17 @@
       }
     },
     "production": {
-      "fingerprint": "92a62834ac72be95860611e9ba7e16839bb400c1b9a6ac45419487bf28cea416",
+      "fingerprint": "8d8289f658a3d4e5731f5881f972de57adbbc2d9b996a3b7294d6d3d036b8f46",
       "ledger": {
-        "count": 99,
-        "digest": "a6458b092f5ae002ce6425dcd8ac743ba709b2c476f1b38b8b57b144b65ecbac"
+        "count": 154,
+        "digest": "12e7c84ef4761b8c84d9b0e01eaba756718f276d778e4f352491c4577db81b8c"
       }
     },
     "staging": {
-      "fingerprint": "92a62834ac72be95860611e9ba7e16839bb400c1b9a6ac45419487bf28cea416",
+      "fingerprint": "8d8289f658a3d4e5731f5881f972de57adbbc2d9b996a3b7294d6d3d036b8f46",
       "ledger": {
-        "count": 99,
-        "digest": "a6458b092f5ae002ce6425dcd8ac743ba709b2c476f1b38b8b57b144b65ecbac"
+        "count": 154,
+        "digest": "12e7c84ef4761b8c84d9b0e01eaba756718f276d778e4f352491c4577db81b8c"
       }
     }
   }

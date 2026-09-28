@@ -379,8 +379,9 @@ inherits staging's database, Firebase project, bucket and every secret name.
 | `_MINK_MAX_OUTPUT_TOKENS`                   | `2048`                                                              | `2048`                                                              | `2048`                                                           |
 | `_MINK_MAX_MODEL_RETRIES`                   | `1`                                                                 | `1`                                                                 | `1`                                                              |
 | `_MINK_RUN_TIMEOUT_SECONDS`                 | `180`                                                               | `180`                                                               | `180`                                                            |
-| `_THEME_STUDIO_CAPTURE_ENABLED`             | `false` until the capture job and scheduler exist                   | `false` until the capture job and scheduler exist                   | `false` until the capture job and scheduler exist                |
-| `_THEME_STUDIO_AUTO_QA_ENABLED`             | `false` until capture and the long model worker exist               | `false` until capture and the long model worker exist               | `false` until capture and the long model worker exist            |
+| `_THEME_STUDIO_PROVIDER`                    | `vertex-gemini` **←**                                               | _(no staging service)_                                              | `vertex-gemini`                                                  |
+| `_THEME_STUDIO_CAPTURE_ENABLED`             | `true` **←**                                                        | _(no staging service)_                                              | `true`                                                           |
+| `_THEME_STUDIO_AUTO_QA_ENABLED`             | `true` **←**                                                        | _(no staging service)_                                              | `true`                                                           |
 
 > **SARVAM_API_KEY is deliberately not in Secret Manager.** At the operator's
 > direction it is a regular Cloud Build trigger substitution and becomes a

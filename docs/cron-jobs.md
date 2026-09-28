@@ -130,6 +130,7 @@ gcloud builds submit --project storemink-prod --region global --config=cloudbuil
 | `storemink-mink-publications`       | `* * * * *`    | `https://storemink.com/api/cron/mink-publications`       |
 | `storemink-mink-workflows`          | `* * * * *`    | `https://storemink.com/api/cron/mink-workflows`          |
 | `storemink-theme-studio-runs`       | `* * * * *`    | `https://storemink.com/api/internal/theme-studio/runs`   |
+| `storemink-theme-studio-capture`    | `*/5 * * * *`  | Cloud Run Job execution API                              |
 
 > ⚠ **The table above is the INTENDED state. Measured live 2026-09-08 with
 > `gcloud scheduler jobs list --project storemink-prod --location asia-south1`,
@@ -183,13 +184,15 @@ failed 0`. Overlapping runs are safe because the endpoint is idempotent and
 > `email_campaign_recipients` and a schedule-aware `claim_email_batch` all exist
 > in the production database.
 >
-> The three absent jobs remain the documented-but-never-created failure this file
-> was written about, and `search-metrics`/`analytics-rollup` remain PAUSED.
+> The two unrelated absent jobs shown above remain the documented-but-never-created
+> failure this file was written about, and `search-metrics`/`analytics-rollup`
+> remain PAUSED. Theme Studio's model and capture schedules were added on
+> 2026-09-29.
 > **None of those were changed:** each needs its own decision about whether its
 > migrations and routes are actually deployed first.
 
-⚠ **`storemink-theme-studio-runs` does NOT exist yet, and it is the one job
-here with a different deadline.** It executes one Theme Studio model run per
+✅ **`storemink-theme-studio-runs` exists as of 2026-09-29, with a matching
+`-dev` schedule.** It executes one Theme Studio model run per
 call, and a run can take up to 20 minutes, so it needs an attempt deadline of
 **1,200 s** (Cloud Scheduler allows up to 1,800 s for HTTP targets), **no
 retries** (the next minute's call claims whatever is next, and retrying a
@@ -202,25 +205,23 @@ runs queue and wait; nothing is lost. The path is under `/api/internal/`, not
 `/api/cron/`, because it is a worker rather than a heartbeat. Full rollout list:
 `docs/mink-ai-theme-studio-phase3.md` §6.
 
-⚠ **The Theme Studio capture job (Track 3.6) is not a Scheduler → HTTP job
-and does NOT exist yet.** It is a Cloud Run JOB, `storemink-theme-studio-capture`,
+✅ **The Theme Studio capture job (Track 3.6) is deployed as of 2026-09-29.**
+It is a Cloud Run JOB, `storemink-theme-studio-capture`,
 with its own image (headless Chromium, `jobs/theme-studio-capture/`), executed
 by a Cloud Scheduler job every 5 minutes; each execution claims queued captures
 from `/api/internal/theme-studio/captures/claim` with `CRON_SECRET`, photographs
 the preview store and posts the pictures back, and exits at once when nothing is
-queued. The web deployment keeps `THEME_STUDIO_CAPTURE_ENABLED=false`, so the
-Images page disables the button and the server action refuses direct calls
-until the job and scheduler both exist; catalog pictures can still be uploaded
-by hand. After deploying both, set the environment's
-`_THEME_STUDIO_CAPTURE_ENABLED` Cloud Build substitution to `true`. Build,
-deploy and schedule: `docs/theme-studio-capture-job.md`.
+queued. Dev and production each have their own job and five-minute schedule,
+and both completed an empty-queue smoke execution before
+`THEME_STUDIO_CAPTURE_ENABLED=true` was enabled. Build, deploy and schedule:
+`docs/theme-studio-capture-job.md`.
 
 Track 5 reuses this job for automatic pre-review. An automatic claim also
 captures every preview surface at five widths and reports browser evidence;
 the long `/api/internal/theme-studio/runs` worker consumes the resulting visual
 QA queue and may enqueue a bounded revision. Enable
-`_THEME_STUDIO_AUTO_QA_ENABLED=true` only after both workers are live; it is
-ineffective while capture remains disabled.
+`_THEME_STUDIO_AUTO_QA_ENABLED=true` is enabled in dev and production now that
+both workers are live; it remains ineffective whenever capture is disabled.
 
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import {
   acquireMigrationLock,
@@ -43,6 +43,23 @@ describe("database migration controls", () => {
     // assertHealthyPlan throws, which stops apply, adopt AND verify until the
     // ledger is repaired by hand. An accidental deletion fails here first.
     expect(loaded.migrations.length).toBeGreaterThanOrEqual(98);
+
+    // ★ A SQL file that is not enrolled is not a migration. Cloud Build can
+    // report a successful migrate step while deploying code that expects the
+    // missing schema, because the runner intentionally reads only the
+    // manifest. Track 5 exposed this with 0144: the file shipped, the manifest
+    // stopped at 0143, and both worker routes failed at runtime. Pin the folder
+    // to the manifest so that omission cannot recur.
+    const sqlDirectory = path.join(path.dirname(loaded.path), "sql");
+    const sqlFiles = (await readdir(sqlDirectory))
+      .filter((file) => file.endsWith(".sql"))
+      .map((file) => path.join(sqlDirectory, file))
+      .sort();
+    const enrolledSql = loaded.migrations
+      .map((migration) => migration.sqlPath)
+      .filter((file) => path.dirname(file) === sqlDirectory)
+      .sort();
+    expect(enrolledSql).toEqual(sqlFiles);
 
     const byId = new Map(loaded.migrations.map((m) => [m.id, m]));
 

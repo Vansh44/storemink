@@ -1,5 +1,12 @@
 # Theme Studio capture job (Track 3.6)
 
+> **Deployment status (2026-09-29):** deployed and scheduled in dev and
+> production. `storemink-theme-studio-capture-dev` targets
+> `https://dev.storemink.com`; `storemink-theme-studio-capture` targets
+> `https://storemink.com`. Both schedules run every five minutes, both web
+> services have capture and automatic QA enabled, and empty-queue executions
+> completed successfully after migration `20260927_0144` was applied.
+
 Publication needs a theme's catalog card and two screenshots, and an image
 model cannot draw them: they are pictures of the storefront itself. The
 capture job opens a version's private preview store in headless Chromium,
@@ -64,6 +71,7 @@ gcloud builds submit jobs/theme-studio-capture \
 gcloud run jobs deploy storemink-theme-studio-capture \
   --project storemink-prod --region asia-south1 \
   --image asia-south1-docker.pkg.dev/storemink-prod/storemink/theme-studio-capture:latest \
+  --service-account storemink-run@storemink-prod.iam.gserviceaccount.com \
   --memory 2Gi --cpu 2 --task-timeout 600 --max-retries 0 \
   --set-env-vars APP_ORIGIN=https://storemink.com \
   --set-secrets CRON_SECRET=CRON_SECRET:latest
