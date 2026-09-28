@@ -4,6 +4,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, inArray, lte, max, sql } from "drizzle-orm";
 import {
   themeStudioAssets,
+  themeStudioCaptures,
   themeStudioMessages,
   themeStudioProjects,
   themeStudioRuns,
@@ -36,6 +37,7 @@ import {
   applyGeneratedImages,
   generatableSlots,
 } from "./image-generation-core";
+import { captureBlockers } from "./capture-core";
 import {
   runThemeImageGeneration,
   type ThemeImageReviewer,
@@ -47,6 +49,10 @@ import {
 } from "./image-models";
 import { describeSlots } from "./slot-images-core";
 import type { ThemeStudioImageClient } from "./image-provider";
+import {
+  THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
+  THEME_STUDIO_IMAGE_PROMPT_VERSION,
+} from "./image-provider";
 import { createVertexImageClient } from "./image-vertex";
 import {
   THEME_STUDIO_MODELS,
@@ -56,6 +62,7 @@ import {
 import { runThemeGeneration, type GenerationOutcome } from "./pipeline";
 import type { ThemeStudioModelClient } from "./provider";
 import { digestThemeStudioJson, recordThemeStudioEvent } from "./repository";
+import { runThemeStudioVisualQaWorker } from "./visual-qa";
 
 // ---------------------------------------------------------------------------
 // The Theme Studio run worker.
@@ -104,6 +111,9 @@ type ClaimedRun = {
   promptVersion: string;
   attemptCount: number;
   maxAttempts: number;
+  automatic: boolean;
+  qaIteration: number;
+  createdBy: string | null;
 };
 
 async function reapExhaustedLeases(db: Db): Promise<number> {
@@ -126,15 +136,26 @@ async function reapExhaustedLeases(db: Db): Promise<number> {
         lease_owner = NULL, lease_expires_at = NULL,
         finished_at = now(), updated_at = now()
     FROM expired WHERE r.id = expired.id
-    RETURNING r.id AS "id", r.project_id AS "projectId", r.status AS "status"
+    RETURNING r.id AS "id", r.project_id AS "projectId", r.status AS "status",
+              r.automatic AS "automatic", r.base_version_id AS "baseVersionId"
   `);
   const reaped = rows.rows as {
     id: string;
     projectId: string;
     status: "failed" | "cancelled";
+    automatic: boolean;
+    baseVersionId: string | null;
   }[];
   for (const run of reaped) {
-    await settleProjectWithoutVersion(db, run.projectId);
+    if (
+      !(await revealAutomaticBase(
+        db,
+        run,
+        run.status === "cancelled" ? "cancelled" : "lease_expired",
+      ))
+    ) {
+      await settleProjectWithoutVersion(db, run.projectId);
+    }
     await recordThemeStudioEvent(db, {
       projectId: run.projectId,
       runId: run.id,
@@ -181,10 +202,116 @@ async function claimRun(
               r.image_slot_ids AS "imageSlotIds",
               r.provider AS "provider", r.model_key AS "modelKey",
               r.provider_model AS "providerModel", r.prompt_version AS "promptVersion",
-              r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts"
+              r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts",
+              r.automatic AS "automatic", r.qa_iteration AS "qaIteration",
+              r.created_by AS "createdBy"
   `);
   const row = rows.rows[0] as ClaimedRun | undefined;
   return row ?? null;
+}
+
+function automaticImageProvider(run: ClaimedRun) {
+  if (run.provider === "fake") {
+    return {
+      providerModel: "fake",
+      promptVersion: THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
+    };
+  }
+  const image = getThemeStudioImageConfig();
+  return image
+    ? {
+        providerModel: image.providerModel,
+        promptVersion: THEME_STUDIO_IMAGE_PROMPT_VERSION,
+      }
+    : null;
+}
+
+async function queueAutomaticCapture(
+  db: Db,
+  run: ClaimedRun,
+  version: { id: string },
+  packageDigest: string,
+) {
+  const [capture] = await db
+    .insert(themeStudioCaptures)
+    .values({
+      projectId: run.projectId,
+      versionId: version.id,
+      packageDigest,
+      previousStatus: "generating",
+      idempotencyKey: `auto_capture_${run.id}`,
+      automatic: true,
+      qaIteration: run.qaIteration,
+      createdBy: run.createdBy,
+    })
+    .returning({ id: themeStudioCaptures.id });
+  await recordThemeStudioEvent(db, {
+    projectId: run.projectId,
+    runId: run.id,
+    actor: "worker",
+    eventType: "capture_requested",
+    detail: {
+      captureId: capture.id,
+      versionId: version.id,
+      automatic: true,
+      qaIteration: run.qaIteration,
+    },
+  });
+}
+
+async function queueAutomaticImages(
+  db: Db,
+  run: ClaimedRun,
+  version: { id: string },
+  packageDigest: string,
+  slots: number,
+): Promise<boolean> {
+  const resolved = automaticImageProvider(run);
+  if (!resolved) return false;
+  const [message] = await db
+    .insert(themeStudioMessages)
+    .values({
+      projectId: run.projectId,
+      kind: "images",
+      body: `Automatically generate images for ${slots} slot${slots === 1 ? "" : "s"} before visual QA.`,
+      referenceAssetIds: [],
+      createdBy: run.createdBy,
+    })
+    .returning({ id: themeStudioMessages.id });
+  const [imageRun] = await db
+    .insert(themeStudioRuns)
+    .values({
+      projectId: run.projectId,
+      messageId: message.id,
+      kind: "images",
+      baseVersionId: version.id,
+      basePackageDigest: packageDigest,
+      contextMessageIds: [],
+      provider: run.provider,
+      modelKey: run.modelKey,
+      providerModel: resolved.providerModel,
+      promptVersion: resolved.promptVersion,
+      idempotencyKey: `auto_images_${run.id}`,
+      maxAttempts: 1,
+      imageSlotIds: [],
+      automatic: true,
+      qaIteration: run.qaIteration,
+      createdBy: run.createdBy,
+    })
+    .returning({ id: themeStudioRuns.id });
+  await recordThemeStudioEvent(db, {
+    projectId: run.projectId,
+    runId: imageRun.id,
+    actor: "worker",
+    eventType: "images_requested",
+    detail: {
+      versionId: version.id,
+      slots,
+      automatic: true,
+      qaIteration: run.qaIteration,
+    },
+  });
+  return true;
 }
 
 /** Only legal from `generating`; a project in any other state is left alone. */
@@ -201,6 +328,51 @@ async function settleProjectWithoutVersion(db: Db, projectId: string) {
         eq(themeStudioProjects.status, "generating"),
       ),
     );
+}
+
+/** An automated child failed after its hidden base existed. Reveal that last
+ * complete base as a clearly failed QA result instead of stranding the
+ * project with no operator-visible outcome. */
+async function revealAutomaticBase(
+  db: Db,
+  run: Pick<ClaimedRun, "id" | "projectId" | "automatic" | "baseVersionId">,
+  errorCode: string,
+): Promise<boolean> {
+  if (!run.automatic || !run.baseVersionId) return false;
+  const revealed = await db
+    .update(themeStudioVersions)
+    .set({ visibility: "operator", qaStatus: "failed" })
+    .where(
+      and(
+        eq(themeStudioVersions.id, run.baseVersionId),
+        eq(themeStudioVersions.projectId, run.projectId),
+        eq(themeStudioVersions.visibility, "internal"),
+        eq(themeStudioVersions.qaStatus, "pending"),
+      ),
+    )
+    .returning({ id: themeStudioVersions.id });
+  if (revealed.length === 0) return false;
+  await db
+    .update(themeStudioProjects)
+    .set({
+      status: "ready",
+      currentVersionId: run.baseVersionId,
+      revision: sql`${themeStudioProjects.revision} + 1`,
+    })
+    .where(
+      and(
+        eq(themeStudioProjects.id, run.projectId),
+        eq(themeStudioProjects.status, "generating"),
+      ),
+    );
+  await recordThemeStudioEvent(db, {
+    projectId: run.projectId,
+    runId: run.id,
+    actor: "worker",
+    eventType: "auto_qa_failed",
+    detail: { versionId: run.baseVersionId, errorCode },
+  });
+  return true;
 }
 
 type RunInput = {
@@ -682,7 +854,7 @@ async function execute(run: ClaimedRun): Promise<Outcome> {
         facts: {
           name: input.project.name,
           themeId: input.project.themeId,
-          industries: input.project.industries,
+          industries: input.project.industries as ThemeIndustry[],
           catalogSizes: input.project.catalogSizes,
           requiredFeatures: input.project.requiredFeatures,
           baseThemeName,
@@ -802,7 +974,9 @@ async function finish(
         .update(themeStudioRuns)
         .set({ ...terminal, status: "failed", errorCode, outcomeDetail })
         .where(eq(themeStudioRuns.id, run.id));
-      if (project) await settleProjectWithoutVersion(db, run.projectId);
+      if (project && !(await revealAutomaticBase(db, run, errorCode))) {
+        await settleProjectWithoutVersion(db, run.projectId);
+      }
       await event("run_failed", { errorCode });
       return "failed" as const;
     };
@@ -813,7 +987,9 @@ async function finish(
         .update(themeStudioRuns)
         .set({ ...terminal, status: "cancelled" })
         .where(eq(themeStudioRuns.id, run.id));
-      await settleProjectWithoutVersion(db, run.projectId);
+      if (!(await revealAutomaticBase(db, run, "cancelled"))) {
+        await settleProjectWithoutVersion(db, run.projectId);
+      }
       await event("run_cancelled");
       return "cancelled";
     }
@@ -857,6 +1033,7 @@ async function finish(
       });
     }
     if (result.kind === "clarify") {
+      if (run.automatic) return failRun("auto_revision_clarified");
       await db
         .update(themeStudioRuns)
         .set({
@@ -908,6 +1085,16 @@ async function finish(
     }
     const intentDigest = digestThemeStudioJson(result.intent);
     const packageDigest = digestThemeStudioJson(result.package);
+    const automaticQa = run.automatic || getThemeStudioConfig().autoQaEnabled;
+    const automaticSlots = automaticQa
+      ? generatableSlots(result.package, result.intent).length
+      : 0;
+    if (run.automatic && !getThemeStudioConfig().autoQaEnabled) {
+      return failRun("auto_qa_disabled");
+    }
+    if (automaticSlots > 0 && !automaticImageProvider(run)) {
+      return failRun("image_provider_unavailable");
+    }
     const [version] = await db
       .insert(themeStudioVersions)
       .values({
@@ -921,6 +1108,13 @@ async function finish(
         intentDigest,
         packageJson: result.package,
         packageDigest,
+        ...(automaticQa
+          ? {
+              visibility: "internal",
+              qaStatus: "pending",
+              qaIteration: run.qaIteration,
+            }
+          : {}),
       })
       .returning({
         id: themeStudioVersions.id,
@@ -933,8 +1127,8 @@ async function finish(
     await db
       .update(themeStudioProjects)
       .set({
-        status: "ready",
-        currentVersionId: version.id,
+        status: automaticQa ? "generating" : "ready",
+        ...(automaticQa ? {} : { currentVersionId: version.id }),
         revision: project.revision + 1,
       })
       .where(eq(themeStudioProjects.id, run.projectId));
@@ -946,7 +1140,30 @@ async function finish(
       packageDigest,
       placeholders: result.placeholders.size,
       parentVersionId: run.baseVersionId ?? project.currentVersionId,
+      automaticQa,
+      qaIteration: run.qaIteration,
     });
+    if (automaticQa) {
+      await event("auto_qa_started", {
+        versionId: version.id,
+        qaIteration: run.qaIteration,
+      });
+      if (automaticSlots > 0) {
+        if (
+          !(await queueAutomaticImages(
+            db,
+            run,
+            version,
+            packageDigest,
+            automaticSlots,
+          ))
+        ) {
+          return failRun("image_provider_unavailable");
+        }
+      } else {
+        await queueAutomaticCapture(db, run, version, packageDigest);
+      }
+    }
     return "succeeded";
   });
 }
@@ -992,6 +1209,15 @@ async function finishImages(
     );
   }
   if (result.images.length === 0) return failRun("images_none", detail);
+  if (
+    run.automatic &&
+    result.outcomes.some((image) => image.status !== "generated")
+  ) {
+    return failRun("auto_images_incomplete", detail);
+  }
+  if (run.automatic && !getThemeStudioConfig().autoQaEnabled) {
+    return failRun("auto_qa_disabled", detail);
+  }
 
   const [{ latest }] = await db
     .select({ latest: max(themeStudioVersions.versionNumber) })
@@ -1012,6 +1238,9 @@ async function finishImages(
     THEME_STUDIO_IMAGE_MODEL_KEY,
   );
   if (!applied.ok) return failRun("images_package_invalid", detail);
+  if (run.automatic && captureBlockers(applied.value).length > 0) {
+    return failRun("auto_images_incomplete", detail);
+  }
 
   const store = async (
     image: ThemeImageRunResult["images"][number]["image"],
@@ -1069,6 +1298,13 @@ async function finishImages(
       intentDigest,
       packageJson: applied.value,
       packageDigest,
+      ...(run.automatic
+        ? {
+            visibility: "internal",
+            qaStatus: "pending",
+            qaIteration: run.qaIteration,
+          }
+        : {}),
     })
     .returning({
       id: themeStudioVersions.id,
@@ -1094,8 +1330,8 @@ async function finishImages(
   await db
     .update(themeStudioProjects)
     .set({
-      status: "ready",
-      currentVersionId: version.id,
+      status: run.automatic ? "generating" : "ready",
+      ...(run.automatic ? {} : { currentVersionId: version.id }),
       revision: project.revision + 1,
     })
     .where(eq(themeStudioProjects.id, run.projectId));
@@ -1109,7 +1345,12 @@ async function finishImages(
     imagesMissing: result.outcomes.filter((o) => o.status !== "generated")
       .length,
     parentVersionId: run.baseVersionId,
+    automaticQa: run.automatic,
+    qaIteration: run.qaIteration,
   });
+  if (run.automatic) {
+    await queueAutomaticCapture(db, run, version, packageDigest);
+  }
   return "succeeded";
 }
 
@@ -1165,6 +1406,12 @@ export async function runThemeStudioWorker(
     });
     // A requeued run is picked up again next pass, not in a tight loop.
     if (settled === "requeued") break;
+  }
+  if (Date.now() < deadline) {
+    const qa = await runThemeStudioVisualQaWorker({ providers });
+    if (qa.claimed > 0) {
+      logInfo("theme studio: visual QA settled", { ...qa });
+    }
   }
   return result;
 }

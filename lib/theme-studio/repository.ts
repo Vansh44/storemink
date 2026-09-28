@@ -170,6 +170,8 @@ export interface ThemeStudioVersionView {
   summary: string;
   assumptions: string[];
   hasPackage: boolean;
+  qaStatus: "not_required" | "passed" | "failed";
+  qaIteration: number;
   createdAt: string;
 }
 
@@ -261,7 +263,12 @@ export async function listThemeStudioProjects(): Promise<
         n: count(),
       })
       .from(themeStudioVersions)
-      .where(inArray(themeStudioVersions.projectId, ids))
+      .where(
+        and(
+          inArray(themeStudioVersions.projectId, ids),
+          eq(themeStudioVersions.visibility, "operator"),
+        ),
+      )
       .groupBy(themeStudioVersions.projectId);
     const activeBy = new Map(active.map((r) => [r.projectId, r.status]));
     const versionsBy = new Map(versions.map((r) => [r.projectId, Number(r.n)]));
@@ -424,10 +431,17 @@ export async function getThemeStudioProject(
         intentJson: themeStudioVersions.intentJson,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
+        qaStatus: themeStudioVersions.qaStatus,
+        qaIteration: themeStudioVersions.qaIteration,
         createdAt: themeStudioVersions.createdAt,
       })
       .from(themeStudioVersions)
-      .where(eq(themeStudioVersions.projectId, projectId))
+      .where(
+        and(
+          eq(themeStudioVersions.projectId, projectId),
+          eq(themeStudioVersions.visibility, "operator"),
+        ),
+      )
       .orderBy(desc(themeStudioVersions.versionNumber));
     const previews = await db
       .select({
@@ -520,6 +534,8 @@ export async function getThemeStudioProject(
             ? assumptions.filter((a): a is string => typeof a === "string")
             : [],
           hasPackage: v.packageDigest !== null,
+          qaStatus: v.qaStatus as ThemeStudioVersionView["qaStatus"],
+          qaIteration: v.qaIteration,
           createdAt: v.createdAt,
         };
       }),

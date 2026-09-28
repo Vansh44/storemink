@@ -65,7 +65,9 @@ describe("acceptance refusals before any database work", () => {
         runId: UUID,
         nonce: "x",
         evidence: {
-          samples: [{ viewport: "desktop", surface: "home", width: "1440" }],
+          samples: [
+            { viewport: "desktop1440", surface: "home", width: "1440" },
+          ],
         },
       }),
     ).rejects.toThrow(/measurement/);

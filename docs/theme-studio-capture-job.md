@@ -6,14 +6,21 @@ capture job opens a version's private preview store in headless Chromium,
 photographs its home page at the card, desktop and phone sizes, and posts the
 pictures back to the web app, which saves them as a new version.
 
-An operator starts a capture from a version's **Images** page ("Capture
-catalog pictures"). That only queues it. This job does the work.
+An operator can start a capture from a version's **Images** page ("Capture
+catalog pictures"). Track 5 also queues the same job automatically after its
+hidden image-generation step. In either case, this job does the browser work.
 
 The button and server action remain fail-closed until the web service has
 `THEME_STUDIO_CAPTURE_ENABLED=true`. Deploy the job and scheduler first, then
 set the corresponding `_THEME_STUDIO_CAPTURE_ENABLED` Cloud Build substitution
 to `true` for that environment and deploy the web service. Never enable the
 flag while either worker component is absent.
+
+Automatic pre-review is a second, stricter gate. Set
+`THEME_STUDIO_AUTO_QA_ENABLED=true` (Cloud Build substitution
+`_THEME_STUDIO_AUTO_QA_ENABLED`) only after capture is enabled and the long
+Theme Studio model worker is deployed. The runtime treats auto QA as disabled
+unless capture is enabled too.
 
 ## How it fits together
 
@@ -34,8 +41,8 @@ operator ── queue ──▶ web app (theme_studio_captures, project → gene
 - The capture cookie (`sm_studio_capture`) is signed like the preview grant
   and accepted by the preview gate only while its capture is `running` with an
   unexpired lease, for exactly that version (`lib/theme-studio/preview-access.ts`).
-- A capture holds the project like a run: one at a time, and it refuses to
-  finish if another version became current meanwhile.
+- A manual capture holds the current version. An automatic capture is bound to
+  an internal version and keeps the project generating until visual QA settles.
 - A reported error is retried once (a cold preview can time out); a lease that
   lapses is claimed again, up to two attempts; after that the capture fails and
   the project returns to `ready`.
@@ -82,6 +89,12 @@ gcloud scheduler jobs create http storemink-theme-studio-capture \
 The invoker needs `roles/run.invoker` on the job. An execution with nothing
 queued exits in a few seconds.
 
+For an automatic claim the same execution also visits every available home,
+shop, product, cart, content and not-found surface at 360, 390, 768, 1024 and
+1440 px. It returns raw layout/accessibility/performance measurements and a
+compressed full-page screenshot for each pair. The web app validates and
+stores that evidence; the browser job never decides pass or fail.
+
 ## Run it locally
 
 With the dev server running on port 3000 and the local database:
@@ -103,3 +116,6 @@ browser download is needed. Local captures hide Next's development badge.
 - The project's events include `capture_requested` then `capture_succeeded`
   (or `capture_failed` with a code; the Images page words each one).
 - `theme_studio_captures` holds the record; a finished row cannot change.
+- Automatic runs additionally write `theme_studio_visual_qa_runs` and events
+  `auto_qa_browser_finished`, then `auto_qa_passed`,
+  `auto_qa_revision_queued` or `auto_qa_failed`.

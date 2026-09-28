@@ -26,6 +26,9 @@ export interface ThemeStudioConfig {
   /** Catalog screenshots require the separately deployed Chromium job. This
    * stays off until that job and its scheduler are both live. */
   captureEnabled: boolean;
+  /** Full hidden generation → imagery → browser/vision QA pipeline. It is
+   * effective only when the Chromium capture worker is also enabled. */
+  autoQaEnabled: boolean;
 }
 
 export function getThemeStudioConfig(
@@ -44,13 +47,17 @@ export function getThemeStudioConfig(
       .filter((key): key is ThemeStudioModelKey => key !== null),
   );
   const spend = Number(env.THEME_STUDIO_DAILY_SPEND_USD);
+  const captureEnabled =
+    env.THEME_STUDIO_CAPTURE_ENABLED?.trim().toLowerCase() === "true";
   return {
     generationEnabled:
       env.THEME_STUDIO_GENERATION_ENABLED?.trim().toLowerCase() !== "false",
     provider,
     disabledModels,
-    captureEnabled:
-      env.THEME_STUDIO_CAPTURE_ENABLED?.trim().toLowerCase() === "true",
+    captureEnabled,
+    autoQaEnabled:
+      captureEnabled &&
+      env.THEME_STUDIO_AUTO_QA_ENABLED?.trim().toLowerCase() === "true",
     dailySpendMicroUsd: Math.round(
       (Number.isFinite(spend) && spend >= 0 ? spend : DEFAULT_DAILY_SPEND_USD) *
         1_000_000,

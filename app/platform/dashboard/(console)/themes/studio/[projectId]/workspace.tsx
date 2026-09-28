@@ -781,6 +781,20 @@ export function ProjectWorkspace({
                         preview open
                       </span>
                     ) : null}
+                    {v.qaStatus !== "not_required" ? (
+                      <span
+                        className={`ml-2 rounded-full px-2 py-0.5 text-xs font-normal ${
+                          v.qaStatus === "passed"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        auto QA {v.qaStatus}
+                        {v.qaIteration > 0
+                          ? ` · ${v.qaIteration} revision${v.qaIteration === 1 ? "" : "s"}`
+                          : ""}
+                      </span>
+                    ) : null}
                     {acceptance[v.id] ? (
                       <span
                         className={`ml-2 rounded-full px-2 py-0.5 text-xs font-normal ${ACCEPTANCE_CHIP[acceptance[v.id].status].tone}`}

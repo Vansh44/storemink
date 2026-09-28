@@ -18,6 +18,7 @@ import {
   renderedWithTheme,
   routeRenderFindings,
   securityFindings,
+  THEME_STUDIO_QA_VIEWPORTS,
   type AcceptanceAssetRow,
   type AcceptanceSurface,
   type BrowserSample,
@@ -385,13 +386,16 @@ describe("rendered routes", () => {
 
 function sample(overrides: Partial<BrowserSample> = {}): BrowserSample {
   return {
-    viewport: "desktop",
+    viewport: "desktop1440",
     surface: "home",
     path: "/",
     width: 1440,
     height: 900,
     overflowPx: 0,
     overflowOffenders: [],
+    clippedText: [],
+    smallTapTargets: [],
+    imageCropIssues: [],
     brokenImages: 0,
     violations: [],
     lcpMs: 900,
@@ -401,12 +405,14 @@ function sample(overrides: Partial<BrowserSample> = {}): BrowserSample {
 }
 
 function fullCoverage(surfaces: AcceptanceSurface[]): BrowserSample[] {
-  return (["desktop", "tablet", "mobile"] as const).flatMap((viewport) =>
+  return (
+    ["phone360", "phone390", "tablet768", "laptop1024", "desktop1440"] as const
+  ).flatMap((viewport) =>
     surfaces.map((surface) =>
       sample({
         viewport,
         surface,
-        width: THEME_STUDIO_VIEWPORTS[viewport].width,
+        width: THEME_STUDIO_QA_VIEWPORTS[viewport].width,
       }),
     ),
   );
@@ -426,7 +432,7 @@ describe("browser evidence", () => {
       { samples: [{ ...sample(), overflowPx: "0" }] },
       { samples: [{ ...sample(), violations: undefined }] },
       { samples: [{ ...sample(), violations: [{ id: "", nodes: 1 }] }] },
-      { samples: Array.from({ length: 19 }, () => sample()) },
+      { samples: Array.from({ length: 31 }, () => sample()) },
     ]) {
       expect(parseBrowserEvidence(bad).ok).toBe(false);
     }
@@ -507,6 +513,21 @@ describe("browser evidence", () => {
     ).toHaveLength(1);
     expect(statusOf(softGates, "browser.performance")).toBe("advisory");
     expect(acceptanceOutcome(softGates)).toBe("pass");
+  });
+
+  it("clipped text, undersized touch targets and extreme crops fail", () => {
+    const surfaces: AcceptanceSurface[] = ["home"];
+    const samples = fullCoverage(surfaces);
+    samples[0] = {
+      ...samples[0],
+      clippedText: [{ target: "h1.hero", clippedX: 12, clippedY: 0 }],
+      smallTapTargets: [{ target: "button.buy", width: 18, height: 20 }],
+      imageCropIssues: [{ target: "img.hero", retainedFraction: 0.2 }],
+    };
+    const gates = evaluateBrowserGates({ userAgent: "", samples }, surfaces);
+    expect(statusOf(gates, "browser.clipped_text")).toBe("fail");
+    expect(statusOf(gates, "browser.tap_targets")).toBe("fail");
+    expect(statusOf(gates, "browser.image_crops")).toBe("fail");
   });
 });
 

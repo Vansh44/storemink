@@ -36,9 +36,10 @@ import {
   type GateResult,
   type LinkCheckResult,
   type RouteFetchResult,
+  THEME_STUDIO_QA_VIEWPORTS,
 } from "./acceptance-gates";
 import { fetchInternalPageWithRetry } from "./acceptance-http";
-import { THEME_STUDIO_VIEWPORTS, validateThemePackageV2 } from "./contracts";
+import { validateThemePackageV2 } from "./contracts";
 import { openThemeStudioPreview, type PreviewPage } from "./preview";
 import {
   PREVIEW_COOKIE,
@@ -122,7 +123,7 @@ export interface AcceptanceBrowserPlan {
   origin: string;
   enterToken: string;
   pages: PreviewPage[];
-  viewports: typeof THEME_STUDIO_VIEWPORTS;
+  viewports: typeof THEME_STUDIO_QA_VIEWPORTS;
   expiresAt: string;
 }
 
@@ -568,7 +569,7 @@ export async function startThemeStudioAcceptance(
           origin: opened.origin,
           enterToken: opened.enterToken,
           pages: opened.pages,
-          viewports: THEME_STUDIO_VIEWPORTS,
+          viewports: THEME_STUDIO_QA_VIEWPORTS,
           expiresAt: "",
         };
       } else {

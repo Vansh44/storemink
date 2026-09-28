@@ -271,6 +271,18 @@ export async function runThemeGeneration(
         issuesA = ['A "clarify" decision must include at least one question.'];
         continue;
       }
+      // Track 4: a first-pass clarification about ordinary design choices is
+      // not shown to the operator. Give Stage A its own questions and one of
+      // the bounded repair turns, explicitly directing it back to the trusted
+      // industry pattern and an assumptions list. A repeated clarification is
+      // preserved: it is likely a genuinely missing or contradictory fact.
+      if (attempt === 0) {
+        issuesA = [
+          "Proceed using the trusted industry starting pattern. Resolve these questions with explicit assumptions unless a trusted project fact is missing or two hard requirements directly contradict: " +
+            questions.join(" | "),
+        ];
+        continue;
+      }
       return { kind: "clarify", questions, telemetry: telemetry.snapshot() };
     }
     if (envelope.decision === "decline") {
@@ -283,8 +295,21 @@ export async function runThemeGeneration(
     }
     const parsed = validateThemeIntent(normalizeIntent(envelope.intent));
     if (parsed.ok) {
-      intent = parsed.value;
-      break;
+      const indexes = parsed.value.referenceAnalysis
+        .map((item) => item.referenceIndex)
+        .sort((a, b) => a - b);
+      const expected = input.references.map((_, index) => index);
+      if (
+        indexes.length === expected.length &&
+        indexes.every((value, index) => value === expected[index])
+      ) {
+        intent = parsed.value;
+        break;
+      }
+      issuesA = [
+        `referenceAnalysis must contain exactly one item for each supplied reference image, with indexes ${expected.length ? expected.join(", ") : "(none)"}.`,
+      ];
+      continue;
     }
     issuesA = parsed.issues;
   }

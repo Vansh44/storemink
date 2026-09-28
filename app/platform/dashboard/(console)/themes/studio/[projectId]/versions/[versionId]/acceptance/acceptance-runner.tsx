@@ -20,13 +20,26 @@ import {
 //
 // ★ This page computes no verdict. It relays measurements; the server decides.
 
-type ViewportKey = "desktop" | "tablet" | "mobile";
+type ViewportKey =
+  | "phone360"
+  | "phone390"
+  | "tablet768"
+  | "laptop1024"
+  | "desktop1440";
 type Viewports = Record<ViewportKey, { width: number; height: number }>;
-const VIEWPORT_ORDER: ViewportKey[] = ["desktop", "tablet", "mobile"];
+const VIEWPORT_ORDER: ViewportKey[] = [
+  "phone360",
+  "phone390",
+  "tablet768",
+  "laptop1024",
+  "desktop1440",
+];
 const VIEWPORT_LABEL: Record<ViewportKey, string> = {
-  desktop: "Laptop",
-  tablet: "iPad",
-  mobile: "Mobile",
+  phone360: "Phone · 360px",
+  phone390: "Phone · 390px",
+  tablet768: "Tablet · 768px",
+  laptop1024: "Laptop · 1024px",
+  desktop1440: "Desktop · 1440px",
 };
 
 interface PlanPage {

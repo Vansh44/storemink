@@ -22,6 +22,7 @@ import { GRID_GAPS, PAGE_WIDTHS, SECTION_GAPS } from "@/lib/themes/page";
 import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
+  THEME_STUDIO_LIMITS,
   THEME_INTENT_SCHEMA_VERSION,
 } from "./contracts";
 
@@ -30,7 +31,7 @@ import {
 //
 // Gemini's responseJsonSchema accepts a SUBSET of JSON Schema: types including
 // `null`, `properties`, `required`, `additionalProperties`, `anyOf`, `enum`,
-// `items`, item counts and numeric bounds — but not `minLength`, `maxLength`,
+// `items` and item counts — but not string or numeric bounds,
 // `pattern`, `allOf` or `oneOf`, and "very large or deeply nested schemas may be
 // rejected". So every object is closed and nothing leans on string rules; these
 // are the STRUCTURAL guarantee only. `validateThemeIntent`,
@@ -102,6 +103,32 @@ const responsiveBreakpoint = obj({
   media: str,
 });
 
+const referenceAnalysis = obj({
+  referenceIndex: {
+    type: "integer",
+    enum: Array.from(
+      { length: THEME_STUDIO_LIMITS.referenceImages },
+      (_, index) => index,
+    ),
+  },
+  pageKind: enumOf([
+    "home",
+    "collection",
+    "product",
+    "cart",
+    "content",
+    "other",
+  ]),
+  structure: strList,
+  hierarchy: strList,
+  palette: strList,
+  typography: strList,
+  imagery: strList,
+  responsiveClues: strList,
+  patternsToUse: strList,
+  copyingToAvoid: strList,
+});
+
 export const STAGE_A_INTENT_SCHEMA: Schema = obj({
   schemaVersion: { type: "integer", enum: [THEME_INTENT_SCHEMA_VERSION] },
   summary: str,
@@ -153,6 +180,7 @@ export const STAGE_A_INTENT_SCHEMA: Schema = obj({
       source: enumOf(["operator", "curated", "generate"]),
     }),
   },
+  referenceAnalysis: { type: "array", items: referenceAnalysis },
   assumptions: strList,
   capabilityGaps: { type: "array", items: capabilityGap },
 });
