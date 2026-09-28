@@ -1,13 +1,15 @@
 import "server-only";
 
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { and, desc, eq, max, sql } from "drizzle-orm";
+import sharp from "sharp";
 import {
   platformAdmins,
   themeStudioAssets,
   themeStudioCaptures,
   themeStudioProjects,
   themeStudioVersions,
+  themeStudioVisualQaRuns,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import { logError } from "@/lib/observability/logger";
@@ -34,6 +36,12 @@ import {
 import { prepareSlotImage } from "./slot-images";
 import type { SlotImageRow } from "./slot-images-core";
 import { getThemeStudioConfig } from "./config";
+import {
+  THEME_STUDIO_QA_VIEWPORTS,
+  type BrowserEvidence,
+  evaluateBrowserGates,
+  parseBrowserEvidence,
+} from "./acceptance-gates";
 
 // ---------------------------------------------------------------------------
 // Track 3.6: capturing a version's catalog card and screenshots.
@@ -68,6 +76,7 @@ export const CAPTURE_LEASE_SECONDS = 10 * 60;
 /** The largest picture the job may post, before cropping. A 3× phone shot of
  *  a long page is the biggest and is a few megabytes as PNG. */
 export const MAX_CAPTURE_BYTES = 15 * 1024 * 1024;
+export const MAX_QA_SCREENSHOT_BYTES = 512 * 1024;
 
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_-]{16,80}$/;
 const CODE_RE = /^[a-z0-9_]{1,64}$/;
@@ -91,6 +100,10 @@ export interface ClaimedCapture {
   origin: string;
   cookie: { name: string; value: string };
   shots: Omit<CaptureShot, "target" | "byteLimit" | "alt">[];
+  qa?: {
+    pages: { surface: string; path: string }[];
+    viewports: typeof THEME_STUDIO_QA_VIEWPORTS;
+  };
 }
 
 // ── Queue ────────────────────────────────────────────────────────────────
@@ -234,7 +247,7 @@ type CaptureRow = typeof themeStudioCaptures.$inferSelect;
  */
 async function failCapture(
   db: Db,
-  capture: Pick<CaptureRow, "id" | "projectId" | "versionId">,
+  capture: Pick<CaptureRow, "id" | "projectId" | "versionId" | "automatic">,
   errorCode: string,
 ): Promise<void> {
   const code = CODE_RE.test(errorCode) ? errorCode : "capture_failed";
@@ -248,19 +261,45 @@ async function failCapture(
       leaseExpiresAt: null,
     })
     .where(eq(themeStudioCaptures.id, capture.id));
-  await db
-    .update(themeStudioProjects)
-    .set({
-      status: "ready",
-      revision: sql`${themeStudioProjects.revision} + 1`,
-    })
-    .where(
-      and(
-        eq(themeStudioProjects.id, capture.projectId),
-        eq(themeStudioProjects.status, "generating"),
-        eq(themeStudioProjects.currentVersionId, capture.versionId),
-      ),
-    );
+  if (capture.automatic) {
+    await db
+      .update(themeStudioVersions)
+      .set({ visibility: "operator", qaStatus: "failed" })
+      .where(
+        and(
+          eq(themeStudioVersions.id, capture.versionId),
+          eq(themeStudioVersions.visibility, "internal"),
+          eq(themeStudioVersions.qaStatus, "pending"),
+        ),
+      );
+    await db
+      .update(themeStudioProjects)
+      .set({
+        status: "ready",
+        currentVersionId: capture.versionId,
+        revision: sql`${themeStudioProjects.revision} + 1`,
+      })
+      .where(
+        and(
+          eq(themeStudioProjects.id, capture.projectId),
+          eq(themeStudioProjects.status, "generating"),
+        ),
+      );
+  } else {
+    await db
+      .update(themeStudioProjects)
+      .set({
+        status: sql`CASE WHEN ${themeStudioProjects.currentVersionId} IS NULL THEN 'failed' ELSE 'ready' END`,
+        revision: sql`${themeStudioProjects.revision} + 1`,
+      })
+      .where(
+        and(
+          eq(themeStudioProjects.id, capture.projectId),
+          eq(themeStudioProjects.status, "generating"),
+          eq(themeStudioProjects.currentVersionId, capture.versionId),
+        ),
+      );
+  }
   await recordThemeStudioEvent(db, {
     projectId: capture.projectId,
     actor: "worker",
@@ -384,6 +423,14 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
       deviceScaleFactor: shot.deviceScaleFactor,
       mobile: shot.mobile,
     })),
+    ...(capture.automatic
+      ? {
+          qa: {
+            pages: opened.pages.map(({ surface, path }) => ({ surface, path })),
+            viewports: THEME_STUDIO_QA_VIEWPORTS,
+          },
+        }
+      : {}),
   };
 }
 
@@ -426,6 +473,16 @@ export async function finishThemeStudioCapture(input: {
   captureId: string;
   leaseToken: string;
   images?: { slotId: string; bytes: Uint8Array }[];
+  qa?: {
+    evidence: unknown;
+    screenshots: {
+      key: string;
+      viewport: string;
+      surface: string;
+      path: string;
+      bytes: Uint8Array;
+    }[];
+  };
   error?: string;
 }): Promise<CaptureFinish> {
   if (!isUuid(input.captureId) || !isUuid(input.leaseToken)) {
@@ -477,6 +534,74 @@ export async function finishThemeStudioCapture(input: {
   if (!parsed?.ok || !version) return failNow("base_invalid");
   const pkg: ThemePackageV2 = parsed.value;
 
+  const qaEvidence = capture.automatic
+    ? parseBrowserEvidence(input.qa?.evidence)
+    : null;
+  if (capture.automatic && (!qaEvidence || !qaEvidence.ok)) {
+    return failNow("qa_report_invalid");
+  }
+  const qaScreenshots = input.qa?.screenshots ?? [];
+  const expectedQaKeys =
+    qaEvidence?.ok === true
+      ? qaEvidence.value.samples.map(
+          (sample) => `${sample.viewport}:${sample.surface}`,
+        )
+      : [];
+  if (
+    capture.automatic &&
+    (qaScreenshots.length === 0 ||
+      qaScreenshots.length > 30 ||
+      qaScreenshots.length !== expectedQaKeys.length ||
+      new Set(qaScreenshots.map((shot) => shot.key)).size !==
+        qaScreenshots.length ||
+      qaScreenshots.some((shot) => !expectedQaKeys.includes(shot.key)) ||
+      qaScreenshots.some(
+        (shot) =>
+          shot.bytes.byteLength === 0 ||
+          shot.bytes.byteLength > MAX_QA_SCREENSHOT_BYTES,
+      ))
+  ) {
+    return failNow("qa_screenshots_invalid");
+  }
+  const preparedQa: {
+    key: string;
+    bytes: Buffer;
+    width: number;
+    height: number;
+    sha256: string;
+    originalByteSize: number;
+  }[] = [];
+  if (capture.automatic) {
+    try {
+      for (const shot of qaScreenshots) {
+        const originalByteSize = shot.bytes.byteLength;
+        const { data, info } = await sharp(shot.bytes, {
+          failOn: "warning",
+          limitInputPixels: 50_000_000,
+        })
+          .rotate()
+          .resize({
+            width: 4096,
+            height: 4096,
+            fit: "inside",
+            withoutEnlargement: true,
+          })
+          .webp({ quality: 72 })
+          .toBuffer({ resolveWithObject: true });
+        preparedQa.push({
+          key: shot.key,
+          bytes: data,
+          width: info.width,
+          height: info.height,
+          sha256: createHash("sha256").update(data).digest("hex"),
+          originalByteSize,
+        });
+      }
+    } catch {
+      return failNow("qa_screenshot_unusable");
+    }
+  }
+
   // Exactly the shots that were asked for, each re-processed like an upload.
   const shots = captureShots(pkg);
   const bySlot = new Map(input.images.map((i) => [i.slotId, i.bytes]));
@@ -514,7 +639,7 @@ export async function finishThemeStudioCapture(input: {
     if (!held || !project) return { status: "lost" };
     if (
       project.status !== "generating" ||
-      project.currentVersionId !== held.versionId
+      (!held.automatic && project.currentVersionId !== held.versionId)
     ) {
       await failCapture(db, held, "project_state_changed");
       return { status: "failed", errorCode: "project_state_changed" };
@@ -593,16 +718,102 @@ export async function finishThemeStudioCapture(input: {
         intentDigest: version.intentDigest,
         packageJson: applied.value,
         packageDigest: digestThemeStudioJson(applied.value),
+        ...(held.automatic
+          ? {
+              visibility: "internal",
+              qaStatus: "pending",
+              qaIteration: held.qaIteration,
+            }
+          : {}),
       })
       .returning({ id: themeStudioVersions.id });
-    await db
-      .update(themeStudioProjects)
-      .set({
-        status: "ready",
-        currentVersionId: created.id,
-        revision: project.revision + 1,
-      })
-      .where(eq(themeStudioProjects.id, project.id));
+    const packageDigest = digestThemeStudioJson(applied.value);
+    if (held.automatic) {
+      const screenshotAssetIds: string[] = [];
+      for (const shot of preparedQa) {
+        const [inserted] = await db
+          .insert(themeStudioAssets)
+          .values({
+            projectId: project.id,
+            purpose: "qa_screenshot",
+            mediaType: "image/webp",
+            bytes: shot.bytes,
+            byteSize: shot.bytes.byteLength,
+            width: shot.width,
+            height: shot.height,
+            sha256: shot.sha256,
+            originalMediaType: "image/jpeg",
+            originalByteSize: shot.originalByteSize,
+            createdBy: held.createdBy,
+          })
+          .onConflictDoNothing({
+            target: [themeStudioAssets.projectId, themeStudioAssets.sha256],
+          })
+          .returning({ id: themeStudioAssets.id });
+        const [existing] = inserted
+          ? [inserted]
+          : await db
+              .select({
+                id: themeStudioAssets.id,
+                purpose: themeStudioAssets.purpose,
+              })
+              .from(themeStudioAssets)
+              .where(
+                and(
+                  eq(themeStudioAssets.projectId, project.id),
+                  eq(themeStudioAssets.sha256, shot.sha256),
+                ),
+              )
+              .limit(1);
+        if (
+          !existing ||
+          ("purpose" in existing && existing.purpose !== "qa_screenshot")
+        ) {
+          await failCapture(db, held, "qa_asset_conflict");
+          return { status: "failed", errorCode: "qa_asset_conflict" };
+        }
+        screenshotAssetIds.push(existing.id);
+      }
+      const evidence = (qaEvidence as { ok: true; value: BrowserEvidence })
+        .value;
+      const surfaces = [...new Set(evidence.samples.map((s) => s.surface))];
+      const gates = evaluateBrowserGates(evidence, surfaces);
+      await db.insert(themeStudioVisualQaRuns).values({
+        projectId: project.id,
+        versionId: created.id,
+        packageDigest,
+        qaIteration: held.qaIteration,
+        browserReport: { evidence, gates, surfaces },
+        screenshotAssetIds,
+        createdBy: held.createdBy,
+      });
+      await db
+        .update(themeStudioProjects)
+        .set({ status: "generating", revision: project.revision + 1 })
+        .where(eq(themeStudioProjects.id, project.id));
+      await recordThemeStudioEvent(db, {
+        projectId: project.id,
+        actor: "worker",
+        eventType: "auto_qa_browser_finished",
+        detail: {
+          captureId: held.id,
+          versionId: created.id,
+          samples: evidence.samples.length,
+          failedGates: gates
+            .filter((gate) => gate.required && gate.status !== "pass")
+            .map((gate) => gate.id),
+        },
+      });
+    } else {
+      await db
+        .update(themeStudioProjects)
+        .set({
+          status: "ready",
+          currentVersionId: created.id,
+          revision: project.revision + 1,
+        })
+        .where(eq(themeStudioProjects.id, project.id));
+    }
     await db
       .update(themeStudioCaptures)
       .set({

@@ -145,6 +145,21 @@ export interface ThemeIntent {
     artDirection: string;
     source: "operator" | "curated" | "generate";
   }[];
+  /** One bounded, structured reading for every supplied screenshot, in the
+   * same order as the immutable reference ids on the message. Legacy intents
+   * validate to an empty list. */
+  referenceAnalysis: {
+    referenceIndex: number;
+    pageKind: "home" | "collection" | "product" | "cart" | "content" | "other";
+    structure: string[];
+    hierarchy: string[];
+    palette: string[];
+    typography: string[];
+    imagery: string[];
+    responsiveClues: string[];
+    patternsToUse: string[];
+    copyingToAvoid: string[];
+  }[];
   assumptions: string[];
   capabilityGaps: ThemeCapabilityGap[];
 }
@@ -264,6 +279,7 @@ const ROOT_INTENT_KEYS = [
   "pagePlans",
   "responsive",
   "assetBriefs",
+  "referenceAnalysis",
   "assumptions",
   "capabilityGaps",
 ] as const;
@@ -769,6 +785,131 @@ export function validateThemeIntent(
     }
   }
 
+  const referenceAnalysis: ThemeIntent["referenceAnalysis"] = [];
+  // The field was added without changing schemaVersion so stored Track 0–3
+  // intents remain readable. New provider responses are required to include it
+  // by the JSON schema below; an absent field is only the legacy empty form.
+  if (input.referenceAnalysis !== undefined) {
+    if (!Array.isArray(input.referenceAnalysis)) {
+      issues.push("referenceAnalysis must be an array.");
+    } else if (
+      input.referenceAnalysis.length > THEME_STUDIO_LIMITS.referenceImages
+    ) {
+      issues.push(
+        `referenceAnalysis allows at most ${THEME_STUDIO_LIMITS.referenceImages} items.`,
+      );
+    } else {
+      const seen = new Set<number>();
+      for (const [index, raw] of input.referenceAnalysis.entries()) {
+        if (!isRecord(raw)) {
+          issues.push(`referenceAnalysis[${index}] must be an object.`);
+          continue;
+        }
+        rejectUnknownKeys(
+          raw,
+          [
+            "referenceIndex",
+            "pageKind",
+            "structure",
+            "hierarchy",
+            "palette",
+            "typography",
+            "imagery",
+            "responsiveClues",
+            "patternsToUse",
+            "copyingToAvoid",
+          ],
+          `referenceAnalysis[${index}]`,
+          issues,
+        );
+        const referenceIndex =
+          typeof raw.referenceIndex === "number" &&
+          Number.isInteger(raw.referenceIndex) &&
+          raw.referenceIndex >= 0 &&
+          raw.referenceIndex < THEME_STUDIO_LIMITS.referenceImages
+            ? raw.referenceIndex
+            : null;
+        if (referenceIndex === null) {
+          issues.push(
+            `referenceAnalysis[${index}].referenceIndex must be an integer from 0 to ${THEME_STUDIO_LIMITS.referenceImages - 1}.`,
+          );
+        } else if (seen.has(referenceIndex)) {
+          issues.push(
+            `referenceAnalysis repeats referenceIndex ${referenceIndex}.`,
+          );
+        } else {
+          seen.add(referenceIndex);
+        }
+        const pageKind = enumValue(
+          raw.pageKind,
+          [
+            "home",
+            "collection",
+            "product",
+            "cart",
+            "content",
+            "other",
+          ] as const,
+          `referenceAnalysis[${index}].pageKind`,
+          issues,
+        );
+        const lists = {
+          structure: stringList(
+            raw.structure,
+            `referenceAnalysis[${index}].structure`,
+            issues,
+            { max: 12, itemMax: 240 },
+          ),
+          hierarchy: stringList(
+            raw.hierarchy,
+            `referenceAnalysis[${index}].hierarchy`,
+            issues,
+            { max: 12, itemMax: 240 },
+          ),
+          palette: stringList(
+            raw.palette,
+            `referenceAnalysis[${index}].palette`,
+            issues,
+            { max: 12, itemMax: 160 },
+          ),
+          typography: stringList(
+            raw.typography,
+            `referenceAnalysis[${index}].typography`,
+            issues,
+            { max: 12, itemMax: 200 },
+          ),
+          imagery: stringList(
+            raw.imagery,
+            `referenceAnalysis[${index}].imagery`,
+            issues,
+            { max: 12, itemMax: 240 },
+          ),
+          responsiveClues: stringList(
+            raw.responsiveClues,
+            `referenceAnalysis[${index}].responsiveClues`,
+            issues,
+            { max: 12, itemMax: 240 },
+          ),
+          patternsToUse: stringList(
+            raw.patternsToUse,
+            `referenceAnalysis[${index}].patternsToUse`,
+            issues,
+            { max: 12, itemMax: 240 },
+          ),
+          copyingToAvoid: stringList(
+            raw.copyingToAvoid,
+            `referenceAnalysis[${index}].copyingToAvoid`,
+            issues,
+            { max: 12, itemMax: 240 },
+          ),
+        };
+        if (referenceIndex !== null && pageKind) {
+          referenceAnalysis.push({ referenceIndex, pageKind, ...lists });
+        }
+      }
+    }
+  }
+
   const assumptions = stringList(input.assumptions, "assumptions", issues, {
     max: THEME_STUDIO_LIMITS.assumptions,
     itemMax: 400,
@@ -800,6 +941,7 @@ export function validateThemeIntent(
       pagePlans,
       responsive,
       assetBriefs,
+      referenceAnalysis,
       assumptions,
       capabilityGaps,
     },
@@ -1843,6 +1985,10 @@ export const THEME_INTENT_JSON_SCHEMA = {
     pagePlans: { type: "array", minItems: 1, maxItems: SURFACES.length },
     responsive: { type: "object" },
     assetBriefs: { type: "array", maxItems: THEME_STUDIO_LIMITS.assetBriefs },
+    referenceAnalysis: {
+      type: "array",
+      maxItems: THEME_STUDIO_LIMITS.referenceImages,
+    },
     assumptions: { type: "array", maxItems: THEME_STUDIO_LIMITS.assumptions },
     capabilityGaps: {
       type: "array",

@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { logError } from "@/lib/observability/logger";
 import {
   MAX_CAPTURE_BYTES,
+  MAX_QA_SCREENSHOT_BYTES,
   finishThemeStudioCapture,
 } from "@/lib/theme-studio/capture";
 import { cronAuthorized } from "../auth";
@@ -17,7 +18,10 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
 /** Three JPEG shots, base64 in JSON, with room to spare. */
-const MAX_BODY_BYTES = 3 * Math.ceil((MAX_CAPTURE_BYTES * 4) / 3) + 64 * 1024;
+const MAX_BODY_BYTES =
+  3 * Math.ceil((MAX_CAPTURE_BYTES * 4) / 3) +
+  30 * Math.ceil((MAX_QA_SCREENSHOT_BYTES * 4) / 3) +
+  64 * 1024;
 
 async function readBody(request: Request): Promise<unknown | null> {
   const reader = request.body?.getReader();
@@ -53,6 +57,7 @@ export async function POST(
     leaseToken?: unknown;
     error?: unknown;
     images?: unknown;
+    qa?: unknown;
   } | null;
   if (!body || typeof body.leaseToken !== "string") {
     return NextResponse.json({ error: "Malformed body." }, { status: 400 });
@@ -75,11 +80,70 @@ export async function POST(
       });
     }
   }
+  let qa:
+    | {
+        evidence: unknown;
+        screenshots: {
+          key: string;
+          viewport: string;
+          surface: string;
+          path: string;
+          bytes: Uint8Array;
+        }[];
+      }
+    | undefined;
+  if (body.qa !== undefined) {
+    const raw = body.qa as {
+      evidence?: unknown;
+      screenshots?: unknown;
+    };
+    if (!raw || !Array.isArray(raw.screenshots)) {
+      return NextResponse.json(
+        { error: "Malformed QA report." },
+        { status: 400 },
+      );
+    }
+    const screenshots = [];
+    for (const item of raw.screenshots) {
+      const shot = item as Record<string, unknown>;
+      if (
+        typeof shot.key !== "string" ||
+        typeof shot.viewport !== "string" ||
+        typeof shot.surface !== "string" ||
+        typeof shot.path !== "string" ||
+        typeof shot.base64 !== "string"
+      ) {
+        return NextResponse.json(
+          { error: "Malformed QA screenshot." },
+          { status: 400 },
+        );
+      }
+      const bytes = new Uint8Array(Buffer.from(shot.base64, "base64"));
+      if (
+        bytes.byteLength === 0 ||
+        bytes.byteLength > MAX_QA_SCREENSHOT_BYTES
+      ) {
+        return NextResponse.json(
+          { error: "QA screenshot is too large." },
+          { status: 400 },
+        );
+      }
+      screenshots.push({
+        key: shot.key,
+        viewport: shot.viewport,
+        surface: shot.surface,
+        path: shot.path,
+        bytes,
+      });
+    }
+    qa = { evidence: raw.evidence, screenshots };
+  }
   try {
     const result = await finishThemeStudioCapture({
       captureId,
       leaseToken: body.leaseToken,
       images,
+      qa,
       error: typeof body.error === "string" ? body.error : undefined,
     });
     return NextResponse.json(result, {

@@ -21,6 +21,9 @@ describe("fake provider", () => {
       value: result.value,
     });
     expect(result.value.summary).toBe("Clay & Co: A calm ceramics shop.");
+    expect(
+      result.value.referenceAnalysis.map((item) => item.referenceIndex),
+    ).toEqual([0, 1]);
   });
 
   it("labels its output as fake so it can't be mistaken for analysis", () => {

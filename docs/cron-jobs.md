@@ -215,6 +215,13 @@ by hand. After deploying both, set the environment's
 `_THEME_STUDIO_CAPTURE_ENABLED` Cloud Build substitution to `true`. Build,
 deploy and schedule: `docs/theme-studio-capture-job.md`.
 
+Track 5 reuses this job for automatic pre-review. An automatic claim also
+captures every preview surface at five widths and reports browser evidence;
+the long `/api/internal/theme-studio/runs` worker consumes the resulting visual
+QA queue and may enqueue a bounded revision. Enable
+`_THEME_STUDIO_AUTO_QA_ENABLED=true` only after both workers are live; it is
+ineffective while capture remains disabled.
+
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole
 system: on a daily schedule some merchants would get nearly a day of unearned

@@ -2383,6 +2383,9 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
   contextMessageIds: uuid("context_message_ids").array().default([]).notNull(),
   /** Image runs only: the slots to redraw; empty means every placeholder. */
   imageSlotIds: text("image_slot_ids").array().default([]).notNull(),
+  /** Track 5 internal image/revision step; never initiated by an operator. */
+  automatic: boolean().default(false).notNull(),
+  qaIteration: integer("qa_iteration").default(0).notNull(),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
     .defaultNow()
@@ -2407,6 +2410,10 @@ export const themeStudioVersions = pgTable("theme_studio_versions", {
   intentDigest: text("intent_digest").notNull(),
   packageJson: jsonb("package_json"),
   packageDigest: text("package_digest"),
+  /** Internal versions are withheld from the operator until Track 5 settles. */
+  visibility: text().default("operator").notNull(),
+  qaStatus: text("qa_status").default("not_required").notNull(),
+  qaIteration: integer("qa_iteration").default(0).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
     .defaultNow()
     .notNull(),
@@ -2431,12 +2438,49 @@ export const themeStudioCaptures = pgTable("theme_studio_captures", {
   maxAttempts: integer("max_attempts").default(2).notNull(),
   errorCode: text("error_code"),
   resultVersionId: uuid("result_version_id"),
+  automatic: boolean().default(false).notNull(),
+  qaIteration: integer("qa_iteration").default(0).notNull(),
   createdBy: uuid("created_by"),
   createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
     .defaultNow()
     .notNull(),
   startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
   finishedAt: timestamp("finished_at", { withTimezone: true, mode: "string" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+});
+
+/** Track 5: deterministic browser evidence plus a bounded vision score over
+ * one internal version. Service-only and append-only after a verdict. */
+export const themeStudioVisualQaRuns = pgTable("theme_studio_visual_qa_runs", {
+  id: uuid().defaultRandom().primaryKey().notNull(),
+  projectId: uuid("project_id").notNull(),
+  versionId: uuid("version_id").notNull(),
+  packageDigest: text("package_digest").notNull(),
+  qaIteration: integer("qa_iteration").notNull(),
+  status: text().default("queued").notNull(),
+  browserReport: jsonb("browser_report").notNull(),
+  screenshotAssetIds: uuid("screenshot_asset_ids").array().notNull(),
+  visionReport: jsonb("vision_report").default({}).notNull(),
+  revisionRunId: uuid("revision_run_id"),
+  leaseOwner: uuid("lease_owner"),
+  leaseExpiresAt: timestamp("lease_expires_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
+  attemptCount: integer("attempt_count").default(0).notNull(),
+  maxAttempts: integer("max_attempts").default(2).notNull(),
+  errorCode: text("error_code"),
+  createdBy: uuid("created_by"),
+  createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+    .defaultNow()
+    .notNull(),
+  startedAt: timestamp("started_at", { withTimezone: true, mode: "string" }),
+  finishedAt: timestamp("finished_at", {
+    withTimezone: true,
+    mode: "string",
+  }),
   updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
     .defaultNow()
     .notNull(),

@@ -107,6 +107,84 @@ export async function takeShots(browser, claim, { settleMs = 400 } = {}) {
   return images;
 }
 
+/** Track 5: measure and screenshot every preview page at every QA width. */
+export async function takeQaScreenshots(
+  browser,
+  claim,
+  { settleMs = 250 } = {},
+) {
+  if (!claim.qa) return undefined;
+  const samples = [];
+  const screenshots = [];
+  for (const [viewport, dimensions] of Object.entries(claim.qa.viewports)) {
+    const mobile = dimensions.width <= 768;
+    const context = await browser.newContext({
+      viewport: dimensions,
+      deviceScaleFactor: 1,
+      isMobile: mobile,
+      hasTouch: mobile,
+      reducedMotion: "reduce",
+      ...(mobile ? { userAgent: PHONE_UA } : {}),
+    });
+    try {
+      await context.addCookies([
+        {
+          name: claim.cookie.name,
+          value: claim.cookie.value,
+          url: claim.origin,
+        },
+      ]);
+      for (const preview of claim.qa.pages) {
+        const page = await context.newPage();
+        const response = await page.goto(
+          new URL(preview.path, claim.origin).href,
+          { waitUntil: "load", timeout: 60_000 },
+        );
+        const status = response ? response.status() : 0;
+        if (status !== 200) throw new CaptureError(`preview_status_${status}`);
+        await page
+          .waitForLoadState("networkidle", { timeout: 15_000 })
+          .catch(() => {});
+        await page.addStyleTag({
+          content: "nextjs-portal{display:none!important}",
+        });
+        await page.waitForTimeout(settleMs);
+        const result = await page.evaluate(async () => {
+          if (typeof window.__smThemeStudioMeasure !== "function") {
+            throw new Error("qa_probe_missing");
+          }
+          return window.__smThemeStudioMeasure();
+        });
+        samples.push({ ...result, viewport, surface: preview.surface });
+        // The evidence above is measured at the real viewport. Compress only
+        // the visual evidence so six long pages stay inside the job payload.
+        await page.evaluate(() => {
+          document.documentElement.style.zoom = "0.65";
+        });
+        const bytes = await page.screenshot({
+          type: "jpeg",
+          quality: 55,
+          fullPage: true,
+        });
+        if (bytes.byteLength > 512 * 1024) {
+          throw new CaptureError("qa_screenshot_too_large");
+        }
+        screenshots.push({
+          key: `${viewport}:${preview.surface}`,
+          viewport,
+          surface: preview.surface,
+          path: preview.path,
+          base64: bytes.toString("base64"),
+        });
+        await page.close?.();
+      }
+    } finally {
+      await context.close();
+    }
+  }
+  return { evidence: { userAgent: PHONE_UA, samples }, screenshots };
+}
+
 /**
  * Drain captures until none are queued, the budget is spent or `maxCaptures`
  * are done. Returns what happened, for the job's log.
@@ -142,9 +220,11 @@ export async function runCaptureJob({
       browser ??= await launch();
       let body;
       try {
+        const images = await takeShots(browser, claim);
         body = {
           leaseToken: claim.leaseToken,
-          images: await takeShots(browser, claim),
+          images,
+          ...(claim.qa ? { qa: await takeQaScreenshots(browser, claim) } : {}),
         };
       } catch (error) {
         body = { leaseToken: claim.leaseToken, error: errorCode(error) };

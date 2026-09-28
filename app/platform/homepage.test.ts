@@ -21,14 +21,14 @@ const legalLayout = readFileSync(
 );
 
 describe("StoreMink public homepage", () => {
-  it("presents the connected commerce story and its conversion paths", () => {
+  it("presents the business operating-system story and its conversion paths", () => {
     expect(page).toContain('id="platform"');
     expect(page).toContain('id="pricing"');
     expect(page).toContain('id="faq"');
-    expect(page).toContain("Create your store.");
-    expect(page).toContain("Sell everywhere.");
-    expect(page).toContain("Grow with AI.");
-    expect(page).toContain("Mink AI, currently in beta, helps");
+    expect(page).toContain("Build <em>what&apos;s yours.</em>");
+    expect(page).toContain("AI-native</span> business platform");
+    expect(page).toContain("One business operating system");
+    expect(page).toContain("operations and intelligence together");
     expect(page).toContain('q: "What can Mink AI do?"');
     expect(page).toContain("StoreMink Point of Sale");
     expect(page).toContain('href="/signup"');

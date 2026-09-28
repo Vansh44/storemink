@@ -1,11 +1,13 @@
 import { EMPTY_CONFIG, SECTION_TYPE_META } from "@/lib/homepage/section-types";
 import { RESERVED_PAGE_SLUGS } from "@/lib/sections/registry";
 import { THEME_ASSET_PREFIX, productSlotBrief } from "./compiler";
+import type { ThemeIndustry } from "@/lib/themes/meta";
 import type { ThemeIntent, ThemePackageV2 } from "./contracts";
 import {
   THEME_STUDIO_FONT_VALUES,
   THEME_STUDIO_SECTION_TYPES,
 } from "./schemas";
+import { industryPlaybookPrompt } from "./industry-playbooks";
 
 // ---------------------------------------------------------------------------
 // Theme Studio prompts. Versioned: every run records THEME_STUDIO_PROMPT_VERSION
@@ -23,7 +25,7 @@ import {
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v14";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v15";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -41,8 +43,8 @@ ${UNTRUSTED_RULES}
 ${COPYRIGHT_RULES}
 
 Decide first.
-- "proceed" when you can plan a complete storefront from what you were given. Record reasonable assumptions instead of asking about details that don't change the design.
-- "clarify" when an essential fact is missing or contradictory in a way that would materially change the design — for example, what the store sells is unknown, requirements conflict with no stated priority, or the design depends on imagery and the brief says no image source exists. Ask at most five specific questions. Set intent to null.
+- "proceed" is the normal answer. Plan a complete storefront from the project facts, the industry starting pattern, the brief and any references. Record every reasonable choice you supplied in assumptions instead of asking about audience, positioning, price point, page order, palette, typography, density, imagery, copy tone or responsive behaviour.
+- "clarify" is exceptional: use it only when the trusted project facts do not identify what is sold, or two explicit hard requirements directly contradict each other and choosing either would discard the other. A missing preference is not a missing fact. Ask at most five specific questions. Set intent to null.
 - "decline" when the request is to clone a specific brand's identity, to deceive shoppers, or is otherwise not something StoreMink should build. Give a one-sentence reason. Set intent to null.
 
 StoreMink themes are data rendered by one shared storefront. A theme can only use these section types:
@@ -50,6 +52,8 @@ ${SECTION_LINES}
 It can also choose palette colours, two fonts, corner radii and a fixed set of header, product-card, product-page, cart and footer layout variants. When the brief needs something those cannot express — a new kind of section, an interaction, animation beyond simple transitions, a font or token that does not exist, or anything that would need custom code — record a capability gap with the matching code instead of approximating it silently. Mark it blocking when the brief makes it a hard requirement. Never propose custom code.
 
 Plan pages for at least the home, shop, product and cart surfaces. Describe desktop, tablet and mobile composition separately; mobile is not a shrunken desktop. Asset briefs describe imagery the theme needs; their ids are kebab-case and start with a letter, and each brief says whether the operator supplies it, it comes from a curated library, or it would be generated. Use at most twelve briefs. Write exactly one product-photography brief (its purpose names product photography) describing how the whole range is photographed: backdrop, light, camera height and framing. Do not write a brief per product: every product is photographed separately from that one brief, so the catalogue reads as one shoot.
+
+Read reference screenshots one by one. referenceAnalysis contains exactly one item for each supplied image, using its zero-based order. Separate observed structure, hierarchy, palette, typography, imagery and responsive clues. patternsToUse names abstract design ideas worth carrying forward; copyingToAvoid names logos, copy, proprietary artwork and distinctive identity that must not be reproduced. Never transcribe visible marketing copy into the theme. With no references, return an empty referenceAnalysis array.
 
 Respond with JSON only, matching the provided schema.`;
 }
@@ -109,7 +113,7 @@ export interface BriefMessage {
 export interface ProjectFacts {
   name: string;
   themeId: string;
-  industries: string[];
+  industries: ThemeIndustry[];
   catalogSizes: string[];
   requiredFeatures: string[];
   baseThemeName: string | null;
@@ -123,6 +127,8 @@ function factsBlock(facts: ProjectFacts): string {
     `Catalogue sizes: ${facts.catalogSizes.join(", ")}`,
     `Required features: ${facts.requiredFeatures.join(", ") || "none"}`,
     `Base theme for reference: ${facts.baseThemeName ?? "none"}`,
+    "Industry starting pattern (trusted default; adapt it when the brief or references give stronger evidence):",
+    industryPlaybookPrompt(facts.industries),
   ].join("\n");
 }
 

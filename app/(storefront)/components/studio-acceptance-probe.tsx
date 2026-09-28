@@ -32,6 +32,14 @@ interface LayoutShiftEntry extends PerformanceEntry {
   hadRecentInput: boolean;
 }
 
+declare global {
+  interface Window {
+    /** Present only in a private Theme Studio preview. The headless Track 5
+     * worker calls the exact same measurement code as the operator runner. */
+    __smThemeStudioMeasure?: () => Promise<Record<string, unknown>>;
+  }
+}
+
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 
@@ -116,6 +124,112 @@ function clippedOverflow(limit: number): { px: number; offenders: string[] } {
     }
   }
   return { px, offenders };
+}
+
+function clippedText(limit: number) {
+  const findings: { target: string; clippedX: number; clippedY: number }[] = [];
+  const elements = document.body?.querySelectorAll<HTMLElement>("*") ?? [];
+  for (let i = 0; i < elements.length && i < 6000; i += 1) {
+    const element = elements[i];
+    if (findings.length >= limit || !element.innerText.trim()) continue;
+    const style = getComputedStyle(element);
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity) === 0
+    ) {
+      continue;
+    }
+    const clipsX = style.overflowX === "hidden" || style.overflowX === "clip";
+    const clipsY = style.overflowY === "hidden" || style.overflowY === "clip";
+    const clippedX = clipsX
+      ? Math.max(0, element.scrollWidth - element.clientWidth)
+      : 0;
+    const clippedY = clipsY
+      ? Math.max(0, element.scrollHeight - element.clientHeight)
+      : 0;
+    if (clippedX <= 1 && clippedY <= 1) continue;
+    // Report the innermost clipping box; a parent wrapping the same clipped
+    // child adds noise without identifying a second defect.
+    if (
+      [...element.children].some(
+        (child) =>
+          child instanceof HTMLElement &&
+          (child.scrollWidth > child.clientWidth + 1 ||
+            child.scrollHeight > child.clientHeight + 1),
+      )
+    ) {
+      continue;
+    }
+    findings.push({
+      target: describe(element),
+      clippedX: Math.round(clippedX),
+      clippedY: Math.round(clippedY),
+    });
+  }
+  return findings;
+}
+
+function smallTapTargets(limit: number) {
+  if (window.innerWidth > 768) return [];
+  const findings: { target: string; width: number; height: number }[] = [];
+  const selector =
+    'a[href],button,input:not([type="hidden"]),select,textarea,[role="button"],[role="link"]';
+  for (const element of document.querySelectorAll<HTMLElement>(selector)) {
+    if (findings.length >= limit) break;
+    const style = getComputedStyle(element);
+    const rect = element.getBoundingClientRect();
+    if (
+      style.display === "none" ||
+      style.visibility === "hidden" ||
+      Number(style.opacity) === 0 ||
+      rect.width === 0 ||
+      rect.height === 0 ||
+      element.matches(":disabled") ||
+      // WCAG's target-size exception permits links inside a sentence.
+      style.display === "inline"
+    ) {
+      continue;
+    }
+    if (rect.width < 24 || rect.height < 24) {
+      findings.push({
+        target: describe(element),
+        width: Math.round(rect.width * 10) / 10,
+        height: Math.round(rect.height * 10) / 10,
+      });
+    }
+  }
+  return findings;
+}
+
+function imageCropIssues(limit: number) {
+  const findings: { target: string; retainedFraction: number }[] = [];
+  for (const image of document.images) {
+    if (findings.length >= limit) break;
+    const rect = image.getBoundingClientRect();
+    if (
+      image.naturalWidth === 0 ||
+      image.naturalHeight === 0 ||
+      rect.width < 80 ||
+      rect.height < 80 ||
+      getComputedStyle(image).objectFit !== "cover"
+    ) {
+      continue;
+    }
+    const sourceAspect = image.naturalWidth / image.naturalHeight;
+    const renderedAspect = rect.width / rect.height;
+    const retainedFraction = Math.min(
+      sourceAspect / renderedAspect,
+      renderedAspect / sourceAspect,
+    );
+    if (retainedFraction < 0.35) {
+      findings.push({
+        target: describe(image),
+        retainedFraction: Math.round(retainedFraction * 1000) / 1000,
+      });
+    }
+  }
+  return findings;
 }
 
 async function settleImages(ms: number): Promise<void> {
@@ -233,6 +347,9 @@ async function measure(perf: { lcp: number | null; cls: number }) {
     height: window.innerHeight,
     overflowPx,
     overflowOffenders: overflowPx > 1 ? clipped.offenders : [],
+    clippedText: clippedText(40),
+    smallTapTargets: smallTapTargets(60),
+    imageCropIssues: imageCropIssues(40),
     brokenImages,
     violations: results.violations.slice(0, 100).map((violation) => ({
       id: violation.id,
@@ -249,7 +366,6 @@ async function measure(perf: { lcp: number | null; cls: number }) {
 
 export function StudioAcceptanceProbe() {
   useEffect(() => {
-    if (window.parent === window) return;
     const perf = { lcp: null as number | null, cls: 0 };
     const observers: PerformanceObserver[] = [];
     try {
@@ -274,6 +390,7 @@ export function StudioAcceptanceProbe() {
     }
 
     let started = false;
+    window.__smThemeStudioMeasure = () => measure(perf);
     const onMessage = async (event: MessageEvent) => {
       if (event.source !== window.parent) return;
       let host: string;
@@ -327,6 +444,7 @@ export function StudioAcceptanceProbe() {
     window.addEventListener("message", onMessage);
     return () => {
       window.removeEventListener("message", onMessage);
+      delete window.__smThemeStudioMeasure;
       for (const observer of observers) observer.disconnect();
     };
   }, []);

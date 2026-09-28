@@ -13,6 +13,7 @@ import { EMPTY_CONFIG } from "@/lib/homepage/section-types";
 import { studio } from "@/lib/themes/definitions/studio";
 import type { ThemeStudioModelClient } from "./provider";
 import { ZERO_USAGE } from "./provider";
+import { industryStartingPattern } from "./industry-playbooks";
 
 // ---------------------------------------------------------------------------
 // The Phase 2 provider: deterministic, offline, free.
@@ -63,6 +64,7 @@ export function runFakeProvider(
   const reviewHooks = (
     input.brief.match(/\[\[fake-review:[a-z_]+(?::always)?\]\]/g) ?? []
   ).join(" ");
+  const starting = industryStartingPattern(input.industries);
   const intent: ThemeIntent = {
     schemaVersion: THEME_INTENT_SCHEMA_VERSION,
     summary: `${input.name}: ${firstSentence(input.brief, 400)}`,
@@ -74,8 +76,7 @@ export function runFakeProvider(
     ],
     visual: {
       moodKeywords: ["clear", "considered"],
-      paletteDirection:
-        "Neutral base with one accent, to be refined by the model.",
+      paletteDirection: starting.playbook.colourFamilies.join(", "),
       typographyDirection: "A readable sans body with a distinct display face.",
       density: large ? "dense" : "balanced",
       shape: "mixed",
@@ -86,9 +87,7 @@ export function runFakeProvider(
         surface: "home",
         purpose: "Introduce the brand and route shoppers into the catalogue.",
         sectionTypes: [
-          "hero",
-          large ? "shop_by_category" : "media_text",
-          "featured_products",
+          ...starting.playbook.homeSections.slice(0, 6),
           ...(wantsFaq ? ["faq_accordion"] : []),
         ],
       },
@@ -133,6 +132,21 @@ export function runFakeProvider(
         source: "generate",
       },
     ],
+    referenceAnalysis: Array.from(
+      { length: input.referenceCount },
+      (_, referenceIndex) => ({
+        referenceIndex,
+        pageKind: "other" as const,
+        structure: ["The fake provider does not inspect pixels."],
+        hierarchy: [],
+        palette: [],
+        typography: [],
+        imagery: [],
+        responsiveClues: [],
+        patternsToUse: [],
+        copyingToAvoid: ["No reference content was copied."],
+      }),
+    ),
     assumptions: [
       "Fake provider output: no model was called and no reference image was analysed.",
       `The operator attached ${input.referenceCount} reference image(s).`,
@@ -391,6 +405,28 @@ export function createFakeModelClient(
   return {
     provider: "fake",
     async generate(request) {
+      if (request.stage === "visual_qa") {
+        return {
+          kind: "ok",
+          usage: ZERO_USAGE,
+          value: {
+            verdict: "pass",
+            scores: {
+              artDirection: 5,
+              distinctness: 5,
+              commerceClarity: 5,
+              typography: 5,
+              imagery: 5,
+              responsiveComposition: 5,
+              detailQuality: 5,
+              brandAdaptability: 5,
+            },
+            rejections: [],
+            findings: [],
+            revisionBrief: null,
+          },
+        };
+      }
       const isRepair = request.content.some(
         (block) =>
           block.type === "text" &&

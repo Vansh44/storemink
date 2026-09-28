@@ -7,7 +7,27 @@ describe("Theme Studio config", () => {
       generationEnabled: true,
       provider: "fake",
       captureEnabled: false,
+      autoQaEnabled: false,
     });
+  });
+
+  it("enables automatic QA only alongside the capture worker", () => {
+    expect(
+      getThemeStudioConfig({ THEME_STUDIO_AUTO_QA_ENABLED: "true" })
+        .autoQaEnabled,
+    ).toBe(false);
+    expect(
+      getThemeStudioConfig({
+        THEME_STUDIO_CAPTURE_ENABLED: "true",
+        THEME_STUDIO_AUTO_QA_ENABLED: "true",
+      }).autoQaEnabled,
+    ).toBe(true);
+    expect(
+      getThemeStudioConfig({
+        THEME_STUDIO_CAPTURE_ENABLED: "true",
+        THEME_STUDIO_AUTO_QA_ENABLED: "1",
+      }).autoQaEnabled,
+    ).toBe(false);
   });
 
   it("enables catalog capture only after an explicit deployment flag", () => {

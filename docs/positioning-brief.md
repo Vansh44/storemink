@@ -1,6 +1,6 @@
 # StoreMink — Positioning Brief (one-page)
 
-> **Status:** v2 (2026-08-30) · **Owner:** Vansh · **Purpose:** the single
+> **Status:** v3 (2026-09-28) · **Owner:** Vansh · **Purpose:** the single
 > source of truth for who we're for, why we win, and what we say. Everything
 > below is defensible from the product as built today, except items marked
 > `[fill in]` (need your numbers/proof before external use).
@@ -9,18 +9,20 @@
 
 ## Category
 
-An **AI-powered commerce platform for Indian brands and retailers** — create an
-online store in minutes, connect online and in-person selling, and run the
-business from one dashboard without needing technical expertise.
+An **AI-native business operating system for independent brands**. StoreMink
+provides the intelligence and infrastructure to turn an idea into a brand, and
+a brand into a growing business. It competes in commerce software and retail
+technology; the larger space it serves is entrepreneurship infrastructure.
 
 ## Positioning statement
 
-**For** India's growing brands, creators and local retailers, **StoreMink is**
-an AI-powered commerce platform **that** creates a real, editable online store
-in minutes and keeps products, orders, customers, inventory, locations, online
-sales and POS connected in one dashboard. **Mink AI** makes the system easier
-to understand and operate through everyday language, beginning with grounded
-business answers and private drafts before guarded dashboard actions.
+**For** independent brands, creators and retailers building something of their
+own, **StoreMink is** an AI-native business operating system **that** brings
+the intelligence and infrastructure to build, operate and grow their business
+without assembling a fragmented stack. Its storefront, commerce and
+operational capabilities share one foundation, while **Mink AI** makes that
+foundation easier to understand and use through everyday language, grounded
+business answers, private drafts and guarded actions.
 
 ## Ideal customer (ICP)
 
@@ -31,21 +33,22 @@ business answers and private drafts before guarded dashboard actions.
 
 ## The gap we own
 
-Basic tools help merchants start selling but quickly split the website, counter,
-inventory and day-to-day operations across different systems. Large global
-platforms provide breadth but can be difficult for a non-technical merchant to
-configure and operate. **The open lane: India-native, AI-assisted unified
-commerce—a real storefront, connected POS and one understandable dashboard.**
+Basic tools help people launch one surface but leave the business behind it
+split across systems. Large global platforms provide breadth but make founders
+assemble, configure and understand the stack themselves. **The open lane:
+AI-native entrepreneurship infrastructure—one understandable operating system
+that grows from first idea to functioning, distinctive business.** Commerce is
+the foundation, not the limit of the promise.
 
 ## Why we win (3 sharp claims)
 
-1. **One connected commerce system.** The storefront, dashboard, POS, customers,
-   orders, inventory, locations, pickup and returns share the same data.
-2. **AI that lowers the technical barrier.** Mink AI answers questions from the
+1. **One operating system behind the brand.** Storefront, commerce, customers,
+   operations and physical retail share the same business foundation.
+2. **Intelligence built into the work.** Mink AI answers questions from the
    merchant's own StoreMink data and prepares editable private drafts through
    simple prompts; guarded actions expand only as their approval controls ship.
-3. **Built for how India sells.** INR pricing, GST workflows, bring-your-own
-   payments and logistics, plus 0% StoreMink transaction fees.
+3. **Built for independent Indian businesses.** INR pricing, GST workflows,
+   bring-your-own payments and logistics, plus 0% StoreMink transaction fees.
 
 ## Competitive frame
 
@@ -58,11 +61,12 @@ commerce—a real storefront, connected POS and one understandable dashboard.**
 
 ## Messaging pillars (headline → proof)
 
-- **"Create your store."** → a themed, editable storefront live in minutes.
-- **"Sell everywhere."** → online sales, POS, inventory, locations, pickup
-  and returns in one connected operation.
-- **"Grow with AI."** → Mink AI turns store data and everyday prompts into
-  clear answers and editable work.
+- **"Build what's yours."** → turn an idea into a distinctive brand and a
+  functioning business without giving up ownership or identity.
+- **"One system behind it."** → commerce and operations stay connected as the
+  business adds channels, people and locations.
+- **"Intelligence that grows with you."** → Mink AI turns business context and
+  everyday prompts into grounded answers, editable work and guarded actions.
 
 ## Say no on purpose (anti-positioning)
 
@@ -81,13 +85,12 @@ Not a marketplace. Every "no" sharpens the "yes."
 
 ## Selected tagline
 
-**Create your store. Sell everywhere. Grow with AI.**
+**Build what's yours.**
 
 ## Short description
 
-**StoreMink is an AI-powered commerce platform that lets you create a store in
-minutes and manage products, orders, customers, inventory, locations, online
-sales and POS from one connected dashboard.**
+**StoreMink is the AI-native business operating system for independent brands,
+bringing commerce, operations and intelligence together in one platform.**
 
 ---
 

@@ -53,6 +53,17 @@ export default async function ThemeStudioVersionPreviewPage({
             current
           </span>
         ) : null}
+        {version.qaStatus !== "not_required" ? (
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${
+              version.qaStatus === "passed"
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-amber-50 text-amber-800"
+            }`}
+          >
+            auto QA {version.qaStatus}
+          </span>
+        ) : null}
       </header>
       <p className="text-sm text-slate-500">
         A private store built from this version and rendered by the live

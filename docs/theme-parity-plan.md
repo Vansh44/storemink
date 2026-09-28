@@ -521,14 +521,51 @@ with regeneration. Owner decision: no per-theme cost cap.
 
 ## Track 4 — fewer prompts
 
-Industry playbooks (page structures, section order, palette families, image
-style), structured reading of reference screenshots, and proceed-on-assumptions
-instead of clarifying questions.
+**Implemented 2026-09-28.** `industry-playbooks.ts` provides an exhaustive
+starting pattern for every Studio industry: page structure, homepage section
+order, palette families, image direction and explicit defaults. Stage A now
+returns a structured analysis for every supplied reference screenshot
+(hierarchy, palette, typography, imagery, responsive clues, patterns to reuse
+and details not to copy). Its prompt treats clarification as exceptional: it
+uses the playbook and records assumptions unless the trusted brief fails to
+say what is sold or contains directly conflicting hard requirements. A first
+unnecessary clarification gets one bounded proceed-with-assumptions repair.
+The fake provider and contract tests exercise the same shape.
+
+Found while implementing: a playbook initially named `latest_blogs`, a section
+the renderer does not support. Exhaustive playbook tests now require every
+suggested section to come from the real homepage registry; the editorial slot
+uses `rich_text` instead.
 
 ## Track 5 — automated QA and self-critique
 
-A separate Cloud Run job with headless Chromium (owner-approved) screenshots
-every surface at 360, 390, 768, 1024 and 1440 px, measures overflow, clipped
-text, tap targets, image crop, axe, LCP and CLS, and a vision model scores the
-screenshots against the theme-acceptance scorecard and revises before an
-operator sees the theme.
+**Implemented 2026-09-28, deployment-gated.** With both
+`THEME_STUDIO_CAPTURE_ENABLED=true` and `THEME_STUDIO_AUTO_QA_ENABLED=true`, a
+generation or revision remains internal while the worker automatically draws
+its imagery and captures its catalog pictures. The existing Chromium job then
+opens every available preview surface at 360, 390, 768, 1024 and 1440 px. It
+uses the same in-store probe as manual acceptance to measure overflow, clipped
+text, sub-24px tap targets, extreme `object-fit: cover` crops, axe results,
+broken images, LCP and CLS, and posts a screenshot for each page/width pair.
+
+The server applies deterministic browser gates before trusting any model
+verdict. `visual-qa.ts` composes the screenshots into one contact sheet per
+width and asks the configured Studio model for the exact eight-row
+theme-acceptance scorecard and closed rejection conditions. A pass needs every
+row ≥4, total ≥34, no rejection, and every required browser gate green. A
+failure queues a concrete automatic revision against the exact hidden version;
+two revision rounds are allowed. Pass reveals the final version with a passed
+marker. A third miss, a terminal worker error, or a terminal capture error
+reveals the last complete version with a failed-QA marker, so a project cannot
+remain invisibly wedged. Internal versions never appear in the operator's
+version list before one of those terminal outcomes.
+
+The queue/evidence record is `theme_studio_visual_qa_runs`; migration
+`20260927_0144` also adds internal/operator visibility and QA state to versions,
+automation metadata to runs/captures, and `qa_screenshot` assets. Enable the
+capture worker first, then the auto-QA flag; Cloud Build defaults both off.
+
+Found while implementing: the original immutable-version trigger also blocked
+the one safe mutation this design needs. The migration replaces it with a
+narrow guard that permits only `internal/pending → operator/passed|failed`;
+intent, package, lineage, digests and iteration remain immutable.

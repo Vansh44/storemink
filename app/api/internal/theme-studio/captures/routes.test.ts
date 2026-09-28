@@ -4,6 +4,7 @@ const claim = vi.fn();
 const finish = vi.fn();
 vi.mock("@/lib/theme-studio/capture", () => ({
   MAX_CAPTURE_BYTES: 1024,
+  MAX_QA_SCREENSHOT_BYTES: 1024,
   claimThemeStudioCapture: (...args: unknown[]) => claim(...args),
   finishThemeStudioCapture: (...args: unknown[]) => finish(...args),
 }));
@@ -71,7 +72,7 @@ describe("finishing a capture", () => {
       ).status,
     ).toBe(400);
     // Past the ceiling: three maximum pictures plus 64 KiB of headroom.
-    const huge = "a".repeat(100 * 1024);
+    const huge = "a".repeat(200 * 1024);
     expect(
       (
         await finishRoute(

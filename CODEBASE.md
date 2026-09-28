@@ -6,11 +6,11 @@
 
 ## 1. What this project is
 
-**StoreMink** (storemink.com) is a multi-tenant, AI-powered commerce platform
-for Indian brands and retailers. Anyone can create an online store in minutes,
-then manage online and in-person commerce from one connected system. Its public
-positioning is **"Create your store. Sell everywhere. Grow with AI."** Every
-store gets:
+**StoreMink** (storemink.com) is a multi-tenant, AI-native business operating
+system for independent brands. It brings commerce, operations and intelligence
+together on one foundation. It competes in commerce software and retail
+technology, while the broader space is entrepreneurship infrastructure. Its
+public positioning is **"Build what's yours."** Every store gets:
 
 - A **storefront** on its own subdomain (`{slug}.storemink.com`) or a verified custom domain.
 - A full **admin dashboard** (`/dashboard`) to manage products, orders,
@@ -3344,6 +3344,10 @@ wholesip/
 │   │                          # verdict, candidate transitions, evidence re-check),
 │   │                          # acceptance-http.ts (loopback page fetch with the
 │   │                          # preview Host header).
+│   │                          # Track 4/5: industry-playbooks.ts supplies exhaustive
+│   │                          # page/section/palette/imagery starts; visual-qa.ts
+│   │                          # leases five-width screenshot evidence, applies the
+│   │                          # eight-row scorecard and queues ≤2 hidden revisions.
 │   │                          # slot-images-core.ts (pure: describe slots, apply
 │   │                          # replacements, carry images into a revision) +
 │   │                          # slot-images.ts (crop/compress an upload, store it,
@@ -5281,6 +5285,49 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     folding the menu first). A name that fits renders exactly as before
     (measured on all four demo themes); pinned in `header-fit.test.ts`. No
     merchant action changes, so no Help Centre update.
+    **Theme Studio fewer prompts + hidden automated QA, Tracks 4–5
+    (2026-09-28).** ★ `industry-playbooks.ts` is an exhaustive
+    `Record<ThemeIndustry, IndustryPlaybook>` of starting page structure,
+    homepage order, colour families, image direction and default assumptions.
+    Stage A's closed contract now requires `referenceAnalysis[]`: one indexed
+    reading per supplied screenshot covering structure, hierarchy, palette,
+    typography, imagery, responsive clues, reusable patterns and what must not
+    be copied. Prompt `theme-studio-v15` proceeds with declared assumptions for
+    audience, price, pages and art direction; it asks only when the trusted
+    facts omit what is sold or hard requirements conflict, and `pipeline.ts`
+    gives a first unnecessary clarification one bounded assumption-first
+    repair. The fake provider follows the same playbook/analysis contract.
+    ★★ TRACK 5 IS A HIDDEN PIPELINE, not another operator button. When
+    `getThemeStudioConfig().autoQaEnabled` is true (exactly both
+    `THEME_STUDIO_CAPTURE_ENABLED=true` and
+    `THEME_STUDIO_AUTO_QA_ENABLED=true`), a successful generation/revision is
+    inserted as `visibility=internal, qa_status=pending`; `worker.ts`
+    automatically queues its image run and then an automatic capture. The
+    existing Chromium job receives the preview's six available surfaces plus
+    the fixed 360/390/768/1024/1440 viewports, invokes the same private
+    `__smThemeStudioMeasure` probe used by acceptance, and returns raw
+    overflow, clipped-text, 24px target, extreme-crop, axe, broken-image, LCP
+    and CLS measurements plus compressed full-page screenshots. `capture.ts`
+    revalidates the raw evidence, derives deterministic gates, stores WebP
+    `qa_screenshot` assets and queues `theme_studio_visual_qa_runs`.
+    `visual-qa.ts` leases one row, builds a contact sheet per width, and asks
+    the configured Studio provider for the exact eight `scorecard.ts`
+    dimensions and closed rejection conditions. Passing means every row ≥4,
+    total ≥34, no rejection AND no required browser-gate failure. Otherwise it
+    writes an immutable revision message and queues an automatic `revise` run
+    against that exact package; iterations 0→1→2 are the hard bound. A pass
+    changes only the version envelope to `operator/passed` and makes it current.
+    A third miss or terminal child/capture/provider failure reveals the last
+    complete version as `operator/failed`, so no project is stranded hidden.
+    Operator reads filter out internal versions; visible versions show an auto
+    QA badge and iteration count. ★ Migration `20260927_0144` owns the version,
+    run and capture QA columns, the service-only visual queue, QA asset/event
+    vocabularies and a narrow version guard: package, intent, lineage and
+    digests remain immutable; only `internal/pending → operator/passed|failed`
+    is mutable. Both deployment substitutions default false; capture must be
+    deployed before auto QA. `docs/theme-studio-capture-job.md` is the shared
+    job runbook. Operator-only and no merchant workflow changes: no Help Centre
+    migration.
     **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
     Until this landed there was NO per-store design layer at all: palette,
     fonts and radii came SOLELY from the pinned immutable preset, and

@@ -3,6 +3,7 @@ import {
   CaptureError,
   errorCode,
   runCaptureJob,
+  takeQaScreenshots,
   takeShots,
 } from "./capture-job.mjs";
 
@@ -56,12 +57,28 @@ function fakeBrowser({ status = 200, failOn } = {}) {
             async addStyleTag(style) {
               context.styles.push(style.content);
             },
-            async evaluate() {},
+            async evaluate() {
+              return {
+                path: "/",
+                width: options.viewport.width,
+                height: options.viewport.height,
+                overflowPx: 0,
+                overflowOffenders: [],
+                clippedText: [],
+                smallTapTargets: [],
+                imageCropIssues: [],
+                brokenImages: 0,
+                violations: [],
+                lcpMs: 900,
+                cls: 0,
+              };
+            },
             async waitForTimeout() {},
             async screenshot(opts) {
               context.screenshot = opts;
               return Buffer.from(`${options.viewport.width}`);
             },
+            async close() {},
           };
         },
         async close() {
@@ -136,6 +153,52 @@ describe("taking the shots", () => {
       "capture_network",
     );
     expect(errorCode("something else")).toBe("capture_browser_error");
+  });
+
+  it("reuses the preview to measure and screenshot every QA page and width", async () => {
+    const { browser, contexts } = fakeBrowser();
+    const qa = await takeQaScreenshots(
+      browser,
+      {
+        ...claim,
+        qa: {
+          pages: [
+            { surface: "home", path: "/" },
+            { surface: "shop", path: "/shop" },
+          ],
+          viewports: {
+            phone360: { width: 360, height: 800 },
+            desktop1440: { width: 1440, height: 900 },
+          },
+        },
+      },
+      { settleMs: 0 },
+    );
+    expect(qa.evidence.samples).toHaveLength(4);
+    expect(qa.evidence.samples.map((sample) => sample.viewport)).toEqual([
+      "phone360",
+      "phone360",
+      "desktop1440",
+      "desktop1440",
+    ]);
+    expect(qa.evidence.samples.map((sample) => sample.surface)).toEqual([
+      "home",
+      "shop",
+      "home",
+      "shop",
+    ]);
+    expect(qa.screenshots.map((shot) => shot.key)).toEqual([
+      "phone360:home",
+      "phone360:shop",
+      "desktop1440:home",
+      "desktop1440:shop",
+    ]);
+    expect(contexts).toHaveLength(2);
+    expect(contexts[0].screenshot).toEqual({
+      type: "jpeg",
+      quality: 55,
+      fullPage: true,
+    });
   });
 });
 

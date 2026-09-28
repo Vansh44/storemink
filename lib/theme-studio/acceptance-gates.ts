@@ -13,7 +13,6 @@ import {
 import type { ThemeDefinition } from "@/lib/themes/types";
 import { PLACEHOLDER_LICENSE_NOTE, THEME_ASSET_PREFIX } from "./compiler";
 import {
-  THEME_STUDIO_VIEWPORTS,
   canonicalJson,
   validateThemePackageV2,
   type ThemePackageV2,
@@ -45,7 +44,7 @@ import {
 // applied on the server. A client that says "passed" is ignored.
 // ---------------------------------------------------------------------------
 
-export const ACCEPTANCE_REPORT_VERSION = 1;
+export const ACCEPTANCE_REPORT_VERSION = 2;
 
 export type GateStatus = "pass" | "fail" | "advisory" | "skipped";
 
@@ -62,6 +61,9 @@ export type GateId =
   | "routes.markup"
   | "browser.coverage"
   | "browser.overflow"
+  | "browser.clipped_text"
+  | "browser.tap_targets"
+  | "browser.image_crops"
   | "browser.accessibility"
   | "browser.media"
   | "browser.performance";
@@ -94,6 +96,9 @@ export const GATE_LABELS: Record<GateId, string> = {
   "routes.markup": "Rendered markup",
   "browser.coverage": "Browser coverage",
   "browser.overflow": "Responsive layout",
+  "browser.clipped_text": "Clipped text",
+  "browser.tap_targets": "Tap targets",
+  "browser.image_crops": "Image crops",
   "browser.accessibility": "Accessibility (axe)",
   "browser.media": "Media loading",
   "browser.performance": "Performance (advisory)",
@@ -720,9 +725,20 @@ export function markupFindings(
 
 // ------------------------------------------------------------ browser stage
 
-export type AcceptanceViewport = keyof typeof THEME_STUDIO_VIEWPORTS;
+/** Track 5's five browser widths. The package renderer contract deliberately
+ * remains the original desktop/tablet/mobile trio; these are QA samples, not
+ * theme-authored breakpoints. */
+export const THEME_STUDIO_QA_VIEWPORTS = {
+  phone360: { width: 360, height: 800 },
+  phone390: { width: 390, height: 844 },
+  tablet768: { width: 768, height: 1024 },
+  laptop1024: { width: 1024, height: 768 },
+  desktop1440: { width: 1440, height: 900 },
+} as const;
+
+export type AcceptanceViewport = keyof typeof THEME_STUDIO_QA_VIEWPORTS;
 export const ACCEPTANCE_VIEWPORTS = Object.keys(
-  THEME_STUDIO_VIEWPORTS,
+  THEME_STUDIO_QA_VIEWPORTS,
 ) as AcceptanceViewport[];
 
 export const AXE_IMPACTS = [
@@ -743,6 +759,9 @@ export interface BrowserSample {
   height: number;
   overflowPx: number;
   overflowOffenders: string[];
+  clippedText: { target: string; clippedX: number; clippedY: number }[];
+  smallTapTargets: { target: string; width: number; height: number }[];
+  imageCropIssues: { target: string; retainedFraction: number }[];
   brokenImages: number;
   violations: {
     id: string;
@@ -837,6 +856,16 @@ export function parseBrowserEvidence(
         error: `Sample ${index} has no accessibility result.`,
       };
     }
+    if (
+      !Array.isArray(s.clippedText) ||
+      !Array.isArray(s.smallTapTargets) ||
+      !Array.isArray(s.imageCropIssues)
+    ) {
+      return {
+        ok: false,
+        error: `Sample ${index} is missing a layout-quality measurement.`,
+      };
+    }
     const violations: BrowserSample["violations"] = [];
     for (const v of s.violations) {
       if (!v || typeof v !== "object") {
@@ -872,6 +901,41 @@ export function parseBrowserEvidence(
           .map((o) => str(o, 120))
           .filter((o): o is string => o !== null)
       : [];
+    const clippedText = Array.isArray(s.clippedText)
+      ? s.clippedText.slice(0, 40).flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const value = item as Record<string, unknown>;
+          const target = str(value.target, 120);
+          const clippedX = finiteNumber(value.clippedX, 0, 100_000);
+          const clippedY = finiteNumber(value.clippedY, 0, 100_000);
+          return target && clippedX !== null && clippedY !== null
+            ? [{ target, clippedX, clippedY }]
+            : [];
+        })
+      : [];
+    const smallTapTargets = Array.isArray(s.smallTapTargets)
+      ? s.smallTapTargets.slice(0, 60).flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const value = item as Record<string, unknown>;
+          const target = str(value.target, 120);
+          const width = finiteNumber(value.width, 0, 10_000);
+          const height = finiteNumber(value.height, 0, 10_000);
+          return target && width !== null && height !== null
+            ? [{ target, width, height }]
+            : [];
+        })
+      : [];
+    const imageCropIssues = Array.isArray(s.imageCropIssues)
+      ? s.imageCropIssues.slice(0, 40).flatMap((item) => {
+          if (!item || typeof item !== "object") return [];
+          const value = item as Record<string, unknown>;
+          const target = str(value.target, 120);
+          const retainedFraction = finiteNumber(value.retainedFraction, 0, 1);
+          return target && retainedFraction !== null
+            ? [{ target, retainedFraction }]
+            : [];
+        })
+      : [];
     samples.push({
       viewport,
       surface,
@@ -880,6 +944,9 @@ export function parseBrowserEvidence(
       height,
       overflowPx,
       overflowOffenders: offenders,
+      clippedText,
+      smallTapTargets,
+      imageCropIssues,
       brokenImages,
       violations,
       lcpMs: finiteNumber(s.lcpMs, 0, 600_000),
@@ -908,7 +975,7 @@ export function evaluateBrowserGates(
     bySample.set(`${sample.viewport}:${sample.surface}`, sample);
   }
   for (const viewport of ACCEPTANCE_VIEWPORTS) {
-    const expectedWidth = THEME_STUDIO_VIEWPORTS[viewport].width;
+    const expectedWidth = THEME_STUDIO_QA_VIEWPORTS[viewport].width;
     for (const surface of expectedSurfaces) {
       const sample = bySample.get(`${viewport}:${surface}`);
       if (!sample) {
@@ -931,6 +998,9 @@ export function evaluateBrowserGates(
   );
 
   const overflow: GateFinding[] = [];
+  const clippedText: GateFinding[] = [];
+  const tapTargets: GateFinding[] = [];
+  const imageCrops: GateFinding[] = [];
   const accessibility: GateFinding[] = [];
   const minorA11y: GateFinding[] = [];
   const media: GateFinding[] = [];
@@ -945,6 +1015,27 @@ export function evaluateBrowserGates(
       overflow.push({
         code: "horizontal_overflow",
         message: `The page is ${Math.round(sample.overflowPx)}px wider than the viewport${sample.overflowOffenders.length ? ` (${sample.overflowOffenders.join(", ")})` : ""}.`,
+        where,
+      });
+    }
+    for (const item of sample.clippedText) {
+      clippedText.push({
+        code: "clipped_text",
+        message: `Text is clipped by ${Math.round(item.clippedX)}px horizontally and ${Math.round(item.clippedY)}px vertically (${item.target}).`,
+        where,
+      });
+    }
+    for (const item of sample.smallTapTargets) {
+      tapTargets.push({
+        code: "small_target",
+        message: `${Math.round(item.width)}×${Math.round(item.height)}px interactive target (${item.target}); minimum is 24×24px.`,
+        where,
+      });
+    }
+    for (const item of sample.imageCropIssues) {
+      imageCrops.push({
+        code: "extreme_crop",
+        message: `Only ${Math.round(item.retainedFraction * 100)}% of the source frame remains visible (${item.target}).`,
         where,
       });
     }
@@ -1006,6 +1097,9 @@ export function evaluateBrowserGates(
       },
     }),
     gate("browser.overflow", overflow),
+    gate("browser.clipped_text", clippedText),
+    gate("browser.tap_targets", tapTargets),
+    gate("browser.image_crops", imageCrops),
     accessibilityGate,
     gate("browser.media", media),
     gate("browser.performance", performance, {

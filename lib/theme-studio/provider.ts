@@ -9,8 +9,9 @@ export type ThemeStudioContentBlock =
   | { type: "image"; mediaType: "image/webp"; base64: string };
 
 export interface StructuredRequest {
-  /** `image_review` is Track 3.4's quality check of a generated image. */
-  stage: "intent" | "draft" | "image_review";
+  /** `image_review` checks one generated image; `visual_qa` checks the full
+   * five-width storefront contact sheets before operator reveal. */
+  stage: "intent" | "draft" | "image_review" | "visual_qa";
   modelKey: ThemeStudioModelKey;
   providerModel: string;
   system: string;

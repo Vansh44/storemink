@@ -71,6 +71,7 @@ function validIntent(): ThemeIntent {
         source: "operator",
       },
     ],
+    referenceAnalysis: [],
     assumptions: ["The operator owns the supplied studio photography."],
     capabilityGaps: [],
   };
