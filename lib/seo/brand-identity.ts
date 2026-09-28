@@ -55,7 +55,15 @@ export const BRAND_DESCRIPTION =
  * care. Google explicitly supports the lowercase domain as the final fallback
  * when the preferred site name is not yet recognised.
  */
-const ALTERNATE_NAMES = ["Storemink", "storemink.com", "StoreMink", "storemink", "store mink", "Store Mink", "storemink.com | Build what's yours."];
+const ALTERNATE_NAMES = [
+  "Storemink",
+  "storemink.com",
+  "StoreMink",
+  "storemink",
+  "store mink",
+  "Store Mink",
+  "storemink.com | Build what's yours.",
+];
 
 /**
  * The platform Organization node. Emitted on the apex AND the help centre under
