@@ -1,26 +1,41 @@
 .root {
   position: relative;
-  flex: 0 1 210px;
+  flex: 0 1 196px;
   min-width: 0;
 }
 
 .trigger {
   display: flex;
   align-items: center;
-  gap: 8px;
-  max-width: 210px;
-  min-height: 42px;
-  padding: 5px 9px;
+  width: 100%;
+  max-width: 196px;
+  min-height: 48px;
+  gap: 9px;
+  padding: 6px 10px;
   border: 1px solid var(--sm-border);
-  border-radius: var(--sm-radius-control);
+  border-radius: 14px;
   background: color-mix(in srgb, var(--sm-surface) 88%, transparent);
   color: var(--sm-ink);
   cursor: pointer;
   text-align: left;
+  transition:
+    border-color 0.18s ease,
+    background-color 0.18s ease,
+    box-shadow 0.18s ease,
+    transform 0.18s ease;
 }
 
 .trigger > svg:first-child {
   flex: 0 0 auto;
+  width: 30px;
+  height: 30px;
+  padding: 6px;
+  border-radius: 9px;
+  background: color-mix(
+    in srgb,
+    var(--sm-accent, var(--brand-primary)) 12%,
+    transparent
+  );
   color: var(--sm-accent, var(--brand-primary));
 }
 
@@ -41,21 +56,35 @@
    (meant for struck prices) failed WCAG AA on the sand drawer trigger in all
    four live themes (2.25–4.22:1). ink-soft clears 4.5:1 on sand in each. */
 .triggerCopy small {
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   color: var(--sm-ink-soft);
-  font-size: 10px;
-  font-weight: 600;
+  font-size: 9px;
+  font-weight: 750;
+  line-height: 1;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  letter-spacing: 0.08em;
 }
 
 .triggerCopy strong {
   overflow: hidden;
   color: inherit;
   font-size: 13px;
-  font-weight: 700;
+  font-weight: 750;
+  line-height: 1.15;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.trigger:hover {
+  border-color: color-mix(in srgb, var(--sm-ink) 38%, var(--sm-border));
+  background: color-mix(in srgb, var(--sm-surface) 96%, transparent);
+  box-shadow: 0 5px 14px rgba(var(--sm-shadow-rgb), 0.1);
+  transform: translateY(-1px);
+}
+
+.trigger:focus-visible {
+  outline: 2px solid var(--sm-accent, var(--brand-primary));
+  outline-offset: 3px;
 }
 
 .panel {
@@ -159,14 +188,23 @@
 }
 
 :global(.sm-header-market) .trigger {
-  border-color: color-mix(in srgb, var(--sm-header-fg) 22%, transparent);
-  background: color-mix(in srgb, var(--sm-header-fg) 10%, transparent);
+  border-color: color-mix(in srgb, var(--sm-header-fg) 28%, transparent);
+  background: color-mix(in srgb, var(--sm-header-fg) 12%, transparent);
   color: var(--sm-header-fg, var(--sm-on-ink));
 }
 
 :global(.sm-header-market) .triggerCopy small,
 :global(.sm-header-market) .trigger > svg:first-child {
   color: color-mix(in srgb, var(--sm-header-fg) 75%, transparent);
+}
+
+:global(.sm-header-market) .trigger > svg:first-child {
+  background: color-mix(in srgb, var(--sm-header-fg) 14%, transparent);
+}
+
+:global(.sm-header-market) .trigger:hover {
+  border-color: color-mix(in srgb, var(--sm-header-fg) 48%, transparent);
+  background: color-mix(in srgb, var(--sm-header-fg) 18%, transparent);
 }
 
 .drawerRoot {
@@ -179,6 +217,7 @@
 .drawerRoot .trigger {
   width: 100%;
   max-width: none;
+  border-radius: var(--sm-radius-control);
   background: var(--sm-sand);
 }
 

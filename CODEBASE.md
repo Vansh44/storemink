@@ -6095,6 +6095,16 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
         ★★ The delivery control was unreachable between 769px and 900px: the
         header's copy hid below 900px while the drawer's only appeared below
         768px. It is now always in exactly one of the two.
+        **Delivery-location and PDP delivery polish (2026-09-29).** The
+        header selector now uses a compact, fixed-radius control with a clear
+        icon badge, stronger focus/hover treatment and a stable width, while
+        the drawer keeps the theme's control radius. Product delivery details
+        are content cards rather than control pills, so themes whose control
+        shape is a 999px pill no longer render a giant oval. The PIN form has
+        a clear disabled state, active button treatment, focus ring and a
+        stacked button/input layout below 560px so it cannot squeeze or clip
+        on narrow product pages. This is presentation-only; postal-code
+        validation, remembered locations and server estimates are unchanged.
         ⚠ The server cannot measure, so on a tablet the first paint before
         hydration can still show the unfolded header for a moment.
         **Shop page and collection pages (1.8).** Every active category has its
