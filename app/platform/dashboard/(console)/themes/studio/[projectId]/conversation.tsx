@@ -46,7 +46,9 @@ export function ThemeConversation({
     project.status === "blocked" && Boolean(latestRun?.questions.length);
   const creating = project.status === "draft";
   const working = project.status === "generating";
-  const [body, setBody] = useState(creating ? project.draftBrief : initialBody ?? "");
+  const [body, setBody] = useState(
+    creating ? project.draftBrief : (initialBody ?? ""),
+  );
   const [selected, setSelected] = useState<string[]>(() => {
     const previous = answering
       ? (project.messages.filter((message) => message.kind !== "images").at(-1)
