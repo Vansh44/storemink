@@ -9,6 +9,7 @@ import {
 } from "@google/genai";
 import { logWarn } from "@/lib/observability/logger";
 import { THEME_STUDIO_LIMITS } from "./contracts";
+import { abortable } from "./abortable";
 import {
   RATE_LIMIT_BACKOFF,
   rateLimitDelayMs,
@@ -204,14 +205,26 @@ export function createVertexModelClient(
 
   return {
     provider: "vertex-gemini",
-    async generate(request, signal) {
+    async generate(request, outer) {
+      // Keep HIGH thinking and the full output allowance, but bound wall time
+      // across SDK retries, auth and 429 backoff, not just one HTTP attempt.
+      const signal = AbortSignal.any([
+        outer,
+        AbortSignal.timeout(
+          request.stage === "image_review" ? 180_000 : REQUEST_TIMEOUT_MS,
+        ),
+      ]);
       let response: GenerateContentResponse | undefined;
       let waitedMs = 0;
       for (let retry = 0; !response; retry++) {
         try {
-          response = await send();
+          response = await abortable(send, signal);
         } catch (error) {
-          const code = classifyProviderError(error, signal);
+          const code = outer.aborted
+            ? "cancelled"
+            : signal.aborted
+              ? "provider_timeout"
+              : classifyProviderError(error);
           const delay =
             code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
               ? rateLimitDelayMs(retry, random)
@@ -227,7 +240,14 @@ export function createVertexModelClient(
             waitMs: delay,
           });
           if (!(await sleep(delay, signal))) {
-            return { kind: "error", code: "cancelled", usage: ZERO_USAGE };
+            return {
+              kind: "error",
+              code:
+                signal.aborted && !outer.aborted
+                  ? "provider_timeout"
+                  : "cancelled",
+              usage: ZERO_USAGE,
+            };
           }
           waitedMs += delay;
         }

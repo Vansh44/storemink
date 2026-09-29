@@ -128,10 +128,18 @@ function clippedOverflow(limit: number): { px: number; offenders: string[] } {
 
 function clippedText(limit: number) {
   const findings: { target: string; clippedX: number; clippedY: number }[] = [];
-  const elements = document.body?.querySelectorAll<HTMLElement>("*") ?? [];
+  const elements = document.body?.querySelectorAll("*") ?? [];
   for (let i = 0; i < elements.length && i < 6000; i += 1) {
     const element = elements[i];
-    if (findings.length >= limit || !element.innerText.trim()) continue;
+    // querySelectorAll's type parameter does not filter SVG/MathML nodes.
+    // Every storefront has SVG icons; they have no innerText and previously
+    // crashed the entire automatic capture after all pictures were taken.
+    if (
+      findings.length >= limit ||
+      !(element instanceof HTMLElement) ||
+      !element.innerText?.trim()
+    )
+      continue;
     const style = getComputedStyle(element);
     if (
       style.display === "none" ||

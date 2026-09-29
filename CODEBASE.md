@@ -2731,7 +2731,7 @@ wholesip/
 │       ├── internal/theme-studio/captures/ # ★ Track 3.6: claim + [captureId] finish
 │       │                      # for the headless-Chromium capture job (CRON_SECRET).
 │       ├── internal/theme-studio/runs/ # ★ Theme Studio Phase 3 MODEL worker: CRON_SECRET
-│       │                      # bearer, maxDuration 1200, ONE run of any provider per call.
+│       │                      # bearer, maxDuration 1200, TWO run lanes + an independent visual-QA lane.
 │       │                      # Needs its own Scheduler job (1200s deadline, no retries) and a
 │       │                      # ≥1200s Cloud Run timeout — docs/cron-jobs.md. Takes no input.
 │       ├── cron/mink-workflows/ # ★ Every minute: CRON_SECRET-gated Phase 6A lease worker;
@@ -3331,6 +3331,9 @@ wholesip/
 │   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
 │   │                          # rate-limit-backoff.ts (the 429 wait: bounded, jittered,
 │   │                          # abortable; SDK keeps the fast 5xx retry),
+│   │                          # abortable.ts (whole-call deadlines, including SDK auth/retries),
+│   │                          # image-request-pool.ts (three image calls shared by concurrent
+│   │                          # worker lanes per provider project/location/model, process-local),
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
@@ -4183,268 +4186,268 @@ wholesip/
 
 ## 5. Key conventions & rules
 
-1. **Tenancy first**: any new table gets a `store_id` column + RLS policy; any new
-   query/action threads `getCurrentStoreId()`. Never leak data across stores.
-2. **Server actions** live in `app/actions/<domain>-actions.ts` with a co-located
-   `<domain>-actions.test.ts`. Use the right DB scope (`withUser` for user
-   context, `withService` only when RLS must be bypassed and input is
-   validated + explicitly store-scoped).
-   **User-scoped queries carry the FULL identity (uid + email).**
-   `withUser` (`lib/db/client.ts`) requires a `UserIdentity` — `email` is a
-   REQUIRED (nullable) field, not an optional nicety, and the manager gate for
-   dashboard actions is **`getManagerIdentity(section)`** (access.ts), which
-   returns exactly that shape (`getManagerUserId` remains only for callers
-   that never open a user scope). Why: the RLS helpers grant a StoreMink
-   platform operator implicit superadmin on every store via
-   `is_platform_admin()`, which matches `platform_admins` **by email** through
-   `auth.email()` (the `app.current_user_email` GUC). A user scope opened with
-   a uid alone leaves that GUC unset, so for an operator with no `admins` row
-   every policy silently fails — reads come back EMPTY and writes affect zero
-   rows with **no error** (this is how `/dashboard/orders` showed "No orders
-   yet" for a store whose analytics page showed nine orders). The compiler now
-   enforces the field; don't work around it by passing a made-up email. On the
-   DB side, admin policies must delegate to `is_store_admin(store_id)` — never
-   inline `FROM admins WHERE id = auth.uid()` (that recreates the operator
-   blind spot; the two orders policies that did are fixed by
-   `supabase/platform_admin_01_order_policies.sql`, which also FAILS if any
-   policy reintroduces the inline pattern).
-   A pooled connection that fails transiently during `BEGIN` or this role/GUC
-   setup is destroyed and retried before the callback starts. Never broaden
-   that retry past callback entry: the callback may write, and an uncertain
-   transaction must not be replayed.
-3. **Route groups**: `(storefront)` = customer site, `dashboard/` = store admin,
-   `platform/` = StoreMink itself. Don't put platform pages in the storefront group —
-   the proxy rewrite depends on this separation.
-4. **Modals via intercepted routes**: dashboard list pages use the `@modal/(.)[id]`
-   parallel-route pattern (enquiries, users). Follow it for quick-glance detail
-   views. Products is the exception BY OWNER CHOICE: editing is a full page
-   (`/dashboard/products/[id]`, Shopify-style — no interception; hover-prefetched
-   rows + a `loading.tsx` skeleton keep it fast); only "New product" stays a
-   dialog.
-5. **Caching**: storefront reads use `unstable_cache` + tags (`lib/storefront/tags.ts`,
-   `STORE_TAG`). After mutations, `revalidateTag`/`revalidatePath` accordingly.
-6. **Styling**: Tailwind v4 + CSS modules for scoped styles + a few plain `.css`
-   files per area (`dashboard.css`, `storefront-theme.css`, `platform.css`).
-   Per-store theming = CSS variables injected by `brand-provider.tsx`.
-   - **★★ `.dashboard-shell` IS A SCOPE; `.dashboard-frame` IS THE PAGE.** The
-     scope class carries the `--dash-*` tokens and every `.dash-*` component
-     rule. The frame class carries the things only a whole-page wrapper should
-     have — `height: 100vh`, `overflow: hidden`, the page background — and is
-     applied ALONGSIDE the scope in `app/dashboard/layout.tsx` and the platform
-     console layout. **Keep them apart.** They were one class, and that is why
-     nothing in `dashboard.css` reached a dialog: a Radix `DialogContent`
-     portals into `document.body`, outside the shell element, so every
-     `var(--dash-*)` resolved to nothing and every `.dash-*` rule failed to
-     match. Not subtle — Tailwind's `border` utility sets a width and leaves the
-     colour to `var(--dash-border)`, and an invalid custom property falls back to
-     `currentColor`, so every panel in every dashboard dialog drew a hard BLACK
-     hairline; buttons lost `inline-flex` (icons stacked above their labels) and
-     `cursor: pointer`; cards lost surface, radius and shadow. The fix is that
-     the four portalled primitives (`dialog`, `dropdown-menu`, `sheet`,
-     `select` in `components/ui/`) each wear `dashboard-shell`, which is only
-     safe because the frame no longer rides along — it was already giving the
-     notification recipient picker, which opts into the scope for its tokens, a
-     100vh height and an `overflow: hidden` that beat its own `overflow-y-auto`.
-     **Rewriting the ~414 selectors instead was the obvious move and the wrong
-     one**: it fixes dialogs only, and dropdowns/sheets/selects portal too.
-     Adding a class is safe because no rule in the file is a bare element
-     selector — they are all `.dash-*`, so scoping an overlay cannot restyle its
-     internals by accident. Keep it that way.
-   - **★★ AND THE BUILDER HAD THE SAME BUG, WORSE, FOR LONGER (fixed
-     2026-09-11).** `builder.css` used `--b-text`, `--b-text-2`, `--b-text-3`,
-     `--b-border` and `--b-surface-2` across 21 rules and **declared none of
-     them anywhere in the repo** — only the four `--b-accent*` tokens and two
-     layout lengths existed. Invisible in review, because the CSS reads as
-     correct.
-     ★★ THE DAMAGE IS NOT WHAT THE `--dash-border` CASE ABOVE WOULD PREDICT,
-     and the difference is the SHORTHAND. That one set `border-color` on its
-     own, so an invalid value fell back to `currentColor` and drew a black
-     hairline. The builder writes `border: 1px solid var(--b-border)` — a
-     shorthand, so an invalid var makes the WHOLE declaration invalid at
-     computed-value time and it resets to the initial value. Measured in a
-     browser against the real stylesheet: `border-style: none`,
-     `border-width: 0px`. Every input, colour swatch, group separator and the
-     pages-rail divider had **no border at all**. `background: var(--b-surface-2)`
-     computed to `rgba(0,0,0,0)`, so hover states and the rail count badge
-     never appeared. And `color` — inherited, so it survived — resolved to
-     `.sm-builder`'s full-strength ink, which meant every hint, field label and
-     secondary line rendered as dark as a heading: the type hierarchy was flat.
-     Declared as `var(--dash-*, literal)` beside `--b-accent`, matching its own
-     convention, so the builder keeps tracking the dashboard theme and still
-     renders outside `.dashboard-shell`.
-     ⚠ Two of the seven originally suspected — `--b-border-strong` and
-     `--b-danger` — were NOT broken: each has exactly one use and it carries a
-     fallback. They are declared now for consistency, but a `var()` with a
-     fallback is not a defect, and a scan that ignores fallbacks over-reports.
-     ⚠ A repo-wide sweep found one more real instance (`--hc-ink-muted` in
-     `help.css`, a typo for `--hc-ink-faint` — every other uppercase 0.06em
-     label uses that one) and one FALSE alarm worth recording: `--stq-shot` in
-     `platform.css` is undeclared, but `.stq-mock-shot` is applied nowhere in
-     any component, so it is dead CSS for an unwired mock rather than a
-     degraded surface. `dashboard.css` and `pos.css` are clean — their
-     `--font-dash`/`--font-dash-mono` come from `next/font` in the dashboard
-     layouts, which a CSS-only scan reads as missing.
-   - **★★ `100vh` IS THE WRONG UNIT ON iOS — use `dvh` for anything full-height.**
-     Safari resolves `100vh` to the LARGE viewport (the height the page would
-     have with the toolbars hidden), so with the address bar on screen the
-     element is TALLER than what is visible. `html, body { min-height }` in
-     `globals.css` had it, and the POS shell is `h-dvh` — so on an iPad the two
-     disagreed by exactly the toolbar's height and the register broke four ways
-     at once: the page became scrollable, the nav rail lost its top, the product
-     grid lost its bottom row, and the leftover strip of body below the shell
-     rendered in the near-white `--background`. One cause, four symptoms, which
-     is why it read as "the layout is broken" rather than as a height bug.
-     `min-height: 100vh` stays FIRST as the fallback, with `100dvh` after it.
-     ⚠ **Chrome on desktop cannot reproduce this** — `vh` and `dvh` are equal
-     there — so a full-height change is only really tested on a device.
-     The POS shell additionally sets `overscroll-behavior: none` so an iOS
-     rubber-band bounce cannot reveal that near-white body behind a dark
-     full-screen till. Scoped to that element, NOT html/body: globally it would
-     also disable pull-to-refresh on the storefront.
-   - **★★ AN ABSOLUTE BOX THAT TRANSLATES MUST DECLARE ITS OWN `left`.** The UA
-     stylesheet sets `text-align: center` on `<button>` and Tailwind's preflight
-     does NOT reset it — so a `position: absolute` child with `left: auto` falls
-     back to its STATIC position, which for an empty out-of-flow inline inside a
-     centred button is the MIDDLE of the box, not its left edge. Measured in a
-     browser on the 44px analytics toggle: the knob's static position was 22px,
-     so `translate-x-6` put it at 46px and it hung **18px outside the pill**
-     whenever the switch was on, while the off state sat right of centre. Two
-     switches shipped that way (`settings/analytics`, the operator analytics
-     panel); the ones built as `inline-flex items-center` were always fine,
-     because a flex container places its items itself and ignores `text-align`.
-     ⚠ jsdom computes no layout, so a render test cannot catch this and neither
-     can TypeScript — `app/toggle-knob-coverage.test.ts` scans every className
-     expression in `app/` and `components/` (across newlines, since the knob's
-     classes are split by the conditional) and fails on any `absolute` +
-     `translate-x-` with no `left-`/`right-`/`inset-`. Mutation-checked by
-     reintroducing the original bug.
-   - **⚠ `dashboard.css` IS UNLAYERED, so it beats every Tailwind utility**
-     regardless of specificity (utilities live in `@layer utilities`). That is
-     fine for rules that predate the utilities at a call site, but a NEW base
-     style must go in `@layer components` or it silently defeats them — which is
-     where `.dash-input` lives, because two Razorpay credential fields pass
-     `font-mono` and the media library passes `px-2 text-xs`. `globals.css`
-     documents the same hazard from the other direction.
-7. **Next.js 16 caution**: APIs may differ from training data — check
-   `node_modules/next/dist/docs/` before using unfamiliar APIs (AGENTS.md rule).
-8. **Tests**: `npm run test` (vitest, coverage). CI also runs `lint`, `typecheck`,
-   **`test:shuffle`**, `prettier --check`, `build` — all must pass, now as four
-   parallel jobs (§2).
-   **★★ THE TEST ENVIRONMENT IS `node`, AND jsdom IS OPTED INTO PER FILE.**
-   Every one of the ~490 files used to get a jsdom instance and only 68 touch
-   the DOM, so 420 were building a browser to test a pure function — by far the
-   largest cost in CI (`environment` fell from 740s of worker time to 61s; the
-   suite went 180s → 52s locally, and the two CI test steps from 669s + 591s to
-   a fraction of that). **A file that needs the DOM puts
-   `// @vitest-environment jsdom` on LINE 1** — anywhere in the first comment
-   block works, including above an existing `/* eslint-disable */`.
-   ⚠ A docblock rather than a glob in `vitest.config.ts`, for the reason that
-   file's coverage `include` note already gives: a glob is an allowlist, and it
-   describes the files somebody remembered to add. The docblock travels with
-   the file, and forgetting one fails immediately with `document is not
+1.  **Tenancy first**: any new table gets a `store_id` column + RLS policy; any new
+    query/action threads `getCurrentStoreId()`. Never leak data across stores.
+2.  **Server actions** live in `app/actions/<domain>-actions.ts` with a co-located
+    `<domain>-actions.test.ts`. Use the right DB scope (`withUser` for user
+    context, `withService` only when RLS must be bypassed and input is
+    validated + explicitly store-scoped).
+    **User-scoped queries carry the FULL identity (uid + email).**
+    `withUser` (`lib/db/client.ts`) requires a `UserIdentity` — `email` is a
+    REQUIRED (nullable) field, not an optional nicety, and the manager gate for
+    dashboard actions is **`getManagerIdentity(section)`** (access.ts), which
+    returns exactly that shape (`getManagerUserId` remains only for callers
+    that never open a user scope). Why: the RLS helpers grant a StoreMink
+    platform operator implicit superadmin on every store via
+    `is_platform_admin()`, which matches `platform_admins` **by email** through
+    `auth.email()` (the `app.current_user_email` GUC). A user scope opened with
+    a uid alone leaves that GUC unset, so for an operator with no `admins` row
+    every policy silently fails — reads come back EMPTY and writes affect zero
+    rows with **no error** (this is how `/dashboard/orders` showed "No orders
+    yet" for a store whose analytics page showed nine orders). The compiler now
+    enforces the field; don't work around it by passing a made-up email. On the
+    DB side, admin policies must delegate to `is_store_admin(store_id)` — never
+    inline `FROM admins WHERE id = auth.uid()` (that recreates the operator
+    blind spot; the two orders policies that did are fixed by
+    `supabase/platform_admin_01_order_policies.sql`, which also FAILS if any
+    policy reintroduces the inline pattern).
+    A pooled connection that fails transiently during `BEGIN` or this role/GUC
+    setup is destroyed and retried before the callback starts. Never broaden
+    that retry past callback entry: the callback may write, and an uncertain
+    transaction must not be replayed.
+3.  **Route groups**: `(storefront)` = customer site, `dashboard/` = store admin,
+    `platform/` = StoreMink itself. Don't put platform pages in the storefront group —
+    the proxy rewrite depends on this separation.
+4.  **Modals via intercepted routes**: dashboard list pages use the `@modal/(.)[id]`
+    parallel-route pattern (enquiries, users). Follow it for quick-glance detail
+    views. Products is the exception BY OWNER CHOICE: editing is a full page
+    (`/dashboard/products/[id]`, Shopify-style — no interception; hover-prefetched
+    rows + a `loading.tsx` skeleton keep it fast); only "New product" stays a
+    dialog.
+5.  **Caching**: storefront reads use `unstable_cache` + tags (`lib/storefront/tags.ts`,
+    `STORE_TAG`). After mutations, `revalidateTag`/`revalidatePath` accordingly.
+6.  **Styling**: Tailwind v4 + CSS modules for scoped styles + a few plain `.css`
+    files per area (`dashboard.css`, `storefront-theme.css`, `platform.css`).
+    Per-store theming = CSS variables injected by `brand-provider.tsx`.
+    - **★★ `.dashboard-shell` IS A SCOPE; `.dashboard-frame` IS THE PAGE.** The
+      scope class carries the `--dash-*` tokens and every `.dash-*` component
+      rule. The frame class carries the things only a whole-page wrapper should
+      have — `height: 100vh`, `overflow: hidden`, the page background — and is
+      applied ALONGSIDE the scope in `app/dashboard/layout.tsx` and the platform
+      console layout. **Keep them apart.** They were one class, and that is why
+      nothing in `dashboard.css` reached a dialog: a Radix `DialogContent`
+      portals into `document.body`, outside the shell element, so every
+      `var(--dash-*)` resolved to nothing and every `.dash-*` rule failed to
+      match. Not subtle — Tailwind's `border` utility sets a width and leaves the
+      colour to `var(--dash-border)`, and an invalid custom property falls back to
+      `currentColor`, so every panel in every dashboard dialog drew a hard BLACK
+      hairline; buttons lost `inline-flex` (icons stacked above their labels) and
+      `cursor: pointer`; cards lost surface, radius and shadow. The fix is that
+      the four portalled primitives (`dialog`, `dropdown-menu`, `sheet`,
+      `select` in `components/ui/`) each wear `dashboard-shell`, which is only
+      safe because the frame no longer rides along — it was already giving the
+      notification recipient picker, which opts into the scope for its tokens, a
+      100vh height and an `overflow: hidden` that beat its own `overflow-y-auto`.
+      **Rewriting the ~414 selectors instead was the obvious move and the wrong
+      one**: it fixes dialogs only, and dropdowns/sheets/selects portal too.
+      Adding a class is safe because no rule in the file is a bare element
+      selector — they are all `.dash-*`, so scoping an overlay cannot restyle its
+      internals by accident. Keep it that way.
+    - **★★ AND THE BUILDER HAD THE SAME BUG, WORSE, FOR LONGER (fixed
+      2026-09-11).** `builder.css` used `--b-text`, `--b-text-2`, `--b-text-3`,
+      `--b-border` and `--b-surface-2` across 21 rules and **declared none of
+      them anywhere in the repo** — only the four `--b-accent*` tokens and two
+      layout lengths existed. Invisible in review, because the CSS reads as
+      correct.
+      ★★ THE DAMAGE IS NOT WHAT THE `--dash-border` CASE ABOVE WOULD PREDICT,
+      and the difference is the SHORTHAND. That one set `border-color` on its
+      own, so an invalid value fell back to `currentColor` and drew a black
+      hairline. The builder writes `border: 1px solid var(--b-border)` — a
+      shorthand, so an invalid var makes the WHOLE declaration invalid at
+      computed-value time and it resets to the initial value. Measured in a
+      browser against the real stylesheet: `border-style: none`,
+      `border-width: 0px`. Every input, colour swatch, group separator and the
+      pages-rail divider had **no border at all**. `background: var(--b-surface-2)`
+      computed to `rgba(0,0,0,0)`, so hover states and the rail count badge
+      never appeared. And `color` — inherited, so it survived — resolved to
+      `.sm-builder`'s full-strength ink, which meant every hint, field label and
+      secondary line rendered as dark as a heading: the type hierarchy was flat.
+      Declared as `var(--dash-*, literal)` beside `--b-accent`, matching its own
+      convention, so the builder keeps tracking the dashboard theme and still
+      renders outside `.dashboard-shell`.
+      ⚠ Two of the seven originally suspected — `--b-border-strong` and
+      `--b-danger` — were NOT broken: each has exactly one use and it carries a
+      fallback. They are declared now for consistency, but a `var()` with a
+      fallback is not a defect, and a scan that ignores fallbacks over-reports.
+      ⚠ A repo-wide sweep found one more real instance (`--hc-ink-muted` in
+      `help.css`, a typo for `--hc-ink-faint` — every other uppercase 0.06em
+      label uses that one) and one FALSE alarm worth recording: `--stq-shot` in
+      `platform.css` is undeclared, but `.stq-mock-shot` is applied nowhere in
+      any component, so it is dead CSS for an unwired mock rather than a
+      degraded surface. `dashboard.css` and `pos.css` are clean — their
+      `--font-dash`/`--font-dash-mono` come from `next/font` in the dashboard
+      layouts, which a CSS-only scan reads as missing.
+    - **★★ `100vh` IS THE WRONG UNIT ON iOS — use `dvh` for anything full-height.**
+      Safari resolves `100vh` to the LARGE viewport (the height the page would
+      have with the toolbars hidden), so with the address bar on screen the
+      element is TALLER than what is visible. `html, body { min-height }` in
+      `globals.css` had it, and the POS shell is `h-dvh` — so on an iPad the two
+      disagreed by exactly the toolbar's height and the register broke four ways
+      at once: the page became scrollable, the nav rail lost its top, the product
+      grid lost its bottom row, and the leftover strip of body below the shell
+      rendered in the near-white `--background`. One cause, four symptoms, which
+      is why it read as "the layout is broken" rather than as a height bug.
+      `min-height: 100vh` stays FIRST as the fallback, with `100dvh` after it.
+      ⚠ **Chrome on desktop cannot reproduce this** — `vh` and `dvh` are equal
+      there — so a full-height change is only really tested on a device.
+      The POS shell additionally sets `overscroll-behavior: none` so an iOS
+      rubber-band bounce cannot reveal that near-white body behind a dark
+      full-screen till. Scoped to that element, NOT html/body: globally it would
+      also disable pull-to-refresh on the storefront.
+    - **★★ AN ABSOLUTE BOX THAT TRANSLATES MUST DECLARE ITS OWN `left`.** The UA
+      stylesheet sets `text-align: center` on `<button>` and Tailwind's preflight
+      does NOT reset it — so a `position: absolute` child with `left: auto` falls
+      back to its STATIC position, which for an empty out-of-flow inline inside a
+      centred button is the MIDDLE of the box, not its left edge. Measured in a
+      browser on the 44px analytics toggle: the knob's static position was 22px,
+      so `translate-x-6` put it at 46px and it hung **18px outside the pill**
+      whenever the switch was on, while the off state sat right of centre. Two
+      switches shipped that way (`settings/analytics`, the operator analytics
+      panel); the ones built as `inline-flex items-center` were always fine,
+      because a flex container places its items itself and ignores `text-align`.
+      ⚠ jsdom computes no layout, so a render test cannot catch this and neither
+      can TypeScript — `app/toggle-knob-coverage.test.ts` scans every className
+      expression in `app/` and `components/` (across newlines, since the knob's
+      classes are split by the conditional) and fails on any `absolute` +
+      `translate-x-` with no `left-`/`right-`/`inset-`. Mutation-checked by
+      reintroducing the original bug.
+    - **⚠ `dashboard.css` IS UNLAYERED, so it beats every Tailwind utility**
+      regardless of specificity (utilities live in `@layer utilities`). That is
+      fine for rules that predate the utilities at a call site, but a NEW base
+      style must go in `@layer components` or it silently defeats them — which is
+      where `.dash-input` lives, because two Razorpay credential fields pass
+      `font-mono` and the media library passes `px-2 text-xs`. `globals.css`
+      documents the same hazard from the other direction.
+7.  **Next.js 16 caution**: APIs may differ from training data — check
+    `node_modules/next/dist/docs/` before using unfamiliar APIs (AGENTS.md rule).
+8.  **Tests**: `npm run test` (vitest, coverage). CI also runs `lint`, `typecheck`,
+    **`test:shuffle`**, `prettier --check`, `build` — all must pass, now as four
+    parallel jobs (§2).
+    **★★ THE TEST ENVIRONMENT IS `node`, AND jsdom IS OPTED INTO PER FILE.**
+    Every one of the ~490 files used to get a jsdom instance and only 68 touch
+    the DOM, so 420 were building a browser to test a pure function — by far the
+    largest cost in CI (`environment` fell from 740s of worker time to 61s; the
+    suite went 180s → 52s locally, and the two CI test steps from 669s + 591s to
+    a fraction of that). **A file that needs the DOM puts
+    `// @vitest-environment jsdom` on LINE 1** — anywhere in the first comment
+    block works, including above an existing `/* eslint-disable */`.
+    ⚠ A docblock rather than a glob in `vitest.config.ts`, for the reason that
+    file's coverage `include` note already gives: a glob is an allowlist, and it
+    describes the files somebody remembered to add. The docblock travels with
+    the file, and forgetting one fails immediately with `document is not
    defined` — which is what makes defaulting to the cheaper environment safe.
-   ⚠ **`.tsx` IS NOT THE RULE**: twelve of the 68 are plain `.test.ts`
-   (localStorage, window, a portal), and some `.test.tsx` files test pure
-   helpers and run fine in node. The list was derived by running the suite
-   under `--environment node` and taking what actually failed.
-   **★★ `test:shuffle` IS NOT A DUPLICATE RUN.** `npm run test` executes files in
-   DECLARATION ORDER, so a test that passes only because it happens to run before
-   another one looks permanently green. Three did (fixed 2026-08-13), all from the
-   same cause: **`vi.clearAllMocks()` clears CALLS, not IMPLEMENTATIONS**, so a
-   `mockResolvedValue`/`mockRejectedValue` set inside one test leaks into every
-   test after it — and the offenders were declared LAST in their files, so nothing
-   followed them. One hid a razorpay suite charging ₹150 for a ₹200 order.
-   **★★ THAT LEAK IS CLOSED AT SOURCE NOW: `mockReset: true` IS SET IN
-   `vitest.config.ts`.** Every mock is reset before every test, so a stubbed
-   implementation cannot reach a test that never asked for it, and restoring
-   defaults by hand in `beforeEach` is no longer the only defence. It was a
-   PREREQUISITE REFACTOR rather than a flag because in this Vitest `mockReset`
-   restores the implementation a mock was CREATED with — `vi.fn(() => x)`
-   survives, `vi.fn().mockResolvedValue(x)` is WIPED — and this repo used both
-   forms, including at `vi.mock` factory level where nothing re-establishes
-   them per test. Measured before flipping it: **4 files, 8 tests**. Three were
-   the mechanical conversion; the fourth was real — `customer-profile.test.ts`'s
-   claiming block set only `claimPosCustomer` and had been borrowing
-   `getServerUser` from a SIBLING describe, so it reported "Not authenticated"
-   for a flow with nothing to do with authentication.
-   **⚠ SO WRITE FACTORY MOCKS AS `vi.fn(impl)`.** A `vi.fn().mockResolvedValue()`
-   inside a `vi.mock` factory now returns `undefined` from the second test
-   onward, and an undefined return fails somewhere other than the line that
-   caused it ("not iterable", a whole-object mismatch, a bogus auth error).
-   Per-test overrides in `beforeEach`/`it` are unaffected — they run after the
-   reset. Existing `vi.clearAllMocks()` calls are redundant now but harmless.
-   **⚠ AND IT DOES NOT RETIRE `test:shuffle`.** It removes the dominant CAUSE of
-   order-dependence, not the category: module-level mutable state, shared
-   fixtures and `vi.hoisted` holder objects still couple one test to another,
-   and only running the files in a different order can show that.
-   ⚠ The seed is FIXED (one ordering, reproducible): a randomly-red suite teaches
-   people to re-run rather than trust it. One seed is one permutation, so it
-   catches regressions this ordering exposes, not all of them — hunt for more with
-   `npx vitest run --coverage=false --sequence.shuffle --sequence.seed=<n>`.
-   **★★ AND A SHUFFLE FAILURE IS NOT ALWAYS AN ORDERING ONE.** Both suite runs
-   execute files in PARALLEL, so a test that renders a component holding a live
-   `setTimeout` is racing the WALL CLOCK on a loaded worker, not the file order
-   — and because `test:shuffle` is a second full run, it is simply the second
-   roll of that die, which is why the flake tends to surface there. `app/pos/sell/sell-client.test.tsx` failed once and passed on a
-   re-run at the IDENTICAL seed and tree (2026-09-11), which is the signature:
-   an ordering bug is reproducible, a timing one is not. The cause was that the
-   register arms a real 150 ms server-fallback timer whenever the catalogue is
-   cold (`sell-client.tsx`, the `if (catalog.ready) return;` effect), and the
-   `lookupProducts` mock resolved to `{ items: [] }` — so ~150 ms after any
-   cold render the product grid EMPTIED and the next
-   `getByRole(/multigrain bread/i)` threw. The test passed only while three
-   render/click cycles finished inside that window.
-   **The rule: a mock that stands in for a data source must return DATA.** An
-   empty fixture reads as a harmless default and is really a second scenario
-   ("the shop sells nothing") that fires on a timer nobody is watching. And
-   when a component under test owns a real timer, cross it DELIBERATELY —
-   `await waitFor(() => expect(theAction).toHaveBeenCalled())` — rather than
-   hoping the assertions land first; that turns a load-dependent flake into a
-   deterministic failure, which is the only kind anybody can fix.
-   ⚠ Diagnose these by FORCING the delay (`await act(async () => { await new
+    ⚠ **`.tsx` IS NOT THE RULE**: twelve of the 68 are plain `.test.ts`
+    (localStorage, window, a portal), and some `.test.tsx` files test pure
+    helpers and run fine in node. The list was derived by running the suite
+    under `--environment node` and taking what actually failed.
+    **★★ `test:shuffle` IS NOT A DUPLICATE RUN.** `npm run test` executes files in
+    DECLARATION ORDER, so a test that passes only because it happens to run before
+    another one looks permanently green. Three did (fixed 2026-08-13), all from the
+    same cause: **`vi.clearAllMocks()` clears CALLS, not IMPLEMENTATIONS**, so a
+    `mockResolvedValue`/`mockRejectedValue` set inside one test leaks into every
+    test after it — and the offenders were declared LAST in their files, so nothing
+    followed them. One hid a razorpay suite charging ₹150 for a ₹200 order.
+    **★★ THAT LEAK IS CLOSED AT SOURCE NOW: `mockReset: true` IS SET IN
+    `vitest.config.ts`.** Every mock is reset before every test, so a stubbed
+    implementation cannot reach a test that never asked for it, and restoring
+    defaults by hand in `beforeEach` is no longer the only defence. It was a
+    PREREQUISITE REFACTOR rather than a flag because in this Vitest `mockReset`
+    restores the implementation a mock was CREATED with — `vi.fn(() => x)`
+    survives, `vi.fn().mockResolvedValue(x)` is WIPED — and this repo used both
+    forms, including at `vi.mock` factory level where nothing re-establishes
+    them per test. Measured before flipping it: **4 files, 8 tests**. Three were
+    the mechanical conversion; the fourth was real — `customer-profile.test.ts`'s
+    claiming block set only `claimPosCustomer` and had been borrowing
+    `getServerUser` from a SIBLING describe, so it reported "Not authenticated"
+    for a flow with nothing to do with authentication.
+    **⚠ SO WRITE FACTORY MOCKS AS `vi.fn(impl)`.** A `vi.fn().mockResolvedValue()`
+    inside a `vi.mock` factory now returns `undefined` from the second test
+    onward, and an undefined return fails somewhere other than the line that
+    caused it ("not iterable", a whole-object mismatch, a bogus auth error).
+    Per-test overrides in `beforeEach`/`it` are unaffected — they run after the
+    reset. Existing `vi.clearAllMocks()` calls are redundant now but harmless.
+    **⚠ AND IT DOES NOT RETIRE `test:shuffle`.** It removes the dominant CAUSE of
+    order-dependence, not the category: module-level mutable state, shared
+    fixtures and `vi.hoisted` holder objects still couple one test to another,
+    and only running the files in a different order can show that.
+    ⚠ The seed is FIXED (one ordering, reproducible): a randomly-red suite teaches
+    people to re-run rather than trust it. One seed is one permutation, so it
+    catches regressions this ordering exposes, not all of them — hunt for more with
+    `npx vitest run --coverage=false --sequence.shuffle --sequence.seed=<n>`.
+    **★★ AND A SHUFFLE FAILURE IS NOT ALWAYS AN ORDERING ONE.** Both suite runs
+    execute files in PARALLEL, so a test that renders a component holding a live
+    `setTimeout` is racing the WALL CLOCK on a loaded worker, not the file order
+    — and because `test:shuffle` is a second full run, it is simply the second
+    roll of that die, which is why the flake tends to surface there. `app/pos/sell/sell-client.test.tsx` failed once and passed on a
+    re-run at the IDENTICAL seed and tree (2026-09-11), which is the signature:
+    an ordering bug is reproducible, a timing one is not. The cause was that the
+    register arms a real 150 ms server-fallback timer whenever the catalogue is
+    cold (`sell-client.tsx`, the `if (catalog.ready) return;` effect), and the
+    `lookupProducts` mock resolved to `{ items: [] }` — so ~150 ms after any
+    cold render the product grid EMPTIED and the next
+    `getByRole(/multigrain bread/i)` threw. The test passed only while three
+    render/click cycles finished inside that window.
+    **The rule: a mock that stands in for a data source must return DATA.** An
+    empty fixture reads as a harmless default and is really a second scenario
+    ("the shop sells nothing") that fires on a timer nobody is watching. And
+    when a component under test owns a real timer, cross it DELIBERATELY —
+    `await waitFor(() => expect(theAction).toHaveBeenCalled())` — rather than
+    hoping the assertions land first; that turns a load-dependent flake into a
+    deterministic failure, which is the only kind anybody can fix.
+    ⚠ Diagnose these by FORCING the delay (`await act(async () => { await new
 Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
-   until it goes red — the forced version reproduces first time and names the
-   real assertion. Raising a `findBy*` timeout would have buried this one:
-   the failing call was a synchronous `getByRole`, and the element was gone
-   rather than late.
-9. **Features are settings-based** (see §9): configurable behavior goes through
-   `lib/settings/registry.ts` — add the setting there (key, label, default,
-   `section` = the dashboard permission section that owns it, optional
-   `minPlan`/`dependsOn`), read it via `getStoreSettings()` /
-   `getStoreSetting()` from `lib/settings/resolve.ts`. Settings render on their
-   OWNING FEATURE's settings page (blogs → `/dashboard/blogs/settings`) via
-   `getStoreSettingsForEditor(group)` + `saveStoreSettings`, both gated per
-   setting by `can(def.section, …)` — there is no central features page. Values
-   live in `stores.settings.features` (jsonb); `saveStoreSettings` validates
-   against the registry and busts `STORE_TAG`. Enforce settings **server-side**
-   (in the action), not just in the UI. If RLS blocks a setting-dependent write
-   (e.g. customers may only insert `pending_review` blogs), do the privileged
-   step with the service-role client AFTER checking the setting — see
-   **★ THREE TYPES: `boolean`, `number` and `select`.** `select` carries
-   `options` — and that list IS the validation, not a UI hint:
-   `resolveStoreSettings` refuses a stored value that is not in it and falls
-   back to the default, so a retired option stops applying the moment it is
-   removed rather than lingering in a jsonb blob nobody reads.
-   `saveStoreSettings` re-checks it server-side (invariant 5 — the dropdown is
-   not the boundary) and now validates EVERY type before writing, where it used
-   to store whatever arrived on the reasoning that the read side rejects a
-   wrong-typed value. True, but it left the stored blob full of values that do
-   nothing, which is what makes a settings bug impossible to diagnose from the
-   database. First consumer: `fulfilment.pickupPayment` (§23).
-   direct-publish in `blog-actions.ts`. First consumers:
-   `blogs.customerSubmissions`, `blogs.requireApproval` (rendered at
-   `/dashboard/blogs/settings`) and `pages.customCode` (rendered at
-   `/dashboard/builder/settings`); both pages share the
-   `dashboard/components/feature-toggles.tsx` card. `marketing.showAllCoupons`
-   (section `marketing`) is another consumer: when on, the storefront cart shows
-   all active coupons; otherwise only those with `coupons.show_on_storefront`.
-   **⚠ `stores.settings` (which holds `features`) is ANON-READABLE** — the
-   "Read stores" RLS policy (`multitenant_03_rls.sql`) grants `SELECT` on every
-   active store to `anon`, and the storefront reads it with the public client.
-   So NEVER put a secret (API key, token, webhook secret) in `stores.settings`;
-   it would be world-readable via PostgREST. Secrets belong in env, or in a
-   separate column/table that is NOT granted to `anon` (mirror the `store_pages`
-   draft-column pattern: revoke anon, grant only named non-sensitive columns).
+    until it goes red — the forced version reproduces first time and names the
+    real assertion. Raising a `findBy*` timeout would have buried this one:
+    the failing call was a synchronous `getByRole`, and the element was gone
+    rather than late.
+9.  **Features are settings-based** (see §9): configurable behavior goes through
+    `lib/settings/registry.ts` — add the setting there (key, label, default,
+    `section` = the dashboard permission section that owns it, optional
+    `minPlan`/`dependsOn`), read it via `getStoreSettings()` /
+    `getStoreSetting()` from `lib/settings/resolve.ts`. Settings render on their
+    OWNING FEATURE's settings page (blogs → `/dashboard/blogs/settings`) via
+    `getStoreSettingsForEditor(group)` + `saveStoreSettings`, both gated per
+    setting by `can(def.section, …)` — there is no central features page. Values
+    live in `stores.settings.features` (jsonb); `saveStoreSettings` validates
+    against the registry and busts `STORE_TAG`. Enforce settings **server-side**
+    (in the action), not just in the UI. If RLS blocks a setting-dependent write
+    (e.g. customers may only insert `pending_review` blogs), do the privileged
+    step with the service-role client AFTER checking the setting — see
+    **★ THREE TYPES: `boolean`, `number` and `select`.** `select` carries
+    `options` — and that list IS the validation, not a UI hint:
+    `resolveStoreSettings` refuses a stored value that is not in it and falls
+    back to the default, so a retired option stops applying the moment it is
+    removed rather than lingering in a jsonb blob nobody reads.
+    `saveStoreSettings` re-checks it server-side (invariant 5 — the dropdown is
+    not the boundary) and now validates EVERY type before writing, where it used
+    to store whatever arrived on the reasoning that the read side rejects a
+    wrong-typed value. True, but it left the stored blob full of values that do
+    nothing, which is what makes a settings bug impossible to diagnose from the
+    database. First consumer: `fulfilment.pickupPayment` (§23).
+    direct-publish in `blog-actions.ts`. First consumers:
+    `blogs.customerSubmissions`, `blogs.requireApproval` (rendered at
+    `/dashboard/blogs/settings`) and `pages.customCode` (rendered at
+    `/dashboard/builder/settings`); both pages share the
+    `dashboard/components/feature-toggles.tsx` card. `marketing.showAllCoupons`
+    (section `marketing`) is another consumer: when on, the storefront cart shows
+    all active coupons; otherwise only those with `coupons.show_on_storefront`.
+    **⚠ `stores.settings` (which holds `features`) is ANON-READABLE** — the
+    "Read stores" RLS policy (`multitenant_03_rls.sql`) grants `SELECT` on every
+    active store to `anon`, and the storefront reads it with the public client.
+    So NEVER put a secret (API key, token, webhook secret) in `stores.settings`;
+    it would be world-readable via PostgREST. Secrets belong in env, or in a
+    separate column/table that is NOT granted to `anon` (mirror the `store_pages`
+    draft-column pattern: revoke anon, grant only named non-sensitive columns).
 10. **Blog categories & tags are per-store data**, not code: `blog_categories` /
     `blog_tags` tables (`supabase/blog_taxonomy.sql`), managed in
     `/dashboard/blogs/settings` via `blog-taxonomy-actions.ts`. Blogs store
@@ -5411,738 +5414,774 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     and enable `vertex-gemini`, capture and automatic QA through Cloud Build.
     `docs/theme-studio-capture-job.md` is the shared job runbook. Operator-only
     and no merchant workflow changes: no Help Centre migration.
-    **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
-    Until this landed there was NO per-store design layer at all: palette,
-    fonts and radii came SOLELY from the pinned immutable preset, and
-    `StorefrontAppearance` carried only layout VARIANTS. The one per-store
-    visual control was `--brand-primary` and the logo — so "make my shop look
-    like this site" could not change a single colour or typeface, for a
-    merchant OR for Mink, and no amount of agent tooling would have fixed that
-    because the value had nowhere to live. `StorefrontDesignOverrides` (eight
-    curated palette tokens, a body/display face, four radii) rides in the SAME
-    `store_chrome` draft/published payload, so it needs NO migration and
-    inherits the draft → publish contract pages and chrome already have.
-    `designOverrideCssVars` emits ONLY what was overridden and the storefront
-    layout spreads it AFTER `designToCssVars`; emitting a full map would pin a
-    store to today's theme values so a later preset upgrade would stop reaching
-    it.
-    ★★ THE BODY FACE OCCUPIES TWO CSS VARIABLES. `designToCssVars` points BOTH
-    `--font-outfit` and `--font-roboto` at `fonts.body`, because the
-    storefront's call-sites are split across those legacy slots — overriding
-    one leaves the shop in two typefaces, the Vitrine defect recorded below,
-    invisible unless you count elements. `design.test.ts` pins every emitted
-    variable name against `designToCssVars`'s own output, because a wrong name
-    is a SILENT no-op: no error, no failed render, just a colour that never
-    changes.
-    ★ `.sm-themed-type` is now emitted for a font override as well as an
-    installed theme, or an un-themed store choosing a face would render half in
-    it and half in Tailwind's default. A store overriding nothing still gets no
-    class, so its inherited font is untouched.
-    ★★ CONTRAST IS A PUBLISH GATE, NOT A SAVE GATE. WCAG AA on three pairs
-    (ink-on-page, ink-on-card, muted-on-page), checked in `publishChrome`
-    against the RESOLVED pair so changing one token flags text inherited from
-    the preset that the merchant never touched. A half-picked palette mid-edit
-    must not fail autosave — it is visible in the live preview — but publishing
-    unreadable body text is not something a merchant recovers from by noticing
-    later, and the storefront has no other defence. It matters more once a
-    model proposes a palette from a screenshot: that optimises for resemblance,
-    not readability. SAFETY (hex only, allowlisted fonts, bounded radii) is
-    unconditional in both modes, because these land in an inline `style`
-    attribute.
-    **The panel is the Brand row in the builder inspector** (`chrome-form.tsx`
-    `DesignForm`): eight colour tokens, two typeface selects, four corner
-    sliders. ★ EVERY CONTROL HAS AN EXPLICIT "USE THEME" STATE and an unset one
-    SHOWS the value the storefront will really use — a colour input has no
-    null, so without that a merchant cannot tell "I have not chosen" from "I
-    chose exactly this", and cannot get back once they have nudged a picker.
-    `themeDesignDefaults()` is the projection the panel needs, deliberately not
-    the whole `ThemeDesign`: it crosses to a client component on every builder
-    load. Contrast warnings appear WHILE EDITING, not only on Publish, where
-    they would be a dead end.
-    ★★ THE PREVIEW EFFECT RESTORES, IT DOES NOT ONLY SET. Clearing an override
-    has to put the theme value back — the layout wrote the old one inline
-    server-side, so merely ceasing to write the property leaves it stuck and
-    "Reset" looks broken. `--brand-primary` is additionally SHARED with the
-    `sm-brand` message the builder sends on every colour keystroke, so the
-    provider remembers the live value and restores THAT rather than silently
-    undoing a colour the merchant just picked.
-    Verified in a browser end to end: overriding page background, ink, accent,
-    card radius and both faces repainted the storefront, and a font census
-    returned **255 of 255 elements in Jost, zero in a second family** — the
-    measurement that proves the two-slot fix, and the only way that class of
-    bug is visible at all.
-    **Theme DESIGN engine (the visual "skin")**: a theme controls the FULL
-    design system, not just one accent. `ThemeDesign` (`lib/themes/types.ts`) =
-    `palette` (all 14 `--sm-*` colour tokens + `onAccent`/`onInk`/
-    `shadowRgb`/`success`/`error`/`star`/`highlight` semantic tokens), `fonts`
-    (`body`/`display`, pointing at next/font variables loaded in
-    `app/layout.tsx` — Inter/Fraunces/Space Grotesk/Plus Jakarta/Jost/Instrument
-    Serif (all `preload: false`; which one a page uses is decided per request
-    from the store's theme) alongside the
-    legacy Outfit/Roboto/Stick), and `shape` (`card`/`control`/`sm`/`pill`
-    radii). `designToCssVars(design, brandPrimary)` flattens it to a CSS-var map
-    the `(storefront)` layout writes **inline on `.storefront-root`** — inline
-    specificity beats the globals.css `:root` defaults, so the whole storefront
-    re-skins with zero per-component wiring. Fonts re-point the existing
-    `--font-outfit`/`--font-stick-no-bills` slots, so all 64 font call-sites
-    switch with no find-replace.
-    **★★ BUT THE OTHER HALF OF THE STOREFRONT INHERITED TAILWIND'S DEFAULT.**
-    Those 64 call-sites read the vars; everything ELSE inherited from `<body>`,
-    which Tailwind sets to its own sans. **Nobody noticed for three themes
-    because basket/studio/ritual all set `body: var(--font-inter)`, and Inter is
-    ALSO Tailwind's default — the two halves happened to match.** Vitrine is the
-    first preset with a different body face, and it rendered a live storefront
-    HALF in Jost and half in Inter (measured: 79 elements vs 78). Fixed by
-    `.sm-themed-type` (storefront-theme.css), a root class emitted ONLY when a
-    theme actually resolves, which sets `font-family: var(--font-outfit)` so
-    untokenised descendants inherit the theme font. ⚠ Gated on `design` being
-    non-null so it CANNOT touch an un-themed storefront — the WholeSip fallback
-    and legacy stores keep the font they inherit today (verified live: no class
-    emitted, font census unchanged at Outfit 39 / inherited 48 / Roboto 1). For
-    the three Inter themes it is a no-op in practice (verified live: studio
-    stayed 140/140 Inter); Vitrine went 156/156 Jost. ⚠ The un-themed WholeSip
-    storefront therefore STILL renders in two families — that is pre-existing
-    and deliberately untouched, since fixing it changes a live storefront. **Defaults = WholeSip**: the `:root` token
-    values in `globals.css` ARE the WholeSip look, and a store with no real
-    `settings.template` (the WholeSip fallback, legacy stores) gets only
-    `--brand-primary` — untouched. Storefront component CSS is fully
-    tokenised (no raw hex; darks→`ink`, mids→`ink-soft`, faints→`ink-faint`,
-    on-dark whites→`on-ink`/`on-accent`, panels→`surface`, shadows→
-    `rgba(var(--sm-shadow-rgb), α)`, radii→shape tokens) so palette +
-    shape reach every surface (header, footer, auth modal, shop cards + badges,
-    profile/enquiry forms, blog + write-blog editor). CI-guards in
-    `themes.test.ts` assert each theme ships a complete, injectable design.
-    **Layout variants** (`ThemeDesign.layout`, all optional — absent = classic
-    WholeSip chrome): header supports `classic`, `market`, `centered`, and
-    `minimal`; cards support `classic`, `quick_add`, `overlay`, `framed`, and
-    `grocery`; product detail supports `classic`, `grocery`, and `editorial`;
-    cart supports `classic`, `grocery`, and `compact`; footer supports `rich`,
-    `minimal`, and `editorial`. `resolveStorefrontAppearance` in
-    `lib/chrome/types.ts` is the single pure resolver for theme defaults plus
-    published merchant overrides; it also preserves the pinned legacy
-    `storefront:"grocery"` shorthand. Root `sm-*` classes drive CSS variants,
-    while `lib/store/storefront-layout.ts` supplies resolved values where
-    grocery markup branches are required. `header:"market"` retains its
-    theme-controlled colours and `card:"quick_add"` retains safe inline add
-    behavior (multi-variant products fall through to detail).
-    **★ `layout.cardHoverImage` cross-fades a card to the product's SECOND
-    photograph on hover** (root class `sm-card-hoverimg`, CSS in
-    storefront-theme.css). Three things are load-bearing.
-    (1) **The `display: none` default IS the loading strategy, not styling.**
-    The hover layer is hidden and its `<img>` is `loading="lazy"`, so on a
-    storefront that has not opted in the element never gets a layout box, never
-    intersects the viewport, and the browser NEVER FETCHES IT — verified in a
-    browser: opted out, only the primary image appears in the resource list.
-    `opacity: 0` or `visibility: hidden` would both still lay it out and
-    download it.
-    (2) **It is opted into per theme rather than rendered-always-and-hidden,
-    which is what `QuickAddButton` does.** That pattern is free for a button and
-    costs a request per card for a photograph, so this diverges deliberately;
-    the card also renders no layer at all unless the product HAS a second image.
-    (3) **`(hover: hover) and (pointer: fine)` keeps it off touch entirely** —
-    no hover there, so it would be pure wasted bandwidth on the connections
-    least able to spare it (verified under mobile emulation: layer hidden, image
-    NOT fetched, with the theme opted IN). Theme-driven only: a merchant's
-    `card` override neither enables nor cancels it, since hover-swap is a
-    different axis from the card variant. ⚠ The gate depends on browsers not
-    loading a lazy image that never intersects — well-established, and if one
-    ever did the cost is bandwidth, not breakage.
-    **`lib/products/gallery.ts`** is the ONE composer of "which photographs does
-    this product have, in what order" (pure + tested), shared by the card's
-    hover image and the PDP gallery so the two can never disagree about which
-    photograph is second. It exists because `products.images` is `text[] NOT
-    NULL DEFAULT ['']` — a one-element array holding an EMPTY STRING, not an
-    empty array — while the dashboard editor writes additional images only and
-    `applyTheme` seeds presets whose `images` repeats the primary first. A
-    caller that indexes the column directly renders a broken `<img>` for an
-    untouched store and cross-fades a themed product to itself.
-    **★ SHOPIFY-PARITY TRACK 1 (2026-09-25, `docs/theme-parity-plan.md`).**
-    `[slug]/product-gallery.tsx` is the one PDP gallery for all three layouts:
-    every photo is a slide in one track; desktop shows only the active slide
-    (thumbnails switch it, exactly the old look) and below 860px the track is a
-    native scroll-snap strip with a "2 / 5" counter, so phones SWIPE. Its
-    `ProductLightbox` replaced both copies of the single-image zoom: swipe,
-    prev/next, arrow keys, Escape, focus on Close, scroll lock, desktop
-    click-to-magnify, and native pinch on phones. Universal on purpose — at
-    rest it shows the same first photo. `[slug]/sticky-add-to-cart.tsx` is
-    the phone buy bar, shown once the page's own buttons scroll away ABOVE the
-    shopper; it calls the page's own handler. Opt-in theme layout keys
-    `stickyAddToCart`, `gridColumnsMobile` (1|2) and `gridColumnsDesktop`
-    (3|4|5) resolve through `resolveStorefrontAppearance` into root classes
-    `sm-atc-sticky` / `sm-grid-m2` / `sm-grid-d3|d5`, with a compact card for
-    the two-column phone grid; absent keys render as before. They are in the
-    package contract, the Stage B schema and prompt (`theme-studio-v3`).
-    **Hero controls (1.4).** `hero`, `hero_carousel` and each slide gain
-    optional `height` (`small|medium|large|screen`; screen is
-    `100svh − --sm-header-h`), `focal_x`/`focal_y` (0–100),
-    `mobile_image_url`, `overlay_opacity` (0–80) and `content_position`
-    (`top|bottom`). `heroImageOptions` (section-types.ts) EMITS NOTHING AT A
-    DEFAULT, so an untouched hero stores and renders byte-for-byte as before;
-    `null`/`""` read as absent, never 0 (the `Number(null)` trap), while a real
-    0 overlay survives. `sections/hero-media.tsx` renders the image for both
-    renderers: ★ a phone image is ART DIRECTION through one `<picture>` +
-    `getImageProps`, never a second CSS-toggled `<Image>` — the first hero is
-    eager, so two images would preload both on every visit (verified: a phone
-    fetches only the phone file). The focal point applies to the main image
-    only, since a phone image is composed for the phone. A tuned overlay
-    replaces the built-in `::after` scrim (`has-overlay`) and only applies
-    where copy sits ON the media (minimal-with-image hero, every slide). The
-    carousel SWIPES on touch/pen pointers (40px horizontal, `touch-action:
-    pan-y` keeps page scroll), pauses while focus is inside, and never
-    autoplays under `prefers-reduced-motion` (read when the timer would start,
-    not held in state). Builder: `HeroImageFields` (click-to-set focal preview,
-    phone upload, overlay slider, text position — each with a default that
-    stores nothing) and a Height select. Stage B learns the fields in
-    `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
-    compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
-    guide's section-type paragraph in place.
-    **★★ TEXT OVER A PHOTO PICKS THE COLOUR THAT READS (2026-09-26).** Every
-    section that sets copy ON an image — carousel slides, the minimal hero
-    with a background image, promo banners and image tiles — picks its text
-    colour per SECTION (`theme: dark|light`), never per picture, so dark ink
-    landed on a black boot (reported on Vitrine; true of every theme).
-    `MediaTone` (`sections/media-tone.tsx`) sits inside each such root, and
-    once the photo loads it reads the pixels directly behind the words (drawn
-    the way `object-fit: cover` and the focal point crop them) and applies
-    `chooseTone` (`lib/storefront/media-tone.ts`, pure): keep the configured
-    `theme-*` when it reads, swap to the other when only that reads, and add
-    `sm-scrim` — a soft gradient from the edge the copy sits against — only
-    when neither reads on a busy photo. ★ WORST TENTH, NOT AVERAGE: dark text
-    is judged against the darkest 10% of those pixels and light text against
-    the brightest 10%, at WCAG AA 4.5:1, because half-black-half-white
-    averages to a grey both colours "pass". ★ Nothing is painted behind the
-    words: a first attempt put a blurred panel there and it read as a sticker.
-    ★ It swaps a CLASS the section already styles, so each theme's own
-    dark/light text, button and built-in scrim come with it, and a future
-    theme needs nothing. It re-applies after every render (React writes the
-    configured class back — the builder does on every edit) and re-measures
-    on resize and image load. ★ It FAILS QUIET: a video, a cross-origin photo
-    the canvas cannot read, or no canvas at all leaves the merchant's colour
-    exactly as before, and a merchant who tuned the Overlay slider is left
-    alone (`off`). ⚠ The swap lands a beat after the photo, so the copy's
-    colour eases in over 0.3s. Carousel copy is also padded clear of the
-    arrows (`has-arrows`), which overlapped the subheading on desktop, and
-    the arrows are hidden on touch phones (`pointer: coarse`, ≤640px).
-    Pinned by `media-tone.test.ts` (the decision) and
-    `sections/media-tone.test.tsx` (where the probe sits and that nothing
-    changes unmeasured). No merchant action changes, so no Help Centre update.
-    **★ "Full width" is a band, not edge-to-edge text (2026-09-26).**
-    `.home-section.is-fullbleed` used to drop the page gutter for every
-    section, so a media + text band (Vitrine's "Occasion", Ritual's and
-    Studio's editorial bands) put its heading against the screen edge. The
-    band's BACKGROUND still spans the page; only sections whose content is its
-    own padded surface — carousel, hero, ticker, trust bar, newsletter — run
-    flush, via one `:has()` rule in homepage.css. Pinned by
-    `section-shell.test.tsx`.
-    **★★ PER-SECTION COLOUR SCHEMES (Track 2.1, 2026-09-26).**
-    `lib/themes/schemes.ts` (pure) is the vocabulary: `soft` (neutral band),
-    `tint` (12% brand wash), `accent` (the brand colour), `inverse` (dark),
-    merchant labels Soft / Tinted / Brand / Dark. `SectionStyle.scheme`
-    stores one; no scheme = the page's colours, so every stored section
-    renders as before. A scheme OWNS the section's colours:
-    `validateSectionStyle` drops a raw `background` beside it, and drops the
-    scheme itself from `SCHEMELESS_SECTION_TYPES` (hero_carousel,
-    promo_banner, custom_code — covered by their own photo or sandboxed).
-    ★ THE SECTION ONLY GETS A CLASS. `SectionShell` adds
-    `sm-scheme sm-scheme-<id>` (re-checked there: the builder preview renders
-    raw drafts and the string becomes a class name); homepage.css re-points
-    the page tokens inside it (`--sm-cream`, `--sm-ink`, `--sm-ink-soft`
-    76% mix, `--sm-border` 16%, `--sm-surface`, `--sm-accent`,
-    `--sm-on-accent`), so every section's existing CSS follows with no
-    per-section wiring. ★ `--sm-accent` is set DIRECTLY: on the root it is
-    `var(--brand-primary)`, already resolved there, so re-pointing
-    `--brand-primary` alone would not reach it. ★ `--sm-on-ink` becomes the
-    band's BACKGROUND, so an "ink block with on-ink text" inverts against
-    any band and stays readable.
-    ★ THE SCHEME COLOURS LIVE ON `.storefront-root` as
-    `--sm-scheme-<id>-{bg,fg,surface,accent,on-accent}`. Derived ones are
-    var() references in storefront-theme.css, resolved once against the
-    root palette, so a merchant's palette override reaches them live. A
-    theme may DECLARE a scheme (`ThemeDesign.schemes`, 6-digit hex
-    background + text, optional surface and button pair); `designToCssVars`
-    writes it inline. The storefront layout also writes
-    `schemeCssVars(withPaletteOverrides(schemeDesignFor(design),
-    chrome.design.palette), brand.primaryColor)`, the colours CSS cannot
-    derive: ★★ a derived Brand band takes the first of on-accent / on-ink /
-    ink that reaches 4.5:1 on the brand colour, else black or white (one of
-    which always reaches 4.58:1). A theme's on-accent only has to read on a
-    BUTTON (3:1), and Basket's white-on-orange was 3.41:1 as body copy.
-    `resolveScheme` mirrors the CSS exactly (`SCHEME_MIX`, pinned by a test
-    that reads both stylesheets).
-    ★★ BLOCKS WITH THEIR OWN FILL KEEP THE PAGE'S COLOURS. A product card's
-    tile, a tile-grid tile, and a hero whose copy sits on its own photo
-    (`variant-banner`, `:has(.home-hero-bgmedia)`) restore the page tokens
-    from `--sm-page-*` aliases on the root. Without it a dark band put white
-    card names on a card tile that stayed light. The USP bar and ticker
-    instead follow the band (their own light/dark setting was chosen against
-    the page), and the newsletter drops its own card fill inside a band so
-    the band is the card.
-    Contrast: `validateThemeDesign` checks every DECLARED scheme, and a
-    derived one only when a page uses it (text, 76% muted text and text on
-    cards at 4.5:1, buttons at 3:1). The builder's Style tab (`StyleForm`)
-    shows Page + four swatches painted in the real colours (with the
-    merchant's unsaved palette edits layered on), warns when a scheme is
-    hard to read, clears a custom background and adds medium padding on
-    pick; the Tinted and Contrast presets apply Soft and Dark instead of
-    #f6f7f9 / #111827 (Contrast used to leave dark text on a near-black
-    band). Theme Studio: Stage B `design.schemes` + per-section
-    `style {scheme, padding, width}`, prompt `theme-studio-v9`; the compiler
-    gives a banded section medium padding and drops a scheme from a photo
-    section; the package contract admits `design.schemes`. Help:
-    `20260926_0140_section_color_schemes_help`. Verified in the browser on
-    all four demo themes at 375, 768 and 1280px by rotating every scheme
-    through every eligible section: no scheme-caused text below 4.5:1, no
-    overflow. ⚠ Bundled themes still use their hand-set section
-    backgrounds; they were not migrated to schemes (opt-in rule).
-    **★★ HEADING TYPOGRAPHY (Track 2.2, 2026-09-26).**
-    `lib/themes/typography.ts` (pure): `ThemeDesign.typography` may set
-    `headingFont` (`body` | `display`), `headingScale` (`small` 0.88 |
-    `medium` 1 | `large` 1.12 | `xlarge` 1.25), `headingWeight` (`regular`
-    400 … `heavy` 800), `headingCase` (`none` | `uppercase`) and
-    `headingTracking` (`tight` | `normal` | `wide`). Absent = today's headings
-    exactly: no variable, no class. `HEADING_SELECTORS` names the 18 page and
-    section headings it reaches (homepage section headings, rich-text h1–h3,
-    shop/collection titles, both PDP names, both cart titles, blog title;
-    checkout/account/order titles deliberately not).
-    ★ SIZE: each heading rule multiplies its OWN size by `var(--sm-hs, 1)`;
-    `.storefront-root` sets `--sm-hs` from `--sm-heading-scale`, and at
-    ≤640px to half the difference (1.25 → 1.125), so a large theme does not
-    push hero copy off a phone. `.home-tile-title` takes the style but not
-    the scale.
-    ★★ FACE, WEIGHT, CASE, SPACING: ONE ROOT CLASS PER PROPERTY
-    (`sm-h-font`, `sm-h-weight`, `sm-h-upper`, `sm-h-track`, from
-    `typographyRootClasses`), each emitted only when the theme chose it.
-    The headings share no default — hero 800, editorial band 650, blog 600,
-    several rules set no face — so an unconditional
-    `font-weight: var(--sm-heading-weight)` would reset every heading the
-    theme left alone. The gated rules (storefront-theme.css, (0,3,0)) beat
-    every heading's own rule, variant rules included. Any class (plus
-    `sm-h-scale`) also turns on `overflow-wrap: break-word`, because an
-    extra-large capitalised product name overflowed the editorial PDP's
-    328px column.
-    ★ `headingFont` points at the LEGACY SLOT (`--font-outfit` /
-    `--font-stick-no-bills`), not the theme's font value, so a merchant font
-    override is followed. Until this, themes' display faces (Fraunces,
-    Instrument Serif) reached only the collection title.
-    ★★ FAUX BOLD IS REFUSED. `typographyIssues` checks the heading face's
-    real weights (the table mirrors app/layout.tsx: Jost 300–500, Instrument
-    Serif 400, Stick No Bills 800, the rest variable) against the chosen
-    weight, or against headings' default 600–800 when none is chosen, and
-    `validateThemeDesign` reports it as `typography` — only when a typography
-    block exists, so Vitrine (Jost headings at 650–800, faux bold today) is
-    not judged; fixing it is a new release that sets a weight.
-    Theme Studio: Stage B `design.typography` (nullable enums), compiler keeps
-    only chosen keys, package contract admits `typography` and refuses unknown
-    keys/values, prompt `theme-studio-v10`, offline provider sets a display
-    typography. Operator/theme-level only: no merchant control yet (Mink's
-    design proposals replace the whole override set, so it needs its own
-    contract change), hence no Help Centre update. Browser-checked on all
-    four demo themes at 375/768/1280px across five surfaces under three
-    extreme settings: no heading overflow after the wrap rule.
-    **★★ BUTTON STYLES (Track 2.3, 2026-09-26).** `lib/themes/buttons.ts`
-    (pure): `ThemeDesign.buttons` may set `shape` (`square` 0 | `rounded` 8px
-    | `pill`), `primary` (`solid` | `outline`), `secondary` (`solid` |
-    `outline` | `text`), `case`, `weight` (400–700), `tracking` (`normal` |
-    `wide`) and `hover` (`darken` | `lift` | `invert`). Absent = today's
-    buttons exactly, 2.2's rule: a variable only for shape/weight/tracking
-    and one root class per chosen property (`sm-btn-shape`,
-    `sm-btn-p-outline`, `sm-btn-s-*`, `sm-btn-upper`, `sm-btn-weight`,
-    `sm-btn-track`, `sm-btn-hover-*`). `primary: "solid"` emits NOTHING —
-    every primary is solid already, and the class would take over its hover.
-    ★ BUTTONS WEAR THEIR ROLE AS A CLASS: `sm-btn-primary` on the one action
-    a screen exists for (hero/banner/media-text/newsletter CTAs, Buy now,
-    sticky add-to-cart, checkout, empty-cart CTA) and `sm-btn-secondary` on
-    the quieter one (PDP Add to cart, Load more). `PRIMARY_BUTTON_SELECTORS`
-    / `SECONDARY_BUTTON_SELECTORS` list them and a test fails if one renders
-    without its role. Forms (reviews, checkout, sign-in) are deliberately not
-    tagged, for 2.2's utility-title reason.
-    ★★ EACH BUTTON'S BASE RULE DECLARES ITS OWN SOLID PAIR (`--sm-btn-bg`,
-    `--sm-btn-fg`) AND PAINTS FROM IT, so the untouched look is identical and
-    the outline, text and invert rules can re-use a button's real colour
-    without knowing which module styled it. Ring-at-rest buttons (Add to
-    cart, Load more) also declare their rest/hover pair. A ring is an INSET
-    BOX-SHADOW, not a border, so it never changes a button's size.
-    ★★ ON A COLOUR FIELD OR PHOTO (hero, carousel slide, promo banner,
-    newsletter card) a ring and an inverted hover take the COPY's colour
-    (`currentColor`), which MediaTone keeps readable. The newsletter card
-    counts because its "light" theme is an ink card: a ring in Vitrine's
-    ink accent there was ink on ink, 1:1 — found by the browser sweep.
-    Order matters: a chosen fill owns its default hover, explicit hover
-    classes come after it, and the text-secondary hover comes last (an
-    underlined label ignores every hover). Lift respects reduced motion.
-    Validation (`buttons` code): unknown keys/values, and faux bold checked
-    against the BODY face (buttons render in it; Jost tops out at 500,
-    Instrument Serif at 400). ★★ Whenever a setting draws the accent AS
-    TEXT (outline, text, invert — `buttonsDrawColourAsText`) the accent must
-    reach 4.5:1 on the page and on cards, and each scheme's accent on its
-    band (`scheme_contrast`) — an outline Basket (orange on cream, 3.41:1)
-    is refused. Theme Studio: Stage B `design.buttons`, compiler keeps only
-    chosen keys, contract admits `buttons`, prompt `theme-studio-v11`.
-    Theme-level only, so no Help Centre update. Browser-swept on all four
-    demo themes (home, shop, PDP, cart × 375/768/1280 × three extreme
-    configs): no overflow, and no contrast failure except Basket's refused
-    outline and its pre-existing 3.41:1 solid pair.
-    ⚠ `CartDrawer` renders OUTSIDE `.storefront-root` (it follows the root
-    div in `layout.tsx`), so no theme token, scheme or button style reaches
-    the drawer — pre-existing, left for its own change.
-    ⚠ `.home-media-text-cta` reads `--sm-radius-button`, which nothing
-    defines, so it is a pill on every theme, square Vitrine included, unless
-    `buttons.shape` is set.
-    **★★ PAGE WIDTH AND SPACING RHYTHM (Track 2.4, 2026-09-26).**
-    `lib/themes/page.ts` (pure): `ThemeDesign.page` may set `width`
-    (`narrow` 1080 | `standard` 1240 | `wide` 1440 | `full` 100%),
-    `sectionGap` (`compact` | `standard` | `airy`) and `gridGap` (`tight` 12 |
-    `standard` 22 | `roomy` 36px). ★ OPT-IN BY FALLBACK, NOT BY CLASS: every
-    consumer reads its variable with TODAY'S value as the fallback
-    (`max-width: var(--sm-page-width, 1100px)`), so no variable = today's
-    layout; a standard section gap emits nothing because it IS today's gap.
-    ★★ ONE WIDTH FOR THE WHOLE STORE. Widths were scattered — homepage
-    blocks 1320/1440/1200, product rows and the shop listing uncapped, the
-    product page and cart 1100–1120, the footer 1400, the header edge to edge
-    — so nothing lined up. A chosen width reaches all of them and the
-    browser sweep measured header, sections, shop listing, product page,
-    cart and footer starting at the SAME x on all four demo themes.
-    ★ BANDS STAY FULL WIDTH: `.home-section` and `.shop-panel-body` reach the
-    width through their side padding, `max(gutter, (100% − width) / 2)`, so a
-    scheme band still paints edge to edge. Unset, `(100% − 100%) / 2` is 0
-    and the gutter wins — today's padding exactly.
-    ★ `PAGE_WIDTH_CONTAINERS` cap at the width; `PADDED_PAGE_WIDTH_CONTAINERS`
-    (the footer grid and bottom row, the editorial and grocery product
-    `<main>`) carry their 64px side padding INSIDE the cap, so theirs is the
-    width PLUS 128px (`calc(var(--sm-page-width, 1272px) + 128px)` = today's 1400) or their content starts 64px inside everyone else's. Found by
-    measuring, not reading. Narrow-by-design blocks (rich-text column, FAQ
-    list, no-media media block, editorial gallery, portrait/square video,
-    the compact cart) are deliberately NOT page-width containers.
-    ★ A section marked "Full width" opts out (`.sm-page-width … .is-fullbleed
-    { --sm-page-width: 100% }`), as Shopify's toggle does. `sm-page-width` is
-    the only root class, and exists for this gate: without a theme width
-    there is nothing to opt out of.
-    ★ The header lines up on desktop only (≥1025px, where every width is
-    narrower than the screen) with the section gutter as its floor; the
-    header-fit hook folds the menu if the narrower bar no longer fits.
-    ★ The product carousel's card basis subtracts TWO gaps, so it reads the
-    same `--sm-grid-gap`. The phone 2-up grid keeps its own 12px.
-    ★★ FIXED ALONG THE WAY: `.sm-pdp-editorial .shop-main` capped EVERY
-    `.shop-main` — the shop listing too — at 1480px with no auto margins, so
-    on editorial themes (Vitrine, Ritual) wider than 1480px both pages were
-    pinned to the left edge (Vitrine at 1920: shop grid 64px / 504px, product
-    page 190px / 630px). Now `.shop-main.pdp-page`, centred.
-    Validation: `pageIssues` → `page` code. Theme Studio: Stage B
-    `design.page`, compiler keeps chosen keys, contract admits `page`,
-    prompt `theme-studio-v12`. Theme-level only, so no Help Centre update.
-    **★★ SECTIONS REVEALED ON SCROLL (Track 2.5, 2026-09-26).**
-    `lib/themes/motion.ts` (pure): `ThemeDesign.motion.reveal` is `none`,
-    `fade` or `rise` (fade plus a 24px lift). Absent/`none` = no class and no
-    observer. `motionRootClasses` → `sm-reveal` (+ `sm-reveal-rise`);
-    `ScrollReveal` (`app/(storefront)/components/scroll-reveal.tsx`) is
-    mounted by the layout only when `revealsOnScroll` and NOT `previewing` —
-    a hidden section in the builder is one the merchant cannot edit.
-    ★★ THE SERVER HIDES NOTHING. Every section renders visible; after
-    hydration the component marks only sections whose top is BELOW the
-    current viewport `data-reveal="pending"` (the only state the CSS hides),
-    and an IntersectionObserver (`rootMargin: 0 0 -8% 0`) flips each to
-    `shown`. So no-JS, slow hydration, the first screen, the hero and
-    anything already scrolled past are never hidden — no flash, and the
-    largest paint is never held back. One way: a shown section keeps its
-    state and loses the attribute ~900ms later (a timer, because
-    `transitionend` never fires when nothing moved), so no transform lingers
-    to become a fixed-position child's containing block.
-    ★ NEVER A TRAP: reduced motion or no IntersectionObserver → nothing is
-    hidden; `:focus-within` (CSS) and `focusin` (JS) show a pending section
-    the moment keyboard focus enters it; `beforeprint` and `@media print`
-    show everything; `REVEAL_ALL_EVENT` (`sm:reveal-all`) shows everything and
-    the Studio acceptance probe dispatches it BEFORE axe and the overflow
-    check, so they measure every section rather than skipping opacity-0 ones.
-    ★ Opacity and transform only, so no layout shift — measured CLS 0 across a
-    full scroll. It re-scans on `usePathname` change, clearing the old
-    page's marks first, so client-side navigation works.
-    ⚠ Chrome fires no native focus events while the document lacks focus (a
-    background pane), so a programmatic `.focus()` there shows the section
-    through the CSS rule only; a real `focusin` marks it shown.
-    Validation: `motionIssues` → `motion` code. Theme Studio: Stage B
-    `design.motion`, compiler keeps a chosen reveal, contract admits
-    `motion`, prompt `theme-studio-v13` — which finally gives the Phase 0
-    intent's `visual.motion` (none/restrained/expressive) something to drive:
-    none → none, restrained → fade, expressive → rise. Theme-level only, so
-    no Help Centre update.
-    **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
-    `{name, values, swatches?}`) and `product_variants.option_values` (text[],
-    positional) — migration `20260925_0136_product_options`, both CHECK-bounded
-    and defaulting empty, so every existing product is unchanged.
-    `lib/products/options.ts` (pure, client-safe) owns the whole vocabulary:
-    `normalizeOptions` (trims, drops blank rows, refuses duplicate values or
-    names, a value containing " / ", >3 axes, >100 combinations; keeps only
-    valid hex swatches for real values), `resolveOptionRows` (THE one writer
-    step — the editor's save, `applyTheme`'s seed and the Theme Studio compiler
-    all call it), `generateVariantRows` (editor matrix; keeps an existing row by
-    COMBINATION so its id, prices, stock and order history survive, pads a newly
-    added axis with its first value, and maps a legacy free-text name onto the
-    first option), and the storefront helpers `usesOptionPickers`,
-    `valueStates`, `selectValue`, `initialVariant`.
-    ★★ PRODUCT AXES AND THEIR COMPLETE VARIANT MATRIX SAVE IN ONE TRANSACTION.
-    `createProduct` / `updateProduct` pass their existing `withUser` transaction
-    into the variant reconciler, so a failed insert/update or an order-protected
-    variant deletion rolls back `products.options` and every variant write;
-    the stored axes and rows cannot be left describing different combinations.
-    ★★ THE VARIANT NAME IS COMPOSED ("M / Black") AND STORED. The cart line,
-    `order_items.variant_name`, invoices, the till, CSV and Mink all read
-    `variants.name`, so composing it at save means none of them needed a
-    change; `option_values` is what the pickers read.
-    ★ The storefront renders pickers only when `usesOptionPickers` says every
-    variant holds a valid unique combination; anything else falls back to the
-    flat list, so inconsistent data can never hide a variant. `OptionPicker`
-    (`components/option-picker.tsx`) is shared by both PDP layouts and quick
-    add. ★ `selectValue` takes the exact combination whenever it EXISTS, sold
-    out included (the page says "Sold out" about what was asked for); only a
-    combination that does not exist moves to the nearest available variant with
-    that value. Values that do not exist or are sold out are struck through,
-    never hidden. The PDP opens on `?variant=` when it names a variant, else the
-    first IN-STOCK variant (universal: it used to open on a sold-out first
-    variant with a greyed buy button), and writes the choice back with
-    `history.replaceState` (no refetch). The grocery flat list now uses
-    `isSoldOut` like the classic one — it greyed out untracked/backorderable
-    variants at stock 0.
-    ★★ QUICK ADD WORKS FOR VARIANT PRODUCTS. "+ Add" on a card with variants
-    used to fall through to the PDP; it opens `quick-add-dialog.tsx`, which
-    loads one product through the public `getQuickAddProduct` action
-    (`app/actions/quick-add-actions.ts`: host store from
-    `getCurrentStoreOrNull`, `withAnon`, published only — the same data the PDP
-    shows, never a store argument). The dialog is PORTALLED INTO
-    `.storefront-root` (the theme tokens are inline there; `document.body` would
-    render WholeSip defaults) and stops propagation at its root, because React
-    bubbles portal events to the card's `<Link>`. Bottom sheet on phones,
-    centred from 640px; Escape, backdrop and focus return.
-    Theme seeds (`ThemeProductSeed.options`, `ThemeVariantSeed.option_values`)
-    and Theme Studio Stage B (`options[]` with `swatches` as `{value,hex}[]`,
-    `variants[].optionValues`, prompt `theme-studio-v5`) carry the same shape;
-    the package contract refuses options `resolveOptionRows` refuses, and the
-    fake provider seeds one Size × Colour product. Help:
-    `20260925_0137_product_options_help` replaces the variants guide's steps.
-    ★ A CSV import still matches variants by name; a NEW variant on a product
-    with options must be named as one value per option ("M / Black",
-    `optionValuesForName`) and is refused and named otherwise, so an import
-    cannot leave a product the editor refuses to save.
-    ⚠ Not built: Option1/2/3 CSV columns, a per-axis picker at the POS (the
-    till lists composed names), card swatches, and ProductGroup structured
-    data.
-    **Nested menus: desktop mega menu + phone drill-down (1.6).** A HEADER
-    link may carry `children`, those their own (three levels, Shopify's
-    ceiling), and a top-level item with children an `image_url`.
-    `lib/chrome/nav.ts` (pure) is the ONE shape and cleaner, used by
-    `lib/chrome/types.ts` (store_chrome), `lib/menus.ts` (store_menus and theme
-    presets) and the Theme Studio contract alike: `cleanNavTree` (per-level
-    caps 12/10/10 PLUS a 150-item budget for the whole tree, counted in
-    document order, because per-level caps multiply), `cleanNavLinks` (footer —
-    stays FLAT, children dropped), `flattenNav`, `navPanelKind`,
-    `isSafeNavImage` (site path, https, or a package `theme-asset://` slot;
-    never http, `//`, `javascript:` or `data:` — it is an `<img src>` on every
-    page). ★★ EMPTY `children`/`image_url` ARE OMITTED, NEVER WRITTEN AS
-    []/"", so every stored flat menu cleans byte-identical — the at-rest
-    guarantee, and what keeps the contract's sanitised-equals-stored check
-    passing for every bundled theme. No migration: both columns are jsonb.
-    An item with children may leave `href` empty (a heading that only opens a
-    menu); an image survives only on a top-level item that has children,
-    since nothing else renders one.
-    Storefront: `header/desktop-nav.tsx` renders a plain item as the same
-    plain `<Link>`, so no theme opt-in is needed. An item with children is a
-    DISCLOSURE BUTTON (aria-expanded/controls), never a link — a link that
-    opens on hover and navigates on click is unusable on a tablet — and its
-    href becomes "View all" inside the panel. Hover opens only for
-    `pointerType === "mouse"` (150ms grace out, plus a bridge over the gap);
-    click, Escape (focus back to the button), a press outside, focus leaving
-    the item and a route change close it. `navPanelKind`: a short list under
-    the item, or a full-width panel (a child with its own links, or an image)
-    anchored to the FIXED header — which is why only `.navItemDropdown` is
-    positioned. Childless children gather into one column; the feature tile
-    is a link named by its caption; the image is dropped ≤1024px so the
-    columns keep their width. ★ Panel link rules are written at (0,3,1),
-    above the market variant's white `.navLinks a` and minimal's uppercase,
-    which would otherwise paint white-on-white or shout every sub-link.
-    `header/drawer-nav.tsx` drills one level at a time (not an accordion, which
-    pushes the last top-level item off a 320px drawer) with Back, a level title
-    and "View all"; Header remounts it on each open so it starts at the top,
-    and focus lands on Back going in and on the opened row coming out. The
-    drawer now scrolls (`overflow-y: auto`, `100dvh`) instead of clipping.
-    Builder: `NavTreeList` in `chrome-form.tsx` (Add sub-link under a row, up
-    to three levels; a menu image via `ImageUpload` only on a top-level row
-    with sub-links; removing the last sub-link returns the row to a plain
-    link). Theme validation reads nested hrefs and menu images
-    (`collectThemeHrefs`/`collectThemeImageUrls`); Theme Studio Stage B
-    header items are closed `{label, href, image_url, children}` two levels
-    deep, the compiler checks `image_url` with the section `*_url` slot rule
-    (only on items with children), and the prompt (now `theme-studio-v8`) asks for
-    a "Shop" menu grouping categories. Help:
-    `20260925_0138_nested_menu_help` replaces the navigation guide's
-    menu-editing step in place.
-    **The compiler runs the content floors (2026-09-25).** The first live
-    Gemini run seeded three categories because the prompt asked for "three to
-    six" while `validateThemeSampleData` requires four, and the compiler only
-    ran the package contract, so the theme passed the pipeline and failed at
-    acceptance. `contentFloorIssues` (compiler.ts) now runs the model-controlled
-    production floors — pages, homepage, sample data, links, design — and
-    returns them as repair issues. Asset rules stay at acceptance, where images
-    stop being placeholders. The offline provider seeds four categories and
-    eight products to clear them, and `theme-studio-v7` states the floors.
-    ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
-    column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
-    child (the related-products carousel) made the grocery product page 734px
-    wide on a 390px phone, its right half silently cut off by `overflow-x:
-    clip`. The single-column PDP grids use `minmax(0, 1fr)` for the same
-    reason — a bare `1fr` never shrinks below its widest child.
-    **Predictive search (1.7).** Header search submits to `/shop?q=` on
-    every variant and, as the shopper types, shows up to six products (image,
-    price, struck-through compare-at), up to three categories and "See all N
-    results". `lib/storefront/product-search.ts` (pure) is the ONE matching
-    rule — whole phrase in name, description or category — used by BOTH the
-    shop grid (`shop-client.tsx`) and the dropdown, so a suggestion is always
-    something `/shop?q=` shows; `productMatchRank` only ORDERS matches (name
-    prefix → word prefix → name → category → description). ★
-    `GET /api/storefront/search?q=` is a ROUTE HANDLER, not a server action
-    (actions run one at a time per client, so a keystroke would queue in
-    front of Add to cart — §22's POS lesson), resolves the store from the
-    Host (never a parameter; `/api` bypasses proxy.ts), reads the cached
-    `getPublishedProducts`/`getActiveCategories`, and answers
-    `private, max-age=30` because nothing in front of Cloud Run varies on
-    Host. `header/predictive-search.tsx` is the ARIA 1.2 combobox (focus
-    stays in the input; `aria-activedescendant`; arrows, Enter, Escape closes
-    then clears), keeps the old `searchBar`/`searchInput` classes so every
-    header variant styles it as before, debounces 150ms, aborts the previous
-    request, remembers 30 answers, and never shows a result for a query other
-    than the one in the box. ★ `.searchWrap` is now the header's flex item,
-    so the market pill's sizing lives on it and it needs `min-width: 0`.
-    ★ PHONES: the box is hidden below 768px, so `header/phone-search.tsx`
-    puts a search icon in the phone header that opens a full-width sheet,
-    PORTALLED into `.storefront-root` — the scrolled header's
-    `backdrop-filter` makes it the containing block for fixed children, and
-    the root carries the theme tokens. The drawer's own search was removed;
-    the merchant's `showSearch` switch now governs phone search as well
-    (it used to show in the drawer regardless).
-    **★★ THE HEADER FOLDS BY FIT, NOT BY BREAKPOINT (2026-09-26).** Between
-    769px and ~1100px the menu ran into the delivery control and search box
-    on Vitrine, Studio and Ritual (at 800px Vitrine's header was 817px wide
-    and its links wrapped onto two lines). A breakpoint cannot fix that:
-    whether a header fits depends on the theme's font, the merchant's links
-    and their length, the logo, and whether search and cart are on.
-    `header/use-header-fit.ts` measures the live header and writes
-    `data-header-compact` on it; `lib/storefront/header-fit.ts` (pure) picks
-    the fewest steps from `COMPACT_STEPS`, in order: `nav` (menu hidden,
-    hamburger shown), `delivery` (header control hidden, the drawer's copy
-    shown), `search` (box hidden, the phone search icon shown). The CSS for
-    each step is in `Header.module.css` and `delivery-location.module.css`,
-    and a test fails if a step has none. Fits means: no horizontal overflow,
-    ≥12px between neighbouring items sorted by position (so the centred
-    variant, whose menu sits left of the logo, is judged correctly), and
-    search/delivery not squeezed below 140/120px. They can shrink to a
-    sliver without overlapping anything.
-    ★ Every check starts from the full header, so a tablet rotated to
-    landscape unfolds again.
-    ★ Transitions are switched off while measuring
-    (`data-header-measuring`). The search box animates its width and the
-    header its padding, and a mid-animation reading once passed a fit that
-    then closed to a 4px gap.
-    ★ A `ResizeObserver` on the header triggers it, not the window `resize`
-    event, which can fire before the new width is laid out. So do
-    `document.fonts.ready` and the header's content deps.
-    ★ The attribute is written to the DOM, never rendered, so React never
-    writes it back, and the fold lands before paint rather than after a
-    state round trip.
-    ★ Phones (≤768px) stay plain CSS and are not measured: their row
-    overlaps hit areas on purpose.
-    ★ Nav links are `white-space: nowrap`, so a wrapped link shows up as
-    overlap instead of hiding it.
-    ★ The header has a 24px `column-gap` above 768px. The market header's
-    growing search pill had put its delivery control flush against the last
-    menu link.
-    ★★ The delivery control was unreachable between 769px and 900px: the
-    header's copy hid below 900px while the drawer's only appeared below
-    768px. It is now always in exactly one of the two.
-    ⚠ The server cannot measure, so on a tablet the first paint before
-    hydration can still show the unfolded header for a moment.
-    **Shop page and collection pages (1.8).** Every active category has its
-    own page, `(pages)/collections/[slug]/page.tsx`: self-canonical, the
-    category's name as title and h1, its description as meta description
-    (cut to 155 characters on a word), its image as OG image, a
-    BreadcrumbList, `noindex` while `?q` is present, 404 for an unknown or
-    hidden slug. ★ There is NO `collections/page.tsx`, so a merchant page
-    slugged `collections` could still resolve — "collections" is nonetheless
-    in `RESERVED_PAGE_SLUGS` and `STOREFRONT_CODE_ROUTES` so no new one can be
-    made. `/shop?category=<active slug>` answers **308** to it
-    (`legacyCategoryRedirect`, `lib/storefront/collection-links.ts`),
-    carrying every other parameter; an unknown slug and the `uncategorized`
-    "Other" view stay on /shop. `collectionPath(slug)` is the ONE builder,
-    used by the shop's category chips (now real `<Link>`s in a
-    `nav[aria-label=Categories]`), homepage category tiles, search
-    suggestions, the product breadcrumb (active category only), the builder
-    placeholder and the sitemap, which lists a collection only when a product
-    is on it, dated by its newest product's `content_updated_at`
-    (`populatedCollections`). Theme validation accepts `/collections/<slug>`
-    as a category link and refuses a bare `/collections`.
-    `shop/shop-view.ts` (server-only) is the ONE loader both pages share
-    (products, categories, resolved layout, low-stock threshold, offer
-    badges), so /shop and a collection cannot price or badge differently.
-    ★★ SORT, FILTERS AND LOAD MORE ARE THEME OPT-INS: `ThemeLayout.shopFilters`
-    and `.collectionBanner`, resolved `=== true` in
-    `resolveStorefrontAppearance`. Without `shopFilters` the grid renders
-    exactly as before AND ignores `sort`/`stock`/`min`/`max`/`page` in the
-    URL, so no existing store changes. `lib/storefront/shop-filters.ts`
-    (pure) owns the vocabulary: sorts featured | price-asc | price-desc |
-    newest | name, `stock=in`, rupee `min`/`max` (a backwards pair swaps,
-    negative or absurd bounds drop), `page` = how many 24-product pages are
-    revealed (capped at 200). Defaults are omitted from the URL and junk is
-    ignored, never an error. Sorting is stable with the featured order as
-    tie-break; price means `effectivePricing(p).selling` and sold out means
-    `productIsSoldOut` — the card's own rules. ★ State changes go through
-    `history.replaceState`: every product is already loaded, so a sort is a
-    re-order, not a round trip, and Back leaves the shop rather than undoing
-    one filter at a time. When Next reuses `ShopClient` for a new same-route URL
-    (header search, navigation or history), it adopts the complete server-parsed
-    query/sort/stock/price/page state; a filter removed from the URL therefore
-    cannot remain active invisibly. ★ "Load more" reveals already-loaded products;
-    it paginates the DOM, not the query. `shop/shop-filter-panel.tsx` is a
-    dialog (side drawer; bottom sheet at ≤600px), PORTALLED into
-    `.storefront-root` for the theme tokens, with a focus trap and scroll
-    lock. ★ ITS CHANGES ARE A DRAFT until "Show N products", which quotes the
-    count first; Escape, the backdrop or Close discard it. Active filters show
-    as removable chips beside a Sort select and an `aria-live` count, and an
-    empty result offers "Clear filters". `collectionBanner` puts the
-    category's image and description above a collection's grid (no search in
-    the box). The row types gained `products.created_at` and
-    `categories.description`, so both cache keys moved to `-v2`. Stage B, the
-    package contract, the fake provider and prompt `theme-studio-v8` carry the
-    two keys and write `/collections/<slug>` menu links. Help:
-    `20260925_0139_collection_pages_help` replaces the categories guide's
-    handle sentence in place.
-    `storefront: "grocery"` is the deepest variant: it swaps the shared
-    product cards, the product-detail page and the cart for a distinct
-    premium grocery layout, so a store on such a theme looks NOTHING like the
-    classic WholeSip storefront. Product cards restyle via the
-    `sm-storefront-grocery` root class (CSS-only, in `storefront-theme.css`,
-    doubled-class specificity over the per-grid rules). The PDP and cart
-    branch to ENTIRELY SEPARATE markup + classes (`grocery-product-detail.tsx`
-    / `gpdp-*` in shop.css; `grocery-cart.tsx` / `gcart-*` in cart.css) — the
-    page servers read the flag via `lib/store/storefront-layout.ts`
-    (`getStorefrontLayout`) and pass a `grocery` prop to the client
-    components; the grocery shop listing swaps in a clean neutral header. (The
-    classic shop hero is now brand-aware — store name + tagline, not hardcoded
-    WholeSip — and the old hardcoded promo ticker was removed; a ticker is a
-    builder section type now, §11.)
-    All of this is GATED, so the WholeSip fallback and any classic theme keep
-    today's shared layout untouched. (Basket is the first grocery theme.)
-    Design derives from the installed preset release at RENDER time. New
-    installs are version-pinned in store settings; legacy stores without the
-    pin resolve the catalog's current release. - **Newsletter capture**:
-    `newsletter-form.tsx` is shared by the footer and the builder newsletter
-    section. `subscribeNewsletter` derives tenancy from the request host,
-    validates email plus explicit consent, honeypots bots, rate-limits per
-    store/IP, and service-upserts one active row per store/email while recording
-    the displayed consent copy and source. Storage is
-    `newsletter_subscribers` (`themes_01_newsletter_subscribers.sql`): anon has
-    no direct write grant and authenticated store admins have read-only RLS. - **Phase 4d (not built, by design)**: nothing pending — homepage, static
-    pages, and menus are all migrated. config/site.ts, brand.md and the
-    file-based AI skills are deleted, and the shop hero is brand-aware. The
-    `--wholesip-*` CSS token namespace (→ `--sm-*`) and `WHOLESIP_STORE_ID` (→
-    `FALLBACK_STORE_ID`) are now renamed too; only the repo name `wholesip` and
-    the `brand/` dir remain as legacy WholeSip naming.
+    **Theme Studio concurrency and capture recovery (2026-09-29).** The
+    dedicated run route awaits two independently leased generation/image runs
+    and one visual-QA run concurrently; it waits for all lanes even if one
+    rejects. Cloud Scheduler skips ticks while its previous HTTP request is
+    outstanding, so one-run invocations serialized Crave and Luxe. Visual QA
+    previously ran only if generation finished within the 5-second claim
+    budget, which could starve it behind a populated run queue.
+    `image-request-pool.ts` shares three image permits across both lanes for
+    each provider project/location/model, including 429 backoff; cancelled
+    waiters leave the queue. This bound is process-local, not distributed
+    quota enforcement. Separate concurrent worker invocations can still meet
+    provider rate limits; bounded backoff and missing-slot fill runs remain.
+    `abortable.ts` fences late SDK results across authentication, retries and
+    body decoding. Image reviews retain HIGH effort and uncapped output but
+    have a 180-second whole-call deadline; other structured requests have ten
+    minutes, always bounded by the run's own deadline. Image attempts have
+    both SDK and caller-enforced 180-second deadlines. A throwing image call
+    or decoder affects only its slot, retaining other completed paid images.
+
+        The browser probe checks HTML nodes before reading `innerText`; SVG icons
+        previously crashed every measurement. QA capture accepts HTTP 404 only on
+        the explicit `not_found` surface, waits for the hydrated probe, bounds
+        each measurement to 45 seconds, and avoids a network-idle wait on all 30
+        samples. Capture jobs reserve time to report results, bound capture work
+        to seven minutes (or the remaining execution budget), report launch errors,
+        close failed browsers before reuse, and fail the execution if the finish
+        endpoint rejects it. Probe-loading and measurement errors have distinct
+        operator codes. Studio polls for the entire `generating` state (including
+        capture/visual QA), refreshes when an unfinished tab becomes visible, and
+        explains private in-progress drafts. Version summaries distinguish artwork
+        placeholders from catalog pictures awaiting capture.
+        Crave/Luxe production read-only evidence and verification are recorded in
+        `docs/theme-studio-reliability.md`. Both had completed artwork and failed
+        browser captures; Crave's apparent hang was stale UI. These changes require
+        deployment of BOTH the web service and the separate capture-job image.
+        Operator-only: no merchant-visible change, no Help Centre update.
+        **★★ PER-STORE DESIGN OVERRIDES (`lib/chrome/design.ts`, 2026-09-11).**
+        Until this landed there was NO per-store design layer at all: palette,
+        fonts and radii came SOLELY from the pinned immutable preset, and
+        `StorefrontAppearance` carried only layout VARIANTS. The one per-store
+        visual control was `--brand-primary` and the logo — so "make my shop look
+        like this site" could not change a single colour or typeface, for a
+        merchant OR for Mink, and no amount of agent tooling would have fixed that
+        because the value had nowhere to live. `StorefrontDesignOverrides` (eight
+        curated palette tokens, a body/display face, four radii) rides in the SAME
+        `store_chrome` draft/published payload, so it needs NO migration and
+        inherits the draft → publish contract pages and chrome already have.
+        `designOverrideCssVars` emits ONLY what was overridden and the storefront
+        layout spreads it AFTER `designToCssVars`; emitting a full map would pin a
+        store to today's theme values so a later preset upgrade would stop reaching
+        it.
+        ★★ THE BODY FACE OCCUPIES TWO CSS VARIABLES. `designToCssVars` points BOTH
+        `--font-outfit` and `--font-roboto` at `fonts.body`, because the
+        storefront's call-sites are split across those legacy slots — overriding
+        one leaves the shop in two typefaces, the Vitrine defect recorded below,
+        invisible unless you count elements. `design.test.ts` pins every emitted
+        variable name against `designToCssVars`'s own output, because a wrong name
+        is a SILENT no-op: no error, no failed render, just a colour that never
+        changes.
+        ★ `.sm-themed-type` is now emitted for a font override as well as an
+        installed theme, or an un-themed store choosing a face would render half in
+        it and half in Tailwind's default. A store overriding nothing still gets no
+        class, so its inherited font is untouched.
+        ★★ CONTRAST IS A PUBLISH GATE, NOT A SAVE GATE. WCAG AA on three pairs
+        (ink-on-page, ink-on-card, muted-on-page), checked in `publishChrome`
+        against the RESOLVED pair so changing one token flags text inherited from
+        the preset that the merchant never touched. A half-picked palette mid-edit
+        must not fail autosave — it is visible in the live preview — but publishing
+        unreadable body text is not something a merchant recovers from by noticing
+        later, and the storefront has no other defence. It matters more once a
+        model proposes a palette from a screenshot: that optimises for resemblance,
+        not readability. SAFETY (hex only, allowlisted fonts, bounded radii) is
+        unconditional in both modes, because these land in an inline `style`
+        attribute.
+        **The panel is the Brand row in the builder inspector** (`chrome-form.tsx`
+        `DesignForm`): eight colour tokens, two typeface selects, four corner
+        sliders. ★ EVERY CONTROL HAS AN EXPLICIT "USE THEME" STATE and an unset one
+        SHOWS the value the storefront will really use — a colour input has no
+        null, so without that a merchant cannot tell "I have not chosen" from "I
+        chose exactly this", and cannot get back once they have nudged a picker.
+        `themeDesignDefaults()` is the projection the panel needs, deliberately not
+        the whole `ThemeDesign`: it crosses to a client component on every builder
+        load. Contrast warnings appear WHILE EDITING, not only on Publish, where
+        they would be a dead end.
+        ★★ THE PREVIEW EFFECT RESTORES, IT DOES NOT ONLY SET. Clearing an override
+        has to put the theme value back — the layout wrote the old one inline
+        server-side, so merely ceasing to write the property leaves it stuck and
+        "Reset" looks broken. `--brand-primary` is additionally SHARED with the
+        `sm-brand` message the builder sends on every colour keystroke, so the
+        provider remembers the live value and restores THAT rather than silently
+        undoing a colour the merchant just picked.
+        Verified in a browser end to end: overriding page background, ink, accent,
+        card radius and both faces repainted the storefront, and a font census
+        returned **255 of 255 elements in Jost, zero in a second family** — the
+        measurement that proves the two-slot fix, and the only way that class of
+        bug is visible at all.
+        **Theme DESIGN engine (the visual "skin")**: a theme controls the FULL
+        design system, not just one accent. `ThemeDesign` (`lib/themes/types.ts`) =
+        `palette` (all 14 `--sm-*` colour tokens + `onAccent`/`onInk`/
+        `shadowRgb`/`success`/`error`/`star`/`highlight` semantic tokens), `fonts`
+        (`body`/`display`, pointing at next/font variables loaded in
+        `app/layout.tsx` — Inter/Fraunces/Space Grotesk/Plus Jakarta/Jost/Instrument
+        Serif (all `preload: false`; which one a page uses is decided per request
+        from the store's theme) alongside the
+        legacy Outfit/Roboto/Stick), and `shape` (`card`/`control`/`sm`/`pill`
+        radii). `designToCssVars(design, brandPrimary)` flattens it to a CSS-var map
+        the `(storefront)` layout writes **inline on `.storefront-root`** — inline
+        specificity beats the globals.css `:root` defaults, so the whole storefront
+        re-skins with zero per-component wiring. Fonts re-point the existing
+        `--font-outfit`/`--font-stick-no-bills` slots, so all 64 font call-sites
+        switch with no find-replace.
+        **★★ BUT THE OTHER HALF OF THE STOREFRONT INHERITED TAILWIND'S DEFAULT.**
+        Those 64 call-sites read the vars; everything ELSE inherited from `<body>`,
+        which Tailwind sets to its own sans. **Nobody noticed for three themes
+        because basket/studio/ritual all set `body: var(--font-inter)`, and Inter is
+        ALSO Tailwind's default — the two halves happened to match.** Vitrine is the
+        first preset with a different body face, and it rendered a live storefront
+        HALF in Jost and half in Inter (measured: 79 elements vs 78). Fixed by
+        `.sm-themed-type` (storefront-theme.css), a root class emitted ONLY when a
+        theme actually resolves, which sets `font-family: var(--font-outfit)` so
+        untokenised descendants inherit the theme font. ⚠ Gated on `design` being
+        non-null so it CANNOT touch an un-themed storefront — the WholeSip fallback
+        and legacy stores keep the font they inherit today (verified live: no class
+        emitted, font census unchanged at Outfit 39 / inherited 48 / Roboto 1). For
+        the three Inter themes it is a no-op in practice (verified live: studio
+        stayed 140/140 Inter); Vitrine went 156/156 Jost. ⚠ The un-themed WholeSip
+        storefront therefore STILL renders in two families — that is pre-existing
+        and deliberately untouched, since fixing it changes a live storefront. **Defaults = WholeSip**: the `:root` token
+        values in `globals.css` ARE the WholeSip look, and a store with no real
+        `settings.template` (the WholeSip fallback, legacy stores) gets only
+        `--brand-primary` — untouched. Storefront component CSS is fully
+        tokenised (no raw hex; darks→`ink`, mids→`ink-soft`, faints→`ink-faint`,
+        on-dark whites→`on-ink`/`on-accent`, panels→`surface`, shadows→
+        `rgba(var(--sm-shadow-rgb), α)`, radii→shape tokens) so palette +
+        shape reach every surface (header, footer, auth modal, shop cards + badges,
+        profile/enquiry forms, blog + write-blog editor). CI-guards in
+        `themes.test.ts` assert each theme ships a complete, injectable design.
+        **Layout variants** (`ThemeDesign.layout`, all optional — absent = classic
+        WholeSip chrome): header supports `classic`, `market`, `centered`, and
+        `minimal`; cards support `classic`, `quick_add`, `overlay`, `framed`, and
+        `grocery`; product detail supports `classic`, `grocery`, and `editorial`;
+        cart supports `classic`, `grocery`, and `compact`; footer supports `rich`,
+        `minimal`, and `editorial`. `resolveStorefrontAppearance` in
+        `lib/chrome/types.ts` is the single pure resolver for theme defaults plus
+        published merchant overrides; it also preserves the pinned legacy
+        `storefront:"grocery"` shorthand. Root `sm-*` classes drive CSS variants,
+        while `lib/store/storefront-layout.ts` supplies resolved values where
+        grocery markup branches are required. `header:"market"` retains its
+        theme-controlled colours and `card:"quick_add"` retains safe inline add
+        behavior (multi-variant products fall through to detail).
+        **★ `layout.cardHoverImage` cross-fades a card to the product's SECOND
+        photograph on hover** (root class `sm-card-hoverimg`, CSS in
+        storefront-theme.css). Three things are load-bearing.
+        (1) **The `display: none` default IS the loading strategy, not styling.**
+        The hover layer is hidden and its `<img>` is `loading="lazy"`, so on a
+        storefront that has not opted in the element never gets a layout box, never
+        intersects the viewport, and the browser NEVER FETCHES IT — verified in a
+        browser: opted out, only the primary image appears in the resource list.
+        `opacity: 0` or `visibility: hidden` would both still lay it out and
+        download it.
+        (2) **It is opted into per theme rather than rendered-always-and-hidden,
+        which is what `QuickAddButton` does.** That pattern is free for a button and
+        costs a request per card for a photograph, so this diverges deliberately;
+        the card also renders no layer at all unless the product HAS a second image.
+        (3) **`(hover: hover) and (pointer: fine)` keeps it off touch entirely** —
+        no hover there, so it would be pure wasted bandwidth on the connections
+        least able to spare it (verified under mobile emulation: layer hidden, image
+        NOT fetched, with the theme opted IN). Theme-driven only: a merchant's
+        `card` override neither enables nor cancels it, since hover-swap is a
+        different axis from the card variant. ⚠ The gate depends on browsers not
+        loading a lazy image that never intersects — well-established, and if one
+        ever did the cost is bandwidth, not breakage.
+        **`lib/products/gallery.ts`** is the ONE composer of "which photographs does
+        this product have, in what order" (pure + tested), shared by the card's
+        hover image and the PDP gallery so the two can never disagree about which
+        photograph is second. It exists because `products.images` is `text[] NOT
+        NULL DEFAULT ['']` — a one-element array holding an EMPTY STRING, not an
+        empty array — while the dashboard editor writes additional images only and
+        `applyTheme` seeds presets whose `images` repeats the primary first. A
+        caller that indexes the column directly renders a broken `<img>` for an
+        untouched store and cross-fades a themed product to itself.
+        **★ SHOPIFY-PARITY TRACK 1 (2026-09-25, `docs/theme-parity-plan.md`).**
+        `[slug]/product-gallery.tsx` is the one PDP gallery for all three layouts:
+        every photo is a slide in one track; desktop shows only the active slide
+        (thumbnails switch it, exactly the old look) and below 860px the track is a
+        native scroll-snap strip with a "2 / 5" counter, so phones SWIPE. Its
+        `ProductLightbox` replaced both copies of the single-image zoom: swipe,
+        prev/next, arrow keys, Escape, focus on Close, scroll lock, desktop
+        click-to-magnify, and native pinch on phones. Universal on purpose — at
+        rest it shows the same first photo. `[slug]/sticky-add-to-cart.tsx` is
+        the phone buy bar, shown once the page's own buttons scroll away ABOVE the
+        shopper; it calls the page's own handler. Opt-in theme layout keys
+        `stickyAddToCart`, `gridColumnsMobile` (1|2) and `gridColumnsDesktop`
+        (3|4|5) resolve through `resolveStorefrontAppearance` into root classes
+        `sm-atc-sticky` / `sm-grid-m2` / `sm-grid-d3|d5`, with a compact card for
+        the two-column phone grid; absent keys render as before. They are in the
+        package contract, the Stage B schema and prompt (`theme-studio-v3`).
+        **Hero controls (1.4).** `hero`, `hero_carousel` and each slide gain
+        optional `height` (`small|medium|large|screen`; screen is
+        `100svh − --sm-header-h`), `focal_x`/`focal_y` (0–100),
+        `mobile_image_url`, `overlay_opacity` (0–80) and `content_position`
+        (`top|bottom`). `heroImageOptions` (section-types.ts) EMITS NOTHING AT A
+        DEFAULT, so an untouched hero stores and renders byte-for-byte as before;
+        `null`/`""` read as absent, never 0 (the `Number(null)` trap), while a real
+        0 overlay survives. `sections/hero-media.tsx` renders the image for both
+        renderers: ★ a phone image is ART DIRECTION through one `<picture>` +
+        `getImageProps`, never a second CSS-toggled `<Image>` — the first hero is
+        eager, so two images would preload both on every visit (verified: a phone
+        fetches only the phone file). The focal point applies to the main image
+        only, since a phone image is composed for the phone. A tuned overlay
+        replaces the built-in `::after` scrim (`has-overlay`) and only applies
+        where copy sits ON the media (minimal-with-image hero, every slide). The
+        carousel SWIPES on touch/pen pointers (40px horizontal, `touch-action:
+        pan-y` keeps page scroll), pauses while focus is inside, and never
+        autoplays under `prefers-reduced-motion` (read when the timer would start,
+        not held in state). Builder: `HeroImageFields` (click-to-set focal preview,
+        phone upload, overlay slider, text position — each with a default that
+        stores nothing) and a Height select. Stage B learns the fields in
+        `theme-studio-v4`; `mobile_image_url` is an ordinary `*_url` slot to the
+        compiler. Help: `20260925_0135_hero_image_controls_help` edits the section
+        guide's section-type paragraph in place.
+        **★★ TEXT OVER A PHOTO PICKS THE COLOUR THAT READS (2026-09-26).** Every
+        section that sets copy ON an image — carousel slides, the minimal hero
+        with a background image, promo banners and image tiles — picks its text
+        colour per SECTION (`theme: dark|light`), never per picture, so dark ink
+        landed on a black boot (reported on Vitrine; true of every theme).
+        `MediaTone` (`sections/media-tone.tsx`) sits inside each such root, and
+        once the photo loads it reads the pixels directly behind the words (drawn
+        the way `object-fit: cover` and the focal point crop them) and applies
+        `chooseTone` (`lib/storefront/media-tone.ts`, pure): keep the configured
+        `theme-*` when it reads, swap to the other when only that reads, and add
+        `sm-scrim` — a soft gradient from the edge the copy sits against — only
+        when neither reads on a busy photo. ★ WORST TENTH, NOT AVERAGE: dark text
+        is judged against the darkest 10% of those pixels and light text against
+        the brightest 10%, at WCAG AA 4.5:1, because half-black-half-white
+        averages to a grey both colours "pass". ★ Nothing is painted behind the
+        words: a first attempt put a blurred panel there and it read as a sticker.
+        ★ It swaps a CLASS the section already styles, so each theme's own
+        dark/light text, button and built-in scrim come with it, and a future
+        theme needs nothing. It re-applies after every render (React writes the
+        configured class back — the builder does on every edit) and re-measures
+        on resize and image load. ★ It FAILS QUIET: a video, a cross-origin photo
+        the canvas cannot read, or no canvas at all leaves the merchant's colour
+        exactly as before, and a merchant who tuned the Overlay slider is left
+        alone (`off`). ⚠ The swap lands a beat after the photo, so the copy's
+        colour eases in over 0.3s. Carousel copy is also padded clear of the
+        arrows (`has-arrows`), which overlapped the subheading on desktop, and
+        the arrows are hidden on touch phones (`pointer: coarse`, ≤640px).
+        Pinned by `media-tone.test.ts` (the decision) and
+        `sections/media-tone.test.tsx` (where the probe sits and that nothing
+        changes unmeasured). No merchant action changes, so no Help Centre update.
+        **★ "Full width" is a band, not edge-to-edge text (2026-09-26).**
+        `.home-section.is-fullbleed` used to drop the page gutter for every
+        section, so a media + text band (Vitrine's "Occasion", Ritual's and
+        Studio's editorial bands) put its heading against the screen edge. The
+        band's BACKGROUND still spans the page; only sections whose content is its
+        own padded surface — carousel, hero, ticker, trust bar, newsletter — run
+        flush, via one `:has()` rule in homepage.css. Pinned by
+        `section-shell.test.tsx`.
+        **★★ PER-SECTION COLOUR SCHEMES (Track 2.1, 2026-09-26).**
+        `lib/themes/schemes.ts` (pure) is the vocabulary: `soft` (neutral band),
+        `tint` (12% brand wash), `accent` (the brand colour), `inverse` (dark),
+        merchant labels Soft / Tinted / Brand / Dark. `SectionStyle.scheme`
+        stores one; no scheme = the page's colours, so every stored section
+        renders as before. A scheme OWNS the section's colours:
+        `validateSectionStyle` drops a raw `background` beside it, and drops the
+        scheme itself from `SCHEMELESS_SECTION_TYPES` (hero_carousel,
+        promo_banner, custom_code — covered by their own photo or sandboxed).
+        ★ THE SECTION ONLY GETS A CLASS. `SectionShell` adds
+        `sm-scheme sm-scheme-<id>` (re-checked there: the builder preview renders
+        raw drafts and the string becomes a class name); homepage.css re-points
+        the page tokens inside it (`--sm-cream`, `--sm-ink`, `--sm-ink-soft`
+        76% mix, `--sm-border` 16%, `--sm-surface`, `--sm-accent`,
+        `--sm-on-accent`), so every section's existing CSS follows with no
+        per-section wiring. ★ `--sm-accent` is set DIRECTLY: on the root it is
+        `var(--brand-primary)`, already resolved there, so re-pointing
+        `--brand-primary` alone would not reach it. ★ `--sm-on-ink` becomes the
+        band's BACKGROUND, so an "ink block with on-ink text" inverts against
+        any band and stays readable.
+        ★ THE SCHEME COLOURS LIVE ON `.storefront-root` as
+        `--sm-scheme-<id>-{bg,fg,surface,accent,on-accent}`. Derived ones are
+        var() references in storefront-theme.css, resolved once against the
+        root palette, so a merchant's palette override reaches them live. A
+        theme may DECLARE a scheme (`ThemeDesign.schemes`, 6-digit hex
+        background + text, optional surface and button pair); `designToCssVars`
+        writes it inline. The storefront layout also writes
+        `schemeCssVars(withPaletteOverrides(schemeDesignFor(design),
+        chrome.design.palette), brand.primaryColor)`, the colours CSS cannot
+        derive: ★★ a derived Brand band takes the first of on-accent / on-ink /
+        ink that reaches 4.5:1 on the brand colour, else black or white (one of
+        which always reaches 4.58:1). A theme's on-accent only has to read on a
+        BUTTON (3:1), and Basket's white-on-orange was 3.41:1 as body copy.
+        `resolveScheme` mirrors the CSS exactly (`SCHEME_MIX`, pinned by a test
+        that reads both stylesheets).
+        ★★ BLOCKS WITH THEIR OWN FILL KEEP THE PAGE'S COLOURS. A product card's
+        tile, a tile-grid tile, and a hero whose copy sits on its own photo
+        (`variant-banner`, `:has(.home-hero-bgmedia)`) restore the page tokens
+        from `--sm-page-*` aliases on the root. Without it a dark band put white
+        card names on a card tile that stayed light. The USP bar and ticker
+        instead follow the band (their own light/dark setting was chosen against
+        the page), and the newsletter drops its own card fill inside a band so
+        the band is the card.
+        Contrast: `validateThemeDesign` checks every DECLARED scheme, and a
+        derived one only when a page uses it (text, 76% muted text and text on
+        cards at 4.5:1, buttons at 3:1). The builder's Style tab (`StyleForm`)
+        shows Page + four swatches painted in the real colours (with the
+        merchant's unsaved palette edits layered on), warns when a scheme is
+        hard to read, clears a custom background and adds medium padding on
+        pick; the Tinted and Contrast presets apply Soft and Dark instead of
+        #f6f7f9 / #111827 (Contrast used to leave dark text on a near-black
+        band). Theme Studio: Stage B `design.schemes` + per-section
+        `style {scheme, padding, width}`, prompt `theme-studio-v9`; the compiler
+        gives a banded section medium padding and drops a scheme from a photo
+        section; the package contract admits `design.schemes`. Help:
+        `20260926_0140_section_color_schemes_help`. Verified in the browser on
+        all four demo themes at 375, 768 and 1280px by rotating every scheme
+        through every eligible section: no scheme-caused text below 4.5:1, no
+        overflow. ⚠ Bundled themes still use their hand-set section
+        backgrounds; they were not migrated to schemes (opt-in rule).
+        **★★ HEADING TYPOGRAPHY (Track 2.2, 2026-09-26).**
+        `lib/themes/typography.ts` (pure): `ThemeDesign.typography` may set
+        `headingFont` (`body` | `display`), `headingScale` (`small` 0.88 |
+        `medium` 1 | `large` 1.12 | `xlarge` 1.25), `headingWeight` (`regular`
+        400 … `heavy` 800), `headingCase` (`none` | `uppercase`) and
+        `headingTracking` (`tight` | `normal` | `wide`). Absent = today's headings
+        exactly: no variable, no class. `HEADING_SELECTORS` names the 18 page and
+        section headings it reaches (homepage section headings, rich-text h1–h3,
+        shop/collection titles, both PDP names, both cart titles, blog title;
+        checkout/account/order titles deliberately not).
+        ★ SIZE: each heading rule multiplies its OWN size by `var(--sm-hs, 1)`;
+        `.storefront-root` sets `--sm-hs` from `--sm-heading-scale`, and at
+        ≤640px to half the difference (1.25 → 1.125), so a large theme does not
+        push hero copy off a phone. `.home-tile-title` takes the style but not
+        the scale.
+        ★★ FACE, WEIGHT, CASE, SPACING: ONE ROOT CLASS PER PROPERTY
+        (`sm-h-font`, `sm-h-weight`, `sm-h-upper`, `sm-h-track`, from
+        `typographyRootClasses`), each emitted only when the theme chose it.
+        The headings share no default — hero 800, editorial band 650, blog 600,
+        several rules set no face — so an unconditional
+        `font-weight: var(--sm-heading-weight)` would reset every heading the
+        theme left alone. The gated rules (storefront-theme.css, (0,3,0)) beat
+        every heading's own rule, variant rules included. Any class (plus
+        `sm-h-scale`) also turns on `overflow-wrap: break-word`, because an
+        extra-large capitalised product name overflowed the editorial PDP's
+        328px column.
+        ★ `headingFont` points at the LEGACY SLOT (`--font-outfit` /
+        `--font-stick-no-bills`), not the theme's font value, so a merchant font
+        override is followed. Until this, themes' display faces (Fraunces,
+        Instrument Serif) reached only the collection title.
+        ★★ FAUX BOLD IS REFUSED. `typographyIssues` checks the heading face's
+        real weights (the table mirrors app/layout.tsx: Jost 300–500, Instrument
+        Serif 400, Stick No Bills 800, the rest variable) against the chosen
+        weight, or against headings' default 600–800 when none is chosen, and
+        `validateThemeDesign` reports it as `typography` — only when a typography
+        block exists, so Vitrine (Jost headings at 650–800, faux bold today) is
+        not judged; fixing it is a new release that sets a weight.
+        Theme Studio: Stage B `design.typography` (nullable enums), compiler keeps
+        only chosen keys, package contract admits `typography` and refuses unknown
+        keys/values, prompt `theme-studio-v10`, offline provider sets a display
+        typography. Operator/theme-level only: no merchant control yet (Mink's
+        design proposals replace the whole override set, so it needs its own
+        contract change), hence no Help Centre update. Browser-checked on all
+        four demo themes at 375/768/1280px across five surfaces under three
+        extreme settings: no heading overflow after the wrap rule.
+        **★★ BUTTON STYLES (Track 2.3, 2026-09-26).** `lib/themes/buttons.ts`
+        (pure): `ThemeDesign.buttons` may set `shape` (`square` 0 | `rounded` 8px
+        | `pill`), `primary` (`solid` | `outline`), `secondary` (`solid` |
+        `outline` | `text`), `case`, `weight` (400–700), `tracking` (`normal` |
+        `wide`) and `hover` (`darken` | `lift` | `invert`). Absent = today's
+        buttons exactly, 2.2's rule: a variable only for shape/weight/tracking
+        and one root class per chosen property (`sm-btn-shape`,
+        `sm-btn-p-outline`, `sm-btn-s-*`, `sm-btn-upper`, `sm-btn-weight`,
+        `sm-btn-track`, `sm-btn-hover-*`). `primary: "solid"` emits NOTHING —
+        every primary is solid already, and the class would take over its hover.
+        ★ BUTTONS WEAR THEIR ROLE AS A CLASS: `sm-btn-primary` on the one action
+        a screen exists for (hero/banner/media-text/newsletter CTAs, Buy now,
+        sticky add-to-cart, checkout, empty-cart CTA) and `sm-btn-secondary` on
+        the quieter one (PDP Add to cart, Load more). `PRIMARY_BUTTON_SELECTORS`
+        / `SECONDARY_BUTTON_SELECTORS` list them and a test fails if one renders
+        without its role. Forms (reviews, checkout, sign-in) are deliberately not
+        tagged, for 2.2's utility-title reason.
+        ★★ EACH BUTTON'S BASE RULE DECLARES ITS OWN SOLID PAIR (`--sm-btn-bg`,
+        `--sm-btn-fg`) AND PAINTS FROM IT, so the untouched look is identical and
+        the outline, text and invert rules can re-use a button's real colour
+        without knowing which module styled it. Ring-at-rest buttons (Add to
+        cart, Load more) also declare their rest/hover pair. A ring is an INSET
+        BOX-SHADOW, not a border, so it never changes a button's size.
+        ★★ ON A COLOUR FIELD OR PHOTO (hero, carousel slide, promo banner,
+        newsletter card) a ring and an inverted hover take the COPY's colour
+        (`currentColor`), which MediaTone keeps readable. The newsletter card
+        counts because its "light" theme is an ink card: a ring in Vitrine's
+        ink accent there was ink on ink, 1:1 — found by the browser sweep.
+        Order matters: a chosen fill owns its default hover, explicit hover
+        classes come after it, and the text-secondary hover comes last (an
+        underlined label ignores every hover). Lift respects reduced motion.
+        Validation (`buttons` code): unknown keys/values, and faux bold checked
+        against the BODY face (buttons render in it; Jost tops out at 500,
+        Instrument Serif at 400). ★★ Whenever a setting draws the accent AS
+        TEXT (outline, text, invert — `buttonsDrawColourAsText`) the accent must
+        reach 4.5:1 on the page and on cards, and each scheme's accent on its
+        band (`scheme_contrast`) — an outline Basket (orange on cream, 3.41:1)
+        is refused. Theme Studio: Stage B `design.buttons`, compiler keeps only
+        chosen keys, contract admits `buttons`, prompt `theme-studio-v11`.
+        Theme-level only, so no Help Centre update. Browser-swept on all four
+        demo themes (home, shop, PDP, cart × 375/768/1280 × three extreme
+        configs): no overflow, and no contrast failure except Basket's refused
+        outline and its pre-existing 3.41:1 solid pair.
+        ⚠ `CartDrawer` renders OUTSIDE `.storefront-root` (it follows the root
+        div in `layout.tsx`), so no theme token, scheme or button style reaches
+        the drawer — pre-existing, left for its own change.
+        ⚠ `.home-media-text-cta` reads `--sm-radius-button`, which nothing
+        defines, so it is a pill on every theme, square Vitrine included, unless
+        `buttons.shape` is set.
+        **★★ PAGE WIDTH AND SPACING RHYTHM (Track 2.4, 2026-09-26).**
+        `lib/themes/page.ts` (pure): `ThemeDesign.page` may set `width`
+        (`narrow` 1080 | `standard` 1240 | `wide` 1440 | `full` 100%),
+        `sectionGap` (`compact` | `standard` | `airy`) and `gridGap` (`tight` 12 |
+        `standard` 22 | `roomy` 36px). ★ OPT-IN BY FALLBACK, NOT BY CLASS: every
+        consumer reads its variable with TODAY'S value as the fallback
+        (`max-width: var(--sm-page-width, 1100px)`), so no variable = today's
+        layout; a standard section gap emits nothing because it IS today's gap.
+        ★★ ONE WIDTH FOR THE WHOLE STORE. Widths were scattered — homepage
+        blocks 1320/1440/1200, product rows and the shop listing uncapped, the
+        product page and cart 1100–1120, the footer 1400, the header edge to edge
+        — so nothing lined up. A chosen width reaches all of them and the
+        browser sweep measured header, sections, shop listing, product page,
+        cart and footer starting at the SAME x on all four demo themes.
+        ★ BANDS STAY FULL WIDTH: `.home-section` and `.shop-panel-body` reach the
+        width through their side padding, `max(gutter, (100% − width) / 2)`, so a
+        scheme band still paints edge to edge. Unset, `(100% − 100%) / 2` is 0
+        and the gutter wins — today's padding exactly.
+        ★ `PAGE_WIDTH_CONTAINERS` cap at the width; `PADDED_PAGE_WIDTH_CONTAINERS`
+        (the footer grid and bottom row, the editorial and grocery product
+        `<main>`) carry their 64px side padding INSIDE the cap, so theirs is the
+        width PLUS 128px (`calc(var(--sm-page-width, 1272px) + 128px)` = today's 1400) or their content starts 64px inside everyone else's. Found by
+        measuring, not reading. Narrow-by-design blocks (rich-text column, FAQ
+        list, no-media media block, editorial gallery, portrait/square video,
+        the compact cart) are deliberately NOT page-width containers.
+        ★ A section marked "Full width" opts out (`.sm-page-width … .is-fullbleed
+        { --sm-page-width: 100% }`), as Shopify's toggle does. `sm-page-width` is
+        the only root class, and exists for this gate: without a theme width
+        there is nothing to opt out of.
+        ★ The header lines up on desktop only (≥1025px, where every width is
+        narrower than the screen) with the section gutter as its floor; the
+        header-fit hook folds the menu if the narrower bar no longer fits.
+        ★ The product carousel's card basis subtracts TWO gaps, so it reads the
+        same `--sm-grid-gap`. The phone 2-up grid keeps its own 12px.
+        ★★ FIXED ALONG THE WAY: `.sm-pdp-editorial .shop-main` capped EVERY
+        `.shop-main` — the shop listing too — at 1480px with no auto margins, so
+        on editorial themes (Vitrine, Ritual) wider than 1480px both pages were
+        pinned to the left edge (Vitrine at 1920: shop grid 64px / 504px, product
+        page 190px / 630px). Now `.shop-main.pdp-page`, centred.
+        Validation: `pageIssues` → `page` code. Theme Studio: Stage B
+        `design.page`, compiler keeps chosen keys, contract admits `page`,
+        prompt `theme-studio-v12`. Theme-level only, so no Help Centre update.
+        **★★ SECTIONS REVEALED ON SCROLL (Track 2.5, 2026-09-26).**
+        `lib/themes/motion.ts` (pure): `ThemeDesign.motion.reveal` is `none`,
+        `fade` or `rise` (fade plus a 24px lift). Absent/`none` = no class and no
+        observer. `motionRootClasses` → `sm-reveal` (+ `sm-reveal-rise`);
+        `ScrollReveal` (`app/(storefront)/components/scroll-reveal.tsx`) is
+        mounted by the layout only when `revealsOnScroll` and NOT `previewing` —
+        a hidden section in the builder is one the merchant cannot edit.
+        ★★ THE SERVER HIDES NOTHING. Every section renders visible; after
+        hydration the component marks only sections whose top is BELOW the
+        current viewport `data-reveal="pending"` (the only state the CSS hides),
+        and an IntersectionObserver (`rootMargin: 0 0 -8% 0`) flips each to
+        `shown`. So no-JS, slow hydration, the first screen, the hero and
+        anything already scrolled past are never hidden — no flash, and the
+        largest paint is never held back. One way: a shown section keeps its
+        state and loses the attribute ~900ms later (a timer, because
+        `transitionend` never fires when nothing moved), so no transform lingers
+        to become a fixed-position child's containing block.
+        ★ NEVER A TRAP: reduced motion or no IntersectionObserver → nothing is
+        hidden; `:focus-within` (CSS) and `focusin` (JS) show a pending section
+        the moment keyboard focus enters it; `beforeprint` and `@media print`
+        show everything; `REVEAL_ALL_EVENT` (`sm:reveal-all`) shows everything and
+        the Studio acceptance probe dispatches it BEFORE axe and the overflow
+        check, so they measure every section rather than skipping opacity-0 ones.
+        ★ Opacity and transform only, so no layout shift — measured CLS 0 across a
+        full scroll. It re-scans on `usePathname` change, clearing the old
+        page's marks first, so client-side navigation works.
+        ⚠ Chrome fires no native focus events while the document lacks focus (a
+        background pane), so a programmatic `.focus()` there shows the section
+        through the CSS rule only; a real `focusin` marks it shown.
+        Validation: `motionIssues` → `motion` code. Theme Studio: Stage B
+        `design.motion`, compiler keeps a chosen reveal, contract admits
+        `motion`, prompt `theme-studio-v13` — which finally gives the Phase 0
+        intent's `visual.motion` (none/restrained/expressive) something to drive:
+        none → none, restrained → fade, expressive → rise. Theme-level only, so
+        no Help Centre update.
+        **Variant option axes (1.5).** `products.options` (jsonb, ≤3 axes of
+        `{name, values, swatches?}`) and `product_variants.option_values` (text[],
+        positional) — migration `20260925_0136_product_options`, both CHECK-bounded
+        and defaulting empty, so every existing product is unchanged.
+        `lib/products/options.ts` (pure, client-safe) owns the whole vocabulary:
+        `normalizeOptions` (trims, drops blank rows, refuses duplicate values or
+        names, a value containing " / ", >3 axes, >100 combinations; keeps only
+        valid hex swatches for real values), `resolveOptionRows` (THE one writer
+        step — the editor's save, `applyTheme`'s seed and the Theme Studio compiler
+        all call it), `generateVariantRows` (editor matrix; keeps an existing row by
+        COMBINATION so its id, prices, stock and order history survive, pads a newly
+        added axis with its first value, and maps a legacy free-text name onto the
+        first option), and the storefront helpers `usesOptionPickers`,
+        `valueStates`, `selectValue`, `initialVariant`.
+        ★★ PRODUCT AXES AND THEIR COMPLETE VARIANT MATRIX SAVE IN ONE TRANSACTION.
+        `createProduct` / `updateProduct` pass their existing `withUser` transaction
+        into the variant reconciler, so a failed insert/update or an order-protected
+        variant deletion rolls back `products.options` and every variant write;
+        the stored axes and rows cannot be left describing different combinations.
+        ★★ THE VARIANT NAME IS COMPOSED ("M / Black") AND STORED. The cart line,
+        `order_items.variant_name`, invoices, the till, CSV and Mink all read
+        `variants.name`, so composing it at save means none of them needed a
+        change; `option_values` is what the pickers read.
+        ★ The storefront renders pickers only when `usesOptionPickers` says every
+        variant holds a valid unique combination; anything else falls back to the
+        flat list, so inconsistent data can never hide a variant. `OptionPicker`
+        (`components/option-picker.tsx`) is shared by both PDP layouts and quick
+        add. ★ `selectValue` takes the exact combination whenever it EXISTS, sold
+        out included (the page says "Sold out" about what was asked for); only a
+        combination that does not exist moves to the nearest available variant with
+        that value. Values that do not exist or are sold out are struck through,
+        never hidden. The PDP opens on `?variant=` when it names a variant, else the
+        first IN-STOCK variant (universal: it used to open on a sold-out first
+        variant with a greyed buy button), and writes the choice back with
+        `history.replaceState` (no refetch). The grocery flat list now uses
+        `isSoldOut` like the classic one — it greyed out untracked/backorderable
+        variants at stock 0.
+        ★★ QUICK ADD WORKS FOR VARIANT PRODUCTS. "+ Add" on a card with variants
+        used to fall through to the PDP; it opens `quick-add-dialog.tsx`, which
+        loads one product through the public `getQuickAddProduct` action
+        (`app/actions/quick-add-actions.ts`: host store from
+        `getCurrentStoreOrNull`, `withAnon`, published only — the same data the PDP
+        shows, never a store argument). The dialog is PORTALLED INTO
+        `.storefront-root` (the theme tokens are inline there; `document.body` would
+        render WholeSip defaults) and stops propagation at its root, because React
+        bubbles portal events to the card's `<Link>`. Bottom sheet on phones,
+        centred from 640px; Escape, backdrop and focus return.
+        Theme seeds (`ThemeProductSeed.options`, `ThemeVariantSeed.option_values`)
+        and Theme Studio Stage B (`options[]` with `swatches` as `{value,hex}[]`,
+        `variants[].optionValues`, prompt `theme-studio-v5`) carry the same shape;
+        the package contract refuses options `resolveOptionRows` refuses, and the
+        fake provider seeds one Size × Colour product. Help:
+        `20260925_0137_product_options_help` replaces the variants guide's steps.
+        ★ A CSV import still matches variants by name; a NEW variant on a product
+        with options must be named as one value per option ("M / Black",
+        `optionValuesForName`) and is refused and named otherwise, so an import
+        cannot leave a product the editor refuses to save.
+        ⚠ Not built: Option1/2/3 CSV columns, a per-axis picker at the POS (the
+        till lists composed names), card swatches, and ProductGroup structured
+        data.
+        **Nested menus: desktop mega menu + phone drill-down (1.6).** A HEADER
+        link may carry `children`, those their own (three levels, Shopify's
+        ceiling), and a top-level item with children an `image_url`.
+        `lib/chrome/nav.ts` (pure) is the ONE shape and cleaner, used by
+        `lib/chrome/types.ts` (store_chrome), `lib/menus.ts` (store_menus and theme
+        presets) and the Theme Studio contract alike: `cleanNavTree` (per-level
+        caps 12/10/10 PLUS a 150-item budget for the whole tree, counted in
+        document order, because per-level caps multiply), `cleanNavLinks` (footer —
+        stays FLAT, children dropped), `flattenNav`, `navPanelKind`,
+        `isSafeNavImage` (site path, https, or a package `theme-asset://` slot;
+        never http, `//`, `javascript:` or `data:` — it is an `<img src>` on every
+        page). ★★ EMPTY `children`/`image_url` ARE OMITTED, NEVER WRITTEN AS
+        []/"", so every stored flat menu cleans byte-identical — the at-rest
+        guarantee, and what keeps the contract's sanitised-equals-stored check
+        passing for every bundled theme. No migration: both columns are jsonb.
+        An item with children may leave `href` empty (a heading that only opens a
+        menu); an image survives only on a top-level item that has children,
+        since nothing else renders one.
+        Storefront: `header/desktop-nav.tsx` renders a plain item as the same
+        plain `<Link>`, so no theme opt-in is needed. An item with children is a
+        DISCLOSURE BUTTON (aria-expanded/controls), never a link — a link that
+        opens on hover and navigates on click is unusable on a tablet — and its
+        href becomes "View all" inside the panel. Hover opens only for
+        `pointerType === "mouse"` (150ms grace out, plus a bridge over the gap);
+        click, Escape (focus back to the button), a press outside, focus leaving
+        the item and a route change close it. `navPanelKind`: a short list under
+        the item, or a full-width panel (a child with its own links, or an image)
+        anchored to the FIXED header — which is why only `.navItemDropdown` is
+        positioned. Childless children gather into one column; the feature tile
+        is a link named by its caption; the image is dropped ≤1024px so the
+        columns keep their width. ★ Panel link rules are written at (0,3,1),
+        above the market variant's white `.navLinks a` and minimal's uppercase,
+        which would otherwise paint white-on-white or shout every sub-link.
+        `header/drawer-nav.tsx` drills one level at a time (not an accordion, which
+        pushes the last top-level item off a 320px drawer) with Back, a level title
+        and "View all"; Header remounts it on each open so it starts at the top,
+        and focus lands on Back going in and on the opened row coming out. The
+        drawer now scrolls (`overflow-y: auto`, `100dvh`) instead of clipping.
+        Builder: `NavTreeList` in `chrome-form.tsx` (Add sub-link under a row, up
+        to three levels; a menu image via `ImageUpload` only on a top-level row
+        with sub-links; removing the last sub-link returns the row to a plain
+        link). Theme validation reads nested hrefs and menu images
+        (`collectThemeHrefs`/`collectThemeImageUrls`); Theme Studio Stage B
+        header items are closed `{label, href, image_url, children}` two levels
+        deep, the compiler checks `image_url` with the section `*_url` slot rule
+        (only on items with children), and the prompt (now `theme-studio-v8`) asks for
+        a "Shop" menu grouping categories. Help:
+        `20260925_0138_nested_menu_help` replaces the navigation guide's
+        menu-editing step in place.
+        **The compiler runs the content floors (2026-09-25).** The first live
+        Gemini run seeded three categories because the prompt asked for "three to
+        six" while `validateThemeSampleData` requires four, and the compiler only
+        ran the package contract, so the theme passed the pipeline and failed at
+        acceptance. `contentFloorIssues` (compiler.ts) now runs the model-controlled
+        production floors — pages, homepage, sample data, links, design — and
+        returns them as repair issues. Asset rules stay at acceptance, where images
+        stop being placeholders. The offline provider seeds four categories and
+        eight products to clear them, and `theme-studio-v7` states the floors.
+        ★★ `.storefront-root > main` now has `width: 100%`: the root is a flex
+        column and a `margin: 0 auto` main was sized shrink-to-fit, so one wide
+        child (the related-products carousel) made the grocery product page 734px
+        wide on a 390px phone, its right half silently cut off by `overflow-x:
+        clip`. The single-column PDP grids use `minmax(0, 1fr)` for the same
+        reason — a bare `1fr` never shrinks below its widest child.
+        **Predictive search (1.7).** Header search submits to `/shop?q=` on
+        every variant and, as the shopper types, shows up to six products (image,
+        price, struck-through compare-at), up to three categories and "See all N
+        results". `lib/storefront/product-search.ts` (pure) is the ONE matching
+        rule — whole phrase in name, description or category — used by BOTH the
+        shop grid (`shop-client.tsx`) and the dropdown, so a suggestion is always
+        something `/shop?q=` shows; `productMatchRank` only ORDERS matches (name
+        prefix → word prefix → name → category → description). ★
+        `GET /api/storefront/search?q=` is a ROUTE HANDLER, not a server action
+        (actions run one at a time per client, so a keystroke would queue in
+        front of Add to cart — §22's POS lesson), resolves the store from the
+        Host (never a parameter; `/api` bypasses proxy.ts), reads the cached
+        `getPublishedProducts`/`getActiveCategories`, and answers
+        `private, max-age=30` because nothing in front of Cloud Run varies on
+        Host. `header/predictive-search.tsx` is the ARIA 1.2 combobox (focus
+        stays in the input; `aria-activedescendant`; arrows, Enter, Escape closes
+        then clears), keeps the old `searchBar`/`searchInput` classes so every
+        header variant styles it as before, debounces 150ms, aborts the previous
+        request, remembers 30 answers, and never shows a result for a query other
+        than the one in the box. ★ `.searchWrap` is now the header's flex item,
+        so the market pill's sizing lives on it and it needs `min-width: 0`.
+        ★ PHONES: the box is hidden below 768px, so `header/phone-search.tsx`
+        puts a search icon in the phone header that opens a full-width sheet,
+        PORTALLED into `.storefront-root` — the scrolled header's
+        `backdrop-filter` makes it the containing block for fixed children, and
+        the root carries the theme tokens. The drawer's own search was removed;
+        the merchant's `showSearch` switch now governs phone search as well
+        (it used to show in the drawer regardless).
+        **★★ THE HEADER FOLDS BY FIT, NOT BY BREAKPOINT (2026-09-26).** Between
+        769px and ~1100px the menu ran into the delivery control and search box
+        on Vitrine, Studio and Ritual (at 800px Vitrine's header was 817px wide
+        and its links wrapped onto two lines). A breakpoint cannot fix that:
+        whether a header fits depends on the theme's font, the merchant's links
+        and their length, the logo, and whether search and cart are on.
+        `header/use-header-fit.ts` measures the live header and writes
+        `data-header-compact` on it; `lib/storefront/header-fit.ts` (pure) picks
+        the fewest steps from `COMPACT_STEPS`, in order: `nav` (menu hidden,
+        hamburger shown), `delivery` (header control hidden, the drawer's copy
+        shown), `search` (box hidden, the phone search icon shown). The CSS for
+        each step is in `Header.module.css` and `delivery-location.module.css`,
+        and a test fails if a step has none. Fits means: no horizontal overflow,
+        ≥12px between neighbouring items sorted by position (so the centred
+        variant, whose menu sits left of the logo, is judged correctly), and
+        search/delivery not squeezed below 140/120px. They can shrink to a
+        sliver without overlapping anything.
+        ★ Every check starts from the full header, so a tablet rotated to
+        landscape unfolds again.
+        ★ Transitions are switched off while measuring
+        (`data-header-measuring`). The search box animates its width and the
+        header its padding, and a mid-animation reading once passed a fit that
+        then closed to a 4px gap.
+        ★ A `ResizeObserver` on the header triggers it, not the window `resize`
+        event, which can fire before the new width is laid out. So do
+        `document.fonts.ready` and the header's content deps.
+        ★ The attribute is written to the DOM, never rendered, so React never
+        writes it back, and the fold lands before paint rather than after a
+        state round trip.
+        ★ Phones (≤768px) stay plain CSS and are not measured: their row
+        overlaps hit areas on purpose.
+        ★ Nav links are `white-space: nowrap`, so a wrapped link shows up as
+        overlap instead of hiding it.
+        ★ The header has a 24px `column-gap` above 768px. The market header's
+        growing search pill had put its delivery control flush against the last
+        menu link.
+        ★★ The delivery control was unreachable between 769px and 900px: the
+        header's copy hid below 900px while the drawer's only appeared below
+        768px. It is now always in exactly one of the two.
+        ⚠ The server cannot measure, so on a tablet the first paint before
+        hydration can still show the unfolded header for a moment.
+        **Shop page and collection pages (1.8).** Every active category has its
+        own page, `(pages)/collections/[slug]/page.tsx`: self-canonical, the
+        category's name as title and h1, its description as meta description
+        (cut to 155 characters on a word), its image as OG image, a
+        BreadcrumbList, `noindex` while `?q` is present, 404 for an unknown or
+        hidden slug. ★ There is NO `collections/page.tsx`, so a merchant page
+        slugged `collections` could still resolve — "collections" is nonetheless
+        in `RESERVED_PAGE_SLUGS` and `STOREFRONT_CODE_ROUTES` so no new one can be
+        made. `/shop?category=<active slug>` answers **308** to it
+        (`legacyCategoryRedirect`, `lib/storefront/collection-links.ts`),
+        carrying every other parameter; an unknown slug and the `uncategorized`
+        "Other" view stay on /shop. `collectionPath(slug)` is the ONE builder,
+        used by the shop's category chips (now real `<Link>`s in a
+        `nav[aria-label=Categories]`), homepage category tiles, search
+        suggestions, the product breadcrumb (active category only), the builder
+        placeholder and the sitemap, which lists a collection only when a product
+        is on it, dated by its newest product's `content_updated_at`
+        (`populatedCollections`). Theme validation accepts `/collections/<slug>`
+        as a category link and refuses a bare `/collections`.
+        `shop/shop-view.ts` (server-only) is the ONE loader both pages share
+        (products, categories, resolved layout, low-stock threshold, offer
+        badges), so /shop and a collection cannot price or badge differently.
+        ★★ SORT, FILTERS AND LOAD MORE ARE THEME OPT-INS: `ThemeLayout.shopFilters`
+        and `.collectionBanner`, resolved `=== true` in
+        `resolveStorefrontAppearance`. Without `shopFilters` the grid renders
+        exactly as before AND ignores `sort`/`stock`/`min`/`max`/`page` in the
+        URL, so no existing store changes. `lib/storefront/shop-filters.ts`
+        (pure) owns the vocabulary: sorts featured | price-asc | price-desc |
+        newest | name, `stock=in`, rupee `min`/`max` (a backwards pair swaps,
+        negative or absurd bounds drop), `page` = how many 24-product pages are
+        revealed (capped at 200). Defaults are omitted from the URL and junk is
+        ignored, never an error. Sorting is stable with the featured order as
+        tie-break; price means `effectivePricing(p).selling` and sold out means
+        `productIsSoldOut` — the card's own rules. ★ State changes go through
+        `history.replaceState`: every product is already loaded, so a sort is a
+        re-order, not a round trip, and Back leaves the shop rather than undoing
+        one filter at a time. When Next reuses `ShopClient` for a new same-route URL
+        (header search, navigation or history), it adopts the complete server-parsed
+        query/sort/stock/price/page state; a filter removed from the URL therefore
+        cannot remain active invisibly. ★ "Load more" reveals already-loaded products;
+        it paginates the DOM, not the query. `shop/shop-filter-panel.tsx` is a
+        dialog (side drawer; bottom sheet at ≤600px), PORTALLED into
+        `.storefront-root` for the theme tokens, with a focus trap and scroll
+        lock. ★ ITS CHANGES ARE A DRAFT until "Show N products", which quotes the
+        count first; Escape, the backdrop or Close discard it. Active filters show
+        as removable chips beside a Sort select and an `aria-live` count, and an
+        empty result offers "Clear filters". `collectionBanner` puts the
+        category's image and description above a collection's grid (no search in
+        the box). The row types gained `products.created_at` and
+        `categories.description`, so both cache keys moved to `-v2`. Stage B, the
+        package contract, the fake provider and prompt `theme-studio-v8` carry the
+        two keys and write `/collections/<slug>` menu links. Help:
+        `20260925_0139_collection_pages_help` replaces the categories guide's
+        handle sentence in place.
+        `storefront: "grocery"` is the deepest variant: it swaps the shared
+        product cards, the product-detail page and the cart for a distinct
+        premium grocery layout, so a store on such a theme looks NOTHING like the
+        classic WholeSip storefront. Product cards restyle via the
+        `sm-storefront-grocery` root class (CSS-only, in `storefront-theme.css`,
+        doubled-class specificity over the per-grid rules). The PDP and cart
+        branch to ENTIRELY SEPARATE markup + classes (`grocery-product-detail.tsx`
+        / `gpdp-*` in shop.css; `grocery-cart.tsx` / `gcart-*` in cart.css) — the
+        page servers read the flag via `lib/store/storefront-layout.ts`
+        (`getStorefrontLayout`) and pass a `grocery` prop to the client
+        components; the grocery shop listing swaps in a clean neutral header. (The
+        classic shop hero is now brand-aware — store name + tagline, not hardcoded
+        WholeSip — and the old hardcoded promo ticker was removed; a ticker is a
+        builder section type now, §11.)
+        All of this is GATED, so the WholeSip fallback and any classic theme keep
+        today's shared layout untouched. (Basket is the first grocery theme.)
+        Design derives from the installed preset release at RENDER time. New
+        installs are version-pinned in store settings; legacy stores without the
+        pin resolve the catalog's current release. - **Newsletter capture**:
+        `newsletter-form.tsx` is shared by the footer and the builder newsletter
+        section. `subscribeNewsletter` derives tenancy from the request host,
+        validates email plus explicit consent, honeypots bots, rate-limits per
+        store/IP, and service-upserts one active row per store/email while recording
+        the displayed consent copy and source. Storage is
+        `newsletter_subscribers` (`themes_01_newsletter_subscribers.sql`): anon has
+        no direct write grant and authenticated store admins have read-only RLS. - **Phase 4d (not built, by design)**: nothing pending — homepage, static
+        pages, and menus are all migrated. config/site.ts, brand.md and the
+        file-based AI skills are deleted, and the shop hero is brand-aware. The
+        `--wholesip-*` CSS token namespace (→ `--sm-*`) and `WHOLESIP_STORE_ID` (→
+        `FALLBACK_STORE_ID`) are now renamed too; only the repo name `wholesip` and
+        the `brand/` dir remain as legacy WholeSip naming.
 
 12. **Checkout & orders security model (COD).** A signed-in shopper places an
     order from `/checkout`; `placeOrder` (`app/actions/checkout-actions.ts`) is

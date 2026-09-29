@@ -152,6 +152,7 @@ export interface ThemeStudioPackageSummary {
   sections: number;
   products: number;
   placeholders: number;
+  catalogPlaceholders: number;
   gaps: { code: string; requestedCapability: string; blocking: boolean }[];
 }
 
@@ -343,12 +344,13 @@ function packageSummary(pkg: unknown): ThemeStudioPackageSummary | null {
   if (!pkg || typeof pkg !== "object") return null;
   const p = pkg as {
     definition?: {
+      catalog?: { previewImage?: string; screenshots?: { src: string }[] };
       preset?: {
         pages?: { sections?: unknown[] }[];
         sampleData?: { products?: unknown[] };
       };
     };
-    assets?: { licenseNote?: string }[];
+    assets?: { path?: string; licenseNote?: string }[];
     capabilityGaps?: {
       code?: string;
       requestedCapability?: string;
@@ -356,12 +358,24 @@ function packageSummary(pkg: unknown): ThemeStudioPackageSummary | null {
     }[];
   };
   const pages = p.definition?.preset?.pages ?? [];
+  const catalogPaths = new Set(
+    [
+      p.definition?.catalog?.previewImage,
+      ...(p.definition?.catalog?.screenshots ?? []).map((shot) => shot.src),
+    ].filter((path): path is string => typeof path === "string"),
+  );
   return {
     pages: pages.length,
     sections: pages.reduce((n, page) => n + (page.sections?.length ?? 0), 0),
     products: p.definition?.preset?.sampleData?.products?.length ?? 0,
     placeholders: (p.assets ?? []).filter(
       (a) => a.licenseNote === PLACEHOLDER_LICENSE_NOTE,
+    ).length,
+    catalogPlaceholders: (p.assets ?? []).filter(
+      (a) =>
+        a.licenseNote === PLACEHOLDER_LICENSE_NOTE &&
+        a.path &&
+        catalogPaths.has(a.path),
     ).length,
     gaps: (p.capabilityGaps ?? []).map((gap) => ({
       code: String(gap.code ?? ""),

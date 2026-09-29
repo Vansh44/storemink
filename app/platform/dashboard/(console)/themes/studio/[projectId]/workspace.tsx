@@ -210,13 +210,17 @@ export function ProjectWorkspace({
   // Poll only while something is running, and only while the tab is visible:
   // a Studio tab left open overnight must not refresh all night.
   useEffect(() => {
-    if (!activeRun) return;
+    if (project.status !== "generating" && !activeRun) return;
     const tick = () => {
       if (document.visibilityState === "visible") router.refresh();
     };
     const timer = window.setInterval(tick, 2500);
-    return () => window.clearInterval(timer);
-  }, [activeRun, router]);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [project.status, activeRun, router]);
 
   function run(
     action: () => Promise<{ ok: boolean; error?: string }>,
@@ -769,7 +773,9 @@ export function ProjectWorkspace({
         ) : null}
         {project.versions.length === 0 ? (
           <p className="mt-2 text-sm text-slate-500">
-            No version yet. A successful run creates an immutable version.
+            {project.status === "generating"
+              ? "Your theme is being prepared. Generated drafts stay private while images, catalog screenshots and automatic QA finish. This page updates automatically."
+              : "No version yet. A successful run creates an immutable version."}
           </p>
         ) : (
           <ul className="mt-3 space-y-3">
@@ -906,10 +912,10 @@ export function ProjectWorkspace({
                     </p>
                     {v.packageSummary.placeholders > 0 ? (
                       <p className="text-amber-700">
-                        {v.packageSummary.placeholders} placeholder image
-                        {v.packageSummary.placeholders === 1 ? "" : "s"}. Real
-                        imagery must replace them before this theme can be
-                        published.
+                        {v.packageSummary.catalogPlaceholders ===
+                        v.packageSummary.placeholders
+                          ? `${v.packageSummary.catalogPlaceholders} catalog pictures await browser capture. Open Images to capture them; the theme artwork is complete.`
+                          : `${v.packageSummary.placeholders - v.packageSummary.catalogPlaceholders} artwork placeholders and ${v.packageSummary.catalogPlaceholders} catalog pictures remain. Open Images to finish them before publishing.`}
                       </p>
                     ) : null}
                     {v.packageSummary.gaps.length > 0 ? (

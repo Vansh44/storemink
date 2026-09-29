@@ -54,6 +54,9 @@ function fakeBrowser({ status = 200, failOn } = {}) {
               return { status: () => status };
             },
             async waitForLoadState() {},
+            async waitForFunction() {
+              if (failOn === "probe") throw new Error("Timeout");
+            },
             async addStyleTag(style) {
               context.styles.push(style.content);
             },
@@ -308,4 +311,119 @@ describe("the job", () => {
     expect(results).toHaveLength(2);
     expect(claims).toBe(2);
   });
+});
+
+it("accepts a real 404 only for the deliberate not-found surface", async () => {
+  const qaClaim = {
+    ...claim,
+    qa: {
+      pages: [{ surface: "not_found", path: "/missing" }],
+      viewports: { phone360: { width: 360, height: 800 } },
+    },
+  };
+  const { browser } = fakeBrowser({ status: 404 });
+  expect((await takeQaScreenshots(browser, qaClaim)).screenshots).toHaveLength(
+    1,
+  );
+  const wrong = fakeBrowser({ status: 200 });
+  await expect(takeQaScreenshots(wrong.browser, qaClaim)).rejects.toThrow(
+    "preview_status_200",
+  );
+  await expect(
+    takeQaScreenshots(browser, {
+      ...qaClaim,
+      qa: { ...qaClaim.qa, pages: [{ surface: "home", path: "/" }] },
+    }),
+  ).rejects.toThrow("preview_status_404");
+});
+
+it("reports missing hydration separately from a generic browser crash", async () => {
+  const { browser, contexts } = fakeBrowser({ failOn: "probe" });
+  await expect(
+    takeQaScreenshots(browser, {
+      ...claim,
+      qa: {
+        pages: [{ surface: "home", path: "/" }],
+        viewports: { phone360: { width: 360, height: 800 } },
+      },
+    }),
+  ).rejects.toThrow("qa_probe_missing");
+  expect(contexts[0].closed).toBe(true);
+});
+
+it("reports browser launch failure instead of abandoning a running lease", async () => {
+  const answers = [
+    response(200, claim),
+    response(200, { status: "requeued" }),
+    response(204),
+  ];
+  const bodies = [];
+  await runCaptureJob({
+    appOrigin: claim.origin,
+    cronSecret: "s",
+    launch: async () => {
+      throw new Error("launch failed");
+    },
+    fetchImpl: async (_url, init) => {
+      if (init.body) bodies.push(JSON.parse(init.body));
+      return answers.shift();
+    },
+    log: {},
+  });
+  expect(bodies).toEqual([
+    { leaseToken: claim.leaseToken, error: "capture_browser_error" },
+  ]);
+});
+
+it("fails the job on a rejected finish rather than claiming more work", async () => {
+  const { browser } = fakeBrowser();
+  const fetchImpl = vi
+    .fn()
+    .mockResolvedValueOnce(response(200, claim))
+    .mockResolvedValueOnce(response(503));
+  await expect(
+    runCaptureJob({
+      appOrigin: claim.origin,
+      cronSecret: "s",
+      launch: async () => browser,
+      fetchImpl,
+      log: {},
+    }),
+  ).rejects.toThrow("finish failed with HTTP 503");
+  expect(fetchImpl).toHaveBeenCalledTimes(2);
+  expect(browser.close).toHaveBeenCalled();
+});
+
+it("reports a hung browser before its lease expires and closes it", async () => {
+  vi.useFakeTimers();
+  try {
+    const browser = {
+      newContext: () => new Promise(() => {}),
+      close: vi.fn(async () => {}),
+    };
+    const bodies = [];
+    const answers = [
+      response(200, claim),
+      response(200, { status: "requeued" }),
+    ];
+    const pending = runCaptureJob({
+      appOrigin: claim.origin,
+      cronSecret: "s",
+      launch: async () => browser,
+      fetchImpl: async (_url, init) => {
+        if (init.body) bodies.push(JSON.parse(init.body));
+        return answers.shift();
+      },
+      log: {},
+      maxCaptures: 1,
+    });
+    await vi.advanceTimersByTimeAsync(7 * 60_000);
+    await pending;
+    expect(bodies).toEqual([
+      { leaseToken: claim.leaseToken, error: "capture_timeout" },
+    ]);
+    expect(browser.close).toHaveBeenCalledOnce();
+  } finally {
+    vi.useRealTimers();
+  }
 });

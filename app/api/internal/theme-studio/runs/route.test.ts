@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runStudio = vi.fn();
+const runQa = vi.fn();
+vi.mock("@/lib/theme-studio/visual-qa", () => ({
+  runThemeStudioVisualQaWorker: runQa,
+}));
 vi.mock("@/lib/theme-studio/worker", () => ({
   runThemeStudioWorker: runStudio,
 }));
@@ -13,6 +17,12 @@ describe("Theme Studio model worker route", () => {
 
   beforeEach(() => {
     process.env.CRON_SECRET = "cron-secret";
+    runQa.mockReset().mockResolvedValue({
+      claimed: 0,
+      passed: 0,
+      revisionQueued: 0,
+      failed: 0,
+    });
     runStudio.mockReset().mockResolvedValue({
       claimed: 1,
       succeeded: 1,
@@ -47,16 +57,22 @@ describe("Theme Studio model worker route", () => {
     expect(runStudio).not.toHaveBeenCalled();
   });
 
-  it("runs exactly one run, including model-provider runs", async () => {
+  it("starts two run lanes and visual QA concurrently", async () => {
     const { GET } = await import("./route");
     const response = await GET(
       new Request(URL, { headers: { authorization: "Bearer cron-secret" } }),
     );
     expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({ ok: true, claimed: 1 });
-    expect(runStudio).toHaveBeenCalledTimes(1);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      runs: [{ claimed: 1 }, { claimed: 1 }],
+      qa: { claimed: 0 },
+    });
+    expect(runStudio).toHaveBeenCalledTimes(2);
+    expect(runQa).toHaveBeenCalledTimes(1);
     const options = runStudio.mock.calls[0][0];
     expect(options.maxRuns).toBe(1);
+    expect(options.skipVisualQa).toBe(true);
     expect(options.providers).toContain("vertex-gemini");
   });
 
@@ -72,4 +88,39 @@ describe("Theme Studio model worker route", () => {
     expect(response.status).toBe(503);
     expect(JSON.stringify(await response.json())).not.toContain("db down");
   });
+});
+
+it("starts every lane before awaiting, and waits for paid work even if another lane fails", async () => {
+  const previous = process.env.CRON_SECRET;
+  process.env.CRON_SECRET = "s";
+  let finish!: () => void;
+  runStudio.mockRejectedValueOnce(new Error("db down")).mockImplementationOnce(
+    () =>
+      new Promise((resolve) => {
+        finish = () => resolve({ claimed: 1 });
+      }),
+  );
+  runQa.mockResolvedValue({ claimed: 0 });
+  try {
+    const { POST } = await import("./route");
+    let completed = false;
+    const pending = POST(
+      new Request(URL, {
+        method: "POST",
+        headers: { authorization: "Bearer s" },
+      }),
+    ).then((response) => {
+      completed = true;
+      return response;
+    });
+    await Promise.resolve();
+    expect(runStudio).toHaveBeenCalledTimes(2);
+    expect(runQa).toHaveBeenCalledOnce();
+    expect(completed).toBe(false);
+    finish();
+    expect((await pending).status).toBe(503);
+  } finally {
+    if (previous === undefined) delete process.env.CRON_SECRET;
+    else process.env.CRON_SECRET = previous;
+  }
 });

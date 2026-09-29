@@ -1374,3 +1374,31 @@ describe("the direction's reference imagery", () => {
     expect(lines).toHaveLength(8);
   });
 });
+
+it(
+  "keeps other paid images when a slot provider unexpectedly throws",
+  async () => {
+    const { pkg, intent } = await fixture();
+    const slots = generatableSlots(pkg, intent);
+    const failed = slots.find((slot) => slot.purpose === "product")!.slotId;
+    const fake = createFakeImageClient();
+    const result = await runThemeImageGeneration(
+      {
+        provider: "fake",
+        generateImage: (request, signal) => {
+          if (request.briefId === failed)
+            throw new Error("unexpected SDK failure");
+          return fake.generateImage(request, signal);
+        },
+      },
+      { pkg, intent, reviewer: null },
+      new AbortController().signal,
+    );
+    expect(result.images).toHaveLength(slots.length - 1);
+    expect(
+      result.outcomes.find((slot) => slot.slotId === failed),
+    ).toMatchObject({ status: "failed", code: "provider_unavailable" });
+    expect(result.anchor).not.toBeNull();
+  },
+  IMAGE_RUN_TIMEOUT_MS,
+);

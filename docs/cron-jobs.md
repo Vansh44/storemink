@@ -192,11 +192,12 @@ failed 0`. Overlapping runs are safe because the endpoint is idempotent and
 > migrations and routes are actually deployed first.
 
 ✅ **`storemink-theme-studio-runs` exists as of 2026-09-29, with a matching
-`-dev` schedule.** It executes one Theme Studio model run per
-call, and a run can take up to 20 minutes, so it needs an attempt deadline of
+`-dev` schedule.** Each call executes up to two independently leased Theme
+Studio runs and one visual-QA run concurrently. A run can take up to 20
+minutes, so it needs an attempt deadline of
 **1,200 s** (Cloud Scheduler allows up to 1,800 s for HTTP targets), **no
-retries** (the next minute's call claims whatever is next, and retrying a
-20-minute request only stacks work), and a Cloud Run service request timeout of
+retries** (the next eligible scheduled call claims queued work), and a Cloud
+Run service request timeout of
 at least 1,200 s — without that, Cloud Run kills the request mid-generation, the
 lease expires 20 minutes later, and an attempt is spent for nothing. It is only
 needed once an environment sets `THEME_STUDIO_PROVIDER=vertex-gemini`: the
@@ -204,6 +205,17 @@ offline provider runs in `after()` and on `mink-workflows`. Until then, model
 runs queue and wait; nothing is lost. The path is under `/api/internal/`, not
 `/api/cron/`, because it is a worker rather than a heartbeat. Full rollout list:
 `docs/mink-ai-theme-studio-phase3.md` §6.
+
+Cloud Scheduler **skips ticks while the previous request is outstanding**; a
+one-minute schedule does not create overlapping long workers. The two run
+lanes prevent two already-queued themes from serializing, and a separate QA
+lane prevents generation from starving visual verdicts. All lanes are awaited
+before responding, including when another lane fails. Image calls share a
+three-permit pool per process/provider project/location/model to avoid doubling
+image quota pressure. Provider 429s and newly queued work can still add delay;
+this is not a completion-time guarantee. See
+[Scheduler execution behavior](https://docs.cloud.google.com/scheduler/docs/troubleshooting#subsequent_job_executions_arent_starting)
+and `docs/theme-studio-reliability.md`.
 
 ✅ **The Theme Studio capture job (Track 3.6) is deployed as of 2026-09-29.**
 It is a Cloud Run JOB, `storemink-theme-studio-capture`,
