@@ -342,7 +342,7 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
       name: str,
       slug: str,
       description: nullable(str),
-      imageSlot: nullable(str),
+      imageSlot: str,
     }),
   },
   products: {

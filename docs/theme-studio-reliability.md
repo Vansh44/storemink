@@ -49,6 +49,19 @@ mandatory not-found surface. Both are deterministic defects.
 - Capture handles SVGs and expected 404s, waits for probe hydration, bounds
   measurement/work/HTTP waits, reports launch failures and replaces broken
   browsers. A rejected finish response fails the job for observability.
+- Automatic captures now receive five leased attempts (manual captures keep
+  two), and the workspace labels a terminal browser-capture error separately
+  from a visual QA failure. An explicit **Retry automatic QA** from Images
+  collects fresh browser evidence and re-enters visual review instead of
+  producing an unchecked manual capture. Current-version, revision, digest
+  and idempotency checks apply to recovery too.
+- The compiler previously allowed categories without image slots, so an empty
+  category tile could be absent from every placeholder count. Draft schema,
+  prompt and compiler now require a declared asset brief per category and send
+  omissions through bounded repair. Legacy versions show missing categories
+  separately and capture refuses them until revised. This is a reproduced code
+  defect consistent with the later Crave screenshot; the latest production
+  version's package has not been inspected in this session.
 - The workspace polls through capture and QA and refreshes on tab visibility.
   Empty-version copy explains the private pipeline; summaries distinguish
   artwork from catalog pictures. Publication gates still reject placeholders.

@@ -30,6 +30,9 @@ import {
 export const CAPTURED_LICENSE_NOTE =
   "Captured by StoreMink Theme Studio from this theme's own preview store.";
 
+/** Bounded retries for transient browser failures; capped by the DB constraint. */
+export const AUTOMATIC_CAPTURE_MAX_ATTEMPTS = 5;
+
 export interface CaptureShot {
   slotId: string;
   /** The storefront path photographed. */
@@ -83,6 +86,14 @@ export function captureShots(pkg: ThemePackageV2): CaptureShot[] {
 /** Why a capture of this version would be pointless, in operator words. */
 export function captureBlockers(pkg: ThemePackageV2): string[] {
   const blockers: string[] = [];
+  const missingCategories = (
+    pkg.definition.preset.sampleData?.categories ?? []
+  ).filter((category) => !category.image_url?.trim());
+  if (missingCategories.length) {
+    blockers.push(
+      `${missingCategories.length} categories have no image slot. Revise the theme to add imagery for: ${missingCategories.map((category) => category.name).join(", ")}.`,
+    );
+  }
   const art = describeSlots(pkg).filter(
     (slot) =>
       !slot.catalogPreview &&

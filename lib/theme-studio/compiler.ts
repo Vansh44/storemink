@@ -491,6 +491,12 @@ function buildCatalogue(
   };
   const categories = list(draft.categories).flatMap((raw, i) => {
     if (!isRec(raw)) return [];
+    // Missing references never enter the asset manifest, so image generation
+    // and placeholder checks cannot see them. Repair the draft before saving
+    // a category tile that would render an empty-image icon forever.
+    if (!text(raw.imageSlot) || !briefIds.has(text(raw.imageSlot))) {
+      issues.push(`categories[${i}] needs an imageSlot from the asset briefs.`);
+    }
     const image = slotUrl(raw.imageSlot, `categories[${i}].imageSlot`);
     const description = text(raw.description);
     return [

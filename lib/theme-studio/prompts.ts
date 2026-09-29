@@ -25,7 +25,7 @@ import { industryPlaybookPrompt } from "./industry-playbooks";
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v16";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v17";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -102,7 +102,7 @@ ${configExamples()}
 Navigation: header links point to /shop and to your pages. Footer groups hold two to four columns. Legal links are optional.
 - A header item may open a menu: its children are shown when a shopper opens it. Give a store with several categories a "Shop" item whose children group them — two to four children, each a column heading with two to six links such as "/collections/<slug>" — and set that item's image_url to a category or hero image slot to feature it. A child may have no children of its own. An item that only opens a menu may leave href "". Keep other header items plain: children [] and image_url "". Never nest deeper than a child's links.
 
-Sample catalogue: four to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot naming the product-photography brief, and each category may have one; both use asset-brief ids. Products may all name the same brief: StoreMink gives every product its own photograph drawn from it, of that product, so write each product's name and description as something that could be photographed. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
+Sample catalogue: four to six categories and eight to sixteen products with realistic Indian-rupee prices, where sellingPrice is at most basePrice. Names are original, never real brands. Every product has an imageSlot naming the product-photography brief, and every category must have an imageSlot naming a relevant asset brief. Never leave a category image null or empty: category navigation renders an image tile. Both use asset-brief ids. Products may all name the same brief: StoreMink gives every product its own photograph drawn from it, of that product, so write each product's name and description as something that could be photographed. Variants are optional and must have a positive stock. For apparel, footwear and accessories give a few products real options, as a shopper would choose them: options lists up to three axes such as Size and Colour with their values, every variant gives its optionValues in the same order as options, each combination appears exactly once, and a colour axis should carry swatches with a hex for every value. Products without options use an empty options list and empty optionValues.
 
 Carry the intent's capability gaps forward and add any you discover. Respond with JSON only, matching the provided schema.`;
 }

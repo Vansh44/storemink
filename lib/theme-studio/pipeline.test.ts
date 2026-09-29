@@ -59,6 +59,67 @@ const run = (brief?: string, client?: ThemeStudioModelClient) =>
   );
 
 describe("theme generation pipeline", () => {
+  it.each([null, "", "preview", "unknown-brief"])(
+    "repairs a category with invalid image slot %s before image generation",
+    async (imageSlot) => {
+      const fake = createFakeModelClient(base);
+      let drafts = 0;
+      const client: ThemeStudioModelClient = {
+        provider: "fake",
+        async generate(request, signal) {
+          const result = await fake.generate(request, signal);
+          if (
+            request.stage === "draft" &&
+            result.kind === "ok" &&
+            drafts++ === 0
+          ) {
+            (
+              result.value as { categories: { imageSlot: unknown }[] }
+            ).categories[0].imageSlot = imageSlot;
+          }
+          return result;
+        },
+      };
+      const outcome = await run(undefined, client);
+      expect(outcome.kind).toBe("version");
+      expect(outcome.telemetry.repairs.draft).toBe(1);
+      if (outcome.kind !== "version") return;
+      for (const category of outcome.package.definition.preset.sampleData!
+        .categories!) {
+        expect(category.image_url).toBeTruthy();
+        expect(
+          outcome.package.assets.some(
+            (asset) => asset.path === category.image_url,
+          ),
+        ).toBe(true);
+      }
+    },
+  );
+
+  it("fails after bounded repairs if a category never receives an image slot", async () => {
+    const fake = createFakeModelClient(base);
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        const result = await fake.generate(request, signal);
+        if (request.stage === "draft" && result.kind === "ok") {
+          (
+            result.value as { categories: { imageSlot: unknown }[] }
+          ).categories[0].imageSlot = null;
+        }
+        return result;
+      },
+    };
+    const outcome = await run(undefined, client);
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      errorCode: "invalid_output",
+    });
+    expect(outcome.telemetry.repairs.draft).toBe(
+      THEME_STUDIO_LIMITS.repairAttempts,
+    );
+  });
+
   it("turns a brief into a package the Phase 0 validator accepts", async () => {
     const outcome = await run();
     expect(outcome.kind).toBe("version");

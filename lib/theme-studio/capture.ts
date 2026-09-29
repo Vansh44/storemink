@@ -16,6 +16,7 @@ import { logError } from "@/lib/observability/logger";
 import type { ThemeStudioActor } from "./access";
 import {
   applyCapturedImages,
+  AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
   captureBlockers,
   captureShots,
   type CaptureShot,
@@ -118,7 +119,8 @@ export async function queueThemeStudioCapture(
     idempotencyKey: string;
   },
 ): Promise<{ captureId: string; duplicate: boolean }> {
-  if (!getThemeStudioConfig().captureEnabled) {
+  const config = getThemeStudioConfig();
+  if (!config.captureEnabled) {
     throw new ThemeStudioError(
       "generation_disabled",
       "Catalog capture is not available until its browser worker is deployed.",
@@ -182,6 +184,7 @@ export async function queueThemeStudioCapture(
       .select({
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
+        qaStatus: themeStudioVersions.qaStatus,
       })
       .from(themeStudioVersions)
       .where(
@@ -211,13 +214,24 @@ export async function queueThemeStudioCapture(
     if (blockers.length > 0) {
       throw new ThemeStudioError("illegal_state", blockers[0]);
     }
+    // An explicit retry of a failed automatic result must collect browser
+    // evidence and re-enter visual QA, not produce an unchecked manual version.
+    const retryAutomaticQa =
+      config.autoQaEnabled && version.qaStatus === "failed";
     const [capture] = await db
       .insert(themeStudioCaptures)
       .values({
         projectId: project.id,
         versionId: input.versionId,
         packageDigest: version.packageDigest,
-        previousStatus: project.status,
+        previousStatus: retryAutomaticQa ? "generating" : project.status,
+        ...(retryAutomaticQa
+          ? {
+              automatic: true,
+              qaIteration: 0,
+              maxAttempts: AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
+            }
+          : {}),
         idempotencyKey: input.idempotencyKey,
         createdBy: actor.id,
       })
