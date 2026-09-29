@@ -428,11 +428,21 @@ export function assetIntegrityFindings(
 export function assetProvenanceFindings(pkg: ThemePackageV2): GateFinding[] {
   const findings: GateFinding[] = [];
   const placeholders = pkg.assets.filter(isPlaceholderAsset);
-  if (placeholders.length > 0) {
+  const capturePaths = new Set([
+    pkg.definition.catalog.previewImage,
+    ...pkg.definition.catalog.screenshots.map((image) => image.src),
+  ]);
+  for (const catalog of [true, false]) {
+    const missing = placeholders.filter(
+      (asset) => capturePaths.has(asset.path) === catalog,
+    );
+    if (!missing.length) continue;
     findings.push({
       code: "placeholder",
-      message: `${placeholders.length} image slot${placeholders.length === 1 ? " is" : "s are"} still a StoreMink placeholder. Replace them with operator-owned, licensed or generated imagery before this version can be reviewed.`,
-      where: placeholders
+      message: catalog
+        ? `${missing.length} catalog image slot(s) await browser capture. Open Images and capture the preview, desktop and mobile screenshots before running acceptance again. These are pictures of the finished storefront, not AI artwork.`
+        : `${missing.length} artwork slot(s) are still StoreMink placeholders. Open Images to generate or replace them with operator-owned or licensed imagery before this version can be reviewed.`,
+      where: missing
         .map((a) => a.id)
         .slice(0, 12)
         .join(", "),

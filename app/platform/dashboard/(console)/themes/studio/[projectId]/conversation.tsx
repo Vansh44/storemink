@@ -29,6 +29,7 @@ export function ThemeConversation({
   canRevise,
   onSelectVersion,
   composerRef,
+  initialBody,
 }: {
   project: ThemeStudioProjectDetail;
   generationEnabled: boolean;
@@ -37,6 +38,7 @@ export function ThemeConversation({
   canRevise: boolean;
   onSelectVersion: (id: string | null) => void;
   composerRef: RefObject<HTMLTextAreaElement | null>;
+  initialBody?: string;
 }) {
   const router = useRouter();
   const latestRun = project.runs[0];
@@ -44,7 +46,7 @@ export function ThemeConversation({
     project.status === "blocked" && Boolean(latestRun?.questions.length);
   const creating = project.status === "draft";
   const working = project.status === "generating";
-  const [body, setBody] = useState(creating ? project.draftBrief : "");
+  const [body, setBody] = useState(creating ? project.draftBrief : initialBody ?? "");
   const [selected, setSelected] = useState<string[]>(() => {
     const previous = answering
       ? (project.messages.filter((message) => message.kind !== "images").at(-1)

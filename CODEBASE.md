@@ -4919,6 +4919,28 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     Idempotency, revision/digest guards, authentication and QA remain in place;
     no schema migration is needed. Operator-only: no merchant-visible change,
     no Help Centre update.
+    **Acceptance recovery and shared storefront fixes (2026-09-29).** Checks
+    distinguishes earlier-build/incomplete runs, preview metadata failures and
+    asset capture failures. Catalog placeholders stay blocking, but direct the
+    operator to browser capture under Images instead of image generation.
+    `lib/theme-studio/acceptance-repair.ts` turns failed theme gates into a
+    bounded repair draft. **Fix theme issues in chat** resolves the stored run
+    under the authorized project, requires the same build/version/package
+    digest, selects that version and fills the editable composer. The operator
+    can attach screenshots and must send the message; opening the link queues
+    no work. Infrastructure/capture failures and advisory gates are excluded.
+    Storefront page metadata omits unset robots fields so the parent preview,
+    demo and unlaunched-store noindex policy survives Next metadata merging.
+    The browser probe distinguishes CSS-clipped accessible labels, ellipses,
+    line clamps and animated tickers from accidental text clipping, and counts
+    an associated checkbox/radio label's clickable area. Reduced-motion tickers
+    wrap their complete text. Shared header controls have 44px targets, footer
+    links and product breadcrumb/rating links at least 24px; newsletter buttons
+    use the theme's on-accent/on-ink foregrounds, readable price/eyebrow labels
+    use text tokens, and sticky purchase prices wrap instead of truncating.
+    Acceptance thresholds and publishing gates remain enforced. These are
+    operator recovery and storefront accessibility corrections; no merchant
+    workflow change and no Help Centre update.
     **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
     version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
     gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`

@@ -1146,15 +1146,14 @@
   white-space: nowrap;
 }
 .sm-sticky-atc-price {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--sm-ink-soft);
   font-size: 13px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
 }
 .sm-sticky-atc-was {
   margin-left: 6px;
-  color: var(--sm-ink-faint);
+  color: var(--sm-ink-soft);
 }
 .sm-sticky-atc-btn {
   flex: 0 0 auto;

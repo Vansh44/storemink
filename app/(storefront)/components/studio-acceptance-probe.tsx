@@ -150,12 +150,34 @@ function clippedText(limit: number) {
     }
     const clipsX = style.overflowX === "hidden" || style.overflowX === "clip";
     const clipsY = style.overflowY === "hidden" || style.overflowY === "clip";
-    const clippedX = clipsX
-      ? Math.max(0, element.scrollWidth - element.clientWidth)
-      : 0;
-    const clippedY = clipsY
-      ? Math.max(0, element.scrollHeight - element.clientHeight)
-      : 0;
+    // Visually hidden accessible labels and deliberate truncation retain the
+    // full text in the accessibility tree. They are not accidental clipping.
+    const visuallyHidden =
+      element.clientWidth <= 1 &&
+      element.clientHeight <= 1 &&
+      ((style.clip && style.clip !== "auto") ||
+        (style.clipPath && style.clipPath !== "none"));
+    if (visuallyHidden) continue;
+    const ellipsis = style.textOverflow === "ellipsis";
+    const lineClamp = Number.parseInt(style.webkitLineClamp, 10) > 0;
+    // The ticker intentionally moves its complete text through this viewport.
+    // In reduced-motion mode its track wraps, so real clipping is still caught.
+    const ticker =
+      element.matches(".home-ticker") &&
+      [...element.children].some(
+        (child) =>
+          child.matches(".home-ticker-track") &&
+          getComputedStyle(child).animationName === "home-ticker-scroll",
+      );
+    if (ticker) continue;
+    const clippedX =
+      clipsX && !ellipsis
+        ? Math.max(0, element.scrollWidth - element.clientWidth)
+        : 0;
+    const clippedY =
+      clipsY && !lineClamp
+        ? Math.max(0, element.scrollHeight - element.clientHeight)
+        : 0;
     if (clippedX <= 1 && clippedY <= 1) continue;
     // Report the innermost clipping box; a parent wrapping the same clipped
     // child adds noise without identifying a second defect.
@@ -200,6 +222,23 @@ function smallTapTargets(limit: number) {
       continue;
     }
     if (rect.width < 24 || rect.height < 24) {
+      // A checkbox's associated label is also a clickable target. Measure the
+      // actual label, not the browser's default 13px checkbox glyph alone.
+      if (
+        element instanceof HTMLInputElement &&
+        (element.type === "checkbox" || element.type === "radio") &&
+        [...(element.labels ?? [])].some((label) => {
+          const box = label.getBoundingClientRect();
+          const css = getComputedStyle(label);
+          return (
+            box.width >= 24 &&
+            box.height >= 24 &&
+            css.visibility !== "hidden" &&
+            css.display !== "none"
+          );
+        })
+      )
+        continue;
       findings.push({
         target: describe(element),
         width: Math.round(rect.width * 10) / 10,

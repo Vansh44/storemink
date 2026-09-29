@@ -72,7 +72,7 @@ export async function generateMetadata({
     // Sort, filters and paging are views of this page, never pages of their
     // own; search results are not indexed at all.
     alternates: { canonical: path },
-    robots: first(query.q) ? { index: false, follow: true } : undefined,
+    ...(first(query.q) ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       title: `${category.name} | ${brand.name}`,
       description,

@@ -107,6 +107,34 @@ afterEach(() => {
 });
 
 describe("Theme Studio conversation", () => {
+  it("opens acceptance findings as an editable draft and sends only after operator review", async () => {
+    render(
+      <ThemeConversation
+        {...props}
+        initialBody="Fix contrast in version 1: .shop-card-base"
+      />,
+    );
+    expect((message() as HTMLTextAreaElement).value).toContain(
+      ".shop-card-base",
+    );
+    expect(actions.reviseThemeStudioVersionAction).not.toHaveBeenCalled();
+    fireEvent.change(message(), {
+      target: { value: "Fix contrast; preserve the golden header." },
+    });
+    fireEvent.click(screen.getByLabelText("Attach screenshot 1"));
+    fireEvent.click(send());
+    await waitFor(() =>
+      expect(actions.reviseThemeStudioVersionAction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          versionId: "v1",
+          expectedPackageDigest: "digest-v1",
+          body: "Fix contrast; preserve the golden header.",
+          referenceAssetIds: ["old-0"],
+        }),
+      ),
+    );
+  });
+
   it("attaches a new screenshot after ten historical references and sends only the selected image with the revision", async () => {
     const fetcher = vi.fn(async () => ({
       ok: true,

@@ -34,7 +34,7 @@
   ); /* faint ink wash (CTA hover) */
   --shop-on-accent: var(--sm-on-accent); /* text on near-black */
 
-  --shop-sale: var(--sm-accent); /* discount badge text */
+  --shop-sale: var(--sm-ink); /* readable on the faint discount badge */
   --shop-sale-bg: rgba(
     var(--sm-shadow-rgb),
     0.06
@@ -295,7 +295,7 @@
 .shop-card-base {
   font-size: 0.85rem;
   font-weight: 500;
-  color: var(--shop-text-faint);
+  color: var(--shop-text-subtle);
   text-decoration: line-through;
 }
 
@@ -1743,10 +1743,11 @@
   align-items: center;
   gap: 8px;
   font-size: 0.9rem;
-  color: var(--sm-ink-faint);
+  color: var(--sm-ink-soft);
   margin-bottom: 24px;
 }
 .sm-storefront-grocery .gpdp-breadcrumb a {
+  min-height: 24px;
   color: var(--sm-ink-soft);
   text-decoration: none;
 }
@@ -1844,6 +1845,7 @@
   margin: 0;
 }
 .sm-storefront-grocery .gpdp-rating {
+  min-height: 24px;
   display: inline-flex;
   align-items: center;
   gap: 10px;

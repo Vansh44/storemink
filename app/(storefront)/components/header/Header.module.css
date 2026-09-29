@@ -343,6 +343,8 @@
 }
 
 .userIcon {
+  min-width: 44px;
+  min-height: 44px;
   background: transparent;
   border: none;
   color: var(--sm-ink);
@@ -362,6 +364,8 @@
 }
 
 .cartBtn {
+  min-width: 44px;
+  min-height: 44px;
   position: relative;
   background: transparent;
   border: none;

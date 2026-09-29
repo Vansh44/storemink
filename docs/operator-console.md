@@ -205,7 +205,21 @@ pages; this browser then measures layout, accessibility and images at laptop,
 iPad and mobile sizes. Passing makes the project a **candidate**. A quality
 failure keeps it `ready`, a security failure blocks it, and a deploy makes a
 candidate's evidence stale until the checks run again. Placeholder images
-fail the checks until an operator replaces them under **Images**. Record:
+fail the checks until resolved under **Images**. Catalog slots (preview,
+desktop screenshot and mobile screenshot) need **browser capture** of the
+finished storefront; missing theme artwork needs generation or replacement.
+The Checks recovery panel links to Images, calls out results from an earlier
+build and unfinished browser runs, and identifies missing preview noindex as
+a shared storefront code issue. Rerun after deploying code fixes and keep the
+tab visible until browser checks finish.
+
+For a failed run from the current build, **Fix theme issues in chat** opens an
+editable message containing the relevant findings and selects the checked
+version as the revision base. Add instructions or screenshots and send it to
+create a new version; opening the link does not start generation. Stale or
+mismatched evidence cannot seed a repair. Capture/infrastructure issues and
+advisories are not sent as theme fixes. Run Checks again on the new current
+version before review. Record:
 `docs/mink-ai-theme-studio-phase5.md`.
 
 Each version also has **Images**: every picture slot with its current image
