@@ -541,7 +541,9 @@ async function loadRunInput(
         kind: m!.kind as "brief" | "revision",
         body: m!.body,
       }));
-      citedReferenceIds = ordered[0]!.referenceAssetIds;
+      // Each reply snapshots its own selected attachments. In particular,
+      // screenshots added while answering a question must reach this run.
+      citedReferenceIds = ordered.at(-1)!.referenceAssetIds;
 
       if (!run.baseVersionId || !run.basePackageDigest) return null;
       const [base] = await db
@@ -595,6 +597,7 @@ async function loadRunInput(
       citedReferenceIds.length > 0
         ? await db
             .select({
+              id: themeStudioAssets.id,
               bytes: themeStudioAssets.bytes,
               sha256: themeStudioAssets.sha256,
               createdAt: themeStudioAssets.createdAt,
@@ -616,7 +619,10 @@ async function loadRunInput(
     return {
       project,
       messages,
-      references,
+      references: references.sort(
+        (a, b) =>
+          citedReferenceIds.indexOf(a.id) - citedReferenceIds.indexOf(b.id),
+      ),
       versionNumber: (latest ?? 0) + 1,
       revision,
     };

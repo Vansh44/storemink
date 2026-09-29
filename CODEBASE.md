@@ -4893,6 +4893,32 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     types. Also fixed: `applyTheme`'s product conflict branch published draft
     samples unconditionally. Record: `docs/mink-ai-theme-studio-phase4.md`.
     Operator-only: no Help Centre migration.
+    **Theme Studio conversation and screenshot replies (2026-09-29).**
+    `…/studio/[projectId]/conversation.tsx` replaces separate Brief, Revision,
+    Answer and References panels with one message timeline and composer.
+    Initial briefs can be edited before sending; follow-ups revise the current
+    version by default, or an explicitly selected older version. Persisted
+    operator messages show their exact screenshot attachments; visible versions
+    provide assistant summaries and preview links, and clarification/failure
+    responses and active work appear in the conversation. Automatic repair
+    prompts remain in run history rather than appearing as operator messages.
+    Runs, cancellation/retry, version comparison, acceptance and release controls
+    remain available below the conversation.
+    Upload, paste and drop use the existing private sanitizing reference route;
+    prior screenshots can be selected again without deleting immutable history.
+    The three queue actions snapshot explicit `referenceAssetIds` per message,
+    validated under the project lock for ownership, reference purpose, unique
+    UUIDs, ten images and 40 MB total. Screenshot order is preserved from the
+    composer through the worker so numbered references remain consistent.
+    Reference storage is separately bounded at 100 images / 400 MB per project,
+    so a full initial reference set no
+    longer prevents screenshot replies. Ready, candidate and approved projects
+    can attach references before a revision; active/closed projects cannot.
+    Answering clarification questions preserves the revision's base and text
+    context while the worker reads the latest reply's attachment snapshot.
+    Idempotency, revision/digest guards, authentication and QA remain in place;
+    no schema migration is needed. Operator-only: no merchant-visible change,
+    no Help Centre update.
     **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
     version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
     gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`
