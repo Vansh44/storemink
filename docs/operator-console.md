@@ -154,6 +154,21 @@ route. Full record: `docs/mink-ai-theme-studio-phase2.md`.
 
 The project workspace refreshes throughout generation, image drawing, catalog
 capture and visual QA, including immediately when an unfinished tab is reopened.
+Use the conversation to describe a theme, answer questions and request changes.
+Edit the initial brief in the message box, then send it. After a version is
+created, describe the fixes in the same box and attach screenshots with
+**Attach screenshots**, paste, or drag and drop. Each message can include up to
+10 screenshots totaling 40 MB (10 MB each). Old screenshots stay with their
+messages and can be attached again from **Reuse screenshots**; they do not use
+the next message's attachment allowance. A conversation retains up to 100
+screenshots / 400 MB; unused uploads can be deleted from that list.
+Follow-ups use the current version unless an older version is selected under
+**Editing** or **Change this version**. Each completed request creates a new
+version; preview links and the conversation retain earlier results. Replies
+to questions continue the same request and can include fresh screenshots.
+Only selected screenshots are sent with each message. While work is running,
+the composer shows progress and waits for it to finish; cancellation, retry
+and detailed run information remain under **Runs**.
 Internal drafts remain hidden until QA settles; the empty-version message
 explains that work is still in progress. A failed QA result retains the generated
 version. The version summary distinguishes missing artwork from missing catalog

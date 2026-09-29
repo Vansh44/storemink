@@ -196,6 +196,8 @@ export interface ThemeStudioMessageView {
   kind: "brief" | "revision" | "images";
   body: string;
   referenceCount: number;
+  referenceAssetIds: string[];
+  automatic: boolean;
   createdAt: string;
 }
 
@@ -433,6 +435,7 @@ export async function getThemeStudioProject(
         kind: themeStudioMessages.kind,
         body: themeStudioMessages.body,
         referenceAssetIds: themeStudioMessages.referenceAssetIds,
+        automatic: sql<boolean>`exists (select 1 from ${themeStudioRuns} where ${themeStudioRuns.messageId} = ${themeStudioMessages.id} and ${themeStudioRuns.automatic} = true)`,
         createdAt: themeStudioMessages.createdAt,
       })
       .from(themeStudioMessages)
@@ -526,6 +529,8 @@ export async function getThemeStudioProject(
         kind: m.kind as ThemeStudioMessageView["kind"],
         body: m.body,
         referenceCount: m.referenceAssetIds.length,
+        referenceAssetIds: m.referenceAssetIds,
+        automatic: m.automatic,
         createdAt: m.createdAt,
       })),
       runs: runs.map((r) => ({
@@ -967,6 +972,8 @@ const EDITABLE_REFERENCE_STATES: readonly string[] = [
   "ready",
   "failed",
   "blocked",
+  "candidate",
+  "approved",
 ];
 
 export async function addThemeStudioReference(
@@ -1009,19 +1016,19 @@ export async function addThemeStudioReference(
           eq(themeStudioAssets.purpose, "reference"),
         ),
       );
-    if (Number(totals?.n ?? 0) >= THEME_STUDIO_LIMITS.referenceImages) {
+    if (Number(totals?.n ?? 0) >= THEME_STUDIO_LIMITS.referenceHistoryImages) {
       throw new ThemeStudioError(
         "limit",
-        `A project can hold at most ${THEME_STUDIO_LIMITS.referenceImages} references.`,
+        `This conversation has reached its ${THEME_STUDIO_LIMITS.referenceHistoryImages}-screenshot history limit. Remove unused uploads or start a new project.`,
       );
     }
     if (
       Number(totals?.bytes ?? 0) + reference.originalByteSize >
-      THEME_STUDIO_LIMITS.referenceTotalBytes
+      THEME_STUDIO_LIMITS.referenceHistoryTotalBytes
     ) {
       throw new ThemeStudioError(
         "limit",
-        `References for one project may total at most ${THEME_STUDIO_LIMITS.referenceTotalBytes / 1024 / 1024} MB.`,
+        `Screenshot history for one project may total at most ${THEME_STUDIO_LIMITS.referenceHistoryTotalBytes / 1024 / 1024} MB.`,
       );
     }
     const [asset] = await db
@@ -1228,13 +1235,71 @@ async function assertRunCapacity(db: Db, actor: ThemeStudioActor) {
   }
 }
 
-/** Submit the draft brief. Snapshots brief + every current reference into an
+/** Snapshot only the attachments selected for this message, under the project
+ * lock held by the caller. Never accept another project's or non-reference asset. */
+export async function selectMessageReferences(
+  db: Db,
+  projectId: string,
+  selected: unknown,
+): Promise<{ id: string }[]> {
+  if (
+    selected !== undefined &&
+    (!Array.isArray(selected) ||
+      selected.length > THEME_STUDIO_LIMITS.referenceImages ||
+      selected.some((id) => !isUuid(id)) ||
+      new Set(selected).size !== selected.length)
+  ) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      "Choose up to 10 distinct screenshots for this message.",
+    );
+  }
+  const ids = selected as string[] | undefined;
+  if (ids?.length === 0) return [];
+  const refs = await db
+    .select({
+      id: themeStudioAssets.id,
+      originalByteSize: themeStudioAssets.originalByteSize,
+    })
+    .from(themeStudioAssets)
+    .where(
+      and(
+        eq(themeStudioAssets.projectId, projectId),
+        eq(themeStudioAssets.purpose, "reference"),
+        ids ? inArray(themeStudioAssets.id, ids) : undefined,
+      ),
+    )
+    .orderBy(asc(themeStudioAssets.createdAt));
+  if (ids && refs.length !== ids.length) {
+    throw new ThemeStudioError(
+      "invalid_input",
+      "A screenshot is unavailable or belongs to another project. Attach it again.",
+    );
+  }
+  if (
+    refs.length > THEME_STUDIO_LIMITS.referenceImages ||
+    refs.reduce((sum, ref) => sum + ref.originalByteSize, 0) >
+      THEME_STUDIO_LIMITS.referenceTotalBytes
+  ) {
+    throw new ThemeStudioError(
+      "limit",
+      "Each message allows up to 10 screenshots totaling 40 MB.",
+    );
+  }
+  // Keep screenshot numbering consistent between the composer and the model.
+  const byId = new Map(refs.map((ref) => [ref.id, ref]));
+  return ids ? ids.map((id) => byId.get(id)!) : refs;
+}
+
+/** Submit the draft brief. Snapshots brief + selected references into an
  * immutable message and queues one run against it. Idempotent on the key. */
 export async function queueThemeStudioGeneration(
   actor: ThemeStudioActor,
   input: {
     projectId: string;
     expectedRevision: number;
+    body?: string;
+    referenceAssetIds?: string[];
     idempotencyKey: string;
   },
 ): Promise<{ runId: string; duplicate: boolean }> {
@@ -1281,22 +1346,29 @@ export async function queueThemeStudioGeneration(
     await assertRunCapacity(db, actor);
     await assertSpendHeadroom(db, actor, resolved);
 
-    const refs = await db
-      .select({ id: themeStudioAssets.id })
-      .from(themeStudioAssets)
-      .where(
-        and(
-          eq(themeStudioAssets.projectId, project.id),
-          eq(themeStudioAssets.purpose, "reference"),
-        ),
-      )
-      .orderBy(asc(themeStudioAssets.createdAt));
+    const refs = await selectMessageReferences(
+      db,
+      project.id,
+      input.referenceAssetIds,
+    );
+    const body =
+      input.body === undefined
+        ? project.draftBrief
+        : typeof input.body === "string"
+          ? input.body.trim()
+          : "";
+    if (!body || body.length > THEME_STUDIO_LIMITS.promptChars) {
+      throw new ThemeStudioError(
+        "invalid_input",
+        "Describe your theme in up to 12,000 characters.",
+      );
+    }
     const [message] = await db
       .insert(themeStudioMessages)
       .values({
         projectId: project.id,
         kind: "brief",
-        body: project.draftBrief,
+        body,
         referenceAssetIds: refs.map((r) => r.id),
         createdBy: actor.id,
       })
@@ -1507,7 +1579,7 @@ export async function retryThemeStudioRun(
 
 /** Answer the model's clarifying questions. Only a project the model paused
  * (`blocked` after a clarify outcome) takes details; the answer becomes an
- * immutable message citing the current references, and a new run reads every
+ * immutable message citing its selected references, and a new run reads every
  * message so far. */
 export async function submitThemeStudioDetails(
   actor: ThemeStudioActor,
@@ -1515,6 +1587,7 @@ export async function submitThemeStudioDetails(
     projectId: string;
     expectedRevision: number;
     body: string;
+    referenceAssetIds?: string[];
     idempotencyKey: string;
   },
 ): Promise<{ runId: string; duplicate: boolean }> {
@@ -1591,16 +1664,11 @@ export async function submitThemeStudioDetails(
     }
     await assertRunCapacity(db, actor);
     await assertSpendHeadroom(db, actor, resolved);
-    const refs = await db
-      .select({ id: themeStudioAssets.id })
-      .from(themeStudioAssets)
-      .where(
-        and(
-          eq(themeStudioAssets.projectId, project.id),
-          eq(themeStudioAssets.purpose, "reference"),
-        ),
-      )
-      .orderBy(asc(themeStudioAssets.createdAt));
+    const refs = await selectMessageReferences(
+      db,
+      project.id,
+      input.referenceAssetIds,
+    );
     const [message] = await db
       .insert(themeStudioMessages)
       .values({
@@ -1671,6 +1739,7 @@ export async function reviseThemeStudioVersion(
     expectedRevision: number;
     expectedPackageDigest: string;
     body: string;
+    referenceAssetIds?: string[];
     idempotencyKey: string;
   },
 ): Promise<{ runId: string; duplicate: boolean }> {
@@ -1754,16 +1823,11 @@ export async function reviseThemeStudioVersion(
     );
     await assertRunCapacity(db, actor);
     await assertSpendHeadroom(db, actor, resolved);
-    const refs = await db
-      .select({ id: themeStudioAssets.id })
-      .from(themeStudioAssets)
-      .where(
-        and(
-          eq(themeStudioAssets.projectId, project.id),
-          eq(themeStudioAssets.purpose, "reference"),
-        ),
-      )
-      .orderBy(asc(themeStudioAssets.createdAt));
+    const refs = await selectMessageReferences(
+      db,
+      project.id,
+      input.referenceAssetIds,
+    );
     const [message] = await db
       .insert(themeStudioMessages)
       .values({

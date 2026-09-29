@@ -114,6 +114,8 @@ export async function createThemeStudioProjectAction(
 export async function queueThemeStudioGenerationAction(input: {
   projectId: string;
   expectedRevision: number;
+  body?: string;
+  referenceAssetIds?: string[];
   idempotencyKey: string;
 }): Promise<ThemeStudioActionResult> {
   const actor = await getThemeStudioActor();
@@ -128,6 +130,8 @@ export async function queueThemeStudioGenerationAction(input: {
     const { runId } = await queueThemeStudioGeneration(actor, {
       projectId: String(input.projectId),
       expectedRevision: input.expectedRevision,
+      referenceAssetIds: input.referenceAssetIds,
+      body: input.body,
       idempotencyKey: String(input.idempotencyKey),
     });
     kickWorker();
@@ -182,6 +186,7 @@ export async function submitThemeStudioDetailsAction(input: {
   projectId: string;
   expectedRevision: number;
   body: string;
+  referenceAssetIds?: string[];
   idempotencyKey: string;
 }): Promise<ThemeStudioActionResult> {
   const actor = await getThemeStudioActor();
@@ -197,6 +202,7 @@ export async function submitThemeStudioDetailsAction(input: {
       projectId: String(input.projectId),
       expectedRevision: input.expectedRevision,
       body: String(input.body ?? ""),
+      referenceAssetIds: input.referenceAssetIds,
       idempotencyKey: String(input.idempotencyKey),
     });
     kickWorker();
@@ -274,6 +280,7 @@ export async function reviseThemeStudioVersionAction(input: {
   expectedRevision: number;
   expectedPackageDigest: string;
   body: string;
+  referenceAssetIds?: string[];
   idempotencyKey: string;
 }): Promise<ThemeStudioActionResult> {
   const actor = await getThemeStudioActor();
@@ -286,6 +293,7 @@ export async function reviseThemeStudioVersionAction(input: {
       expectedRevision: input.expectedRevision,
       expectedPackageDigest: String(input.expectedPackageDigest ?? ""),
       body: String(input.body ?? ""),
+      referenceAssetIds: input.referenceAssetIds,
       idempotencyKey: String(input.idempotencyKey),
     });
     kickWorker();

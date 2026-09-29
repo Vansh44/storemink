@@ -32,6 +32,8 @@ export const THEME_STUDIO_VIEWPORTS = {
 export const THEME_STUDIO_LIMITS = {
   promptChars: 12_000,
   referenceImages: 10,
+  referenceHistoryImages: 100,
+  referenceHistoryTotalBytes: 400 * 1024 * 1024,
   referenceImageBytes: 10 * 1024 * 1024,
   referenceTotalBytes: 40 * 1024 * 1024,
   /** Operator slot images: per upload before processing, and per project. */
