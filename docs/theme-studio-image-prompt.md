@@ -43,7 +43,7 @@ SET RULES
 OUTPUT RULES
 - One photograph only: not a collage, grid, contact sheet, split panel, mockup frame or design board.
 - No text of any kind in the pixels: no headlines, captions, prices, labels with words, logos, monograms, watermarks, signatures or UI. Packaging may carry blank labels only: no embossed, engraved or printed marks, numbers, monograms or symbols on any product.
-- No people, faces, hands or body parts.
+- No people, faces, hands or body parts, and no mannequins or forms with faces. If THIS IMAGE mentions a model, a person, hands or someone wearing the product, show the product on its own instead: garments flat-lay, on a hanger, folded or draped; footwear and bags on a plinth or step; lifestyle scenes as empty, styled rooms and places where the products are the subject.
 - Crisp commercial quality: sharp edges, clean tonal detail, no blur, no compression artefacts, no smeared shapes, no obvious upscaling.
 - Avoid duplicated or malformed objects, floating items, clipped subjects and unrelated clutter.
 

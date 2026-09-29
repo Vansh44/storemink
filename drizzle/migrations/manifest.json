@@ -5930,6 +5930,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20260929_0145_theme_studio_qa_iterations",
+      "description": "Theme Studio automatic QA may run a fourth pass (qa_iteration 0-3)",
+      "file": "sql/20260929_0145_theme_studio_qa_iterations.sql",
+      "transaction": true,
+      "requires": ["20260927_0144_theme_studio_auto_qa"],
+      "verify": {
+        "constraints": [
+          "theme_studio_versions_qa_check",
+          "theme_studio_runs_qa_iteration_check",
+          "theme_studio_captures_qa_iteration_check",
+          "theme_studio_visual_qa_shape_check"
+        ]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "all four QA iteration checks admit iteration 3",
+            "sql": "select count(*)::text from pg_constraint where conname in ('theme_studio_versions_qa_check', 'theme_studio_runs_qa_iteration_check', 'theme_studio_captures_qa_iteration_check', 'theme_studio_visual_qa_shape_check') and pg_get_constraintdef(oid) like '%qa_iteration <= 3%'",
+            "equals": "4"
+          }
+        ]
+      }
     }
   ]
 }

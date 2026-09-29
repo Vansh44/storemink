@@ -62,7 +62,9 @@ export function runFakeProvider(
   // The offline image reviewer's drill hooks ride on the hero brief, so an
   // operator can exercise a redraw end to end (image-fake.ts).
   const reviewHooks = (
-    input.brief.match(/\[\[fake-review:[a-z_]+(?::always)?\]\]/g) ?? []
+    input.brief.match(
+      /\[\[fake-(?:review:[a-z_]+(?::always)?|image:(?:flaky|refuse))\]\]/g,
+    ) ?? []
   ).join(" ");
   const starting = industryStartingPattern(input.industries);
   const intent: ThemeIntent = {

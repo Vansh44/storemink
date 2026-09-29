@@ -628,6 +628,13 @@ describe("theme generation pipeline", () => {
     expect(intentRequest.content.some((b) => b.type === "image")).toBe(true);
   });
 
+  // Production: a fashion theme briefed its hero and lookbook with models, the
+  // image model refused them and the slots stayed placeholders.
+  it("tells Stage A that every image brief must be people-free", async () => {
+    const { stageASystemPrompt } = await import("./prompts");
+    expect(stageASystemPrompt()).toContain("never write a person into a brief");
+  });
+
   it("keeps the system prompts deterministic so they cache", async () => {
     const { stageASystemPrompt, stageBSystemPrompt } =
       await import("./prompts");

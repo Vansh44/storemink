@@ -314,6 +314,107 @@ async function queueAutomaticImages(
   return true;
 }
 
+/**
+ * ★★ AN IMAGE RUN WITH GAPS IS KEPT AND REFILLED, NEVER THROWN AWAY.
+ * Measured in production (2026-09-29): an automatic run drew 14 of 18 images
+ * (~$2.22) and failed as `auto_images_incomplete`, because four slots were
+ * rate-limited or refused — so version 1 was revealed with every placeholder
+ * and the operator had to press Generate again, which then left five more.
+ * Now the images that came back are saved as a version and a FILL run is
+ * queued for exactly the slots still missing, reusing the same art-direction
+ * image, up to IMAGE_FILL_ROUNDS times. Only then does automatic QA capture
+ * (or reveal the most complete version). A manual run is refilled the same
+ * way, so "Generate images" means every image, not most of them.
+ *
+ * The round is recorded in the fill run's idempotency key,
+ * `images_fill_<first image run id>_<round>`, which bounds the chain with no
+ * new column and lets the unique key refuse a double-queue.
+ */
+export const IMAGE_FILL_ROUNDS = 3;
+const FILL_KEY = /^images_fill_([0-9a-f-]{36})_(\d+)$/;
+
+function fillPosition(
+  runId: string,
+  idempotencyKey: string | null,
+): { root: string; round: number } {
+  const match = idempotencyKey ? FILL_KEY.exec(idempotencyKey) : null;
+  return match
+    ? { root: match[1], round: Number(match[2]) }
+    : { root: runId, round: 0 };
+}
+
+async function queueFillImages(
+  db: Db,
+  run: ClaimedRun,
+  base: { id: string; packageDigest: string },
+  slotIds: readonly string[],
+  next: { root: string; round: number },
+): Promise<boolean> {
+  const resolved = automaticImageProvider(run);
+  if (!resolved || slotIds.length === 0) return false;
+  const [message] = await db
+    .insert(themeStudioMessages)
+    .values({
+      projectId: run.projectId,
+      kind: "images",
+      body: `Draw the ${slotIds.length} image${slotIds.length === 1 ? "" : "s"} the last run could not finish (round ${next.round} of ${IMAGE_FILL_ROUNDS}).`,
+      referenceAssetIds: [],
+      createdBy: run.createdBy,
+    })
+    .returning({ id: themeStudioMessages.id });
+  const [fillRun] = await db
+    .insert(themeStudioRuns)
+    .values({
+      projectId: run.projectId,
+      messageId: message.id,
+      kind: "images",
+      baseVersionId: base.id,
+      basePackageDigest: base.packageDigest,
+      contextMessageIds: [],
+      provider: run.provider,
+      modelKey: run.modelKey,
+      providerModel: resolved.providerModel,
+      promptVersion: resolved.promptVersion,
+      idempotencyKey: `images_fill_${next.root}_${next.round}`,
+      maxAttempts: 1,
+      imageSlotIds: [...slotIds],
+      automatic: run.automatic,
+      qaIteration: run.qaIteration,
+      createdBy: run.createdBy,
+    })
+    .onConflictDoNothing({ target: themeStudioRuns.idempotencyKey })
+    .returning({ id: themeStudioRuns.id });
+  if (!fillRun) return false;
+  await recordThemeStudioEvent(db, {
+    projectId: run.projectId,
+    runId: fillRun.id,
+    actor: "worker",
+    eventType: "images_requested",
+    detail: {
+      versionId: base.id,
+      slots: slotIds.length,
+      automatic: run.automatic,
+      qaIteration: run.qaIteration,
+      fillRound: next.round,
+    },
+  });
+  return true;
+}
+
+/** Reveal a hidden version that could not be completed as a failed QA result:
+ *  the most complete version the chain produced, not an empty one. */
+async function revealIncomplete(
+  db: Db,
+  run: ClaimedRun,
+  versionId: string,
+): Promise<void> {
+  await revealAutomaticBase(
+    db,
+    { ...run, baseVersionId: versionId },
+    "auto_images_incomplete",
+  );
+}
+
 /** Only legal from `generating`; a project in any other state is left alone. */
 async function settleProjectWithoutVersion(db: Db, projectId: string) {
   await db
@@ -1208,12 +1309,50 @@ async function finishImages(
       detail,
     );
   }
-  if (result.images.length === 0) return failRun("images_none", detail);
-  if (
-    run.automatic &&
-    result.outcomes.some((image) => image.status !== "generated")
-  ) {
-    return failRun("auto_images_incomplete", detail);
+  const missing = result.outcomes
+    .filter((o) => o.status !== "generated")
+    .map((o) => o.slotId);
+  const [self] = await db
+    .select({ idempotencyKey: themeStudioRuns.idempotencyKey })
+    .from(themeStudioRuns)
+    .where(eq(themeStudioRuns.id, run.id))
+    .limit(1);
+  const position = fillPosition(run.id, self?.idempotencyKey ?? null);
+  const nextFill =
+    missing.length > 0 && position.round < IMAGE_FILL_ROUNDS
+      ? { root: position.root, round: position.round + 1 }
+      : null;
+  if (result.images.length === 0) {
+    // Nothing came back (a rate-limit storm): try the same slots again on the
+    // same base while rounds remain, rather than giving up.
+    if (nextFill && run.baseVersionId && run.basePackageDigest) {
+      await db
+        .update(themeStudioRuns)
+        .set({
+          ...terminal,
+          status: "failed",
+          errorCode: "images_none",
+          outcomeDetail: detail,
+        })
+        .where(eq(themeStudioRuns.id, run.id));
+      await event("run_failed", { errorCode: "images_none" });
+      if (
+        await queueFillImages(
+          db,
+          run,
+          { id: run.baseVersionId, packageDigest: run.basePackageDigest },
+          missing,
+          nextFill,
+        )
+      ) {
+        return "failed";
+      }
+      if (!(await revealAutomaticBase(db, run, "images_none"))) {
+        await settleProjectWithoutVersion(db, run.projectId);
+      }
+      return "failed";
+    }
+    return failRun("images_none", detail);
   }
   if (run.automatic && !getThemeStudioConfig().autoQaEnabled) {
     return failRun("auto_qa_disabled", detail);
@@ -1238,9 +1377,6 @@ async function finishImages(
     THEME_STUDIO_IMAGE_MODEL_KEY,
   );
   if (!applied.ok) return failRun("images_package_invalid", detail);
-  if (run.automatic && captureBlockers(applied.value).length > 0) {
-    return failRun("auto_images_incomplete", detail);
-  }
 
   const store = async (
     image: ThemeImageRunResult["images"][number]["image"],
@@ -1327,10 +1463,21 @@ async function finishImages(
       },
     })
     .where(eq(themeStudioRuns.id, run.id));
+  // A fill run is queued in this transaction, before the project settles, so
+  // a manual chain stays `generating` until every round is done.
+  const filling = nextFill
+    ? await queueFillImages(
+        db,
+        run,
+        { id: version.id, packageDigest },
+        missing,
+        nextFill,
+      )
+    : false;
   await db
     .update(themeStudioProjects)
     .set({
-      status: run.automatic ? "generating" : "ready",
+      status: run.automatic || filling ? "generating" : "ready",
       ...(run.automatic ? {} : { currentVersionId: version.id }),
       revision: project.revision + 1,
     })
@@ -1342,14 +1489,20 @@ async function finishImages(
     intentDigest,
     packageDigest,
     images: result.images.length,
-    imagesMissing: result.outcomes.filter((o) => o.status !== "generated")
-      .length,
+    imagesMissing: missing.length,
+    fillQueued: filling,
     parentVersionId: run.baseVersionId,
     automaticQa: run.automatic,
     qaIteration: run.qaIteration,
   });
-  if (run.automatic) {
-    await queueAutomaticCapture(db, run, version, packageDigest);
+  if (run.automatic && !filling) {
+    // Every round is spent: capture only a complete version, otherwise reveal
+    // the most complete one as a failed QA result.
+    if (captureBlockers(applied.value).length > 0) {
+      await revealIncomplete(db, run, version.id);
+    } else {
+      await queueAutomaticCapture(db, run, version, packageDigest);
+    }
   }
   return "succeeded";
 }

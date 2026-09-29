@@ -482,7 +482,7 @@ describe("the image run", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     expect(Math.min(...productStarts)).toBeGreaterThan(leaderEnd);
   });
 
-  it("draws nothing else when the anchor is refused, and records the spent call", async () => {
+  it("redraws a refused anchor, then draws nothing else if every attempt is refused", async () => {
     const { pkg, intent } = await fixture();
     const seen: ThemeImageRequest[] = [];
     const result = await runThemeImageGeneration(
@@ -490,18 +490,61 @@ describe("the image run", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       { pkg, intent, reviewer: null },
       new AbortController().signal,
     );
-    expect(seen).toHaveLength(1);
+    const attempts = 1 + THEME_ANCHOR_REDRAWS;
+    expect(seen).toHaveLength(attempts);
+    // Each redraw says it was blocked.
+    expect(seen[1].prompt).toContain(
+      "blocked by the image model's safety filter",
+    );
     expect(result.anchorFailure).toEqual({
       kind: "refused",
       reason: "IMAGE_SAFETY",
     });
     expect(result.images).toEqual([]);
     expect(result.outcomes.every((o) => o.status === "skipped")).toBe(true);
-    expect(result.telemetry.calls).toHaveLength(1);
+    // Every call is still recorded.
+    expect(result.telemetry.calls).toHaveLength(attempts);
     expect(result.telemetry.totals).toEqual({
-      inputTokens: 10,
-      outputTokens: 20,
+      inputTokens: 10 * attempts,
+      outputTokens: 20 * attempts,
     });
+  });
+
+  // Production: a fashion hero and lookbook asked for models and were refused
+  // by the people filter. A refusal is not billed, so it is redrawn people-free.
+  it("redraws a people-filter refusal without people, and keeps the redraw", async () => {
+    const { pkg, intent } = await fixture();
+    const [first] = generatableSlots(pkg, intent);
+    const fake = createFakeImageClient();
+    const seen: ThemeImageRequest[] = [];
+    const client: ThemeStudioImageClient = {
+      provider: "fake",
+      async generateImage(request, signal) {
+        seen.push(request);
+        if (
+          request.briefId === first.slotId &&
+          !request.prompt.includes("Redraw:")
+        ) {
+          return {
+            kind: "refused",
+            reason: "Your current PersonGeneration setting filtered the image.",
+            usage: ZERO_IMAGE_USAGE,
+          };
+        }
+        return fake.generateImage(request, signal);
+      },
+    };
+    const result = await runThemeImageGeneration(
+      client,
+      { pkg, intent, reviewer: null },
+      new AbortController().signal,
+    );
+    const drawn = seen.filter((r) => r.briefId === first.slotId);
+    expect(drawn).toHaveLength(2);
+    expect(drawn[1].prompt).toContain("blocked because it showed a person");
+    expect(
+      result.outcomes.find((o) => o.slotId === first.slotId),
+    ).toMatchObject({ status: "generated", attempts: 2 });
   });
 
   it("a refused or failed slot keeps its placeholder while the rest are drawn", async () => {
@@ -516,13 +559,15 @@ describe("the image run", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     expect(result.outcomes.find((o) => o.slotId === first.slotId)).toEqual({
       slotId: first.slotId,
       status: "refused",
-      attempts: 1,
+      attempts: 1 + THEME_IMAGE_REDRAWS,
       reason: "SAFETY",
     });
     expect(result.images.map((i) => i.slotId)).not.toContain(first.slotId);
     expect(result.images).toHaveLength(slots.length - 1);
-    // The refused call is still counted: it may have been billed.
-    expect(result.telemetry.calls).toHaveLength(slots.length + 1);
+    // Every refused call is still counted.
+    expect(result.telemetry.calls).toHaveLength(
+      slots.length + 1 + THEME_IMAGE_REDRAWS,
+    );
   });
 
   it("an image the crop cannot use is recorded as unusable", async () => {
@@ -816,7 +861,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       imageCost + result.telemetry.reviewCostMicroUsd,
     );
     expect(result.telemetry.reviewPromptVersion).toBe(
-      "theme-studio-image-review-v3",
+      "theme-studio-image-review-v4",
     );
   });
 
@@ -932,7 +977,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     expect(kept.sha256).toBe((await cropOf(first, slot)).sha256);
   });
 
-  it("does not redraw after a refused redraw, and settles on what the first attempt earned", async () => {
+  it("keeps redrawing a refused redraw, then settles on what the first attempt earned", async () => {
     const { pkg, intent } = await fixture();
     const productIds = generatableSlots(pkg, intent)
       .filter((s) => s.purpose === "product")
@@ -971,11 +1016,15 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
     );
     expect(
       result.outcomes.find((o) => o.slotId === productIds[1]),
-    ).toMatchObject({ status: "generated", attempts: 2, review: "flagged" });
+    ).toMatchObject({
+      status: "generated",
+      attempts: 1 + THEME_IMAGE_REDRAWS,
+      review: "flagged",
+    });
     expect(result.outcomes.find((o) => o.slotId === productIds[2])).toEqual({
       slotId: productIds[2],
       status: "rejected",
-      attempts: 2,
+      attempts: 1 + THEME_IMAGE_REDRAWS,
       problems: ["multiple_subjects"],
       note: "Seen: multiple_subjects.",
     });

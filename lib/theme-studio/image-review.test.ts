@@ -8,6 +8,7 @@ import {
   applicableProblems,
   isBlocking,
   parseThemeImageReview,
+  refusalRetakeText,
   reviewThemeImage,
   themeImageReviewContent,
   themeImageReviewSystem,
@@ -93,6 +94,22 @@ describe("which problems apply", () => {
     expect(isBlocking(["text_or_logo", "malformed"], "anchor")).toBe(false);
     // Every other purpose keeps the storefront rule.
     expect(isBlocking(["text_or_logo"], "hero")).toBe(true);
+  });
+
+  it("never fails an image for leaving out a person the brief asked for", () => {
+    expect(themeImageReviewSystem()).toContain(
+      "never report wrong_subject because a person the subject mentions is missing",
+    );
+  });
+
+  it("tells a redraw why the last attempt was blocked", () => {
+    expect(
+      refusalRetakeText(
+        "Your current PersonGeneration setting filtered the image.",
+      ),
+    ).toMatch(/showed a person/);
+    expect(refusalRetakeText("IMAGE_SAFETY")).toMatch(/safety filter/);
+    expect(refusalRetakeText(null)).toMatch(/safety filter/);
   });
 
   it("does not ask the reviewer to fail blank labels or marks it cannot read", () => {

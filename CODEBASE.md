@@ -5206,6 +5206,39 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     projects per day (20), image concurrency (3 — the shared project's image
     quota already rate-limits) and the 20-minute run wall time, which is the
     Cloud Run/Scheduler deadline rather than a Studio setting.
+    ⚠ `MAX_QA_ITERATION = 3` needed migration
+    `20260929_0145_theme_studio_qa_iterations`: 0144 bounded `qa_iteration`
+    to 0–2 in four CHECKs, so the third automatic revision would have been
+    refused at insert. The migration only widens them.
+    **★★ AN IMAGE RUN WITH GAPS IS KEPT AND REFILLED (2026-09-29).** Measured
+    on a production fashion theme: the automatic run drew 14 of 18 images
+    (about 2.22 USD) and failed as `auto_images_incomplete`, so version 1 was
+    revealed with every placeholder; the operator's manual run then left five
+    more. Causes, from the stored outcomes: five `rate_limited` slots (the
+    shared image quota), two PersonGeneration refusals and two rejections,
+    all because Stage A briefed the hero and lookbook with MODELS copied from
+    the references. Fixes: (1) `finishImages` saves whatever came back as a
+    version and queues a FILL run for exactly the missing slots, reusing the
+    same anchor, up to `IMAGE_FILL_ROUNDS` (3); the round rides in the fill
+    run's idempotency key (images, fill, the first image run id, the round),
+    so no column was needed and the unique key refuses a double-queue. A fill
+    that draws nothing re-queues on the same base. Only after the last round
+    does automatic QA capture (a complete version) or reveal the MOST complete
+    version as failed QA; a manual run is refilled the same way and the
+    project stays `generating` until the chain ends. (2) A provider REFUSAL
+    is redrawn with the reason it was blocked (`refusalRetakeText`) — the
+    provider does not bill a blocked image; an ERROR is still never redrawn
+    inside a run, since a timeout may have been billed, and is left to the
+    fill run. (3) Stage A (`theme-studio-v16`) is told every brief must be
+    people-free and to carry model-led references over as flat-lays,
+    hangers, drapes and empty styled rooms; the image prompt says the same
+    when a brief still mentions a person, and the reviewer
+    (`theme-studio-image-review-v4`) never reports `wrong_subject` for a
+    missing person. Verified offline end to end on the local database with a
+    new `[[fake-image:flaky]]` hook (rate-limits a brief once per process):
+    automatic — partial version, one fill round, capture queued; permanent
+    refusal — three rounds, then the 17-of-18 version revealed; manual — the
+    same refill with the project `ready` at the end.
     ★ AN UNAVAILABLE REVIEW KEEPS THE IMAGE,
     `review: "unreviewed"`: it is a quality check, and the image model's own
     filters are the safety boundary. The worker's `imageReviewerFor` gives

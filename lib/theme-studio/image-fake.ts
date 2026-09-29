@@ -21,12 +21,17 @@ import { ZERO_USAGE, type ThemeStudioModelClient } from "./provider";
 // prepareSlotImage) does exactly the work it does for a Gemini JPEG.
 //
 // Hooks, for exercising the unhappy paths without a provider: a prompt that
-// contains [[fake-image:refuse]] is refused, and [[fake-image:error]] fails as
-// an unavailable provider.
+// contains [[fake-image:refuse]] is refused, [[fake-image:error]] fails as
+// an unavailable provider, and [[fake-image:flaky]] is rate-limited the first
+// time each brief is drawn by this client and drawn normally after — which is
+// what a fill run (worker.ts) meets in production.
 // ---------------------------------------------------------------------------
 
 /** The long edge of a fake image: the provider's 2K. */
 export const FAKE_IMAGE_LONG_EDGE = 2048;
+
+/** Briefs a flaky hook has already failed once, per process. */
+const flakyFailed = new Set<string>();
 
 export function createFakeImageClient(): ThemeStudioImageClient {
   return {
@@ -42,6 +47,13 @@ export function createFakeImageClient(): ThemeStudioImageClient {
           reason: "IMAGE_SAFETY",
           usage: ZERO_IMAGE_USAGE,
         };
+      }
+      if (
+        request.prompt.includes("[[fake-image:flaky]]") &&
+        !flakyFailed.has(request.briefId)
+      ) {
+        flakyFailed.add(request.briefId);
+        return { kind: "error", code: "rate_limited", usage: ZERO_IMAGE_USAGE };
       }
       if (request.prompt.includes("[[fake-image:error]]")) {
         return {
