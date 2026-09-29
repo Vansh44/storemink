@@ -5340,9 +5340,10 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     one active capture per project, immutable once finished except a removed
     operator's `created_by`) is the queue and the record; the project is
     `generating` while a capture is active, a capture refuses to finish if
-    another version became current, a reported error is retried once, a lease
-    that lapses is claimed again up to two attempts, and a failed capture
-    returns the project to `ready`. ★★ CAPTURE IS FAIL-CLOSED until the worker
+    another version became current, and a failed capture returns the project
+    to `ready`. Automatic captures use five leased attempts with a fresh
+    browser after reported browser failures; manual captures keep the two-
+    attempt database default. ★★ CAPTURE IS FAIL-CLOSED until the worker
     exists: `THEME_STUDIO_CAPTURE_ENABLED` defaults false in code, the Images panel
     disables the control and names upload as the available path, and
     `queueThemeStudioCapture` independently refuses direct calls before any
@@ -5412,8 +5413,22 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
     is mutable. As of 2026-09-29, dev and production run the one-minute model
     worker and five-minute Chromium job, use a 1,200-second web-service timeout,
     and enable `vertex-gemini`, capture and automatic QA through Cloud Build.
-    `docs/theme-studio-capture-job.md` is the shared job runbook. Operator-only
-    and no merchant workflow changes: no Help Centre migration.
+    `docs/theme-studio-capture-job.md` is the shared job runbook. A terminal
+    capture error is carried into the workspace as "auto QA capture failed"
+    so it is not confused with a visual verdict. With automatic QA enabled,
+    **Images → Retry automatic QA** on a failed current version queues fresh
+    browser evidence and visual review with the existing bounded repair loop;
+    it does not silently create an unchecked manual capture version. The
+    transaction checks current version, revision and digest, and deduplicates
+    repeated requests. Manual captures retain their existing behavior when QA
+    is disabled or the version has not failed QA.
+    Category image slots are required by the draft schema, prompt v17 and
+    compiler: missing or unknown asset briefs enter bounded draft repair
+    before a version is saved. Legacy versions with empty category imagery
+    show a separate warning and cannot start capture until revised. Image
+    summaries no longer claim artwork is complete merely because only catalog
+    placeholders are counted. Operator-only and no merchant workflow changes:
+    no Help Centre migration.
     **Theme Studio concurrency and capture recovery (2026-09-29).** The
     dedicated run route awaits two independently leased generation/image runs
     and one visual-QA run concurrently; it waits for all lanes even if one
@@ -6095,6 +6110,16 @@ allow-popups"` + `srcDoc`, **never `allow-same-origin`**: the session cookie
         ★★ The delivery control was unreachable between 769px and 900px: the
         header's copy hid below 900px while the drawer's only appeared below
         768px. It is now always in exactly one of the two.
+        **Delivery-location and PDP delivery polish (2026-09-29).** The
+        header selector now uses a compact, fixed-radius control with a clear
+        icon badge, stronger focus/hover treatment and a stable width, while
+        the drawer keeps the theme's control radius. Product delivery details
+        are content cards rather than control pills, so themes whose control
+        shape is a 999px pill no longer render a giant oval. The PIN form has
+        a clear disabled state, active button treatment, focus ring and a
+        stacked button/input layout below 560px so it cannot squeeze or clip
+        on narrow product pages. This is presentation-only; postal-code
+        validation, remembered locations and server estimates are unchanged.
         ⚠ The server cannot measure, so on a tablet the first paint before
         hydration can still show the unfolded header for a moment.
         **Shop page and collection pages (1.8).** Every active category has its

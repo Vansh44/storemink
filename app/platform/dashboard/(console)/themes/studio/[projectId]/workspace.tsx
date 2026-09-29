@@ -807,7 +807,9 @@ export function ProjectWorkspace({
                             : "bg-amber-50 text-amber-800"
                         }`}
                       >
-                        auto QA {v.qaStatus}
+                        {v.qaStatus === "failed" && v.captureStatus === "failed"
+                          ? "auto QA capture failed"
+                          : `auto QA ${v.qaStatus}`}
                         {v.qaIteration > 0
                           ? ` · ${v.qaIteration} revision${v.qaIteration === 1 ? "" : "s"}`
                           : ""}
@@ -910,12 +912,25 @@ export function ProjectWorkspace({
                       {v.packageSummary.sections} sections ·{" "}
                       {v.packageSummary.products} sample products
                     </p>
+                    {v.packageSummary.missingCategoryImages > 0 ? (
+                      <p className="text-amber-700">
+                        {v.packageSummary.missingCategoryImages} categories have
+                        no image slot. Revise this version to add the missing
+                        category imagery.
+                      </p>
+                    ) : null}
                     {v.packageSummary.placeholders > 0 ? (
                       <p className="text-amber-700">
                         {v.packageSummary.catalogPlaceholders ===
                         v.packageSummary.placeholders
-                          ? `${v.packageSummary.catalogPlaceholders} catalog pictures await browser capture. Open Images to capture them; the theme artwork is complete.`
+                          ? `${v.packageSummary.catalogPlaceholders} catalog pictures await browser capture. Open Images to capture them.`
                           : `${v.packageSummary.placeholders - v.packageSummary.catalogPlaceholders} artwork placeholders and ${v.packageSummary.catalogPlaceholders} catalog pictures remain. Open Images to finish them before publishing.`}
+                      </p>
+                    ) : null}
+                    {v.captureStatus === "failed" ? (
+                      <p className="text-red-700">
+                        Catalog capture did not complete. Open Images to retry
+                        the browser capture before reviewing this version.
                       </p>
                     ) : null}
                     {v.packageSummary.gaps.length > 0 ? (

@@ -52,7 +52,8 @@ export default async function ThemeStudioSlotImagesPage({
     listThemeStudioCaptures(projectId),
   ]);
   if (!project || !listing) notFound();
-  const latestCapture = captures[0] ?? null;
+  const latestCapture =
+    captures.find((capture) => capture.versionId === versionId) ?? null;
   const catalogSlots = listing.slots
     .filter((slot) => slot.catalogPreview || slot.catalogScreenshot)
     .map((slot) => ({
@@ -106,6 +107,11 @@ export default async function ThemeStudioSlotImagesPage({
         isCurrent={isCurrent}
         canEdit={canEdit}
         captureEnabled={studioConfig.captureEnabled}
+        retryAutomaticQa={
+          studioConfig.autoQaEnabled &&
+          project.versions.find((version) => version.id === versionId)
+            ?.qaStatus === "failed"
+        }
         blockers={listing.captureBlockers}
         latest={latestCapture}
         resultVersionNumber={

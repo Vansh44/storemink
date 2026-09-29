@@ -128,6 +128,15 @@ describe("what a capture photographs", () => {
 });
 
 describe("when a capture would be pointless", () => {
+  it("blocks legacy packages whose categories have no images even when all art slots are drawn", async () => {
+    const pkg = await drawn();
+    const category = pkg.definition.preset.sampleData!.categories![0];
+    delete category.image_url;
+    expect(captureBlockers(pkg)).toEqual([
+      `1 categories have no image slot. Revise the theme to add imagery for: ${category.name}.`,
+    ]);
+  });
+
   it("waits while any art slot is still a placeholder", async () => {
     const blockers = captureBlockers(await fixture());
     expect(blockers).toHaveLength(1);

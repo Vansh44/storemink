@@ -6,6 +6,7 @@ import {
   themeCatalogEntries,
   themeReleases,
   themeStudioAssets,
+  themeStudioCaptures,
   themeStudioEvents,
   themeStudioMessages,
   themeStudioPreviews,
@@ -153,6 +154,7 @@ export interface ThemeStudioPackageSummary {
   products: number;
   placeholders: number;
   catalogPlaceholders: number;
+  missingCategoryImages: number;
   gaps: { code: string; requestedCapability: string; blocking: boolean }[];
 }
 
@@ -173,6 +175,9 @@ export interface ThemeStudioVersionView {
   hasPackage: boolean;
   qaStatus: "not_required" | "passed" | "failed";
   qaIteration: number;
+  /** The latest catalog capture for this version, when one exists. */
+  captureStatus?: "queued" | "running" | "succeeded" | "failed" | null;
+  captureErrorCode?: string | null;
   createdAt: string;
 }
 
@@ -347,7 +352,10 @@ function packageSummary(pkg: unknown): ThemeStudioPackageSummary | null {
       catalog?: { previewImage?: string; screenshots?: { src: string }[] };
       preset?: {
         pages?: { sections?: unknown[] }[];
-        sampleData?: { products?: unknown[] };
+        sampleData?: {
+          products?: unknown[];
+          categories?: { image_url?: string }[];
+        };
       };
     };
     assets?: { path?: string; licenseNote?: string }[];
@@ -368,6 +376,9 @@ function packageSummary(pkg: unknown): ThemeStudioPackageSummary | null {
     pages: pages.length,
     sections: pages.reduce((n, page) => n + (page.sections?.length ?? 0), 0),
     products: p.definition?.preset?.sampleData?.products?.length ?? 0,
+    missingCategoryImages: (
+      p.definition?.preset?.sampleData?.categories ?? []
+    ).filter((category) => !category.image_url?.trim()).length,
     placeholders: (p.assets ?? []).filter(
       (a) => a.licenseNote === PLACEHOLDER_LICENSE_NOTE,
     ).length,
@@ -457,6 +468,16 @@ export async function getThemeStudioProject(
         ),
       )
       .orderBy(desc(themeStudioVersions.versionNumber));
+    const captures = await db
+      .select({
+        versionId: themeStudioCaptures.versionId,
+        status: themeStudioCaptures.status,
+        errorCode: themeStudioCaptures.errorCode,
+        createdAt: themeStudioCaptures.createdAt,
+      })
+      .from(themeStudioCaptures)
+      .where(eq(themeStudioCaptures.projectId, projectId))
+      .orderBy(desc(themeStudioCaptures.createdAt));
     const previews = await db
       .select({
         id: themeStudioPreviews.id,
@@ -476,6 +497,13 @@ export async function getThemeStudioProject(
       .limit(100);
 
     const cited = new Set(messages.flatMap((m) => m.referenceAssetIds));
+    const latestCaptureByVersion = new Map<string, (typeof captures)[number]>();
+    // The query is newest first; retain the first row for each version.
+    for (const capture of captures) {
+      if (!latestCaptureByVersion.has(capture.versionId)) {
+        latestCaptureByVersion.set(capture.versionId, capture);
+      }
+    }
     return {
       id: project.id,
       themeId: project.themeId,
@@ -531,6 +559,7 @@ export async function getThemeStudioProject(
       versions: versions.map((v) => {
         const summary = intentField(v.intentJson, "summary");
         const assumptions = intentField(v.intentJson, "assumptions");
+        const capture = latestCaptureByVersion.get(v.id);
         return {
           packageSummary: packageSummary(v.packageJson),
           id: v.id,
@@ -550,6 +579,10 @@ export async function getThemeStudioProject(
           hasPackage: v.packageDigest !== null,
           qaStatus: v.qaStatus as ThemeStudioVersionView["qaStatus"],
           qaIteration: v.qaIteration,
+          captureStatus:
+            (capture?.status as ThemeStudioVersionView["captureStatus"]) ??
+            null,
+          captureErrorCode: capture?.errorCode ?? null,
           createdAt: v.createdAt,
         };
       }),

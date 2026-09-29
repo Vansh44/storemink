@@ -51,6 +51,20 @@ const button = () =>
   }) as HTMLButtonElement;
 
 describe("the catalog pictures panel", () => {
+  it("offers a failed automatic result another browser and visual review", async () => {
+    queue.mockResolvedValue({ ok: true, id: "c" });
+    render(<CapturePanel {...props} retryAutomaticQa />);
+    expect(
+      screen.getByText(/rerun browser checks and visual review/),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Retry automatic QA" }));
+    await vi.waitFor(() =>
+      expect(queue).toHaveBeenCalledWith(
+        expect.objectContaining({ versionId: "v" }),
+      ),
+    );
+  });
+
   it("queues a capture of the version on screen", async () => {
     queue.mockResolvedValue({ ok: true, id: "c" });
     render(<CapturePanel {...props} />);

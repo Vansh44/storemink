@@ -159,8 +159,14 @@ explains that work is still in progress. A failed QA result retains the generate
 version. The version summary distinguishes missing artwork from missing catalog
 pictures: when only catalog pictures remain, use **Images → Capture catalog
 pictures** instead of redrawing the artwork. Capture failure reasons are shown
-on the Images page. Full automatic-QA recovery requires the repaired web service
-and capture job; see `docs/theme-studio-reliability.md`.
+on the Images page. For a failed automatic result, **Images → Retry automatic
+QA** captures fresh screenshots and reruns browser checks and AI visual review
+when automatic QA is enabled. The current version must have all artwork first.
+If the summary says a category has no image slot, revise that version to add
+its category imagery; drawing existing slots cannot fill an undeclared slot.
+The Images page shows the capture status for the selected version. Full
+automatic-QA recovery requires the repaired web service and capture job;
+see `docs/theme-studio-reliability.md`.
 
 Since Phase 3 a run can call a paid Gemini model on Vertex AI. Each run shows
 its tokens and estimated cost, and a per-operator ceiling on estimated spend in

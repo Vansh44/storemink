@@ -49,10 +49,14 @@ operator ── queue ──▶ web app (theme_studio_captures, project → gene
   and accepted by the preview gate only while its capture is `running` with an
   unexpired lease, for exactly that version (`lib/theme-studio/preview-access.ts`).
 - A manual capture holds the current version. An automatic capture is bound to
-  an internal version and keeps the project generating until visual QA settles.
-- A reported error is retried once (with a fresh browser after browser failure); a lease that
-  lapses is claimed again, up to two attempts; after that the capture fails and
-  the project returns to `ready`.
+  an internal version, or an operator's explicit retry of a failed current
+  version, and keeps the project generating until visual QA settles.
+- A reported error is retried with a fresh browser after every browser failure;
+  automatic captures get up to five attempts and manual captures keep the
+  database default of two. A lease that lapses is claimed again while attempts
+  remain; after the final attempt the capture fails and the project returns to
+  `ready`. The workspace identifies this as a capture failure so it is not
+  confused with a visual-quality verdict.
 
 ## Build
 

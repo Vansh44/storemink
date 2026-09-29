@@ -20,7 +20,7 @@ export const CAPTURE_ERROR_TEXT: Record<string, string> = {
   base_invalid: "The version could no longer be read.",
   operator_removed: "The operator who asked for it has been removed.",
   preview_failed: "The preview store couldn't be built for this version.",
-  lease_expired: "The capture job stopped responding twice.",
+  lease_expired: "The capture job stopped responding after all retry attempts.",
   project_state_changed:
     "Another version became current while the pictures were being taken.",
   capture_incomplete: "The capture job didn't return every picture.",
@@ -60,6 +60,7 @@ export function CapturePanel({
   isCurrent,
   canEdit,
   captureEnabled,
+  retryAutomaticQa = false,
   blockers,
   latest,
   resultVersionNumber,
@@ -75,6 +76,8 @@ export function CapturePanel({
   canEdit: boolean;
   /** True only after the separate browser worker and scheduler are deployed. */
   captureEnabled: boolean;
+  /** A failed automatic result re-enters browser checks and visual QA. */
+  retryAutomaticQa?: boolean;
   blockers: string[];
   /** The project's most recent capture, if any. */
   latest: ThemeStudioCaptureView | null;
@@ -125,6 +128,13 @@ export function CapturePanel({
             this version&apos;s preview store in a real browser and saved as a
             new version. Capture them once the theme&apos;s images are final.
           </p>
+          {retryAutomaticQa ? (
+            <p className="text-sm text-slate-600">
+              Retry automatic QA to capture fresh screenshots and rerun browser
+              checks and visual review. Visual review uses the configured AI
+              model.
+            </p>
+          ) : null}
           {latest ? (
             <p
               className={`text-sm ${
@@ -171,9 +181,11 @@ export function CapturePanel({
           ) : (
             <Camera className="h-4 w-4" />
           )}
-          {slots.some((s) => s.captured)
-            ? "Capture again"
-            : "Capture catalog pictures"}
+          {retryAutomaticQa
+            ? "Retry automatic QA"
+            : slots.some((s) => s.captured)
+              ? "Capture again"
+              : "Capture catalog pictures"}
         </button>
       </div>
       <ul className="mt-3 flex flex-wrap gap-3">

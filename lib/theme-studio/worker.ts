@@ -37,7 +37,10 @@ import {
   applyGeneratedImages,
   generatableSlots,
 } from "./image-generation-core";
-import { captureBlockers } from "./capture-core";
+import {
+  AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
+  captureBlockers,
+} from "./capture-core";
 import {
   runThemeImageGeneration,
   type ThemeImageReviewer,
@@ -242,6 +245,7 @@ async function queueAutomaticCapture(
       idempotencyKey: `auto_capture_${run.id}`,
       automatic: true,
       qaIteration: run.qaIteration,
+      maxAttempts: AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
       createdBy: run.createdBy,
     })
     .returning({ id: themeStudioCaptures.id });
@@ -401,8 +405,7 @@ async function queueFillImages(
   return true;
 }
 
-/** Reveal a hidden version that could not be completed as a failed QA result:
- *  the most complete version the chain produced, not an empty one. */
+/** Reveal the most complete version with a failed QA result for recovery. */
 async function revealIncomplete(
   db: Db,
   run: ClaimedRun,
