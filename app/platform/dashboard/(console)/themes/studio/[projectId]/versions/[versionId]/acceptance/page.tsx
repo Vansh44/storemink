@@ -15,6 +15,7 @@ import {
 } from "../../../../studio-ui";
 import { AcceptanceEvidence, AcceptanceRunBadge } from "./acceptance-evidence";
 import { AcceptanceRunner } from "./acceptance-runner";
+import { acceptanceRepairDraft } from "@/lib/theme-studio/acceptance-repair";
 
 export const metadata = { title: "Theme acceptance — StoreMink Admin" };
 
@@ -121,7 +122,61 @@ export default async function ThemeStudioAcceptancePage({
       />
 
       {latest ? (
-        <AcceptanceEvidence run={latest} />
+        <>
+          {latest.status !== "passed" ? (
+            <section className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">
+              <h2 className="font-semibold">Resolve acceptance issues</h2>
+              <p>
+                {!latest.currentBuild
+                  ? "These results are from an earlier build. Run acceptance checks again before revising the theme."
+                  : latest.status === "awaiting_browser"
+                    ? "Browser checks did not finish. Run acceptance checks again and keep this tab visible until they complete."
+                    : "Fix the reported issues, then run acceptance checks again. A revision creates a new version and keeps this version available."}
+              </p>
+              {latest.gates.some(
+                (g) =>
+                  g.id === "routes.render" &&
+                  g.findings.some((f) => f.code === "indexable"),
+              ) ? (
+                <p>
+                  Missing preview noindex is a storefront code issue. Theme
+                  revisions cannot repair preview metadata; rerun after the code
+                  fix is deployed.
+                </p>
+              ) : null}
+              {latest.gates.some(
+                (g) => g.id.startsWith("assets.") && g.status === "fail",
+              ) ? (
+                <p>
+                  Open Images to resolve asset failures. Preview, desktop
+                  screenshot and mobile screenshot slots need browser capture.
+                  Other missing artwork can be generated or replaced there.
+                </p>
+              ) : null}
+              <div className="flex flex-wrap gap-4 font-medium underline underline-offset-2">
+                <Link
+                  href={`/dashboard/themes/studio/${project.id}/versions/${version.id}/images`}
+                >
+                  Open Images and capture
+                </Link>
+                {acceptanceRepairDraft(latest, version) ? (
+                  <Link
+                    href={`/dashboard/themes/studio/${project.id}?repairAcceptance=${latest.id}`}
+                  >
+                    Fix theme issues in chat
+                  </Link>
+                ) : null}
+              </div>
+              {acceptanceRepairDraft(latest, version) ? (
+                <p>
+                  The chat opens with the failed checks filled in. Add
+                  instructions or screenshots, review the message and send it.
+                </p>
+              ) : null}
+            </section>
+          ) : null}
+          <AcceptanceEvidence run={latest} />
+        </>
       ) : (
         <p className="rounded-xl border border-dashed border-slate-300 px-6 py-8 text-center text-sm text-slate-500">
           This version has not been checked yet.

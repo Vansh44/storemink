@@ -136,6 +136,38 @@ describe("package gates", () => {
     expect(acceptanceOutcome(gates)).toBe("fail");
   });
 
+  it("directs catalog placeholders to capture and artwork placeholders to Images", () => {
+    const { pkg, rows } = fixture();
+    const catalog = pkg.assets.find(
+      (a) => a.path === pkg.definition.catalog.previewImage,
+    )!;
+    const capturePaths = new Set([
+      pkg.definition.catalog.previewImage,
+      ...pkg.definition.catalog.screenshots.map((s) => s.src),
+    ]);
+    const artwork = pkg.assets.find((a) => !capturePaths.has(a.path))!;
+    catalog.licenseNote = PLACEHOLDER_LICENSE_NOTE;
+    artwork.licenseNote = PLACEHOLDER_LICENSE_NOTE;
+    const findings = evaluatePackageGates(pkg, rows).gates.find(
+      (g) => g.id === "assets.provenance",
+    )!.findings;
+    expect(findings).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          where: catalog.id,
+          message: expect.stringContaining("browser capture"),
+        }),
+        expect.objectContaining({
+          where: artwork.id,
+          message: expect.stringContaining("artwork slot"),
+        }),
+      ]),
+    );
+    expect(acceptanceOutcome(evaluatePackageGates(pkg, rows).gates)).toBe(
+      "fail",
+    );
+  });
+
   it("an asset with no stored bytes, or a reference image, fails integrity", () => {
     const { pkg, rows } = fixture();
     const missing = rows.slice(1);

@@ -1344,6 +1344,18 @@
 @media (prefers-reduced-motion: reduce) {
   .home-ticker-track {
     animation: none;
+    width: 100%;
+  }
+  .home-ticker-seq {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 12px;
+  }
+  .home-ticker-seq[aria-hidden="true"] {
+    display: none;
+  }
+  .home-ticker-item {
+    white-space: normal;
   }
 }
 
@@ -1450,7 +1462,7 @@ a.home-tile:hover {
 /* ---- Phase 3 editorial sections ---- */
 .home-section-eyebrow {
   margin: 0 0 10px;
-  color: var(--sm-accent);
+  color: var(--sm-ink-soft);
   font-family: var(--font-outfit), sans-serif;
   font-size: 0.76rem;
   font-weight: 700;

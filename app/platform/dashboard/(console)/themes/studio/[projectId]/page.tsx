@@ -7,6 +7,7 @@ import { THEME_STUDIO_LIMITS } from "@/lib/theme-studio/contracts";
 import { THEME_STUDIO_MODELS } from "@/lib/theme-studio/models";
 import { getThemeStudioProject } from "@/lib/theme-studio/repository";
 import { listThemeStudioAcceptanceRuns } from "@/lib/theme-studio/acceptance";
+import { acceptanceRepairDraft } from "@/lib/theme-studio/acceptance-repair";
 import { requireOperator } from "../../../require-operator";
 import { SuperadminOnly } from "../studio-ui";
 import { ProjectWorkspace, type VersionAcceptance } from "./workspace";
@@ -15,8 +16,10 @@ export const metadata = { title: "Studio project — StoreMink Admin" };
 
 export default async function ThemeStudioProjectPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ projectId: string }>;
+  searchParams: Promise<{ repairAcceptance?: string }>;
 }) {
   await requireOperator();
   const actor = await getThemeStudioActor();
@@ -41,7 +44,17 @@ export default async function ThemeStudioProjectPage({
   if (!project) notFound();
   // The latest verdict per version (runs arrive newest first).
   const acceptance: Record<string, VersionAcceptance> = {};
-  for (const run of await listThemeStudioAcceptanceRuns(project.id)) {
+  const runs = await listThemeStudioAcceptanceRuns(project.id);
+  const { repairAcceptance } = await searchParams;
+  const repairRun = runs.find((run) => run.id === repairAcceptance);
+  const repairVersion = project.versions.find(
+    (v) => v.id === repairRun?.versionId,
+  );
+  const repairBody =
+    repairRun && repairVersion
+      ? acceptanceRepairDraft(repairRun, repairVersion)
+      : null;
+  for (const run of runs) {
     acceptance[run.versionId] ??= {
       status: run.status,
       currentBuild: run.currentBuild,
@@ -56,6 +69,12 @@ export default async function ThemeStudioProjectPage({
     <div className="w-full max-w-6xl space-y-6">
       {back}
       <ProjectWorkspace
+        key={repairBody ? repairRun!.id : project.id}
+        repairDraft={
+          repairBody && repairVersion
+            ? { body: repairBody, versionId: repairVersion.id }
+            : undefined
+        }
         project={project}
         modelLabel={modelLabel}
         generationEnabled={config.generationEnabled}

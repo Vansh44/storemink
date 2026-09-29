@@ -195,7 +195,7 @@
 
 :global(.sm-header-market) .triggerCopy small,
 :global(.sm-header-market) .trigger > svg:first-child {
-  color: color-mix(in srgb, var(--sm-header-fg) 75%, transparent);
+  color: var(--sm-header-fg);
 }
 
 :global(.sm-header-market) .trigger > svg:first-child {

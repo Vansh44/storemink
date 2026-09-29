@@ -33,7 +33,7 @@ export async function generateMetadata({
     title: "Shop",
     description,
     alternates: { canonical: "/shop" },
-    robots: first(params.q) ? { index: false, follow: true } : undefined,
+    ...(first(params.q) ? { robots: { index: false, follow: true } } : {}),
     openGraph: {
       title: `Shop | ${brand.name}`,
       description,

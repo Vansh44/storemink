@@ -139,6 +139,7 @@ export function ProjectWorkspace({
   testProvider,
   referenceLimit,
   acceptance = {},
+  repairDraft,
 }: {
   project: ThemeStudioProjectDetail;
   modelLabel: string;
@@ -146,10 +147,13 @@ export function ProjectWorkspace({
   testProvider: boolean;
   referenceLimit: number;
   acceptance?: Record<string, VersionAcceptance>;
+  repairDraft?: { body: string; versionId: string };
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
-  const [reviseFrom, setReviseFrom] = useState<string | null>(null);
+  const [reviseFrom, setReviseFrom] = useState<string | null>(
+    repairDraft?.versionId ?? null,
+  );
   const reviseBox = useRef<HTMLTextAreaElement>(null);
 
   const activeRun = project.runs.find(
@@ -256,6 +260,7 @@ export function ProjectWorkspace({
       ) : null}
 
       <ThemeConversation
+        initialBody={repairDraft?.body}
         key={`${project.id}:${project.status === "blocked" ? "answer" : project.status === "draft" ? "create" : "revise"}`}
         project={project}
         generationEnabled={generationEnabled}

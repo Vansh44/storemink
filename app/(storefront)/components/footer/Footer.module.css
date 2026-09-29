@@ -128,7 +128,7 @@
   padding: 14px 24px;
   border: none;
   background: var(--sm-accent);
-  color: white;
+  color: var(--sm-on-accent);
   font-family: var(--font-outfit), sans-serif;
   font-size: 13px;
   font-weight: 700;
@@ -141,6 +141,7 @@
 
 .newsletterBtn:hover {
   background: var(--sm-ink);
+  color: var(--sm-on-ink);
 }
 
 .newsletterBtn:disabled {
@@ -149,6 +150,7 @@
 }
 
 .newsletterConsent {
+  min-height: 24px;
   display: flex;
   max-width: 420px;
   align-items: flex-start;
@@ -338,6 +340,7 @@
 }
 
 .linkList a {
+  min-height: 24px;
   color: var(--sm-ink-soft);
   text-decoration: none;
   width: fit-content;
