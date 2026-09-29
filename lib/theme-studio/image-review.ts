@@ -45,7 +45,7 @@ import {
 // shown to the operator and, cleaned, to the image model on a redraw.
 // ---------------------------------------------------------------------------
 
-export const THEME_IMAGE_REVIEW_PROMPT_VERSION = "theme-studio-image-review-v3";
+export const THEME_IMAGE_REVIEW_PROMPT_VERSION = "theme-studio-image-review-v4";
 
 /** The reviewer. Flash, deliberately, not the 3.1 Pro preview: on the same
  *  screenshot at high effort (2026-09-29) Flash described the image and the
@@ -91,6 +91,19 @@ export const THEME_IMAGE_PROBLEM_TEXT: Record<ThemeImageProblem, string> = {
   poor_crop:
     "The subject was cut off at an edge or badly placed for this image's shape.",
 };
+
+/**
+ * What a redraw is told after the image model REFUSED the last attempt. A
+ * refusal is not billed ("You will not be charged for blocked images"), so it
+ * is redrawn like a rejected image rather than abandoned — measured in
+ * production, a fashion theme lost its hero and lookbook slots to
+ * PersonGeneration refusals because the brief asked for models.
+ */
+export function refusalRetakeText(reason: string | null): string {
+  return /person/i.test(reason ?? "")
+    ? "It was blocked because it showed a person. Show no person, face, hand, body, silhouette or mannequin at all: show the product on its own, flat-lay, on a hanger, draped, on a plinth or in an empty styled room."
+    : "It was blocked by the image model's safety filter. Keep to calm, ordinary product photography with no person and nothing that could read as unsafe.";
+}
 
 /** Redraws after the first attempt. Quality over cost (owner, 2026-09-29):
  *  two, so an image gets three chances before its slot keeps a placeholder. */
@@ -201,7 +214,7 @@ export function themeImageReviewSystem(): string {
 Report a problem only when you can see it clearly in the CANDIDATE. When the image is acceptable, return an empty list. The problems are:
 ${THEME_IMAGE_PROBLEMS.map((p) => `- ${p}: ${THEME_IMAGE_PROBLEM_TEXT[p]}`).join("\n")}
 
-Report off_style only when an ANCHOR image is supplied, and staging_mismatch only when a SET image is supplied. Report multiple_subjects only for a pack shot. Generated images of objects are expected: do not report an object for looking generated, only for being malformed, and report malformed only for a defect a shopper would notice at a glance (an object melted, fused into another, duplicated or physically impossible) — never for slight asymmetry, a stylised shape, soft focus or a handcrafted irregularity. Report text_or_logo only when you can actually read letters or numbers, or clearly see a brand mark, logo or watermark; when you are unsure, do not report it. Blank labels, tags and swing tickets, stitching, seams, buttons, hardware, embossed or debossed abstract shapes, reflections, faint glaze marks, wood grain and fabric texture are not lettering. Storefront images never carry lettering, even when the subject mentions words, a slogan or a logo: never report wrong_subject because lettering the subject mentions is missing.
+Report off_style only when an ANCHOR image is supplied, and staging_mismatch only when a SET image is supplied. Report multiple_subjects only for a pack shot. Generated images of objects are expected: do not report an object for looking generated, only for being malformed, and report malformed only for a defect a shopper would notice at a glance (an object melted, fused into another, duplicated or physically impossible) — never for slight asymmetry, a stylised shape, soft focus or a handcrafted irregularity. Report text_or_logo only when you can actually read letters or numbers, or clearly see a brand mark, logo or watermark; when you are unsure, do not report it. Blank labels, tags and swing tickets, stitching, seams, buttons, hardware, embossed or debossed abstract shapes, reflections, faint glaze marks, wood grain and fabric texture are not lettering. Storefront images never carry lettering, even when the subject mentions words, a slogan or a logo: never report wrong_subject because lettering the subject mentions is missing. Storefront images never show people either: when the subject asks for models, a person, hands or someone wearing the product, the correct image shows the product without them, so never report wrong_subject because a person the subject mentions is missing.
 
 The note is one or two short sentences, at most ${NOTE_MAX} characters, naming what is wrong in plain words (for example "The mug has a printed logo on the side."). Leave it empty when there are no problems.
 

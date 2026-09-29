@@ -32,6 +32,7 @@ import {
   THEME_IMAGE_REVIEW_MODEL_KEY,
   THEME_IMAGE_REVIEW_PROMPT_VERSION,
   isBlocking,
+  refusalRetakeText,
   reviewThemeImage,
   type ThemeImageProblem,
 } from "./image-review";
@@ -68,13 +69,15 @@ import { prepareSlotImage, type PreparedSlotImage } from "./slot-images";
 // rejected leader is not a reference), while the other slots, which need no
 // set shot, start at once alongside it.
 //
-// ★ EVERY IMAGE IS REVIEWED, AND A REJECTED ONE IS REDRAWN ONCE (Track 3.4,
+// ★ EVERY IMAGE IS REVIEWED, AND A REJECTED ONE IS REDRAWN (Track 3.4,
 // image-review.ts). The reviewer sees the image as it will be cropped for its
-// slot, and a redraw carries the problems it found. A provider refusal or
-// error is NOT redrawn: it is not a quality finding, and the one-paid-attempt
-// rule for provider failures stands. After the last attempt a blocking
-// problem keeps the placeholder, while a minor one keeps the best image with
-// the problem noted.
+// slot, and a redraw carries the problems it found. A provider REFUSAL is
+// redrawn too, with the reason it was blocked: the provider does not bill a
+// blocked image. A provider ERROR is not redrawn inside the run — a timeout
+// may have been billed — and is left to the fill run the worker queues for
+// every slot still missing (worker.ts, IMAGE_FILL_ROUNDS). After the last
+// attempt a blocking problem keeps the placeholder, while a minor one keeps
+// the best image with the problem noted.
 // ---------------------------------------------------------------------------
 
 /** Images drawn at once. Enough to finish a dozen slots in a couple of minutes
@@ -292,12 +295,16 @@ export async function runThemeImageGeneration(
     let fallback: Kept | null = null;
     let lastRejection: { problems: ThemeImageProblem[]; note: string } | null =
       null;
+    let lastRefusal: { reason: string | null } | null = null;
     // A redraw that did not come back falls back to the earlier attempt: a
     // minor-problem image is kept, a blocking one stays rejected.
     const settle = (attempts: number, failure: DrawResult): DrawResult => {
       if (fallback) return { ...fallback, attempts };
       if (lastRejection) {
         return { status: "rejected", attempts, ...lastRejection };
+      }
+      if (lastRefusal && failure.status === "skipped") {
+        return { status: "refused", attempts, reason: lastRefusal.reason };
       }
       return failure;
     };
@@ -308,11 +315,18 @@ export async function runThemeImageGeneration(
       const result = await client.generateImage(request, signal);
       record(request, result.usage);
       if (result.kind === "refused") {
-        return settle(attempt, {
-          status: "refused",
-          attempts: attempt,
-          reason: result.reason,
-        });
+        // A refusal is not billed, so it is redrawn with the reason it was
+        // blocked rather than abandoned.
+        if (attempt > redraws) {
+          return settle(attempt, {
+            status: "refused",
+            attempts: attempt,
+            reason: result.reason,
+          });
+        }
+        lastRefusal = { reason: result.reason };
+        retake = { problems: [refusalRetakeText(result.reason)], note: "" };
+        continue;
       }
       if (result.kind === "error") {
         return settle(attempt, {
