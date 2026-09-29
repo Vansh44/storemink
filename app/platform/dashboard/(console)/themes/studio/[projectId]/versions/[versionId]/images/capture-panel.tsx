@@ -32,6 +32,8 @@ export const CAPTURE_ERROR_TEXT: Record<string, string> = {
   capture_timeout: "The preview took too long to load in the capture job.",
   capture_network: "The capture job couldn't reach the preview.",
   capture_browser_error: "The capture job's browser failed.",
+  qa_probe_missing: "The preview's QA checks did not finish loading.",
+  qa_measure_failed: "The preview's browser measurements failed.",
 };
 
 export function captureErrorText(code: string | null): string {

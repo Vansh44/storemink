@@ -152,6 +152,16 @@ the session (`getThemeStudioActor`) before touching anything. Reference images
 are stored sanitized in Postgres and served only through a gated, no-store
 route. Full record: `docs/mink-ai-theme-studio-phase2.md`.
 
+The project workspace refreshes throughout generation, image drawing, catalog
+capture and visual QA, including immediately when an unfinished tab is reopened.
+Internal drafts remain hidden until QA settles; the empty-version message
+explains that work is still in progress. A failed QA result retains the generated
+version. The version summary distinguishes missing artwork from missing catalog
+pictures: when only catalog pictures remain, use **Images → Capture catalog
+pictures** instead of redrawing the artwork. Capture failure reasons are shown
+on the Images page. Full automatic-QA recovery requires the repaired web service
+and capture job; see `docs/theme-studio-reliability.md`.
+
 Since Phase 3 a run can call a paid Gemini model on Vertex AI. Each run shows
 its tokens and estimated cost, and a per-operator ceiling on estimated spend in
 any 24 hours refuses new runs once reached. A model that asks for details

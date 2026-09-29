@@ -39,6 +39,7 @@ import {
 import type { ThemeStudioModelClient } from "./provider";
 import { THEME_IMAGE_RULES } from "@/lib/themes/validation";
 import { prepareSlotImage, type PreparedSlotImage } from "./slot-images";
+import { abortable } from "./abortable";
 
 // ---------------------------------------------------------------------------
 // One image run: the anchor, then every placeholder slot matched to it, each
@@ -312,7 +313,21 @@ export async function runThemeImageGeneration(
     for (let attempt = 1; ; attempt++) {
       if (signal.aborted) return settle(attempt - 1, { status: "skipped" });
       const request = args.request(retake);
-      const result = await client.generateImage(request, signal);
+      let result;
+      try {
+        result = await abortable(
+          () => client.generateImage(request, signal),
+          signal,
+        );
+      } catch {
+        // One unexpected SDK failure must not reject Promise.all and discard
+        // all paid images from the other lanes. Fill runs retry just this slot.
+        return settle(attempt, {
+          status: "failed",
+          attempts: attempt,
+          code: signal.aborted ? "cancelled" : "provider_unavailable",
+        });
+      }
       record(request, result.usage);
       if (result.kind === "refused") {
         // A refusal is not billed, so it is redrawn with the reason it was
@@ -335,7 +350,16 @@ export async function runThemeImageGeneration(
           code: result.code,
         });
       }
-      const prepared = await prepare(result.bytes, args.target, args.byteLimit);
+      let prepared;
+      try {
+        prepared = await prepare(result.bytes, args.target, args.byteLimit);
+      } catch {
+        return settle(attempt, {
+          status: "unusable",
+          attempts: attempt,
+          code: "image_processing_failed",
+        });
+      }
       if (!prepared.ok && !args.allowUnprepared) {
         return settle(attempt, {
           status: "unusable",

@@ -1518,6 +1518,8 @@ export async function runThemeStudioWorker(
      * model run can take many minutes and runs only on the dedicated worker
      * route, where it has its own long request. */
     providers?: readonly ThemeStudioProvider[];
+    /** The dedicated route gives visual QA its own concurrent lane. */
+    skipVisualQa?: boolean;
   } = {},
 ): Promise<ThemeStudioWorkerResult> {
   const maxRuns = options.maxRuns ?? 5;
@@ -1560,7 +1562,7 @@ export async function runThemeStudioWorker(
     // A requeued run is picked up again next pass, not in a tight loop.
     if (settled === "requeued") break;
   }
-  if (Date.now() < deadline) {
+  if (!options.skipVisualQa && Date.now() < deadline) {
     const qa = await runThemeStudioVisualQaWorker({ providers });
     if (qa.claimed > 0) {
       logInfo("theme studio: visual QA settled", { ...qa });

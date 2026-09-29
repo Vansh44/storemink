@@ -33,6 +33,8 @@ export function errorCode(error) {
   if (error instanceof CaptureError) return error.code;
   const message = String(error?.message ?? error);
   if (/timeout/i.test(message)) return "capture_timeout";
+  if (/qa_probe_missing/i.test(message)) return "qa_probe_missing";
+  if (/qa_measure_failed/i.test(message)) return "qa_measure_failed";
   if (/net::|ERR_/i.test(message)) return "capture_network";
   return "capture_browser_error";
 }
@@ -141,19 +143,47 @@ export async function takeQaScreenshots(
           { waitUntil: "load", timeout: 60_000 },
         );
         const status = response ? response.status() : 0;
-        if (status !== 200) throw new CaptureError(`preview_status_${status}`);
-        await page
-          .waitForLoadState("networkidle", { timeout: 15_000 })
-          .catch(() => {});
+        const expected = preview.surface === "not_found" ? 404 : 200;
+        if (status !== expected)
+          throw new CaptureError(`preview_status_${status}`);
+        // The probe waits for fonts and images itself. Network-idle can add
+        // 15 seconds to each of thirty pages because of unrelated traffic.
         await page.addStyleTag({
           content: "nextjs-portal{display:none!important}",
         });
         await page.waitForTimeout(settleMs);
+        // load/networkidle do not guarantee React's effect has installed the
+        // probe (especially on a cold streamed 404). Wait for that condition.
+        await page
+          .waitForFunction(
+            () => typeof window.__smThemeStudioMeasure === "function",
+            undefined,
+            { timeout: 20_000 },
+          )
+          .catch(() => {
+            throw new CaptureError("qa_probe_missing");
+          });
         const result = await page.evaluate(async () => {
-          if (typeof window.__smThemeStudioMeasure !== "function") {
-            throw new Error("qa_probe_missing");
+          let timer;
+          try {
+            return await Promise.race([
+              window.__smThemeStudioMeasure(),
+              new Promise((_, reject) => {
+                timer = setTimeout(
+                  () => reject(new Error("qa_measure_timeout")),
+                  45_000,
+                );
+              }),
+            ]);
+          } catch (error) {
+            throw new Error(
+              /timeout/i.test(String(error))
+                ? "qa_measure_timeout"
+                : "qa_measure_failed",
+            );
+          } finally {
+            clearTimeout(timer);
           }
-          return window.__smThemeStudioMeasure();
         });
         samples.push({ ...result, viewport, surface: preview.surface });
         // The evidence above is measured at the real viewport. Compress only
@@ -207,36 +237,72 @@ export async function runCaptureJob({
   const results = [];
   let browser = null;
   try {
-    while (results.length < maxCaptures && now() - started < budgetMs) {
+    while (
+      results.length < maxCaptures &&
+      now() - started < budgetMs - 120_000
+    ) {
       const response = await fetchImpl(
         new URL("/api/internal/theme-studio/captures/claim", appOrigin),
-        { method: "POST", headers },
+        { method: "POST", headers, signal: AbortSignal.timeout(60_000) },
       );
       if (response.status === 204) break;
       if (!response.ok) {
         throw new Error(`claim failed with HTTP ${response.status}`);
       }
       const claim = await response.json();
-      browser ??= await launch();
       let body;
+      let timer;
       try {
-        const images = await takeShots(browser, claim);
-        body = {
-          leaseToken: claim.leaseToken,
-          images,
-          ...(claim.qa ? { qa: await takeQaScreenshots(browser, claim) } : {}),
-        };
+        // Leave a minute to report failure before the 10-minute lease/job
+        // expires. A hung page/evaluate must not hold a theme forever.
+        const remainingMs = Math.min(
+          7 * 60_000,
+          budgetMs - (now() - started) - 60_000,
+        );
+        if (remainingMs <= 0) throw new CaptureError("capture_timeout");
+        browser ??= await launch();
+        const activeBrowser = browser;
+        body = await Promise.race([
+          (async () => {
+            const images = await takeShots(activeBrowser, claim);
+            return {
+              leaseToken: claim.leaseToken,
+              images,
+              ...(claim.qa
+                ? { qa: await takeQaScreenshots(activeBrowser, claim) }
+                : {}),
+            };
+          })(),
+          new Promise((_, reject) => {
+            timer = setTimeout(
+              () => reject(new CaptureError("capture_timeout")),
+              remainingMs,
+            );
+          }),
+        ]);
       } catch (error) {
         body = { leaseToken: claim.leaseToken, error: errorCode(error) };
         log.warn?.(`capture ${claim.captureId}: ${body.error}`);
+        // Do not reuse a crashed or timed-out Chromium for the retry.
+        await browser?.close().catch(() => {});
+        browser = null;
+      } finally {
+        clearTimeout(timer);
       }
       const finished = await fetchImpl(
         new URL(
           `/api/internal/theme-studio/captures/${claim.captureId}`,
           appOrigin,
         ),
-        { method: "POST", headers, body: JSON.stringify(body) },
+        {
+          method: "POST",
+          headers,
+          body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60_000),
+        },
       );
+      if (!finished.ok)
+        throw new Error(`finish failed with HTTP ${finished.status}`);
       const outcome = await finished.json().catch(() => ({}));
       results.push({
         captureId: claim.captureId,

@@ -12,6 +12,8 @@ import {
 } from "@google/genai";
 import { logWarn } from "@/lib/observability/logger";
 import { classifyProviderError } from "./gemini-vertex";
+import { abortable } from "./abortable";
+import { imageRequestPool } from "./image-request-pool";
 import type { ThemeStudioImageConfig } from "./image-models";
 import {
   ZERO_IMAGE_USAGE,
@@ -182,6 +184,11 @@ export function createVertexImageClient(
 ): ThemeStudioImageClient {
   const sleep = options.sleep ?? sleepUnlessAborted;
   const random = options.random ?? Math.random;
+  const pool = imageRequestPool(
+    config.projectId,
+    config.location,
+    config.providerModel,
+  );
   let ai: GoogleGenAI | null = null;
   const send =
     options.send ??
@@ -192,7 +199,10 @@ export function createVertexImageClient(
         location: config.location,
         apiVersion: "v1",
         // One attempt: see the header.
-        httpOptions: { retryOptions: { attempts: 1 } },
+        httpOptions: {
+          timeout: IMAGE_REQUEST_TIMEOUT_MS,
+          retryOptions: { attempts: 1 },
+        },
       });
       return ai.models.generateContent({
         model: config.providerModel,
@@ -205,44 +215,61 @@ export function createVertexImageClient(
     provider: "vertex-gemini",
     async generateImage(request, outer) {
       assertThemeImageRequest(request);
-      let waitedMs = 0;
-      for (let retry = 0; ; retry++) {
-        const signal = AbortSignal.any([
-          outer,
-          AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
-        ]);
-        try {
-          return parseThemeImageResponse(await send(request, signal));
-        } catch (error) {
-          const code = outer.aborted
-            ? "cancelled"
-            : signal.aborted
-              ? "provider_timeout"
-              : classifyProviderError(error);
-          const delay =
-            code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
-              ? rateLimitDelayMs(retry, random)
-              : null;
-          if (delay === null || waitedMs + delay > RATE_LIMIT_BACKOFF.totalMs) {
-            return { kind: "error", code, usage: ZERO_IMAGE_USAGE };
-          }
-          // Purpose and brief id only: never the prompt or the references.
-          logWarn("theme_studio.image_rate_limited_retry", {
-            purpose: request.purpose,
-            brief: request.briefId,
-            retry: retry + 1,
-            waitMs: delay,
-          });
-          if (!(await sleep(delay, outer))) {
-            return {
-              kind: "error",
-              code: "cancelled",
-              usage: ZERO_IMAGE_USAGE,
-            };
-          }
-          waitedMs += delay;
-        }
+      try {
+        return await pool.run(() => generate(request, outer), outer);
+      } catch {
+        return {
+          kind: "error",
+          code: outer.aborted ? "cancelled" : "provider_unavailable",
+          usage: ZERO_IMAGE_USAGE,
+        };
       }
     },
   };
+
+  async function generate(
+    request: ThemeImageRequest,
+    outer: AbortSignal,
+  ): Promise<ThemeImageResult> {
+    let waitedMs = 0;
+    for (let retry = 0; ; retry++) {
+      const signal = AbortSignal.any([
+        outer,
+        AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
+      ]);
+      try {
+        return parseThemeImageResponse(
+          await abortable(() => send(request, signal), signal),
+        );
+      } catch (error) {
+        const code = outer.aborted
+          ? "cancelled"
+          : signal.aborted
+            ? "provider_timeout"
+            : classifyProviderError(error);
+        const delay =
+          code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
+            ? rateLimitDelayMs(retry, random)
+            : null;
+        if (delay === null || waitedMs + delay > RATE_LIMIT_BACKOFF.totalMs) {
+          return { kind: "error", code, usage: ZERO_IMAGE_USAGE };
+        }
+        // Purpose and brief id only: never the prompt or the references.
+        logWarn("theme_studio.image_rate_limited_retry", {
+          purpose: request.purpose,
+          brief: request.briefId,
+          retry: retry + 1,
+          waitMs: delay,
+        });
+        if (!(await sleep(delay, outer))) {
+          return {
+            kind: "error",
+            code: "cancelled",
+            usage: ZERO_IMAGE_USAGE,
+          };
+        }
+        waitedMs += delay;
+      }
+    }
+  }
 }

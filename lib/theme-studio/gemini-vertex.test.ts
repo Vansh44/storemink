@@ -409,3 +409,34 @@ describe("sleepUnlessAborted", () => {
     expect(await sleepUnlessAborted(1)).toBe(true);
   });
 });
+
+it("bounds a HIGH image review across the SDK call without capping tokens", async () => {
+  const deadline = new AbortController();
+  const timer = vi
+    .spyOn(AbortSignal, "timeout")
+    .mockReturnValue(deadline.signal);
+  try {
+    state.next = () => new Promise(() => {});
+    const client = createVertexModelClient({
+      projectId: "p",
+      region: "global",
+    });
+    const uncapped = { ...request };
+    delete uncapped.maxTokens;
+    const pending = client.generate(
+      { ...uncapped, stage: "image_review", effort: "high" },
+      signal(),
+    );
+    await vi.waitFor(() => expect(state.requests).toHaveLength(1));
+    expect(timer).toHaveBeenCalledWith(180_000);
+    const config = state.requests[0].config as Record<string, unknown>;
+    expect(config).not.toHaveProperty("maxOutputTokens");
+    deadline.abort(new Error("deadline"));
+    await expect(pending).resolves.toMatchObject({
+      kind: "error",
+      code: "provider_timeout",
+    });
+  } finally {
+    timer.mockRestore();
+  }
+});

@@ -1,4 +1,5 @@
 import { estimateCostMicroUsd } from "./cost";
+import { abortable } from "./abortable";
 import type { ThemeImagePurpose } from "./image-provider";
 import type { ThemeImageBrief } from "./image-prompt";
 import type { ThemeStudioModelKey } from "./models";
@@ -304,7 +305,7 @@ export async function reviewThemeImage(
   };
   let result;
   try {
-    result = await client.generate(request, signal);
+    result = await abortable(() => client.generate(request, signal), signal);
   } catch {
     return {
       kind: "unavailable",

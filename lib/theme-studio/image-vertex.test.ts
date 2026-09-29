@@ -288,3 +288,24 @@ describe("image cost", () => {
     ).toBe(0);
   });
 });
+
+it("enforces the image attempt deadline even when the SDK ignores abort", async () => {
+  const deadline = new AbortController();
+  const timer = vi
+    .spyOn(AbortSignal, "timeout")
+    .mockReturnValue(deadline.signal);
+  try {
+    const send = vi.fn(() => new Promise<never>(() => {}));
+    const client = createVertexImageClient(CONFIG, { send });
+    const pending = client.generateImage(REQUEST, signal());
+    await vi.waitFor(() => expect(send).toHaveBeenCalledOnce());
+    deadline.abort(new Error("deadline"));
+    await expect(pending).resolves.toMatchObject({
+      kind: "error",
+      code: "provider_timeout",
+    });
+    expect(send).toHaveBeenCalledOnce();
+  } finally {
+    timer.mockRestore();
+  }
+});

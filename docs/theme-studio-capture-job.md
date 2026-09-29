@@ -50,7 +50,7 @@ operator ── queue ──▶ web app (theme_studio_captures, project → gene
   unexpired lease, for exactly that version (`lib/theme-studio/preview-access.ts`).
 - A manual capture holds the current version. An automatic capture is bound to
   an internal version and keeps the project generating until visual QA settles.
-- A reported error is retried once (a cold preview can time out); a lease that
+- A reported error is retried once (with a fresh browser after browser failure); a lease that
   lapses is claimed again, up to two attempts; after that the capture fails and
   the project returns to `ready`.
 
@@ -102,6 +102,24 @@ shop, product, cart, content and not-found surface at 360, 390, 768, 1024 and
 1440 px. It returns raw layout/accessibility/performance measurements and a
 compressed full-page screenshot for each pair. The web app validates and
 stores that evidence; the browser job never decides pass or fail.
+
+The expected response is 200 except for the deliberate `not_found` surface,
+which must return 404. The job waits up to 20 seconds for the hydrated QA
+probe and 45 seconds per measurement. The probe handles SVG icons without
+calling HTML-only text APIs. It waits for fonts/images itself, so automatic
+QA does not also pay a 15-second network-idle wait on every sample.
+
+Capture work is bounded to seven minutes or the execution's remaining budget,
+with a minute reserved for result reporting. Claim/finish HTTP calls each have
+60-second timeouts. No new claim starts in the last two minutes of the default
+eight-minute budget. Browser launch failures are reported against the lease;
+failed/timed-out browsers are closed before a subsequent capture. A rejected
+finish request fails the execution so it is visible in job monitoring; the
+existing lease expiry/retry path recovers it.
+
+**Deploy the capture image separately from the web service.** Web-only deploys
+do not update this job's 404/readiness/timeout behavior. Regression evidence and
+the Crave/Luxe incident are in `docs/theme-studio-reliability.md`.
 
 ## Run it locally
 
