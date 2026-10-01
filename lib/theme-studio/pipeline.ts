@@ -10,6 +10,7 @@ import {
   assemblePackage,
   normalizeIntent,
   prepareDraft,
+  reservedBriefIssues,
   slotSpec,
   type CompileFacts,
 } from "./compiler";
@@ -296,6 +297,11 @@ export async function runThemeGeneration(
         .map((item) => item.referenceIndex)
         .sort((a, b) => a - b);
       const expected = input.references.map((_, index) => index);
+      const reserved = reservedBriefIssues(parsed.value);
+      if (reserved.length) {
+        issuesA = reserved;
+        continue;
+      }
       if (
         indexes.length === expected.length &&
         indexes.every((value, index) => value === expected[index])

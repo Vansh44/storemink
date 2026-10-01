@@ -14,6 +14,10 @@ export function automaticQaDecision(
   const failed = gates.filter((g) => g.required && g.status !== "pass");
   if (failed.some((g) => g.id === "package.security"))
     return "blocked" as const;
+  // A preview too slow to check within the budget is not a theme defect a
+  // paid revision can be trusted to fix, nor a blip a recapture would clear.
+  if (failed.some((g) => g.findings.some((f) => f.code === "budget")))
+    return "attention" as const;
   if (
     failed.some(
       (g) =>

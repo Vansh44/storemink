@@ -17,6 +17,17 @@ const failing = (id: GateId, code = "quality") =>
   );
 
 describe("automatic completion policy", () => {
+  it("sends an exhausted route-check budget to attention, never a paid revision", () => {
+    for (const id of ["routes.render", "routes.links"] as const) {
+      expect(automaticQaDecision(failing(id, "budget"), true, 0)).toBe(
+        "attention",
+      );
+    }
+    // An ordinary broken link at the first iteration is still repaired.
+    expect(
+      automaticQaDecision(failing("routes.links", "broken"), true, 0),
+    ).toBe("revise");
+  });
   it("requires every acceptance gate and a passing visual verdict", () => {
     expect(automaticQaDecision(passing(), true, 0)).toBe("pass");
     expect(automaticQaDecision(passing(), false, 0)).toBe("revise");

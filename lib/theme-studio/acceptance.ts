@@ -37,6 +37,7 @@ import {
   type LinkCheckResult,
   type RouteFetchResult,
   type BrowserEvidence,
+  ACCEPTANCE_BUDGET_EXHAUSTED,
   THEME_STUDIO_QA_VIEWPORTS,
 } from "./acceptance-gates";
 import { fetchInternalPageWithRetry } from "./acceptance-http";
@@ -269,7 +270,7 @@ export async function renderedPreviewGates(input: {
     if (left < MIN_BUDGETED_FETCH_MS) {
       return {
         status: null,
-        error: "Acceptance time budget exhausted before this page was read.",
+        error: ACCEPTANCE_BUDGET_EXHAUSTED,
         headers: {},
         body: "",
       };

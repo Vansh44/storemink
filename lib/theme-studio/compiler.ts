@@ -77,10 +77,33 @@ export const SYSTEM_SLOTS = {
  * under the evidence, so capture refuses such a theme (captureBlockers). Saying
  * so here lets the model fix it before generation and imagery are paid for.
  */
+function isSystemSlot(slot: string): boolean {
+  return slot in SYSTEM_SLOTS;
+}
+
 function systemSlotIssue(where: string, slot: string): string | null {
-  return slot in SYSTEM_SLOTS
+  return isSystemSlot(slot)
     ? `${where} uses "${slot}", a catalog picture of the finished storefront; storefront images need their own asset brief.`
     : null;
+}
+
+/**
+ * Stage A issues for asset briefs whose ids collide with the catalog picture
+ * slots. Stage B cannot rename a brief, and the compiler refuses storefront
+ * content naming a system slot, so a brief called `preview` could never be
+ * used; a `screenshot-*` brief is classified as a catalog picture and is never
+ * generated. Checked on NEW Stage A output only, not in the intent contract,
+ * so intents already stored on versions stay readable.
+ */
+export function reservedBriefIssues(intent: {
+  assetBriefs: readonly { id: string }[];
+}): string[] {
+  return intent.assetBriefs
+    .filter((b) => isSystemSlot(b.id) || b.id.startsWith("screenshot-"))
+    .map(
+      (b) =>
+        `assetBriefs id "${b.id}" is reserved for catalog pictures of the finished storefront; give this brief a different id.`,
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -514,7 +537,12 @@ function buildCatalogue(
     // Missing references never enter the asset manifest, so image generation
     // and placeholder checks cannot see them. Repair the draft before saving
     // a category tile that would render an empty-image icon forever.
-    if (!text(raw.imageSlot) || !briefIds.has(text(raw.imageSlot))) {
+    // A reserved slot gets its own, precise sentence from slotUrl below;
+    // "needs an imageSlot" would read as if none had been given.
+    if (
+      !isSystemSlot(text(raw.imageSlot)) &&
+      (!text(raw.imageSlot) || !briefIds.has(text(raw.imageSlot)))
+    ) {
       issues.push(`categories[${i}] needs an imageSlot from the asset briefs.`);
     }
     const image = slotUrl(raw.imageSlot, `categories[${i}].imageSlot`);

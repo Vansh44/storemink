@@ -106,10 +106,9 @@ describe("catalog picture slots in storefront content", () => {
     const categories = draft.categories as Record<string, unknown>[];
     const imageKey = Object.keys(categories[0]).find((k) => /image/i.test(k))!;
     categories[0][imageKey] = "preview";
-    expect(prepareDraft(draft, intent).issues).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining('"preview", a catalog picture'),
-      ]),
-    );
+    // One precise sentence, not also "needs an imageSlot".
+    expect(prepareDraft(draft, intent).issues).toEqual([
+      expect.stringContaining('"preview", a catalog picture'),
+    ]);
   });
 });

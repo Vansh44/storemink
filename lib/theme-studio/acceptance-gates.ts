@@ -558,6 +558,16 @@ export interface RouteFetchResult {
 
 /** Plan §7.2 item 4: the five surfaces render themed, the missing route is a
  * real (themed) 404, and every one of them tells crawlers to stay away. */
+/** The error a page carries when automatic acceptance ran out of its time
+ * budget before reading it. Not a transient fetch failure: the same slow
+ * preview exhausts the same budget on every attempt, so it is reported as
+ * `budget` and never retried by a recapture. */
+export const ACCEPTANCE_BUDGET_EXHAUSTED =
+  "Acceptance time budget exhausted before this page was read.";
+
+const fetchCode = (error: string) =>
+  error === ACCEPTANCE_BUDGET_EXHAUSTED ? "budget" : "fetch";
+
 export function routeRenderFindings(
   routes: readonly RouteFetchResult[],
 ): GateFinding[] {
@@ -565,7 +575,11 @@ export function routeRenderFindings(
   for (const route of routes) {
     const expected = route.surface === "not_found" ? 404 : 200;
     if (route.error) {
-      findings.push({ code: "fetch", message: route.error, where: route.path });
+      findings.push({
+        code: fetchCode(route.error),
+        message: route.error,
+        where: route.path,
+      });
       continue;
     }
     if (route.status !== expected) {
@@ -615,7 +629,11 @@ export function linkFindings(links: readonly LinkCheckResult[]): GateFinding[] {
   const findings: GateFinding[] = [];
   for (const link of links) {
     if (link.error) {
-      findings.push({ code: "fetch", message: link.error, where: link.path });
+      findings.push({
+        code: fetchCode(link.error),
+        message: link.error,
+        where: link.path,
+      });
     } else if (link.status === null || link.status >= 400) {
       findings.push({
         code: "broken",

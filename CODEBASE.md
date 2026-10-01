@@ -5489,7 +5489,10 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `operator_not_superadmin` (distinct from a removed `operator_removed`).
     The compiler refuses storefront content naming a catalog system slot
     (`preview`, `screenshot-*`) as a repair, so such a theme is fixed before
-    generation and imagery are paid for rather than failing capture. Capture/QA settlement
+    generation and imagery are paid for rather than failing capture. Stage A
+    output naming an asset brief after one (`reservedBriefIssues`) is repaired
+    at Stage A, since Stage B cannot rename a brief; the check runs on new
+    output only, so intents already stored on versions stay readable. Capture/QA settlement
     rejects expired leases. A QA run whose project stopped generating is
     closed as `project_state_changed` (lease released, project and version
     untouched) instead of being re-claimed and re-judged by paid vision calls.
@@ -5505,7 +5508,8 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     minutes of browser time left, and a 409 (lost lease) finish does not stop
     the execution. Automatic route checks keep the manual per-page timeouts
     under a 150-second total budget, never starting a page with under two
-    seconds left.
+    seconds left. An exhausted budget is a `budget` finding, not `fetch`: it
+    is not recaptured and automatic QA routes it to needs-attention.
     Operator reads filter out internal versions; visible versions show an auto
     QA badge and iteration count. ★ Migration `20260927_0144` owns the version,
     run and capture QA columns, the service-only visual queue, QA asset/event

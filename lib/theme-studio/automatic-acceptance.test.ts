@@ -283,7 +283,7 @@ describe("shared rendered preview checks", () => {
       const render = gates.find((g) => g.id === "routes.render")!;
       expect(render.findings).toEqual([
         expect.objectContaining({
-          code: "fetch",
+          code: "budget",
           where: "/shop",
           message: expect.stringContaining("time budget exhausted"),
         }),

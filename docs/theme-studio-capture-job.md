@@ -145,9 +145,10 @@ A new claim starts only when at least three minutes of browser time remain;
 starting one with less would only burn an attempt on a certain timeout. Leases
 still expire at ten minutes. Server route checks use bounded two-page batches,
 the normal 90-second first-page and 45-second page timeouts, and a 150-second
-total budget (a page is not started with under two seconds left; it is
-reported as an exhausted budget). A failed fetch retries capture rather than
-paying for a redesign. A capture job too old to report its build fails at once
+total budget (a page is not started with under two seconds left). A failed
+fetch retries capture rather than paying for a redesign; an exhausted budget is
+reported with its own `budget` finding and goes straight to needs-attention,
+because the same slow preview would exhaust it on every retry. A capture job too old to report its build fails at once
 as `capture_job_outdated` instead of using its remaining attempts.
 Browsers that arrive after their launch deadline are closed. Failed or
 timed-out browsers are closed before a subsequent capture. A 409 finish (the
