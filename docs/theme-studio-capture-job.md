@@ -1,11 +1,12 @@
 # Theme Studio capture job (Track 3.6)
 
-> **Deployment status (2026-09-29):** deployed and scheduled in dev and
+> **Deployment status (2026-10-01):** deployed and scheduled in dev and
 > production. `storemink-theme-studio-capture-dev` targets
 > `https://dev.storemink.com`; `storemink-theme-studio-capture` targets
-> `https://storemink.com`. Both schedules run every five minutes, both web
-> services have capture and automatic QA enabled, and empty-queue executions
-> completed successfully after migration `20260927_0144` was applied.
+> `https://storemink.com`. Both schedules run every minute (shortened from five
+> on 2026-10-01), both jobs run the image built from merge commit `621ee75`,
+> both web services have capture and automatic QA enabled, and the first
+> one-minute executions completed successfully.
 
 Publication needs a theme's catalog card and two screenshots, and an image
 model cannot draw them: they are pictures of the storefront itself. The

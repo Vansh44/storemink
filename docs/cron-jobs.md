@@ -130,7 +130,8 @@ gcloud builds submit --project storemink-prod --region global --config=cloudbuil
 | `storemink-mink-publications`       | `* * * * *`    | `https://storemink.com/api/cron/mink-publications`       |
 | `storemink-mink-workflows`          | `* * * * *`    | `https://storemink.com/api/cron/mink-workflows`          |
 | `storemink-theme-studio-runs`       | `* * * * *`    | `https://storemink.com/api/internal/theme-studio/runs`   |
-| `storemink-theme-studio-capture`    | `*/5 * * * *`  | Cloud Run Job execution API                              |
+| `storemink-theme-studio-capture`    | `* * * * *`    | Cloud Run Job execution API                              |
+| `storemink-theme-studio-qa`         | `* * * * *`    | `https://storemink.com/api/internal/theme-studio/qa`     |
 
 > ⚠ **The table above is the INTENDED state. Measured live 2026-09-08 with
 > `gcloud scheduler jobs list --project storemink-prod --location asia-south1`,
@@ -233,14 +234,15 @@ every preview surface at five widths and reports browser evidence; the server
 records full acceptance before visual review and bounded repair. Both capture
 and `_THEME_STUDIO_AUTO_QA_ENABLED=true` remain required.
 
-**2026-10-01 rollout required (not yet deployed):** the independent
+✅ **Rolled out 2026-10-01 in dev and production.** The independent
 `POST /api/internal/theme-studio/qa` route drains two leased QA rows without
-waiting on the long model/image request. Schedule it every minute with a
-300-second deadline and no scheduler retries; the database owns retries. The
-existing model endpoint retains its QA lane as a fallback. Deploy the new
-capture image with the web app, then shorten the capture schedule from five
-minutes to one (see `docs/theme-studio-capture-job.md`). Leases fence overlapping
-capture/QA executions. Configure both environments separately.
+waiting on the long model/image request. `storemink-theme-studio-qa` and
+`storemink-theme-studio-qa-dev` run every minute with a 300-second deadline and
+no scheduler retries; the database owns retries. The existing model endpoint
+retains its QA lane as a fallback. Both capture jobs run the image built from
+merge commit `621ee75`, and both capture schedules were shortened from five
+minutes to one. Leases fence overlapping capture/QA executions. First
+scheduled attempts at 11:34 UTC succeeded in both environments.
 
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole
