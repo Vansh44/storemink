@@ -10,6 +10,7 @@ import {
   DEFAULT_BUDGET_MS,
   FINISH_TIMEOUT_MS,
   MIN_CAPTURE_MS,
+  MAX_QA_CONTEXTS,
 } from "./capture-job.mjs";
 
 const claim = {
@@ -112,7 +113,7 @@ describe("taking the shots", () => {
   it("bounds parallel browser work, preserves order and drains in-flight work on failure", async () => {
     let active = 0,
       peak = 0;
-    const results = await mapCaptureWork([1, 2, 3, 4, 5], 9, async (n) => {
+    const results = await mapCaptureWork([1, 2, 3, 4, 5], 2, async (n) => {
       active++;
       peak = Math.max(peak, active);
       await new Promise((resolve) => setTimeout(resolve, n === 1 ? 15 : 1));
@@ -121,6 +122,16 @@ describe("taking the shots", () => {
     });
     expect(peak).toBe(2);
     expect(results).toEqual([1, 2, 3, 4, 5]);
+    // The helper honours what it is asked for; the QA cap lives in one place.
+    let widest = 0;
+    let running = 0;
+    await mapCaptureWork([1, 2, 3, 4], 3, async () => {
+      running++;
+      widest = Math.max(widest, running);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      running--;
+    });
+    expect(widest).toBe(3);
     let drained = false;
     await expect(
       mapCaptureWork([1, 2, 3], 2, async (n) => {
@@ -532,4 +543,57 @@ describe("execution time budget", () => {
       { captureId: "c-2", http: 200, status: "succeeded" },
     ]);
   });
+});
+
+it("never measures more QA contexts at once than MAX_QA_CONTEXTS, whatever is asked", async () => {
+  let open = 0;
+  let peak = 0;
+  const browser = {
+    close: vi.fn(async () => {}),
+    newContext: vi.fn(async (options) => {
+      open++;
+      peak = Math.max(peak, open);
+      return {
+        async addCookies() {},
+        async newPage() {
+          return {
+            async goto() {
+              await new Promise((resolve) => setTimeout(resolve, 2));
+              return { status: () => 200 };
+            },
+            async addStyleTag() {},
+            async waitForTimeout() {},
+            async waitForFunction() {},
+            async evaluate() {
+              return { width: options.viewport.width };
+            },
+            async screenshot() {
+              return Buffer.from("jpeg");
+            },
+            async close() {},
+          };
+        },
+        async close() {
+          open--;
+        },
+      };
+    }),
+  };
+  await takeQaScreenshots(
+    browser,
+    {
+      ...claim,
+      qa: {
+        pages: [{ surface: "home", path: "/" }],
+        viewports: {
+          a: { width: 360, height: 800 },
+          b: { width: 390, height: 844 },
+          c: { width: 768, height: 1024 },
+          d: { width: 1024, height: 768 },
+        },
+      },
+    },
+    { settleMs: 0, concurrency: 9 },
+  );
+  expect(peak).toBe(MAX_QA_CONTEXTS);
 });

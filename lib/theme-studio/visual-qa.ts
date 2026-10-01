@@ -525,7 +525,7 @@ async function settleQa(
         eventType: "capture_requested",
         detail: { versionId: qa.versionId, reason: "acceptance_build_changed" },
       });
-      return "revision_queued" as const;
+      return "recapture_queued" as const;
     }
     const gates: GateResult[] = [
       ...readAcceptanceReport(acceptance.serverReport).gates,
@@ -543,7 +543,19 @@ async function settleQa(
       acceptanceRunId: acceptance.id,
     };
     const decision = automaticQaDecision(gates, modelPass, qa.qaIteration);
-    if (decision === "pass" && acceptance.status === "passed") {
+    if (decision === "pass" && acceptance.status !== "passed") {
+      // The stored outcome and the re-read gates disagree. Paying for a
+      // revision of a theme whose every gate passed would be wrong, and so
+      // would delivering a candidate the database will refuse: stop here.
+      logError(
+        "theme studio: acceptance outcome disagrees with its gates",
+        undefined,
+        { qaRunId: qa.id, acceptanceRunId: acceptance.id },
+      );
+      await revealFailed(db, qa, "acceptance_outcome_mismatch", report);
+      return "failed" as const;
+    }
+    if (decision === "pass") {
       // Verify asset/build bindings before marking visible or ready. The
       // verifier is read-only; this row is still generating until settlement.
       const verified = await verifyCandidateEvidenceWithDb(db, {
@@ -704,6 +716,8 @@ export interface VisualQaWorkerResult {
   claimed: number;
   passed: number;
   revisionQueued: number;
+  /** Same version re-measured after a deploy; no design revision. */
+  recaptureQueued: number;
   failed: number;
 }
 
@@ -715,6 +729,7 @@ export async function runThemeStudioVisualQaWorker(options: {
     claimed: 0,
     passed: 0,
     revisionQueued: 0,
+    recaptureQueued: 0,
     failed: 0,
   };
   const config = getThemeStudioConfig();
@@ -746,6 +761,7 @@ export async function runThemeStudioVisualQaWorker(options: {
     const settled = await settleQa(workerId, qa, evaluated);
     if (settled === "passed") result.passed = 1;
     if (settled === "revision_queued") result.revisionQueued = 1;
+    if (settled === "recapture_queued") result.recaptureQueued = 1;
     if (settled === "failed") result.failed = 1;
   } catch (error) {
     logError("theme studio: visual QA execution failed", error, {

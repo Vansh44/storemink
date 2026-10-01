@@ -4,6 +4,7 @@ import {
   applyCapturedImages,
   captureBlockers,
   captureShots,
+  isEvidenceRecapture,
 } from "./capture-core";
 import { PLACEHOLDER_LICENSE_NOTE } from "./compiler";
 import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
@@ -230,5 +231,34 @@ describe("the next version's package", () => {
       ).ok,
     ).toBe(false);
     expect(applyCapturedImages(pkg, [], 2).ok).toBe(false);
+  });
+});
+
+describe("isEvidenceRecapture", () => {
+  const produced = {
+    origin: "asset_edit",
+    visibility: "internal",
+    qaStatus: "pending",
+    editDetail: { kind: "capture" },
+  };
+  it("recognises only a hidden, unjudged version an earlier capture produced", () => {
+    expect(isEvidenceRecapture(produced)).toBe(true);
+    // A generated or revised version still needs its catalog pictures taken.
+    expect(isEvidenceRecapture({ ...produced, origin: "run" })).toBe(false);
+    // An operator's image edit (no `kind`) is not a capture result.
+    expect(
+      isEvidenceRecapture({
+        ...produced,
+        editDetail: { fromVersionId: "v", slots: ["hero"] },
+      }),
+    ).toBe(false);
+    // Already revealed or judged: a fresh capture, not a re-measure.
+    expect(isEvidenceRecapture({ ...produced, visibility: "operator" })).toBe(
+      false,
+    );
+    expect(isEvidenceRecapture({ ...produced, qaStatus: "failed" })).toBe(
+      false,
+    );
+    expect(isEvidenceRecapture({ ...produced, editDetail: null })).toBe(false);
   });
 });

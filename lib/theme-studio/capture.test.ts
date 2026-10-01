@@ -11,8 +11,17 @@ vi.mock("./capture-core", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./capture-core")>()),
   captureBlockers: vi.fn(() => []),
 }));
+const openPreview = vi.hoisted(() => vi.fn());
+vi.mock("./preview", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./preview")>()),
+  openThemeStudioPreview: openPreview,
+}));
 
-import { queueThemeStudioCapture, finishThemeStudioCapture } from "./capture";
+import {
+  queueThemeStudioCapture,
+  finishThemeStudioCapture,
+  claimThemeStudioCapture,
+} from "./capture";
 import { captureBlockers } from "./capture-core";
 import { themeStudioCaptures, themeStudioProjects } from "@/drizzle/schema";
 
@@ -217,5 +226,167 @@ describe("Theme Studio catalog capture deployment gate", () => {
       ),
     ).rejects.toThrow(/browser worker is deployed/i);
     expect(withService).not.toHaveBeenCalled();
+  });
+});
+
+/** One last-attempt capture whose every read answers `held`. */
+function finishDb(held: Record<string, unknown>) {
+  const writes: Record<string, unknown>[] = [];
+  const db = {
+    select: () => {
+      const query = {
+        from: () => query,
+        where: () => query,
+        limit: () => query,
+        for: () => query,
+        then: (resolve: (value: unknown) => unknown) =>
+          Promise.resolve([held]).then(resolve),
+      };
+      return query;
+    },
+    update: () => ({
+      set: (values: Record<string, unknown>) => {
+        writes.push(values);
+        return { where: async () => [] };
+      },
+    }),
+    insert: () => ({ values: async () => [] }),
+  };
+  withService.mockImplementation(async (work) => work(db));
+  return writes;
+}
+
+describe("why an automatic capture failed", () => {
+  afterEach(() => vi.unstubAllEnvs());
+  const lastAttempt = {
+    id: input.versionId,
+    projectId: input.projectId,
+    versionId: input.versionId,
+    automatic: true,
+    attemptCount: 5,
+    maxAttempts: 5,
+  };
+
+  it.each([
+    [undefined, "capture_job_outdated"],
+    ["earlier-build", "capture_build_changed"],
+  ])(
+    "tells an outdated capture job (build %s) apart from a deploy: %s",
+    async (buildId, code) => {
+      vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
+      const writes = finishDb(lastAttempt);
+      expect(
+        await finishThemeStudioCapture({
+          captureId: input.versionId,
+          leaseToken: actor.id,
+          images: [],
+          qa: { buildId, evidence: {}, screenshots: [] },
+        }),
+      ).toEqual({ status: "failed", errorCode: code });
+      expect(writes[0]).toMatchObject({ status: "failed", errorCode: code });
+    },
+  );
+
+  it("reports a missing QA payload as invalid evidence, not a build change", async () => {
+    vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
+    finishDb({ ...lastAttempt, origin: "run", editDetail: {} });
+    expect(
+      await finishThemeStudioCapture({
+        captureId: input.versionId,
+        leaseToken: actor.id,
+        images: [],
+      }),
+    ).toEqual({ status: "failed", errorCode: "qa_report_invalid" });
+  });
+});
+
+describe("claiming a capture", () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  function claimDb({
+    automatic = true,
+    role = "superadmin",
+    version = {},
+  }: {
+    automatic?: boolean;
+    role?: string;
+    version?: Record<string, unknown>;
+  }) {
+    const capture = {
+      id: "44444444-4444-4444-8444-444444444444",
+      projectId: input.projectId,
+      versionId: input.versionId,
+      packageDigest: input.expectedPackageDigest,
+      automatic,
+      attemptCount: 0,
+      maxAttempts: 5,
+      createdBy: actor.id,
+    };
+    const reads = [
+      [],
+      [capture],
+      [
+        {
+          packageJson: {},
+          packageDigest: input.expectedPackageDigest,
+          origin: "run",
+          visibility: "internal",
+          qaStatus: "pending",
+          editDetail: {},
+          ...version,
+        },
+      ],
+      [{ ...actor, role }],
+    ];
+    const writes: Record<string, unknown>[] = [];
+    const db = {
+      select: () => {
+        const result = reads.shift();
+        const query = {
+          from: () => query,
+          where: () => query,
+          orderBy: () => query,
+          limit: () => query,
+          for: () => query,
+          then: (resolve: (value: unknown) => unknown) =>
+            Promise.resolve(result).then(resolve),
+        };
+        return query;
+      },
+      update: () => ({
+        set: (values: Record<string, unknown>) => {
+          writes.push(values);
+          return { where: async () => [] };
+        },
+      }),
+      insert: () => ({ values: async () => [] }),
+    };
+    withService.mockImplementation(async (work) => work(db));
+    return writes;
+  }
+
+  it("refuses an automatic capture for a demoted owner before any browser work", async () => {
+    const writes = claimDb({ role: "member" });
+    expect(await claimThemeStudioCapture()).toBeNull();
+    expect(openPreview).not.toHaveBeenCalled();
+    expect(writes.at(-1)).toBeDefined();
+    expect(
+      writes.find((w) => w.errorCode === "operator_removed"),
+    ).toBeDefined();
+  });
+
+  it("asks for no catalog shots when re-measuring a version a capture already produced", async () => {
+    vi.stubEnv("CRON_SECRET", "x".repeat(40));
+    openPreview.mockResolvedValueOnce({
+      origin: "http://studio-preview-ab.localhost:3000",
+      storeId: "55555555-5555-4555-8555-555555555555",
+      pages: [{ surface: "home", path: "/", label: "Home" }],
+    });
+    claimDb({
+      version: { origin: "asset_edit", editDetail: { kind: "capture" } },
+    });
+    const claim = await claimThemeStudioCapture();
+    expect(claim?.shots).toEqual([]);
+    expect(claim?.qa?.pages).toEqual([{ surface: "home", path: "/" }]);
   });
 });

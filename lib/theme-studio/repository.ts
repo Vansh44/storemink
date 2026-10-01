@@ -98,6 +98,8 @@ export interface ThemeStudioProjectSummary {
   updatedAt: string;
   activeRunStatus: "queued" | "running" | null;
   versionCount: number;
+  /** Automatic QA status of the current version, when there is one. */
+  currentQaStatus: string | null;
 }
 
 export interface ThemeStudioReferenceView {
@@ -246,8 +248,13 @@ export async function listThemeStudioProjects(): Promise<
         modelKey: themeStudioProjects.modelKey,
         createdByEmail: themeStudioProjects.createdByEmail,
         updatedAt: themeStudioProjects.updatedAt,
+        currentQaStatus: themeStudioVersions.qaStatus,
       })
       .from(themeStudioProjects)
+      .leftJoin(
+        themeStudioVersions,
+        eq(themeStudioVersions.id, themeStudioProjects.currentVersionId),
+      )
       .orderBy(desc(themeStudioProjects.updatedAt))
       .limit(100);
     if (projects.length === 0) return [];

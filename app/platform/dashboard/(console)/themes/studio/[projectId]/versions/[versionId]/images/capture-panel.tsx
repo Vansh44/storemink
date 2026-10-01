@@ -36,6 +36,9 @@ export const CAPTURE_ERROR_TEXT: Record<string, string> = {
   capture_browser_error: "The capture job's browser failed.",
   capture_build_changed:
     "The app changed while checks were running. Retry automatic QA to collect current evidence.",
+  capture_job_outdated:
+    "The capture job is older than the app and can't say which build it measured. Redeploy the capture job, then retry automatic QA.",
+  qa_report_invalid: "The capture job didn't send usable QA measurements.",
   acceptance_route_fetch:
     "Acceptance checks couldn't load the preview after retries. Retry automatic QA when the preview is available.",
   qa_probe_missing: "The preview's QA checks did not finish loading.",

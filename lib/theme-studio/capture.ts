@@ -20,6 +20,7 @@ import {
   captureBlockers,
   captureShots,
   type CaptureShot,
+  isEvidenceRecapture,
 } from "./capture-core";
 import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
 import { openThemeStudioPreview, previewPagesFor } from "./preview";
@@ -379,13 +380,21 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
       .select({
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
+        origin: themeStudioVersions.origin,
+        visibility: themeStudioVersions.visibility,
+        qaStatus: themeStudioVersions.qaStatus,
+        editDetail: themeStudioVersions.editDetail,
       })
       .from(themeStudioVersions)
       .where(eq(themeStudioVersions.id, next.versionId))
       .limit(1);
     const [owner] = next.createdBy
       ? await db
-          .select({ id: platformAdmins.id, email: platformAdmins.email })
+          .select({
+            id: platformAdmins.id,
+            email: platformAdmins.email,
+            role: platformAdmins.role,
+          })
           .from(platformAdmins)
           .where(eq(platformAdmins.id, next.createdBy))
           .limit(1)
@@ -411,10 +420,13 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
   }
   // The preview is opened as the operator who asked: the store is theirs to
   // see, and its events name them. An operator since removed cannot.
-  if (!owner) {
+  // Automatic finish re-checks this before recording acceptance evidence;
+  // checking it here too refuses the capture before any browser work.
+  if (!owner || (capture.automatic && owner.role !== "superadmin")) {
     await fail("operator_removed");
     return null;
   }
+  const recapture = capture.automatic && isEvidenceRecapture(version!);
   let opened;
   try {
     opened = await openThemeStudioPreview(
@@ -444,7 +456,7 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
         CAPTURE_TOKEN_TTL_SECONDS,
       ),
     },
-    shots: captureShots(pkg.value).map((shot) => ({
+    shots: (recapture ? [] : captureShots(pkg.value)).map((shot) => ({
       slotId: shot.slotId,
       path: shot.path,
       viewport: shot.viewport,
@@ -524,16 +536,23 @@ export async function finishThemeStudioCapture(input: {
   );
   if (!capture) return { status: "lost" };
 
+  // A missing QA payload is not a build change: it falls through to the
+  // evidence validation below and fails as qa_report_invalid.
   if (
     capture.automatic &&
     input.images &&
     !input.error &&
-    input.qa?.buildId !== currentAcceptanceBuildId()
+    input.qa &&
+    input.qa.buildId !== currentAcceptanceBuildId()
   ) {
     return finishThemeStudioCapture({
       captureId: input.captureId,
       leaseToken: input.leaseToken,
-      error: "capture_build_changed",
+      // No build id at all means a capture job older than this contract,
+      // which no retry can fix until the job image is redeployed.
+      error: input.qa.buildId
+        ? "capture_build_changed"
+        : "capture_job_outdated",
     });
   }
 
@@ -560,8 +579,13 @@ export async function finishThemeStudioCapture(input: {
     db
       .select({
         packageJson: themeStudioVersions.packageJson,
+        packageDigest: themeStudioVersions.packageDigest,
         intentJson: themeStudioVersions.intentJson,
         intentDigest: themeStudioVersions.intentDigest,
+        origin: themeStudioVersions.origin,
+        visibility: themeStudioVersions.visibility,
+        qaStatus: themeStudioVersions.qaStatus,
+        editDetail: themeStudioVersions.editDetail,
       })
       .from(themeStudioVersions)
       .where(eq(themeStudioVersions.id, capture.versionId))
@@ -578,6 +602,8 @@ export async function finishThemeStudioCapture(input: {
   if (!parsed?.ok || !version) return failNow("base_invalid");
   const pkg: ThemePackageV2 = parsed.value;
   if (captureBlockers(pkg).length) return failNow("capture_not_ready");
+  const recapture = capture.automatic && isEvidenceRecapture(version);
+  if (recapture && !version.packageDigest) return failNow("base_invalid");
 
   const qaEvidence = capture.automatic
     ? parseBrowserEvidence(input.qa?.evidence)
@@ -648,7 +674,8 @@ export async function finishThemeStudioCapture(input: {
   }
 
   // Exactly the shots that were asked for, each re-processed like an upload.
-  const shots = captureShots(pkg);
+  // An evidence recapture asked for none: the version keeps its pictures.
+  const shots = recapture ? [] : captureShots(pkg);
   const bySlot = new Map(input.images.map((i) => [i.slotId, i.bytes]));
   if (
     bySlot.size !== input.images.length ||
@@ -789,44 +816,56 @@ export async function finishThemeStudioCapture(input: {
       }
       rows.push({ slotId, row });
     }
-    const [{ latest }] = await db
-      .select({ latest: max(themeStudioVersions.versionNumber) })
-      .from(themeStudioVersions)
-      .where(eq(themeStudioVersions.projectId, project.id));
-    const versionNumber = (latest ?? 0) + 1;
-    const applied = applyCapturedImages(pkg, rows, versionNumber);
-    if (!applied.ok) {
-      await failCapture(db, held, "capture_package_invalid");
-      return { status: "failed", errorCode: "capture_package_invalid" };
+    let created: { id: string };
+    let applied: { ok: true; value: ThemePackageV2 };
+    let packageDigest: string;
+    let versionNumber: number | null = null;
+    if (recapture) {
+      // Re-measure the same immutable version: same package, same pictures.
+      created = { id: held.versionId };
+      applied = { ok: true, value: pkg };
+      packageDigest = version.packageDigest!;
+    } else {
+      const [{ latest }] = await db
+        .select({ latest: max(themeStudioVersions.versionNumber) })
+        .from(themeStudioVersions)
+        .where(eq(themeStudioVersions.projectId, project.id));
+      versionNumber = (latest ?? 0) + 1;
+      const result = applyCapturedImages(pkg, rows, versionNumber);
+      if (!result.ok) {
+        await failCapture(db, held, "capture_package_invalid");
+        return { status: "failed", errorCode: "capture_package_invalid" };
+      }
+      applied = result;
+      [created] = await db
+        .insert(themeStudioVersions)
+        .values({
+          projectId: project.id,
+          runId: null,
+          origin: "asset_edit",
+          editDetail: {
+            kind: "capture",
+            captureId: held.id,
+            fromVersionId: held.versionId,
+            slots: rows.map((r) => r.slotId),
+          },
+          parentVersionId: held.versionId,
+          versionNumber,
+          intentJson: version.intentJson,
+          intentDigest: version.intentDigest,
+          packageJson: applied.value,
+          packageDigest: digestThemeStudioJson(applied.value),
+          ...(held.automatic
+            ? {
+                visibility: "internal",
+                qaStatus: "pending",
+                qaIteration: held.qaIteration,
+              }
+            : {}),
+        })
+        .returning({ id: themeStudioVersions.id });
+      packageDigest = digestThemeStudioJson(applied.value);
     }
-    const [created] = await db
-      .insert(themeStudioVersions)
-      .values({
-        projectId: project.id,
-        runId: null,
-        origin: "asset_edit",
-        editDetail: {
-          kind: "capture",
-          captureId: held.id,
-          fromVersionId: held.versionId,
-          slots: rows.map((r) => r.slotId),
-        },
-        parentVersionId: held.versionId,
-        versionNumber,
-        intentJson: version.intentJson,
-        intentDigest: version.intentDigest,
-        packageJson: applied.value,
-        packageDigest: digestThemeStudioJson(applied.value),
-        ...(held.automatic
-          ? {
-              visibility: "internal",
-              qaStatus: "pending",
-              qaIteration: held.qaIteration,
-            }
-          : {}),
-      })
-      .returning({ id: themeStudioVersions.id });
-    const packageDigest = digestThemeStudioJson(applied.value);
     if (held.automatic) {
       const screenshotAssetIds: string[] = [];
       for (const shot of preparedQa) {
@@ -945,16 +984,18 @@ export async function finishThemeStudioCapture(input: {
       eventType: "capture_succeeded",
       detail: { captureId: held.id, versionId: created.id },
     });
-    await recordThemeStudioEvent(db, {
-      projectId: project.id,
-      actor: "worker",
-      eventType: "version_created",
-      detail: {
-        versionId: created.id,
-        versionNumber,
-        captured: rows.map((r) => r.slotId),
-      },
-    });
+    if (!recapture) {
+      await recordThemeStudioEvent(db, {
+        projectId: project.id,
+        actor: "worker",
+        eventType: "version_created",
+        detail: {
+          versionId: created.id,
+          versionNumber,
+          captured: rows.map((r) => r.slotId),
+        },
+      });
+    }
     return { status: "succeeded", versionId: created.id };
   });
 }

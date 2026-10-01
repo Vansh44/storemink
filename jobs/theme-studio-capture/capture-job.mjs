@@ -32,6 +32,9 @@ export const MIN_CAPTURE_MS = 3 * 60_000;
 export const FINISH_TIMEOUT_MS = 270_000;
 /** The job's task timeout is 600s; keep 30s for claims and shutdown. */
 export const DEFAULT_BUDGET_MS = 570_000;
+/** Most QA browser contexts measured at once. Each holds full-page renders,
+ * and the job runs with 2 GiB; callers may ask for fewer, never more. */
+export const MAX_QA_CONTEXTS = 2;
 
 export class CaptureError extends Error {
   constructor(code) {
@@ -124,12 +127,12 @@ export async function takeShots(browser, claim, { settleMs = 400 } = {}) {
 export async function takeQaScreenshots(
   browser,
   claim,
-  { settleMs = 250, concurrency = 2 } = {},
+  { settleMs = 250, concurrency = MAX_QA_CONTEXTS } = {},
 ) {
   if (!claim.qa) return undefined;
   const measured = await mapCaptureWork(
     Object.entries(claim.qa.viewports),
-    concurrency,
+    Math.min(concurrency, MAX_QA_CONTEXTS),
     async ([viewport, dimensions]) => {
       const samples = [];
       const screenshots = [];
@@ -246,10 +249,7 @@ export async function mapCaptureWork(items, concurrency, work) {
   let failure;
   const lanes = Array.from(
     {
-      length: Math.min(
-        items.length,
-        Math.max(1, Math.min(2, Math.floor(concurrency) || 1)),
-      ),
+      length: Math.min(items.length, Math.max(1, Math.floor(concurrency) || 1)),
     },
     async () => {
       while (!failure && next < items.length) {

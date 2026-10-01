@@ -155,3 +155,24 @@ export function applyCapturedImages(
     `Catalog pictures captured from the preview: ${captured.map((c) => c.slotId).join(", ")}.`,
   );
 }
+
+/**
+ * Whether an automatic capture is re-measuring evidence for a version an
+ * earlier automatic capture already produced (a deploy made its acceptance
+ * evidence stale). Such a version already carries its captured catalog
+ * pictures, so the recapture re-measures it in place: no catalog shots, and
+ * no new version left behind as a hidden `pending` orphan.
+ */
+export function isEvidenceRecapture(version: {
+  origin: string;
+  visibility: string;
+  qaStatus: string;
+  editDetail: unknown;
+}): boolean {
+  return (
+    version.origin === "asset_edit" &&
+    version.visibility === "internal" &&
+    version.qaStatus === "pending" &&
+    (version.editDetail as { kind?: unknown } | null)?.kind === "capture"
+  );
+}

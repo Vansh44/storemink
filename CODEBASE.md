@@ -5471,9 +5471,19 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     failures and the final unsuccessful repair reveal `operator/failed` for
     recovery, with **Needs attention** on the workspace's current failed result.
     Shared Studio badges label the unverified `ready` database state **Needs
-    checks**, rather than implying a successful acceptance result.
+    checks**, rather than implying a successful acceptance result, and
+    **Needs attention** when automatic QA failed the current version — one
+    rule (`StudioStatusBadge` + `currentQaFailed`) on every Studio page and
+    the project list, which reads the current version's QA status.
     A deployment between capture and visual settlement queues a fresh capture
-    of the same version rather than redrawing the theme. Capture/QA settlement
+    of the same version rather than redrawing the theme; that recapture
+    re-measures the version in place (no catalog shots, no new version) and
+    is counted as `recaptureQueued`, never as a revision. A capture job too
+    old to report its build fails as `capture_job_outdated`, a missing QA
+    payload as `qa_report_invalid`. Passing gates over a stored acceptance
+    outcome that is not `passed` stop as `acceptance_outcome_mismatch` rather
+    than buying a revision. An automatic capture whose owner is no longer a
+    superadmin is refused at claim, before any browser work. Capture/QA settlement
     rejects expired leases. A QA run whose project stopped generating is
     closed as `project_state_changed` (lease released, project and version
     untouched) instead of being re-claimed and re-judged by paid vision calls.
@@ -5482,7 +5492,8 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     scheduler; the original run worker keeps its QA lane as a fallback.
     Browser capture uses two isolated viewport contexts at a time and keeps
     evidence ordered, removes redundant network-idle waits, and bounds launch
-    plus rendering while reserving the full 270-second finish timeout (longer
+    plus rendering (at most `MAX_QA_CONTEXTS`, two, QA contexts at once)
+    while reserving the full 270-second finish timeout (longer
     than the 240-second finish route). A claim starts only with at least three
     minutes of browser time left, and a 409 (lost lease) finish does not stop
     the execution. Automatic route checks keep the manual per-page timeouts

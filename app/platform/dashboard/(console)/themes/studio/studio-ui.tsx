@@ -15,17 +15,41 @@ const STATUS_TONE: Record<ThemeStudioProjectState, string> = {
   archived: "bg-slate-100 text-slate-400",
 };
 
+/**
+ * One label rule for every Studio surface. `ready` is the unverified state, so
+ * it reads "Needs checks" — unless automatic QA has already judged the current
+ * version and failed it, which is "Needs attention", not "not checked yet".
+ */
 export function StudioStatusBadge({
   status,
+  qaFailed = false,
 }: {
   status: ThemeStudioProjectState;
+  qaFailed?: boolean;
 }) {
+  const label =
+    status === "ready"
+      ? qaFailed
+        ? "Needs attention"
+        : "Needs checks"
+      : status;
   return (
     <span
       className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_TONE[status]}`}
     >
-      {status === "ready" ? "Needs checks" : status}
+      {label}
     </span>
+  );
+}
+
+/** Whether automatic QA failed the project's current version. */
+export function currentQaFailed(project: {
+  currentVersionId: string | null;
+  versions: readonly { id: string; qaStatus: string }[];
+}): boolean {
+  return (
+    project.versions.find((v) => v.id === project.currentVersionId)
+      ?.qaStatus === "failed"
   );
 }
 

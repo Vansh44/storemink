@@ -5,7 +5,11 @@ import { getThemeStudioActor } from "@/lib/theme-studio/access";
 import { THEME_STUDIO_VIEWPORTS } from "@/lib/theme-studio/contracts";
 import { getThemeStudioProject } from "@/lib/theme-studio/repository";
 import { requireOperator } from "../../../../../require-operator";
-import { StudioStatusBadge, SuperadminOnly } from "../../../studio-ui";
+import {
+  StudioStatusBadge,
+  currentQaFailed,
+  SuperadminOnly,
+} from "../../../studio-ui";
 import { PreviewFrame } from "./preview-frame";
 
 export const metadata = { title: "Theme preview — StoreMink Admin" };
@@ -47,7 +51,10 @@ export default async function ThemeStudioVersionPreviewPage({
         <h1 className="text-xl font-semibold tracking-tight text-slate-950">
           {project.name} · version {version.versionNumber}
         </h1>
-        <StudioStatusBadge status={project.status} />
+        <StudioStatusBadge
+          status={project.status}
+          qaFailed={currentQaFailed(project)}
+        />
         {version.id === project.currentVersionId ? (
           <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
             current

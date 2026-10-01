@@ -10,6 +10,7 @@ import { getThemeStudioProject } from "@/lib/theme-studio/repository";
 import { requireOperator } from "../../../../../../require-operator";
 import {
   StudioStatusBadge,
+  currentQaFailed,
   SuperadminOnly,
   studioDate,
 } from "../../../../studio-ui";
@@ -78,7 +79,10 @@ export default async function ThemeStudioAcceptancePage({
           <h1 className="text-xl font-semibold tracking-tight text-slate-950">
             {project.name} · version {version.versionNumber} acceptance
           </h1>
-          <StudioStatusBadge status={project.status} />
+          <StudioStatusBadge
+            status={project.status}
+            qaFailed={currentQaFailed(project)}
+          />
           {isCurrent ? (
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
               current

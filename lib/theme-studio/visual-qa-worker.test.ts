@@ -59,6 +59,7 @@ function fixture({
   lostLease = false,
   claimStatus = "generating",
   settleStatus = "generating",
+  acceptanceStatus = undefined as string | undefined,
 } = {}) {
   const gates = passing().map((g) =>
     fail && g.id === "browser.accessibility"
@@ -97,7 +98,7 @@ function fixture({
         id: "acceptance",
         packageDigest: "digest",
         buildId,
-        status: fail ? "failed" : "passed",
+        status: acceptanceStatus ?? (fail ? "failed" : "passed"),
         serverReport: { gates },
         browserReport: { gates: [] },
       },
@@ -229,7 +230,7 @@ describe("automatic acceptance and visual settlement", () => {
     const writes = fixture({ oldBuild: true });
     expect(
       await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
-    ).toMatchObject({ revisionQueued: 1, passed: 0 });
+    ).toMatchObject({ recaptureQueued: 1, revisionQueued: 0, passed: 0 });
     expect(generate).not.toHaveBeenCalled();
     expect(
       writes.find((w) => w.table === themeStudioCaptures)?.values,
@@ -248,6 +249,17 @@ describe("automatic acceptance and visual settlement", () => {
       await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
     ).toMatchObject({ passed: 0, failed: 0 });
     expect(writes).toHaveLength(1); // Claim only; no late settlement.
+  });
+  it("stops, rather than paying for a revision, when passing gates disagree with a non-passed stored outcome", async () => {
+    const writes = fixture({ acceptanceStatus: "failed" });
+    expect(
+      await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
+    ).toMatchObject({ failed: 1, passed: 0, revisionQueued: 0 });
+    expect(writes.some((w) => w.table === themeStudioRuns)).toBe(false);
+    expect(writes.some((w) => w.values.status === "candidate")).toBe(false);
+    expect(writes.find((w) => w.values.errorCode)?.values.errorCode).toBe(
+      "acceptance_outcome_mismatch",
+    );
   });
   it("closes a run whose project stopped generating before paying for vision", async () => {
     const writes = fixture({ claimStatus: "archived" });
