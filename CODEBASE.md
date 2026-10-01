@@ -4945,6 +4945,15 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     Acceptance thresholds and publishing gates remain enforced. These are
     operator recovery and storefront accessibility corrections; no merchant
     workflow change and no Help Centre update.
+    **Luxe v7 target-size correction (2026-10-01).** Shared PDP CSS explicitly
+    sizes the Shop breadcrumb and review-summary link to at least 24×24px.
+    Homepage newsletter consent has a 24px minimum label height and a
+    non-shrinking 24×24px checkbox, including tablet layouts where the consent
+    fits on one line. These correct the seven reported small-target findings;
+    deployed browser acceptance still needs a fresh run. Catalog preview,
+    desktop and mobile placeholders require the existing Images browser-capture
+    workflow; performance findings remain advisory. No merchant workflow change,
+    no Help Centre update.
     **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
     version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
     gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`

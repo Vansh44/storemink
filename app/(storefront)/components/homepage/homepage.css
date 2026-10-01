@@ -1800,6 +1800,7 @@ a.home-gallery-card:hover .home-gallery-image {
   opacity: 0.7;
 }
 .home-newsletter-consent {
+  min-height: 24px;
   display: flex;
   align-items: flex-start;
   gap: 8px;
@@ -1812,6 +1813,9 @@ a.home-gallery-card:hover .home-gallery-image {
   color: color-mix(in srgb, var(--sm-on-ink) 68%, transparent);
 }
 .home-newsletter-consent input {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
   margin-top: 2px;
 }
 .home-newsletter-message {

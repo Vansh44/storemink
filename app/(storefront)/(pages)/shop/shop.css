@@ -626,6 +626,10 @@
 }
 
 .shop-breadcrumb a {
+  display: inline-flex;
+  align-items: center;
+  min-width: 24px;
+  min-height: 24px;
   color: var(--shop-text-subtle);
   text-decoration: none;
 }
@@ -756,6 +760,8 @@
 /* Rating summary near the title (links to the reviews section) */
 .pdp-rating-top {
   display: inline-flex;
+  min-width: 24px;
+  min-height: 24px;
   align-items: center;
   gap: 8px;
   margin-bottom: 16px;
