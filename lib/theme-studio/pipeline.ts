@@ -297,21 +297,22 @@ export async function runThemeGeneration(
         .map((item) => item.referenceIndex)
         .sort((a, b) => a - b);
       const expected = input.references.map((_, index) => index);
-      const reserved = reservedBriefIssues(parsed.value);
-      if (reserved.length) {
-        issuesA = reserved;
-        continue;
-      }
+      // Every problem in one repair round: reporting them one at a time
+      // spends a paid repair per problem and can exhaust the budget.
+      const problems = reservedBriefIssues(parsed.value);
       if (
-        indexes.length === expected.length &&
-        indexes.every((value, index) => value === expected[index])
+        indexes.length !== expected.length ||
+        !indexes.every((value, index) => value === expected[index])
       ) {
+        problems.push(
+          `referenceAnalysis must contain exactly one item for each supplied reference image, with indexes ${expected.length ? expected.join(", ") : "(none)"}.`,
+        );
+      }
+      if (problems.length === 0) {
         intent = parsed.value;
         break;
       }
-      issuesA = [
-        `referenceAnalysis must contain exactly one item for each supplied reference image, with indexes ${expected.length ? expected.join(", ") : "(none)"}.`,
-      ];
+      issuesA = problems;
       continue;
     }
     issuesA = parsed.issues;

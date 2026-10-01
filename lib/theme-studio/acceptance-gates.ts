@@ -556,8 +556,6 @@ export interface RouteFetchResult {
   error: string | null;
 }
 
-/** Plan §7.2 item 4: the five surfaces render themed, the missing route is a
- * real (themed) 404, and every one of them tells crawlers to stay away. */
 /** The error a page carries when automatic acceptance ran out of its time
  * budget before reading it. Not a transient fetch failure: the same slow
  * preview exhausts the same budget on every attempt, so it is reported as
@@ -565,9 +563,25 @@ export interface RouteFetchResult {
 export const ACCEPTANCE_BUDGET_EXHAUSTED =
   "Acceptance time budget exhausted before this page was read.";
 
-const fetchCode = (error: string) =>
-  error === ACCEPTANCE_BUDGET_EXHAUSTED ? "budget" : "fetch";
+/** The error a page carries when it did not answer within its timeout
+ * (acceptance-http.ts). Like an exhausted budget, a page that slow is slow on
+ * every attempt, so it is `timeout`, not a `fetch` blip worth a recapture. A
+ * reset or dropped connection keeps `fetch`: that one does clear on retry. */
+export function pageTimeoutError(timeoutMs: number): string {
+  return `${PAGE_TIMEOUT_PREFIX} ${Math.round(timeoutMs / 1000)}s.`;
+}
+const PAGE_TIMEOUT_PREFIX = "No response within";
 
+/** Finding codes for a page that could not be read; only `fetch` is worth
+ * retrying by recapture. */
+function fetchCode(error: string): "budget" | "timeout" | "fetch" {
+  if (error === ACCEPTANCE_BUDGET_EXHAUSTED) return "budget";
+  if (error.startsWith(PAGE_TIMEOUT_PREFIX)) return "timeout";
+  return "fetch";
+}
+
+/** Plan §7.2 item 4: the five surfaces render themed, the missing route is a
+ * real (themed) 404, and every one of them tells crawlers to stay away. */
 export function routeRenderFindings(
   routes: readonly RouteFetchResult[],
 ): GateFinding[] {

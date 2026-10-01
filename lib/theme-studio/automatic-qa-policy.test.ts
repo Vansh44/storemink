@@ -19,9 +19,11 @@ const failing = (id: GateId, code = "quality") =>
 describe("automatic completion policy", () => {
   it("sends an exhausted route-check budget to attention, never a paid revision", () => {
     for (const id of ["routes.render", "routes.links"] as const) {
-      expect(automaticQaDecision(failing(id, "budget"), true, 0)).toBe(
-        "attention",
-      );
+      for (const code of ["budget", "timeout"]) {
+        expect(automaticQaDecision(failing(id, code), true, 0)).toBe(
+          "attention",
+        );
+      }
     }
     // An ordinary broken link at the first iteration is still repaired.
     expect(

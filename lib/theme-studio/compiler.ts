@@ -70,6 +70,12 @@ export const SYSTEM_SLOTS = {
   "screenshot-mobile": { aspectRatio: "9:19", alt: "Storefront on mobile" },
 } as const;
 
+/** Own keys only: `in` would also match Object.prototype names such as
+ * `constructor`, which pass the kebab-case id rule. */
+function isSystemSlot(slot: string): slot is keyof typeof SYSTEM_SLOTS {
+  return Object.hasOwn(SYSTEM_SLOTS, slot);
+}
+
 /**
  * The repair sentence for storefront content naming a catalog picture slot.
  * Those slots are photographs OF the finished storefront, replaced by capture
@@ -77,10 +83,6 @@ export const SYSTEM_SLOTS = {
  * under the evidence, so capture refuses such a theme (captureBlockers). Saying
  * so here lets the model fix it before generation and imagery are paid for.
  */
-function isSystemSlot(slot: string): boolean {
-  return slot in SYSTEM_SLOTS;
-}
-
 function systemSlotIssue(where: string, slot: string): string | null {
   return isSystemSlot(slot)
     ? `${where} uses "${slot}", a catalog picture of the finished storefront; storefront images need their own asset brief.`
@@ -685,8 +687,7 @@ export function slotSpec(
   intent: ThemeIntent,
   productSlots?: ReadonlyMap<string, ProductSlot>,
 ): { aspectRatio: string; alt: string } {
-  if (slot in SYSTEM_SLOTS)
-    return SYSTEM_SLOTS[slot as keyof typeof SYSTEM_SLOTS];
+  if (isSystemSlot(slot)) return SYSTEM_SLOTS[slot];
   const product = productSlots?.get(slot);
   if (product) {
     const brief = intent.assetBriefs.find((b) => b.id === product.briefId);

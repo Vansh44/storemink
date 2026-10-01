@@ -12,6 +12,8 @@ import {
   gate,
   internalLinks,
   linkFindings,
+  pageTimeoutError,
+  ACCEPTANCE_BUDGET_EXHAUSTED,
   markupFindings,
   parseBrowserEvidence,
   readAcceptanceReport,
@@ -380,6 +382,30 @@ describe("rendered routes", () => {
       "indexable",
       "fetch",
     ]);
+  });
+
+  it("tells a slow page and a spent budget apart from a dropped connection", () => {
+    const failing = (error: string) => ({
+      surface: "home" as AcceptanceSurface,
+      path: "/",
+      status: null,
+      themed: false,
+      noindex: false,
+      error,
+    });
+    expect(
+      routeRenderFindings([
+        failing(pageTimeoutError(45_000)),
+        failing(ACCEPTANCE_BUDGET_EXHAUSTED),
+        failing("socket hang up"),
+      ]).map((f) => f.code),
+    ).toEqual(["timeout", "budget", "fetch"]);
+    expect(
+      linkFindings([
+        { path: "/a", status: null, error: pageTimeoutError(45_000) },
+        { path: "/b", status: null, error: "read ECONNRESET" },
+      ]).map((f) => f.code),
+    ).toEqual(["timeout", "fetch"]);
   });
 
   it("broken links are 4xx/5xx, redirects are fine", () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { prepareDraft, productSlotBrief, productSlotId } from "./compiler";
+import {
+  prepareDraft,
+  productSlotBrief,
+  productSlotId,
+  reservedBriefIssues,
+  slotSpec,
+} from "./compiler";
 import { createFakeModelClient, runFakeProvider } from "./fake-provider";
 import type { ThemeIntent } from "./contracts";
 
@@ -110,5 +116,30 @@ describe("catalog picture slots in storefront content", () => {
     expect(prepareDraft(draft, intent).issues).toEqual([
       expect.stringContaining('"preview", a catalog picture'),
     ]);
+  });
+});
+
+describe("reserved catalog slot names", () => {
+  it("reserves the catalog slots and screenshot-* names, and nothing inherited from Object", () => {
+    const issues = reservedBriefIssues({
+      assetBriefs: [
+        { id: "preview" },
+        { id: "screenshot-hero" },
+        { id: "constructor" },
+        { id: "home-hero" },
+      ],
+    });
+    expect(issues).toHaveLength(2);
+    expect(issues[0]).toContain('"preview"');
+    expect(issues[1]).toContain('"screenshot-hero"');
+  });
+
+  it("gives a brief named after an Object.prototype key its own spec, not a system slot's", () => {
+    const intent = {
+      assetBriefs: [
+        { id: "constructor", purpose: "Hero", aspectRatio: "21:9" },
+      ],
+    } as unknown as ThemeIntent;
+    expect(slotSpec("constructor", intent).aspectRatio).toBe("21:9");
   });
 });

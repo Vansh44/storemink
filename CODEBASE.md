@@ -5508,8 +5508,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     minutes of browser time left, and a 409 (lost lease) finish does not stop
     the execution. Automatic route checks keep the manual per-page timeouts
     under a 150-second total budget, never starting a page with under two
-    seconds left. An exhausted budget is a `budget` finding, not `fetch`: it
-    is not recaptured and automatic QA routes it to needs-attention.
+    seconds left. An exhausted budget (`budget`) or a page that timed out
+    (`timeout`) is not a `fetch`: neither is recaptured, and automatic QA
+    routes both to needs-attention; only a reset/dropped connection recaptures.
     Operator reads filter out internal versions; visible versions show an auto
     QA badge and iteration count. ★ Migration `20260927_0144` owns the version,
     run and capture QA columns, the service-only visual queue, QA asset/event
