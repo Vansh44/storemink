@@ -15,7 +15,7 @@ import { cronAuthorized } from "../auth";
 // (capture.ts); the body is read with a hard ceiling before any of that.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 240;
 
 /** Three JPEG shots, base64 in JSON, with room to spare. */
 const MAX_BODY_BYTES =
@@ -82,6 +82,7 @@ export async function POST(
   }
   let qa:
     | {
+        buildId?: string;
         evidence: unknown;
         screenshots: {
           key: string;
@@ -94,6 +95,7 @@ export async function POST(
     | undefined;
   if (body.qa !== undefined) {
     const raw = body.qa as {
+      buildId?: unknown;
       evidence?: unknown;
       screenshots?: unknown;
     };
@@ -136,7 +138,11 @@ export async function POST(
         bytes,
       });
     }
-    qa = { evidence: raw.evidence, screenshots };
+    qa = {
+      buildId: typeof raw.buildId === "string" ? raw.buildId : undefined,
+      evidence: raw.evidence,
+      screenshots,
+    };
   }
   try {
     const result = await finishThemeStudioCapture({

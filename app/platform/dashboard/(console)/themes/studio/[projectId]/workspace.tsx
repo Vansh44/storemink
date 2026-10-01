@@ -218,7 +218,15 @@ export function ProjectWorkspace({
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {project.name}
             </h1>
-            <StudioStatusBadge status={project.status} />
+            {project.status === "ready" &&
+            project.versions.find((v) => v.id === project.currentVersionId)
+              ?.qaStatus === "failed" ? (
+              <span className="rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800">
+                Needs attention
+              </span>
+            ) : (
+              <StudioStatusBadge status={project.status} />
+            )}
           </div>
           <p className="mt-1 text-sm text-slate-500">
             <span className="font-mono">{project.themeId}</span> · {modelLabel}{" "}

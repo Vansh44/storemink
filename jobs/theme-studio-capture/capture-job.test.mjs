@@ -5,6 +5,7 @@ import {
   runCaptureJob,
   takeQaScreenshots,
   takeShots,
+  mapCaptureWork,
 } from "./capture-job.mjs";
 
 const claim = {
@@ -104,6 +105,28 @@ function response(status, body) {
 }
 
 describe("taking the shots", () => {
+  it("bounds parallel browser work, preserves order and drains in-flight work on failure", async () => {
+    let active = 0,
+      peak = 0;
+    const results = await mapCaptureWork([1, 2, 3, 4, 5], 9, async (n) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, n === 1 ? 15 : 1));
+      active--;
+      return n;
+    });
+    expect(peak).toBe(2);
+    expect(results).toEqual([1, 2, 3, 4, 5]);
+    let drained = false;
+    await expect(
+      mapCaptureWork([1, 2, 3], 2, async (n) => {
+        if (n === 1) throw new Error("broken page");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        drained = true;
+      }),
+    ).rejects.toThrow("broken page");
+    expect(drained).toBe(true);
+  });
   it("opens each shot in its own context at its size and device, with the capture cookie", async () => {
     const { browser, contexts } = fakeBrowser();
     const images = await takeShots(browser, claim, { settleMs: 0 });
@@ -266,6 +289,34 @@ describe("the job", () => {
       log: {},
     });
     expect(bodies).toEqual([{ leaseToken: "l-1", error: "capture_timeout" }]);
+  });
+
+  it("includes browser launch in the deadline and closes a browser that arrives late", async () => {
+    const { browser } = fakeBrowser();
+    let launched;
+    const times = [0, 0, 299_990];
+    const bodies = [];
+    await runCaptureJob({
+      appOrigin: "http://localhost:3000",
+      cronSecret: "s",
+      maxCaptures: 1,
+      now: () => times.shift() ?? 300_000,
+      launch: () =>
+        new Promise((resolve) => {
+          launched = resolve;
+        }),
+      fetchImpl: async (_url, init) => {
+        if (!init.body) return response(200, claim);
+        bodies.push(JSON.parse(init.body));
+        return response(200, { status: "requeued" });
+      },
+      log: {},
+    });
+    expect(bodies).toEqual([{ leaseToken: "l-1", error: "capture_timeout" }]);
+    launched(browser);
+    await Promise.resolve();
+    expect(browser.close).toHaveBeenCalledOnce();
+    expect(browser.newContext).not.toHaveBeenCalled();
   });
 
   it("launches no browser when nothing is queued, and fails loudly when the claim does", async () => {

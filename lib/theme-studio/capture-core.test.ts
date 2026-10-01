@@ -75,6 +75,14 @@ async function drawn(): Promise<ThemePackageV2> {
 }
 
 describe("what a capture photographs", () => {
+  it("refuses catalog slots reused as storefront art so capture cannot invalidate browser evidence", async () => {
+    const pkg = await drawn();
+    pkg.definition.preset.sampleData!.products[0].image_url =
+      pkg.definition.catalog.previewImage;
+    expect(captureBlockers(pkg).join(" ")).toContain(
+      "storefront image uses a catalog screenshot slot",
+    );
+  });
   it("shoots the card and both screenshots, each rendered larger than its slot", async () => {
     const shots = captureShots(await fixture());
     expect(shots.map((s) => s.slotId)).toEqual([

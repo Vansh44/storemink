@@ -29,6 +29,14 @@ Automatic pre-review is a second, stricter gate. Set
 Theme Studio model worker is deployed. The runtime treats auto QA as disabled
 unless capture is enabled too.
 
+**Automatic acceptance rollout (2026-10-01, not yet deployed):** deploy the
+updated web service and rebuild this job together; automatic claims now include
+`qa.buildId`, which the job must return. Old job responses are retried and cannot
+mark a theme ready. Enable the separate one-minute QA scheduler described in
+`docs/cron-jobs.md`. Change the capture scheduler to once per minute after the
+new image is deployed; the five-minute schedules above describe the previous
+verified deployment. Overlapping executions claim different leased rows.
+
 ## How it fits together
 
 ```
@@ -92,7 +100,7 @@ gcloud run jobs deploy storemink-theme-studio-capture \
 ```bash
 gcloud scheduler jobs create http storemink-theme-studio-capture \
   --project storemink-prod --location asia-south1 \
-  --schedule "*/5 * * * *" --time-zone Etc/UTC \
+  --schedule "* * * * *" --time-zone Etc/UTC \
   --uri "https://asia-south1-run.googleapis.com/apis/run.googleapis.com/v1/namespaces/storemink-prod/jobs/storemink-theme-studio-capture:run" \
   --http-method POST \
   --oauth-service-account-email <scheduler-invoker>@storemink-prod.iam.gserviceaccount.com
@@ -101,11 +109,23 @@ gcloud scheduler jobs create http storemink-theme-studio-capture \
 The invoker needs `roles/run.invoker` on the job. An execution with nothing
 queued exits in a few seconds.
 
+For an existing schedule, use `gcloud scheduler jobs update http` with the
+same job name and `--schedule "* * * * *"` (and the environment's location/project).
+Dev uses its own job name and origin.
+
 For an automatic claim the same execution also visits every available home,
 shop, product, cart, content and not-found surface at 360, 390, 768, 1024 and
 1440 px. It returns raw layout/accessibility/performance measurements and a
 compressed full-page screenshot for each pair. The web app validates and
-stores that evidence; the browser job never decides pass or fail.
+stores that evidence; the browser job never decides pass or fail. Two isolated
+viewport contexts run concurrently, preserving the original page/sample order.
+The finish endpoint uses the still-valid capture cookie to run shared server
+acceptance checks, then binds all gates and evidence to the final version after
+its catalog images are saved. Expected coverage comes from the package, not the
+submitted samples. Its saved report appears under **Checks** automatically.
+Only a complete acceptance pass plus visual approval reveals a successful
+candidate. Theme failures enter the bounded two-repair loop; runtime failures
+stop with recovery information, and transient route fetch failures retry capture.
 
 The expected response is 200 except for the deliberate `not_found` surface,
 which must return 404. The job waits up to 20 seconds for the hydrated QA
@@ -113,13 +133,15 @@ probe and 45 seconds per measurement. The probe handles SVG icons without
 calling HTML-only text APIs. It waits for fonts/images itself, so automatic
 QA does not also pay a 15-second network-idle wait on every sample.
 
-Capture work is bounded to seven minutes or the execution's remaining budget,
-with a minute reserved for result reporting. Claim/finish HTTP calls each have
-60-second timeouts. No new claim starts in the last two minutes of the default
-eight-minute budget. Browser launch failures are reported against the lease;
-failed/timed-out browsers are closed before a subsequent capture. A rejected
-finish request fails the execution so it is visible in job monitoring; the
-existing lease expiry/retry path recovers it.
+Browser launch and capture work are bounded to five minutes or the execution's
+remaining budget minus three minutes for server acceptance. Claims have a
+60-second timeout; finish has a 240-second timeout. No new claim starts in the
+last 210 seconds of the default eight-minute budget. Leases and job execution
+still expire at ten minutes. Server route checks use bounded two-page batches
+and five-second reads; a failed fetch retries capture rather than paying for a
+redesign. Browsers that arrive after their launch deadline are closed. Failed or
+timed-out browsers are closed before a subsequent capture. A rejected finish
+request fails the execution for monitoring; lease expiry/retry recovers it.
 
 **Deploy the capture image separately from the web service.** Web-only deploys
 do not update this job's 404/readiness/timeout behavior. Regression evidence and

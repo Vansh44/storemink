@@ -86,6 +86,22 @@ export function captureShots(pkg: ThemePackageV2): CaptureShot[] {
 /** Why a capture of this version would be pointless, in operator words. */
 export function captureBlockers(pkg: ThemePackageV2): string[] {
   const blockers: string[] = [];
+  // Automatic acceptance measures the storefront before replacing its catalog
+  // pictures. Those replacements must never change a shopper-facing image.
+  const catalogPaths = new Set([
+    pkg.definition.catalog.previewImage,
+    ...pkg.definition.catalog.screenshots.map((shot) => shot.src),
+  ]);
+  const usesCatalogImage = (value: unknown): boolean => {
+    if (typeof value === "string") return catalogPaths.has(value);
+    if (!value || typeof value !== "object") return false;
+    return Object.values(value).some(usesCatalogImage);
+  };
+  if (usesCatalogImage(pkg.definition.preset)) {
+    blockers.push(
+      "A storefront image uses a catalog screenshot slot. Revise the theme to give storefront artwork its own image slots before capturing it.",
+    );
+  }
   const missingCategories = (
     pkg.definition.preset.sampleData?.categories ?? []
   ).filter((category) => !category.image_url?.trim());

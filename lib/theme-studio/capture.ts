@@ -1,7 +1,7 @@
 import "server-only";
 
 import { createHash, randomUUID } from "node:crypto";
-import { and, desc, eq, max, sql } from "drizzle-orm";
+import { and, desc, eq, gt, max, sql } from "drizzle-orm";
 import sharp from "sharp";
 import {
   platformAdmins,
@@ -22,7 +22,12 @@ import {
   type CaptureShot,
 } from "./capture-core";
 import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
-import { openThemeStudioPreview } from "./preview";
+import { openThemeStudioPreview, previewPagesFor } from "./preview";
+import {
+  currentAcceptanceBuildId,
+  renderedPreviewGates,
+  recordAutomaticAcceptance,
+} from "./acceptance";
 import {
   CAPTURE_COOKIE,
   CAPTURE_TOKEN_TTL_SECONDS,
@@ -40,7 +45,7 @@ import { getThemeStudioConfig } from "./config";
 import {
   THEME_STUDIO_QA_VIEWPORTS,
   type BrowserEvidence,
-  evaluateBrowserGates,
+  type GateResult,
   parseBrowserEvidence,
 } from "./acceptance-gates";
 
@@ -102,6 +107,7 @@ export interface ClaimedCapture {
   cookie: { name: string; value: string };
   shots: Omit<CaptureShot, "target" | "byteLimit" | "alt">[];
   qa?: {
+    buildId: string;
     pages: { surface: string; path: string }[];
     viewports: typeof THEME_STUDIO_QA_VIEWPORTS;
   };
@@ -395,6 +401,10 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
     await fail("base_changed");
     return null;
   }
+  if (captureBlockers(pkg.value).length) {
+    await fail("capture_not_ready");
+    return null;
+  }
   // The preview is opened as the operator who asked: the store is theirs to
   // see, and its events name them. An operator since removed cannot.
   if (!owner) {
@@ -440,6 +450,7 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
     ...(capture.automatic
       ? {
           qa: {
+            buildId: currentAcceptanceBuildId(),
             pages: opened.pages.map(({ surface, path }) => ({ surface, path })),
             viewports: THEME_STUDIO_QA_VIEWPORTS,
           },
@@ -471,6 +482,7 @@ async function heldCapture(
         eq(themeStudioCaptures.id, captureId),
         eq(themeStudioCaptures.status, "running"),
         eq(themeStudioCaptures.leaseOwner, leaseToken),
+        gt(themeStudioCaptures.leaseExpiresAt, sql`now()`),
       ),
     )
     .limit(1);
@@ -488,6 +500,7 @@ export async function finishThemeStudioCapture(input: {
   leaseToken: string;
   images?: { slotId: string; bytes: Uint8Array }[];
   qa?: {
+    buildId?: string;
     evidence: unknown;
     screenshots: {
       key: string;
@@ -506,6 +519,19 @@ export async function finishThemeStudioCapture(input: {
     heldCapture(db, input.captureId, input.leaseToken, false),
   );
   if (!capture) return { status: "lost" };
+
+  if (
+    capture.automatic &&
+    input.images &&
+    !input.error &&
+    input.qa?.buildId !== currentAcceptanceBuildId()
+  ) {
+    return finishThemeStudioCapture({
+      captureId: input.captureId,
+      leaseToken: input.leaseToken,
+      error: "capture_build_changed",
+    });
+  }
 
   if (input.error !== undefined || !input.images) {
     const code = CODE_RE.test(input.error ?? "")
@@ -547,6 +573,7 @@ export async function finishThemeStudioCapture(input: {
     });
   if (!parsed?.ok || !version) return failNow("base_invalid");
   const pkg: ThemePackageV2 = parsed.value;
+  if (captureBlockers(pkg).length) return failNow("capture_not_ready");
 
   const qaEvidence = capture.automatic
     ? parseBrowserEvidence(input.qa?.evidence)
@@ -641,6 +668,58 @@ export async function finishThemeStudioCapture(input: {
     });
   }
   if (prepared.some((p) => !p.image.ok)) return failNow("capture_unusable");
+
+  let automatic: {
+    actor: ThemeStudioActor;
+    gates: GateResult[];
+    buildId: string;
+  } | null = null;
+  if (capture.automatic) {
+    if (!capture.createdBy) return failNow("operator_removed");
+    const ownerId = capture.createdBy;
+    const [owner] = await withService((db) =>
+      db
+        .select({
+          id: platformAdmins.id,
+          email: platformAdmins.email,
+          role: platformAdmins.role,
+        })
+        .from(platformAdmins)
+        .where(eq(platformAdmins.id, ownerId))
+        .limit(1),
+    );
+    if (!owner || owner.role !== "superadmin")
+      return failNow("operator_removed");
+    const opened = await openThemeStudioPreview(owner, {
+      projectId: capture.projectId,
+      versionId: capture.versionId,
+    });
+    const gates = await renderedPreviewGates({
+      origin: opened.origin,
+      pages: previewPagesFor(pkg),
+      timeoutMs: 5000,
+      cookies: {
+        [CAPTURE_COOKIE]: signPreviewToken(
+          "capture",
+          {
+            storeId: opened.storeId,
+            versionId: capture.versionId,
+            actorId: capture.id,
+          },
+          CAPTURE_TOKEN_TTL_SECONDS,
+        ),
+      },
+    });
+    // Transient route fetches get capture retries, never a paid design rewrite.
+    if (gates.some((g) => g.findings.some((f) => f.code === "fetch"))) {
+      return finishThemeStudioCapture({
+        captureId: input.captureId,
+        leaseToken: input.leaseToken,
+        error: "acceptance_route_fetch",
+      });
+    }
+    automatic = { actor: owner, gates, buildId: input.qa!.buildId! };
+  }
 
   return withService(async (db): Promise<CaptureFinish> => {
     const [project] = await db
@@ -790,14 +869,30 @@ export async function finishThemeStudioCapture(input: {
       }
       const evidence = (qaEvidence as { ok: true; value: BrowserEvidence })
         .value;
-      const surfaces = [...new Set(evidence.samples.map((s) => s.surface))];
-      const gates = evaluateBrowserGates(evidence, surfaces);
+      // Expected coverage is derived from the package, never from the submitted
+      // samples (otherwise omitting a whole page could pass coverage).
+      const surfaces = previewPagesFor(applied.value).map(
+        (page) => page.surface,
+      );
+      const acceptance = await recordAutomaticAcceptance(db, {
+        projectId: project.id,
+        versionId: created.id,
+        packageDigest,
+        pkg: applied.value,
+        actor: automatic!.actor,
+        buildId: automatic!.buildId,
+        sourceVersionId: held.versionId,
+        renderedGates: automatic!.gates,
+        evidence,
+        surfaces,
+      });
+      const gates = acceptance.gates;
       await db.insert(themeStudioVisualQaRuns).values({
         projectId: project.id,
         versionId: created.id,
         packageDigest,
         qaIteration: held.qaIteration,
-        browserReport: { evidence, gates, surfaces },
+        browserReport: { evidence, surfaces, ...acceptance },
         screenshotAssetIds,
         createdBy: held.createdBy,
       });

@@ -12,7 +12,7 @@ vi.mock("./capture-core", async (importOriginal) => ({
   captureBlockers: vi.fn(() => []),
 }));
 
-import { queueThemeStudioCapture } from "./capture";
+import { queueThemeStudioCapture, finishThemeStudioCapture } from "./capture";
 import { captureBlockers } from "./capture-core";
 import { themeStudioCaptures, themeStudioProjects } from "@/drizzle/schema";
 
@@ -74,6 +74,53 @@ function queueDb({
 
 describe("Theme Studio catalog capture deployment gate", () => {
   afterEach(() => vi.unstubAllEnvs());
+
+  it.each([undefined, "earlier-build"])(
+    "retries automatic results from an absent or earlier build (%s) before saving images",
+    async (buildId) => {
+      vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
+      const held = {
+        id: input.versionId,
+        automatic: true,
+        attemptCount: 1,
+        maxAttempts: 5,
+      };
+      const writes: Record<string, unknown>[] = [];
+      const db = {
+        select: () => {
+          const query = {
+            from: () => query,
+            where: () => query,
+            limit: () => query,
+            for: () => query,
+            then: (resolve: (value: unknown) => unknown) =>
+              Promise.resolve([held]).then(resolve),
+          };
+          return query;
+        },
+        update: () => ({
+          set: (values: Record<string, unknown>) => {
+            writes.push(values);
+            return { where: async () => [] };
+          },
+        }),
+        insert: vi.fn(),
+      };
+      withService.mockImplementation(async (work) => work(db));
+      expect(
+        await finishThemeStudioCapture({
+          captureId: input.versionId,
+          leaseToken: actor.id,
+          images: [],
+          qa: { buildId, evidence: {}, screenshots: [] },
+        }),
+      ).toEqual({ status: "requeued" });
+      expect(writes).toEqual([
+        { status: "queued", leaseOwner: null, leaseExpiresAt: null },
+      ]);
+      expect(db.insert).not.toHaveBeenCalled();
+    },
+  );
 
   it("restarts failed automatic QA with browser evidence and a bounded retry budget", async () => {
     vi.stubEnv("THEME_STUDIO_CAPTURE_ENABLED", "true");

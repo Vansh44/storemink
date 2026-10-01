@@ -18,6 +18,8 @@ import type { ThemeStudioCaptureView } from "@/lib/theme-studio/capture";
 export const CAPTURE_ERROR_TEXT: Record<string, string> = {
   base_changed: "The version changed before the capture started.",
   base_invalid: "The version could no longer be read.",
+  capture_not_ready:
+    "This version has image issues that prevent capture. Resolve the artwork or slot issues listed below first.",
   operator_removed: "The operator who asked for it has been removed.",
   preview_failed: "The preview store couldn't be built for this version.",
   lease_expired: "The capture job stopped responding after all retry attempts.",
@@ -32,6 +34,10 @@ export const CAPTURE_ERROR_TEXT: Record<string, string> = {
   capture_timeout: "The preview took too long to load in the capture job.",
   capture_network: "The capture job couldn't reach the preview.",
   capture_browser_error: "The capture job's browser failed.",
+  capture_build_changed:
+    "The app changed while checks were running. Retry automatic QA to collect current evidence.",
+  acceptance_route_fetch:
+    "Acceptance checks couldn't load the preview after retries. Retry automatic QA when the preview is available.",
   qa_probe_missing: "The preview's QA checks did not finish loading.",
   qa_measure_failed: "The preview's browser measurements failed.",
 };

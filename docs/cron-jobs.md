@@ -228,12 +228,19 @@ and both completed an empty-queue smoke execution before
 `THEME_STUDIO_CAPTURE_ENABLED=true` was enabled. Build, deploy and schedule:
 `docs/theme-studio-capture-job.md`.
 
-Track 5 reuses this job for automatic pre-review. An automatic claim also
-captures every preview surface at five widths and reports browser evidence;
-the long `/api/internal/theme-studio/runs` worker consumes the resulting visual
-QA queue and may enqueue a bounded revision. Enable
-`_THEME_STUDIO_AUTO_QA_ENABLED=true` is enabled in dev and production now that
-both workers are live; it remains ineffective whenever capture is disabled.
+Track 5 reuses this job for automatic acceptance and pre-review. It captures
+every preview surface at five widths and reports browser evidence; the server
+records full acceptance before visual review and bounded repair. Both capture
+and `_THEME_STUDIO_AUTO_QA_ENABLED=true` remain required.
+
+**2026-10-01 rollout required (not yet deployed):** the independent
+`POST /api/internal/theme-studio/qa` route drains two leased QA rows without
+waiting on the long model/image request. Schedule it every minute with a
+300-second deadline and no scheduler retries; the database owns retries. The
+existing model endpoint retains its QA lane as a fallback. Deploy the new
+capture image with the web app, then shorten the capture schedule from five
+minutes to one (see `docs/theme-studio-capture-job.md`). Leases fence overlapping
+capture/QA executions. Configure both environments separately.
 
 ⚠ **`billing` must stay HOURLY.** The cycle boundary and the 48-hour grace
 deadline are wall-clock instants, so the interval IS the resolution of the whole
@@ -524,6 +531,18 @@ gcloud scheduler jobs create http storemink-theme-studio-runs \
   --uri="https://storemink.com/api/internal/theme-studio/runs" \
   --http-method=POST --headers="Authorization=Bearer ${CRON_SECRET_VALUE}" \
   --attempt-deadline=1200s --max-retry-attempts=0
+```
+
+After deploying the automatic-acceptance web changes, create the separate QA
+scheduler (for dev, use a distinct `-dev` name, dev origin and its secret):
+
+```bash
+gcloud scheduler jobs create http storemink-theme-studio-qa \
+  --project=storemink-prod --location=asia-south1 \
+  --schedule="* * * * *" --time-zone="Etc/UTC" \
+  --uri="https://storemink.com/api/internal/theme-studio/qa" \
+  --http-method=POST --headers="Authorization=Bearer ${CRON_SECRET_VALUE}" \
+  --attempt-deadline=300s --max-retry-attempts=0
 ```
 
 After the pgvector migration and route deploy are verified, create the Help

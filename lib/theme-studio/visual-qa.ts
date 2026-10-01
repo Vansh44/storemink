@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, sql } from "drizzle-orm";
 import sharp from "sharp";
 import {
   themeStudioAssets,
@@ -10,6 +10,8 @@ import {
   themeStudioRuns,
   themeStudioVersions,
   themeStudioVisualQaRuns,
+  themeStudioAcceptanceRuns,
+  themeStudioCaptures,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import { logError } from "@/lib/observability/logger";
@@ -25,6 +27,16 @@ import type {
 } from "./provider";
 import { recordThemeStudioEvent } from "./repository";
 import {
+  currentAcceptanceBuildId,
+  verifyCandidateEvidenceWithDb,
+} from "./acceptance";
+import { readAcceptanceReport, type GateResult } from "./acceptance-gates";
+import {
+  automaticQaDecision,
+  automaticAcceptanceFailures,
+} from "./automatic-qa-policy";
+import { AUTOMATIC_CAPTURE_MAX_ATTEMPTS } from "./capture-core";
+import {
   REJECTION_CONDITIONS,
   SCORECARD_DIMENSIONS,
   scorecardClearsBar,
@@ -34,7 +46,6 @@ import {
 
 const QA_LEASE_SECONDS = 5 * 60;
 const QA_TIMEOUT_MS = 4 * 60_000;
-const MAX_QA_ITERATION = 3;
 
 export const VISUAL_QA_PROMPT_VERSION = "theme-studio-visual-qa-v1";
 
@@ -390,37 +401,10 @@ async function evaluateQa(
   }
 }
 
-function browserFailures(qa: ClaimedQa): string[] {
-  const gates = (qa.browserReport as { gates?: unknown }).gates;
-  if (!Array.isArray(gates)) return ["Browser QA report is missing gates."];
-  return gates.flatMap((raw) => {
-    const gate = raw as {
-      required?: unknown;
-      status?: unknown;
-      label?: unknown;
-      findings?: unknown;
-    };
-    if (gate.required !== true || gate.status === "pass") return [];
-    const findings = Array.isArray(gate.findings)
-      ? gate.findings
-          .map((finding) =>
-            typeof (finding as { message?: unknown })?.message === "string"
-              ? (finding as { message: string }).message
-              : null,
-          )
-          .filter((finding): finding is string => Boolean(finding))
-          .slice(0, 4)
-      : [];
-    return [
-      `${typeof gate.label === "string" ? gate.label : "Browser gate"}: ${findings.join("; ") || "failed"}`,
-    ];
-  });
-}
-
 async function settleQa(
   workerId: string,
   qa: ClaimedQa,
-  evaluated: { report: VisualQaReport; usage: ProviderUsage },
+  evaluated: { report: VisualQaReport | null; usage: ProviderUsage | null },
 ) {
   return withService(async (db) => {
     const [held] = await db
@@ -431,22 +415,102 @@ async function settleQa(
           eq(themeStudioVisualQaRuns.id, qa.id),
           eq(themeStudioVisualQaRuns.status, "running"),
           eq(themeStudioVisualQaRuns.leaseOwner, workerId),
+          gt(themeStudioVisualQaRuns.leaseExpiresAt, sql`now()`),
         ),
       )
       .for("update")
       .limit(1);
     if (!held) return "lost" as const;
-    const browser = browserFailures(qa);
+    const [project] = await db
+      .select()
+      .from(themeStudioProjects)
+      .where(eq(themeStudioProjects.id, qa.projectId))
+      .for("update")
+      .limit(1);
+    if (!project || project.status !== "generating") return "lost" as const;
+    const binding = qa.browserReport as {
+      acceptanceRunId?: string;
+      buildId?: string;
+    };
+    const [acceptance] = binding.acceptanceRunId
+      ? await db
+          .select()
+          .from(themeStudioAcceptanceRuns)
+          .where(
+            and(
+              eq(themeStudioAcceptanceRuns.id, binding.acceptanceRunId),
+              eq(themeStudioAcceptanceRuns.projectId, qa.projectId),
+              eq(themeStudioAcceptanceRuns.versionId, qa.versionId),
+            ),
+          )
+          .limit(1)
+      : [];
+    if (!acceptance || acceptance.packageDigest !== qa.packageDigest) {
+      await revealFailed(db, qa, "automatic_acceptance_missing");
+      return "failed" as const;
+    }
+    if (acceptance.buildId !== currentAcceptanceBuildId()) {
+      // A deploy invalidates old rendering evidence. Recapture this same
+      // immutable version instead of paying to regenerate its design/images.
+      await db.insert(themeStudioCaptures).values({
+        projectId: qa.projectId,
+        versionId: qa.versionId,
+        packageDigest: qa.packageDigest,
+        previousStatus: "generating",
+        automatic: true,
+        qaIteration: qa.qaIteration,
+        maxAttempts: AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
+        idempotencyKey: `auto_recapture_${qa.id}`,
+        createdBy: qa.createdBy,
+      });
+      await db
+        .update(themeStudioVisualQaRuns)
+        .set({
+          status: "failed",
+          errorCode: "acceptance_build_changed",
+          leaseOwner: null,
+          leaseExpiresAt: null,
+          finishedAt: sql`now()`,
+        })
+        .where(eq(themeStudioVisualQaRuns.id, qa.id));
+      await recordThemeStudioEvent(db, {
+        projectId: qa.projectId,
+        actor: "worker",
+        eventType: "capture_requested",
+        detail: { versionId: qa.versionId, reason: "acceptance_build_changed" },
+      });
+      return "revision_queued" as const;
+    }
+    const gates: GateResult[] = [
+      ...readAcceptanceReport(acceptance.serverReport).gates,
+      ...readAcceptanceReport(acceptance.browserReport).gates,
+    ];
+    const failures = automaticAcceptanceFailures(gates);
     const modelPass =
-      evaluated.report.verdict === "pass" &&
+      evaluated.report?.verdict === "pass" &&
       scorecardClearsBar(evaluated.report.scores, evaluated.report.rejections);
     const report = {
       promptVersion: VISUAL_QA_PROMPT_VERSION,
       usage: evaluated.usage,
       ...evaluated.report,
-      browserFailures: browser,
+      acceptanceFailures: failures,
+      acceptanceRunId: acceptance.id,
     };
-    if (modelPass && browser.length === 0) {
+    const decision = automaticQaDecision(gates, modelPass, qa.qaIteration);
+    if (decision === "pass" && acceptance.status === "passed") {
+      // Verify asset/build bindings before marking visible or ready. The
+      // verifier is read-only; this row is still generating until settlement.
+      const verified = await verifyCandidateEvidenceWithDb(db, {
+        id: qa.projectId,
+        status: "candidate",
+        currentVersionId: qa.versionId,
+      });
+      if (!verified.ok) {
+        await revealFailed(db, qa, "acceptance_evidence_stale", {
+          reason: verified.reason,
+        });
+        return "failed" as const;
+      }
       await db
         .update(themeStudioVisualQaRuns)
         .set({
@@ -469,6 +533,12 @@ async function settleQa(
           revision: sql`${themeStudioProjects.revision} + 1`,
         })
         .where(eq(themeStudioProjects.id, qa.projectId));
+      // Keep the database state machine: generating -> ready -> candidate.
+      // Both updates commit atomically after the passing acceptance exists.
+      await db
+        .update(themeStudioProjects)
+        .set({ status: "candidate" })
+        .where(eq(themeStudioProjects.id, qa.projectId));
       await recordThemeStudioEvent(db, {
         projectId: qa.projectId,
         actor: "worker",
@@ -477,8 +547,20 @@ async function settleQa(
       });
       return "passed" as const;
     }
-    if (qa.qaIteration >= MAX_QA_ITERATION) {
-      await revealFailed(db, qa, "quality_bar_not_met", report);
+    if (decision === "attention" || decision === "blocked") {
+      await revealFailed(
+        db,
+        qa,
+        decision === "blocked"
+          ? "acceptance_security_failed"
+          : "quality_bar_not_met",
+        report,
+      );
+      if (decision === "blocked")
+        await db
+          .update(themeStudioProjects)
+          .set({ status: "blocked" })
+          .where(eq(themeStudioProjects.id, qa.projectId));
       return "failed" as const;
     }
     const config = getThemeStudioConfig();
@@ -489,11 +571,21 @@ async function settleQa(
     const model = resolveThemeStudioModel(qa.modelKey);
     const brief = [
       "Revise this theme to clear automatic pre-review QA.",
-      ...browser.map((finding) => `Browser: ${finding}`),
-      ...evaluated.report.findings.map((finding) => `Visual: ${finding}`),
-      evaluated.report.revisionBrief
+      ...failures.map((finding) => `Acceptance: ${finding}`),
+      ...(evaluated.report
+        ? [
+            `Visual scores: ${JSON.stringify(evaluated.report.scores)}. Raise every row to at least 4 and the total to at least 34.`,
+            ...evaluated.report.rejections.map(
+              (reason) => `Visual rejection: ${reason}`,
+            ),
+          ]
+        : []),
+      ...(evaluated.report?.findings ?? []).map(
+        (finding) => `Visual: ${finding}`,
+      ),
+      evaluated.report?.revisionBrief
         ? `Required changes: ${evaluated.report.revisionBrief}`
-        : "Raise every scorecard row to at least 4 and the total to at least 34.",
+        : "Fix every reported acceptance finding using the theme's supported settings. Preserve existing artwork; do not hide content or disable checks.",
       "Preserve the product identity and any strong choices that already work. Do not ask questions; use stated assumptions.",
     ]
       .join("\n")
@@ -591,7 +683,20 @@ export async function runThemeStudioVisualQaWorker(options: {
     if (!config.autoQaEnabled) throw new Error("auto_qa_disabled");
     if (config.disabledModels.has(qa.modelKey))
       throw new Error("model_disabled");
-    const evaluated = await evaluateQa(qa, config.provider);
+    const binding = qa.browserReport as {
+      buildId?: string;
+      acceptanceRunId?: string;
+      gates?: GateResult[];
+    };
+    // Deterministic failures already contain a repair brief. Avoid an expensive
+    // vision call until they pass, and never judge screenshots from old builds.
+    const needsVision =
+      binding.buildId === currentAcceptanceBuildId() &&
+      Boolean(binding.acceptanceRunId) &&
+      automaticQaDecision(binding.gates ?? [], true, qa.qaIteration) === "pass";
+    const evaluated = needsVision
+      ? await evaluateQa(qa, config.provider)
+      : { report: null, usage: null };
     const settled = await settleQa(workerId, qa, evaluated);
     if (settled === "passed") result.passed = 1;
     if (settled === "revision_queued") result.revisionQueued = 1;
@@ -609,6 +714,7 @@ export async function runThemeStudioVisualQaWorker(options: {
             eq(themeStudioVisualQaRuns.id, qa.id),
             eq(themeStudioVisualQaRuns.status, "running"),
             eq(themeStudioVisualQaRuns.leaseOwner, workerId),
+            gt(themeStudioVisualQaRuns.leaseExpiresAt, sql`now()`),
           ),
         )
         .for("update")

@@ -89,10 +89,11 @@ export default async function ThemeStudioAcceptancePage({
           Automated gates a version must pass before it can be reviewed: the
           package contract, content floors, design and contrast, a security
           scan, asset integrity and provenance, the preview store&apos;s
-          rendered pages and links, and — measured in this browser at laptop,
-          iPad and mobile sizes — layout overflow, accessibility (axe) and
-          media. Performance is recorded but not required, because it is
-          measured on this machine rather than a production build.{" "}
+          rendered pages and links, plus layout, accessibility and media at
+          phone, tablet and desktop sizes. Generated themes run these checks
+          automatically and repair theme issues before visual review. You can
+          also rerun the checks in this browser. Performance is advisory because
+          it depends on the browser and its environment.{" "}
           <Link
             href={`/dashboard/themes/studio/${project.id}/versions/${version.id}`}
             className="font-medium text-slate-700 underline underline-offset-2"

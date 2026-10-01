@@ -300,7 +300,7 @@ describe("Theme Studio conversation", () => {
     ).toBe(true);
     expect(screen.queryByText("internal repair prompt")).toBeNull();
     expect(screen.getByRole("status").textContent).toContain(
-      "Working on your theme",
+      "running acceptance",
     );
   });
 });

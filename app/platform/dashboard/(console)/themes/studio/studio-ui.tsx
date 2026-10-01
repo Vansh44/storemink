@@ -6,7 +6,7 @@ import type { ThemeStudioProjectState } from "@/lib/theme-studio/contracts";
 const STATUS_TONE: Record<ThemeStudioProjectState, string> = {
   draft: "bg-slate-100 text-slate-600",
   generating: "bg-sky-50 text-sky-700",
-  ready: "bg-emerald-50 text-emerald-700",
+  ready: "bg-amber-50 text-amber-700",
   candidate: "bg-indigo-50 text-indigo-700",
   approved: "bg-violet-50 text-violet-700",
   published: "bg-emerald-100 text-emerald-800",
@@ -24,7 +24,7 @@ export function StudioStatusBadge({
     <span
       className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_TONE[status]}`}
     >
-      {status}
+      {status === "ready" ? "Needs checks" : status}
     </span>
   );
 }

@@ -169,9 +169,16 @@ to questions continue the same request and can include fresh screenshots.
 Only selected screenshots are sent with each message. While work is running,
 the composer shows progress and waits for it to finish; cancellation, retry
 and detailed run information remain under **Runs**.
-Internal drafts remain hidden until QA settles; the empty-version message
-explains that work is still in progress. A failed QA result retains the generated
-version. The version summary distinguishes missing artwork from missing catalog
+Internal drafts remain hidden while Mink draws missing images, captures the
+storefront and runs the full acceptance checks. Theme failures automatically
+produce a targeted revision and another complete check, with up to two repair
+rounds. Visual review runs after deterministic checks pass. A successful result
+is already a **Candidate** with saved acceptance evidence; it still needs human
+review and publication. Runtime faults or exhausted repairs preserve the draft
+with **Needs attention**, a failed QA badge and recovery actions. They are not
+reported as successful themes. Unverified versions show **Needs checks** in
+shared status badges. Performance remains advisory.
+The version summary distinguishes missing artwork from missing catalog
 pictures: when only catalog pictures remain, use **Images → Capture catalog
 pictures** instead of redrawing the artwork. Capture failure reasons are shown
 on the Images page. For a failed automatic result, **Images → Retry automatic

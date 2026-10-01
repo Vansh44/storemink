@@ -1,6 +1,6 @@
 import "server-only";
 
-import { randomBytes, timingSafeEqual } from "node:crypto";
+import { randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { and, desc, eq, inArray, lt, sql } from "drizzle-orm";
 import {
   themeStudioAcceptanceRuns,
@@ -36,10 +36,11 @@ import {
   type GateResult,
   type LinkCheckResult,
   type RouteFetchResult,
+  type BrowserEvidence,
   THEME_STUDIO_QA_VIEWPORTS,
 } from "./acceptance-gates";
 import { fetchInternalPageWithRetry } from "./acceptance-http";
-import { validateThemePackageV2 } from "./contracts";
+import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
 import { openThemeStudioPreview, type PreviewPage } from "./preview";
 import {
   PREVIEW_COOKIE,
@@ -239,15 +240,30 @@ async function routeGates(input: {
     cookies[SESSION_COOKIE] = input.sessionCookie;
   }
 
+  return renderedPreviewGates({ ...input, cookies });
+}
+
+/** Shared manual/automatic route checks using a scoped grant or leased capture cookie. */
+export async function renderedPreviewGates(input: {
+  origin: string;
+  pages: PreviewPage[];
+  cookies: Record<string, string>;
+  timeoutMs?: number;
+}): Promise<GateResult[]> {
+  const host = new URL(input.origin).host;
+  const cookies = input.cookies;
+
   const routes: RouteFetchResult[] = [];
   const bodies: { path: string; html: string }[] = [];
   const crawlSources: string[] = [];
-  for (const [index, page] of input.pages.entries()) {
+  const readPage = async (page: PreviewPage, index: number) => {
     const response = await fetchInternalPageWithRetry({
       host,
       path: page.path,
       cookies,
-      timeoutMs: index === 0 ? FIRST_PAGE_TIMEOUT_MS : PAGE_TIMEOUT_MS,
+      timeoutMs:
+        input.timeoutMs ??
+        (index === 0 ? FIRST_PAGE_TIMEOUT_MS : PAGE_TIMEOUT_MS),
     });
     const robotsHeader = String(response.headers["x-robots-tag"] ?? "");
     routes.push({
@@ -271,6 +287,14 @@ async function routeGates(input: {
     ) {
       crawlSources.push(response.body);
     }
+  };
+  if (input.pages[0]) await readPage(input.pages[0], 0);
+  for (let i = 1; i < input.pages.length; i += LINK_CONCURRENCY) {
+    await Promise.all(
+      input.pages
+        .slice(i, i + LINK_CONCURRENCY)
+        .map((page, offset) => readPage(page, i + offset)),
+    );
   }
 
   const visited = new Set(input.pages.map((page) => page.path));
@@ -299,7 +323,7 @@ async function routeGates(input: {
           host,
           path,
           cookies,
-          timeoutMs: PAGE_TIMEOUT_MS,
+          timeoutMs: input.timeoutMs ?? PAGE_TIMEOUT_MS,
         });
         return { path, status: response.status, error: response.error };
       }),
@@ -322,6 +346,77 @@ const OUTCOME_STATUS: Record<
   AcceptanceOutcome,
   "passed" | "failed" | "blocked"
 > = { pass: "passed", fail: "failed", blocked: "blocked" };
+
+/** Called inside the capture settlement transaction, after catalog assets
+ * exist. The storefront is unchanged by those catalog-only replacements. */
+export async function recordAutomaticAcceptance(
+  db: Db,
+  input: {
+    projectId: string;
+    versionId: string;
+    packageDigest: string;
+    pkg: ThemePackageV2;
+    actor: ThemeStudioActor;
+    buildId: string;
+    sourceVersionId: string;
+    renderedGates: GateResult[];
+    evidence: BrowserEvidence;
+    surfaces: AcceptanceSurface[];
+  },
+) {
+  const rows = await assetRowsFor(db, input.projectId, input.pkg);
+  const serverGates = [
+    ...evaluatePackageGates(input.pkg, rows).gates,
+    gate("demo.materialize", []),
+    ...input.renderedGates,
+  ];
+  const browserGates = evaluateBrowserGates(input.evidence, input.surfaces);
+  const gates = [...serverGates, ...browserGates];
+  const binding = {
+    runId: randomUUID(),
+    versionId: input.versionId,
+    packageDigest: input.packageDigest,
+    assetsDigest: acceptanceAssetsDigest(input.pkg, rows),
+    buildId: input.buildId,
+  };
+  const status = OUTCOME_STATUS[acceptanceOutcome(gates)];
+  await db.insert(themeStudioAcceptanceRuns).values({
+    id: binding.runId,
+    projectId: input.projectId,
+    versionId: binding.versionId,
+    packageDigest: binding.packageDigest,
+    assetsDigest: binding.assetsDigest,
+    buildId: binding.buildId,
+    status,
+    serverReport: {
+      version: ACCEPTANCE_REPORT_VERSION,
+      gates: serverGates,
+      surfaces: input.surfaces,
+      automatic: true,
+      sourceVersionId: input.sourceVersionId,
+    },
+    browserReport: {
+      version: ACCEPTANCE_REPORT_VERSION,
+      gates: browserGates,
+      evidence: input.evidence,
+    },
+    evidenceDigest: acceptanceEvidenceDigest(binding, gates),
+    createdBy: input.actor.id,
+    createdByEmail: input.actor.email,
+    completedAt: sql`now()`,
+  });
+  await recordThemeStudioEvent(db, {
+    projectId: input.projectId,
+    actor: "worker",
+    eventType: `acceptance_${status}`,
+    detail: {
+      runId: binding.runId,
+      versionId: input.versionId,
+      automatic: true,
+    },
+  });
+  return { acceptanceRunId: binding.runId, buildId: input.buildId, gates };
+}
 
 /**
  * Record a verdict and move the project. Runs inside one transaction with the
