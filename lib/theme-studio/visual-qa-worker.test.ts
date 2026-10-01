@@ -215,8 +215,8 @@ describe("automatic acceptance and visual settlement", () => {
     expect(brief).toContain("Raise every row to at least 4");
   });
 
-  it("stops after two repairs without marking failed work passed", async () => {
-    const writes = fixture({ fail: true, iteration: 2 });
+  it("stops after three repairs without marking failed work passed", async () => {
+    const writes = fixture({ fail: true, iteration: 3 });
     expect(
       await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
     ).toMatchObject({ failed: 1, passed: 0, revisionQueued: 0 });
@@ -228,6 +228,15 @@ describe("automatic acceptance and visual settlement", () => {
         (w) => w.table === themeStudioRuns || w.values.status === "candidate",
       ),
     ).toBe(false);
+  });
+  it("still repairs at the second iteration, queueing the third and final attempt", async () => {
+    const writes = fixture({ fail: true, iteration: 2 });
+    expect(
+      await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
+    ).toMatchObject({ revisionQueued: 1, failed: 0 });
+    expect(
+      writes.find((w) => w.table === themeStudioRuns)?.values,
+    ).toMatchObject({ qaIteration: 3 });
   });
   it("recaptures after a deployment without regenerating the theme", async () => {
     const writes = fixture({ oldBuild: true });

@@ -43,10 +43,14 @@ describe("automatic completion policy", () => {
     expect(automaticQaDecision(failing("package.design"), true, 1)).toBe(
       "revise",
     );
+    // Three repairs: iterations 0, 1 and 2 still revise; 3 is the last check.
     expect(automaticQaDecision(failing("browser.accessibility"), true, 2)).toBe(
+      "revise",
+    );
+    expect(automaticQaDecision(failing("browser.accessibility"), true, 3)).toBe(
       "attention",
     );
-    expect(automaticQaDecision(passing(), true, 2)).toBe("pass");
+    expect(automaticQaDecision(passing(), true, 3)).toBe("pass");
     expect(
       automaticAcceptanceFailures(failing("browser.accessibility"))[0],
     ).toContain("phone360 · home: Fix this");

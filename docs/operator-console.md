@@ -171,7 +171,7 @@ the composer shows progress and waits for it to finish; cancellation, retry
 and detailed run information remain under **Runs**.
 Internal drafts remain hidden while Mink draws missing images, captures the
 storefront and runs the full acceptance checks. Theme failures automatically
-produce a targeted revision and another complete check, with up to two repair
+produce a targeted revision and another complete check, with up to three repair
 rounds. Visual review runs after deterministic checks pass. A successful result
 is already a **Candidate** with saved acceptance evidence; it still needs human
 review and publication. Runtime faults or exhausted repairs preserve the draft

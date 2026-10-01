@@ -109,8 +109,8 @@ from expected pages, so missing a whole page cannot make checks pass.
 
 `automatic-qa-policy.ts` distinguishes theme repairs from security/runtime
 failures. Theme failures produce an exact-version repair prompt and repeat the
-pipeline, with at most two repairs (three attempts including the original,
-matching the database's iteration constraint). Expensive vision is deferred
+pipeline, with at most three repairs (four attempts including the original,
+matching migration 0145's iteration constraint). Expensive vision is deferred
 until deterministic gates pass. A successful visual verdict then revalidates
 acceptance bindings and atomically reveals a candidate. Human review and
 publication remain separate. Exhausted repairs or runtime faults preserve the

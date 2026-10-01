@@ -5465,7 +5465,8 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     atomically, so there is no extra manual acceptance step for a successful
     automatic run. Human design/commerce approval and publication stay separate.
     `automatic-qa-policy.ts` queues targeted exact-package revisions for theme
-    failures, up to TWO repairs (iterations 0→1→2, matching migration 0144).
+    failures, up to THREE repairs (iterations 0→1→2→3, the ceiling migration
+    0145 allows; `MAX_AUTOMATIC_QA_REPAIRS`).
     Every revision repeats imagery/capture/acceptance/vision; compatible images
     already carry over. Security failures block; runtime/coverage/asset-integrity
     failures and the final unsuccessful repair reveal `operator/failed` for

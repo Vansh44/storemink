@@ -1,7 +1,9 @@
 import { GATE_LABELS, type GateResult } from "./acceptance-gates";
 
-// Migration 0144 constrains version/run/capture/QA iterations to 0..2.
-export const MAX_AUTOMATIC_QA_REPAIRS = 2;
+// Migration 0145 constrains version/run/capture/QA iterations to 0..3, so
+// three automatic repairs (iterations 0 -> 1 -> 2 -> 3) is the ceiling the
+// database allows. Raising this further needs a migration first.
+export const MAX_AUTOMATIC_QA_REPAIRS = 3;
 
 /** A model cannot overrule deterministic gates or repair a broken runtime. */
 export function automaticQaDecision(
