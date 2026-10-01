@@ -1,0 +1,217 @@
+// Opt-in local PostgreSQL regression. All DDL, fixtures and worker writes roll
+// back; no provider calls. Run THEME_STUDIO_RECOVERY_DB_TEST=1 with Vitest.
+import { expect, it, vi } from "vitest";
+import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { Client } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { loadEnvConfig } from "@next/env";
+import { createFakeModelClient } from "./fake-provider";
+import { ZERO_USAGE, type StructuredRequest } from "./provider";
+
+const { service, generate } = vi.hoisted(() => ({
+  service: vi.fn(),
+  generate: vi.fn(),
+}));
+vi.mock("@/lib/db/client", () => ({ withService: service }));
+vi.mock("./gemini-vertex", () => ({
+  getVertexConfig: () => ({}),
+  createVertexModelClient: () => ({ provider: "vertex-gemini", generate }),
+}));
+vi.mock("./config", () => ({
+  getThemeStudioConfig: () => ({
+    generationEnabled: true,
+    autoQaEnabled: false,
+    disabledModels: new Set(),
+  }),
+}));
+vi.mock("./visual-qa", () => ({ runThemeStudioVisualQaWorker: vi.fn() }));
+vi.mock("@/lib/observability/logger", () => ({
+  logError: vi.fn(),
+  logInfo: vi.fn(),
+}));
+import { runThemeStudioWorker } from "./worker";
+
+it.skipIf(process.env.THEME_STUDIO_RECOVERY_DB_TEST !== "1")(
+  "applies recovery SQL and resumes the actual worker after cooldown, keeping usage and grants correct",
+  async () => {
+    loadEnvConfig(process.cwd(), true, { info() {}, error() {} });
+    const pg = new Client({
+      host: "127.0.0.1",
+      port: 5544,
+      database: "storemink_local",
+      user: "postgres",
+      password: process.env.DB_ADMIN_PASSWORD,
+      connectionTimeoutMillis: 5_000,
+    });
+    await pg.connect();
+    try {
+      await pg.query("BEGIN");
+      await pg.query("SET LOCAL lock_timeout = '5s'");
+      const [checkpointTable] = (
+        await pg.query(
+          "SELECT to_regclass('public.theme_studio_generation_responses') AS name",
+        )
+      ).rows;
+      if (!checkpointTable.name)
+        await pg.query(
+          await readFile(
+            "drizzle/migrations/sql/20261002_0146_theme_studio_rate_limit_recovery.sql",
+            "utf8",
+          ),
+        );
+      const id = randomUUID();
+      const messageId = randomUUID();
+      const runId = randomUUID();
+      await pg.query(
+        `INSERT INTO theme_studio_projects (id, theme_id, name, status, industries, catalog_sizes, model_key, draft_brief, created_by_email)
+        VALUES ($1, $2, 'Recovery test', 'generating', '{home}', '{small}', 'gemini-3.8-flash', 'A ceramics shop', 'test@example.com')`,
+        [id, `recovery-${id}`],
+      );
+      await pg.query(
+        "INSERT INTO theme_studio_messages (id, project_id, kind, body) VALUES ($1, $2, 'brief', 'A ceramics shop')",
+        [messageId, id],
+      );
+      await pg.query(
+        `INSERT INTO theme_studio_runs (id, project_id, message_id, kind, provider, model_key, provider_model, prompt_version, idempotency_key, created_at)
+        VALUES ($1,$2,$3,'generate','vertex-gemini','gemini-3.8-flash','fake','test',$4,'1900-01-01')`,
+        [runId, id, messageId, `recovery_${runId}`],
+      );
+      const db = drizzle(pg);
+      service.mockImplementation(async (work) => {
+        await pg.query("SET LOCAL ROLE app_service");
+        try {
+          return await work(db);
+        } finally {
+          await pg.query("RESET ROLE");
+        }
+      });
+      const fake = createFakeModelClient({
+        name: "Recovery test",
+        brief: "A ceramics shop",
+        industries: ["home"],
+        catalogSizes: ["small"],
+        requiredFeatures: [],
+        referenceCount: 0,
+      });
+      let drafts = 0;
+      generate.mockImplementation(
+        async (request: StructuredRequest, signal: AbortSignal) => {
+          if (request.stage === "draft" && drafts++ === 0) {
+            return { kind: "error", code: "rate_limited", usage: ZERO_USAGE };
+          }
+          const response = await fake.generate(request, signal);
+          response.usage = {
+            ...ZERO_USAGE,
+            inputTokens: 100,
+            outputTokens: 50,
+          };
+          return response;
+        },
+      );
+      const options = {
+        maxRuns: 1,
+        providers: ["vertex-gemini" as const],
+        skipVisualQa: true,
+      };
+      expect(await runThemeStudioWorker(options)).toMatchObject({
+        claimed: 1,
+        requeued: 1,
+      });
+      const [waiting] = (
+        await pg.query(
+          "SELECT status, attempt_count, rate_limit_deferrals, retry_not_before FROM theme_studio_runs WHERE id=$1",
+          [runId],
+        )
+      ).rows;
+      expect(waiting).toMatchObject({
+        status: "queued",
+        attempt_count: 1,
+        rate_limit_deferrals: 1,
+      });
+      expect(waiting.retry_not_before.valueOf()).toBeGreaterThan(Date.now());
+      expect(
+        (
+          await pg.query(
+            "SELECT count(*)::int AS n FROM theme_studio_generation_responses WHERE run_id=$1",
+            [runId],
+          )
+        ).rows[0].n,
+      ).toBe(1);
+      // Every other active row is locked out of this test's claim; all changes
+      // roll back. This lets us exercise the real due-time predicate.
+      await pg.query(
+        "UPDATE theme_studio_runs SET retry_not_before = now() + interval '1 hour' WHERE id<>$1 AND status='queued'",
+        [runId],
+      );
+      expect(await runThemeStudioWorker(options)).toMatchObject({ claimed: 0 });
+      await pg.query(
+        "UPDATE theme_studio_runs SET retry_not_before = now() - interval '1 second' WHERE id=$1",
+        [runId],
+      );
+      expect(await runThemeStudioWorker(options)).toMatchObject({
+        claimed: 1,
+        succeeded: 1,
+      });
+      const [completed] = (
+        await pg.query(
+          "SELECT status, attempt_count, rate_limit_deferrals, usage, retry_not_before FROM theme_studio_runs WHERE id=$1",
+          [runId],
+        )
+      ).rows;
+      expect(completed).toMatchObject({
+        status: "succeeded",
+        attempt_count: 1,
+        rate_limit_deferrals: 1,
+        retry_not_before: null,
+      });
+      expect(completed.usage.totals.inputTokens).toBe(200);
+      expect(generate.mock.calls.map(([request]) => request.stage)).toEqual([
+        "intent",
+        "draft",
+        "draft",
+      ]);
+      expect(
+        (
+          await pg.query(
+            "SELECT count(*)::int AS n FROM theme_studio_versions WHERE run_id=$1",
+            [runId],
+          )
+        ).rows[0].n,
+      ).toBe(1);
+      expect(
+        (
+          await pg.query(
+            "SELECT has_table_privilege('app_user','theme_studio_generation_responses','SELECT') AS read, has_table_privilege('app_service','theme_studio_generation_responses','INSERT') AS write, has_table_privilege('app_service','theme_studio_generation_responses','UPDATE') AS update, has_table_privilege('app_service','theme_studio_generation_responses','DELETE') AS delete",
+          )
+        ).rows[0],
+      ).toEqual({ read: false, write: true, update: false, delete: false });
+      // Invalid checkpoint kinds (including JSON null) and a fifth recovery
+      // must fail at the database boundary, not merely in application code.
+      for (const statement of [
+        {
+          sql: "UPDATE theme_studio_runs SET rate_limit_deferrals=5 WHERE id=$1",
+          values: [runId],
+        },
+        {
+          sql: "INSERT INTO theme_studio_generation_responses (run_id,request_digest,response_json) VALUES ($1,$2,$3)",
+          values: [
+            runId,
+            "a".repeat(64),
+            JSON.stringify({ kind: null, usage: {} }),
+          ],
+        },
+      ]) {
+        await pg.query("SAVEPOINT invalid_recovery");
+        await expect(
+          pg.query(statement.sql, statement.values),
+        ).rejects.toMatchObject({ code: "23514" });
+        await pg.query("ROLLBACK TO SAVEPOINT invalid_recovery");
+      }
+    } finally {
+      await pg.query("ROLLBACK");
+      await pg.end();
+    }
+  },
+  30_000,
+);

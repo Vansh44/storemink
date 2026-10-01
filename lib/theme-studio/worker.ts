@@ -5,6 +5,7 @@ import { and, asc, count, eq, inArray, lte, max, sql } from "drizzle-orm";
 import {
   themeStudioAssets,
   themeStudioCaptures,
+  themeStudioGenerationResponses,
   themeStudioMessages,
   themeStudioProjects,
   themeStudioRuns,
@@ -64,6 +65,11 @@ import {
 } from "./models";
 import { runThemeGeneration, type GenerationOutcome } from "./pipeline";
 import type { ThemeStudioModelClient } from "./provider";
+import {
+  generationRecoveryDelayMs,
+  resumableGenerationClient,
+  type SavedModelResponse,
+} from "./generation-recovery";
 import { digestThemeStudioJson, recordThemeStudioEvent } from "./repository";
 import { runThemeStudioVisualQaWorker } from "./visual-qa";
 
@@ -114,6 +120,7 @@ type ClaimedRun = {
   promptVersion: string;
   attemptCount: number;
   maxAttempts: number;
+  rateLimitDeferrals: number;
   automatic: boolean;
   qaIteration: number;
   createdBy: string | null;
@@ -183,7 +190,8 @@ async function claimRun(
     WITH candidate AS (
       SELECT id FROM theme_studio_runs
       WHERE provider IN (${providerList})
-        AND ((status = 'queued' AND cancel_requested_at IS NULL)
+        AND ((status = 'queued' AND cancel_requested_at IS NULL
+              AND (retry_not_before IS NULL OR retry_not_before <= now()))
          OR (status = 'running' AND lease_expires_at <= now()
              AND attempt_count < max_attempts AND cancel_requested_at IS NULL))
       ORDER BY created_at
@@ -194,7 +202,8 @@ async function claimRun(
     SET status = 'running',
         lease_owner = ${workerId}::uuid,
         lease_expires_at = now() + (${LEASE_SECONDS}::int * interval '1 second'),
-        attempt_count = r.attempt_count + 1,
+        attempt_count = r.attempt_count + CASE WHEN r.retry_not_before IS NULL THEN 1 ELSE 0 END,
+        retry_not_before = NULL,
         started_at = coalesce(r.started_at, now()),
         updated_at = now()
     FROM candidate WHERE r.id = candidate.id
@@ -206,6 +215,7 @@ async function claimRun(
               r.provider AS "provider", r.model_key AS "modelKey",
               r.provider_model AS "providerModel", r.prompt_version AS "promptVersion",
               r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts",
+              r.rate_limit_deferrals AS "rateLimitDeferrals",
               r.automatic AS "automatic", r.qa_iteration AS "qaIteration",
               r.created_by AS "createdBy"
   `);
@@ -914,7 +924,7 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
   }
 }
 
-async function execute(run: ClaimedRun): Promise<Outcome> {
+async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
   if (run.kind === "images") return executeImages(run);
   const config = getThemeStudioConfig();
   // Re-checked at execution, not only at queue time: the emergency stop and a
@@ -959,7 +969,54 @@ async function execute(run: ClaimedRun): Promise<Outcome> {
   }, CANCEL_POLL_MS);
   try {
     const result = await runThemeGeneration(
-      client,
+      run.provider === "vertex-gemini"
+        ? resumableGenerationClient(client, {
+            read: (digest) =>
+              withService(async (db) => {
+                const [saved] = await db
+                  .select({
+                    response: themeStudioGenerationResponses.responseJson,
+                  })
+                  .from(themeStudioGenerationResponses)
+                  .where(
+                    and(
+                      eq(themeStudioGenerationResponses.runId, run.id),
+                      eq(themeStudioGenerationResponses.requestDigest, digest),
+                    ),
+                  )
+                  .limit(1);
+                return (
+                  (saved?.response as SavedModelResponse | undefined) ?? null
+                );
+              }),
+            write: (digest, response) =>
+              withService(async (db) => {
+                // Fence the checkpoint with the same lease as the final version.
+                // Locking only for this short write never holds up a model call.
+                const [lease] = await db
+                  .select({ id: themeStudioRuns.id })
+                  .from(themeStudioRuns)
+                  .where(
+                    and(
+                      eq(themeStudioRuns.id, run.id),
+                      eq(themeStudioRuns.status, "running"),
+                      eq(themeStudioRuns.leaseOwner, workerId),
+                    ),
+                  )
+                  .for("update")
+                  .limit(1);
+                if (!lease) throw new Error("Theme generation lost its lease.");
+                await db
+                  .insert(themeStudioGenerationResponses)
+                  .values({
+                    runId: run.id,
+                    requestDigest: digest,
+                    responseJson: response,
+                  })
+                  .onConflictDoNothing();
+              }),
+          })
+        : client,
       {
         facts: {
           name: input.project.name,
@@ -1060,10 +1117,18 @@ async function finish(
       .for("update")
       .limit(1);
 
-    const usage = usageRecord(run, outcome);
+    const usage = {
+      // A cancelled/timed-out replay can stop before it reconstructs telemetry.
+      // Keep spend already recorded by an earlier capacity wait in that case.
+      ...(outcome.kind !== "generated" && outcome.kind !== "images"
+        ? (locked.usage as Record<string, unknown>)
+        : {}),
+      ...usageRecord(run, outcome),
+    };
     const terminal = {
       leaseOwner: null,
       leaseExpiresAt: null,
+      retryNotBefore: null,
       finishedAt: sql`now()`,
       updatedAt: sql`now()`,
       usage,
@@ -1134,6 +1199,38 @@ async function finish(
     }
 
     const result = outcome.result;
+    if (
+      result.kind === "failed" &&
+      result.errorCode === "rate_limited" &&
+      run.provider === "vertex-gemini"
+    ) {
+      const delay = generationRecoveryDelayMs(locked.rateLimitDeferrals);
+      if (delay !== null) {
+        const retryNotBefore = new Date(Date.now() + delay).toISOString();
+        await db
+          .update(themeStudioRuns)
+          .set({
+            status: "queued",
+            leaseOwner: null,
+            leaseExpiresAt: null,
+            retryNotBefore,
+            rateLimitDeferrals: locked.rateLimitDeferrals + 1,
+            usage,
+            outcomeDetail: {
+              kind: "rate_limit_wait",
+              stage: result.detail.stage,
+            },
+            updatedAt: sql`now()`,
+          })
+          .where(eq(themeStudioRuns.id, run.id));
+        await event("run_queued", {
+          reason: "rate_limited",
+          retryNotBefore,
+          recovery: locked.rateLimitDeferrals + 1,
+        });
+        return "requeued";
+      }
+    }
     if (result.kind === "failed")
       return failRun(result.errorCode, result.detail);
     if (result.kind === "declined") {
@@ -1551,7 +1648,7 @@ export async function runThemeStudioWorker(
     result.claimed += 1;
     let outcome: Outcome;
     try {
-      outcome = await execute(run);
+      outcome = await execute(run, workerId);
     } catch (error) {
       logError("theme studio: run execution threw", error, { runId: run.id });
       outcome =

@@ -4969,6 +4969,26 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     existing version; provider capacity remains an external dependency. These
     are operator diagnostics and storefront legibility fixes, with no merchant
     workflow change and no Help Centre update.
+    **Theme Studio rate-limit recovery (2026-10-02).** When Vertex text
+    generation/revision still returns `rate_limited` after its per-call
+    backoff, the worker keeps the same run queued with `retry_not_before`.
+    `lib/theme-studio/generation-recovery.ts` schedules up to four cooldowns
+    (5/10/20/20 minutes, jittered to 75–100%); the dedicated Scheduler worker
+    only claims due runs. These recoveries do not consume the separate
+    three-attempt crash/lease budget. Runs shows the capacity wait, scheduled
+    retry and recovery count; Cancel remains available. Completed intent/draft
+    responses, including validation repair attempts, are stored in service-only
+    `theme_studio_generation_responses` (migration
+    `20261002_0146_theme_studio_rate_limit_recovery`). The key hashes the exact
+    provider/request and call ordinal within a run. Replaying saved answers
+    reconstructs the normal validator pipeline and counts their usage once;
+    provider errors are never cached. Each checkpoint write and final settlement
+    is fenced on the worker lease. A crash after the provider answered but
+    before its checkpoint commits can still repeat that call. Exhaustion ends
+    in `rate_limited`, preserving the existing version. Model selection,
+    publication checks and the separate image/vision retry policies remain in
+    place; provider capacity cannot be guaranteed. Operator-only: no
+    merchant-visible change, no Help Centre update.
     **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
     version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
     gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`
