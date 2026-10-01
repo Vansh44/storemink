@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
+import axe from "axe-core";
 import { StudioAcceptanceProbe } from "./studio-acceptance-probe";
 
 vi.mock("axe-core", () => ({
@@ -13,6 +14,57 @@ afterEach(() => {
   vi.restoreAllMocks();
   delete (HTMLElement.prototype as unknown as Record<string, unknown>)
     .innerText;
+});
+
+it("reports distinct failing elements and axe's contrast measurements", async () => {
+  vi.useFakeTimers();
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+  const price =
+    "Element has insufficient color contrast of 2.1 (foreground #aaaaaa, background #ffffff, expected 4.5:1).";
+  vi.mocked(axe.run).mockResolvedValueOnce({
+    violations: [
+      {
+        id: "color-contrast",
+        impact: "serious",
+        help: "Elements must meet minimum color contrast ratio thresholds",
+        nodes: [
+          ...Array.from({ length: 20 }, (_, i) => ({
+            target: [`.shop-card:nth-child(${i + 1}) > .shop-card-base`],
+            failureSummary: price,
+          })),
+          {
+            target: [".shop-card-off"],
+            failureSummary: "Discount text fails contrast of 2.5:1.",
+          },
+          {
+            target: [".columnTitle"],
+            failureSummary: "Footer heading fails contrast of 2.3:1.",
+          },
+        ],
+      },
+    ],
+  } as never);
+  render(<StudioAcceptanceProbe />);
+  const pending = window.__smThemeStudioMeasure!();
+  await vi.runAllTimersAsync();
+  const evidence = await pending;
+  expect(evidence.violations).toEqual([
+    expect.objectContaining({
+      id: "color-contrast",
+      nodes: 22,
+      examples: [
+        { target: ".shop-card:nth-child(1) > .shop-card-base", summary: price },
+        {
+          target: ".shop-card-off",
+          summary: "Discount text fails contrast of 2.5:1.",
+        },
+        {
+          target: ".columnTitle",
+          summary: "Footer heading fails contrast of 2.3:1.",
+        },
+      ],
+    }),
+  ]);
 });
 
 it("distinguishes deliberate clipping and labelled controls from real defects", async () => {

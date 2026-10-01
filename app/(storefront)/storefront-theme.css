@@ -487,14 +487,14 @@
   color: var(--sm-ink);
 }
 .sm-storefront-grocery.storefront-root .shop-card-base {
-  color: var(--sm-ink-faint);
+  color: var(--sm-ink);
   text-decoration: line-through;
   font-size: 0.85rem;
 }
 .sm-storefront-grocery.storefront-root .shop-card-off {
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--sm-accent, var(--brand-primary));
+  color: var(--sm-ink);
   background: transparent;
   padding: 0;
 }

@@ -812,6 +812,8 @@ export interface BrowserSample {
     help: string;
     /** The first offending element's selector, when the browser gave one. */
     target?: string;
+    /** Bounded representative selectors and axe's measured failure details. */
+    examples?: { target: string; summary: string }[];
   }[];
   lcpMs: number | null;
   cls: number | null;
@@ -929,12 +931,23 @@ export function parseBrowserEvidence(
         ? (record.impact as AxeImpact)
         : null;
       const target = str(record.target, 120);
+      const examples = Array.isArray(record.examples)
+        ? record.examples.slice(0, 3).flatMap((item) => {
+            if (!item || typeof item !== "object") return [];
+            const example = item as Record<string, unknown>;
+            const target = str(example.target, 180);
+            return target
+              ? [{ target, summary: str(example.summary, 300) ?? "" }]
+              : [];
+          })
+        : [];
       violations.push({
         id,
         impact,
         nodes,
         help: str(record.help, 200) ?? "",
         ...(target ? { target } : {}),
+        ...(examples.length ? { examples } : {}),
       });
     }
     const offenders = Array.isArray(s.overflowOffenders)
@@ -1084,7 +1097,13 @@ export function evaluateBrowserGates(
     for (const violation of sample.violations) {
       const entry = {
         code: violation.id,
-        message: `${violation.help || violation.id} (${violation.nodes} element${violation.nodes === 1 ? "" : "s"}, ${violation.impact ?? "unrated"})${violation.target ? ` — first: ${violation.target}` : ""}`,
+        message: `${violation.help || violation.id} (${violation.nodes} element${violation.nodes === 1 ? "" : "s"}, ${violation.impact ?? "unrated"})${
+          violation.examples?.length
+            ? ` — examples: ${violation.examples.map((example) => `${example.target}${example.summary ? `: ${example.summary}` : ""}`).join(" | ")}`
+            : violation.target
+              ? ` — first: ${violation.target}`
+              : ""
+        }`,
         where,
       };
       if (violation.impact && BLOCKING_IMPACTS.has(violation.impact)) {

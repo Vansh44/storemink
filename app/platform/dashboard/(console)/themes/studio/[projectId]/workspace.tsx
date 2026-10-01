@@ -41,7 +41,7 @@ const ERROR_TEXT: Record<string, string> = {
   model_declined: "The model declined to build this theme.",
   output_truncated: "The model ran out of output space before finishing.",
   rate_limited:
-    "The model provider is rate-limiting requests. Try again shortly.",
+    "The model provider still refused this request after automatic retries. Your existing version is unchanged. Retry this run when provider capacity is available.",
   provider_auth: "StoreMink couldn't authenticate with the model provider.",
   provider_rejected: "The model provider rejected the request.",
   provider_timeout: "The model provider took too long to respond.",

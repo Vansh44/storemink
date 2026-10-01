@@ -251,6 +251,48 @@ describe("theme validation", () => {
     ).toBe(true);
   });
 
+  it("checks secondary text on card surfaces even when it reads on the page", () => {
+    const theme = clone();
+    theme.preset.design.palette.cream = "#ffffff";
+    theme.preset.design.palette.surface = "#cccccc";
+    theme.preset.design.palette.inkSoft = "#666666";
+    const messages = validateThemeDesign(theme).map((f) => f.message);
+    expect(messages).toContainEqual(
+      expect.stringMatching(/Muted text on cards/),
+    );
+    expect(messages).not.toContainEqual(
+      expect.stringMatching(/Muted text on the page background/),
+    );
+  });
+
+  it("checks the actual butter background of grocery cards", () => {
+    const theme = clone();
+    theme.preset.design.layout = {
+      ...theme.preset.design.layout,
+      storefront: "grocery",
+    };
+    theme.preset.design.palette.butter = theme.preset.design.palette.ink;
+    expect(validateThemeDesign(theme).map((f) => f.message)).toContainEqual(
+      expect.stringMatching(/Grocery product text on butter cards/),
+    );
+    theme.preset.design.layout.storefront = "classic";
+    expect(validateThemeDesign(theme).map((f) => f.message)).not.toContainEqual(
+      expect.stringMatching(/Grocery product text on butter cards/),
+    );
+  });
+
+  it("checks headings and muted links on the alternate/footer background", () => {
+    const theme = clone();
+    theme.preset.design.palette.creamDeep = theme.preset.design.palette.ink;
+    const messages = validateThemeDesign(theme).map((f) => f.message);
+    expect(messages).toContainEqual(
+      expect.stringMatching(/including footer headings/),
+    );
+    expect(messages).toContainEqual(
+      expect.stringMatching(/including footer links/),
+    );
+  });
+
   it("design: an unregistered layout variant is refused", () => {
     const theme = clone();
     theme.preset.design.layout = { header: "floating" as never };

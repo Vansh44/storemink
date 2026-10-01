@@ -324,7 +324,7 @@
    ============================================ */
 
 .columnTitle {
-  color: var(--sm-accent);
+  color: var(--sm-ink);
   font-family: var(--font-outfit), sans-serif;
   font-size: 12px;
   font-weight: 700;

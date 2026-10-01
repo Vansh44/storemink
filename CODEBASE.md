@@ -4954,6 +4954,21 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     desktop and mobile placeholders require the existing Images browser-capture
     workflow; performance findings remain advisory. No merchant workflow change,
     no Help Centre update.
+    **Crave contrast and repair evidence correction (2026-10-02).** Original
+    prices in homepage/shop grids and grocery PDPs use readable text tokens;
+    grocery card prices/discounts and variant deal labels use ink, and footer
+    column headings use ink on creamDeep (editorial overrides keep onInk). The shared design
+    validator also checks inkSoft on surface, ink/inkSoft on creamDeep and
+    grocery ink/inkSoft on butter, so the compiler rejects these defects before
+    creating a version. Prompt v18
+    describes these rendered pairs. The preview probe preserves three distinct
+    axe selector patterns with bounded failure summaries (including measured
+    colours/contrast); parsing and gate findings retain them for both automatic
+    and operator repair. Older evidence stays compatible. Rate-limit errors
+    explicitly report exhausted automatic retries and preservation of the
+    existing version; provider capacity remains an external dependency. These
+    are operator diagnostics and storefront legibility fixes, with no merchant
+    workflow change and no Help Centre update.
     **Mink AI Theme Studio Phase 5 (2026-09-24; automated acceptance):** a
     version's **Checks** screen (`…/versions/[versionId]/acceptance`) runs the
     gates on the project's CURRENT version. `lib/theme-studio/acceptance-gates.ts`
