@@ -70,6 +70,19 @@ export const SYSTEM_SLOTS = {
   "screenshot-mobile": { aspectRatio: "9:19", alt: "Storefront on mobile" },
 } as const;
 
+/**
+ * The repair sentence for storefront content naming a catalog picture slot.
+ * Those slots are photographs OF the finished storefront, replaced by capture
+ * after acceptance measured it; a storefront image living in one would change
+ * under the evidence, so capture refuses such a theme (captureBlockers). Saying
+ * so here lets the model fix it before generation and imagery are paid for.
+ */
+function systemSlotIssue(where: string, slot: string): string | null {
+  return slot in SYSTEM_SLOTS
+    ? `${where} uses "${slot}", a catalog picture of the finished storefront; storefront images need their own asset brief.`
+    : null;
+}
+
 // ---------------------------------------------------------------------------
 // Product photographs: one slot per product (Track 3.3).
 //
@@ -203,10 +216,12 @@ function checkConfigUrls(
         );
       } else if (key.endsWith("_url")) {
         const slot = slotOf(nested);
+        const reserved = slot ? systemSlotIssue(at, slot) : null;
         if (!slot)
           issues.push(
             `${at} must be "" or a theme-asset:// slot, not an external URL.`,
           );
+        else if (reserved) issues.push(reserved);
         else if (!known.has(slot))
           issues.push(`${at} uses unknown image slot "${slot}".`);
         else used.add(slot);
@@ -482,6 +497,11 @@ function buildCatalogue(
   const slotUrl = (slot: unknown, where: string): string | null => {
     const id = text(slot);
     if (!id) return null;
+    const reserved = systemSlotIssue(where, id);
+    if (reserved) {
+      issues.push(reserved);
+      return null;
+    }
     if (!known.has(id)) {
       issues.push(`${where} uses unknown image slot "${id}".`);
       return null;

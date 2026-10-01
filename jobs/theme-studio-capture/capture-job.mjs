@@ -27,8 +27,10 @@ export const CAPTURE_WINDOW_MS = 5 * 60_000;
  * starting one with less only burns an attempt on a certain timeout. */
 export const MIN_CAPTURE_MS = 3 * 60_000;
 /** Finish runs server acceptance (route checks bounded to 150s, preview, one
- * transaction); its own route allows 240s. Wait longer than the server does,
- * so a slow-but-healthy finish is never abandoned mid-commit. */
+ * transaction). Cloud Run does not cut that request off (`maxDuration` is not
+ * enforced self-hosted; the service timeout is 1200s), so THIS wait is the
+ * bound the server work is sized against: generous enough that a slow but
+ * healthy finish is not abandoned mid-commit. */
 export const FINISH_TIMEOUT_MS = 270_000;
 /** The job's task timeout is 600s; keep 30s for claims and shutdown. */
 export const DEFAULT_BUDGET_MS = 570_000;

@@ -94,6 +94,8 @@ const LINK_CONCURRENCY = 2;
 /** The first request may compile the storefront in development. */
 const FIRST_PAGE_TIMEOUT_MS = 90_000;
 const PAGE_TIMEOUT_MS = 45_000;
+/** Least time a budgeted page read is worth starting with. */
+const MIN_BUDGETED_FETCH_MS = 2_000;
 /** Shopper-account pages redirect or render a sign-in prompt for any visitor;
  * crawling them proves nothing about the theme. */
 const SKIPPED_LINK_PREFIXES = [
@@ -262,7 +264,9 @@ export async function renderedPreviewGates(input: {
       return fetchInternalPageWithRetry({ host, path, cookies, timeoutMs });
     }
     const left = deadline - Date.now();
-    if (left <= 0) {
+    // Below the floor a request can only time out, and would be reported as
+    // a page that answered nothing in a few milliseconds. Say what happened.
+    if (left < MIN_BUDGETED_FETCH_MS) {
       return {
         status: null,
         error: "Acceptance time budget exhausted before this page was read.",

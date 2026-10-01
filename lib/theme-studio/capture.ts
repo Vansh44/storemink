@@ -88,8 +88,11 @@ export const MAX_QA_SCREENSHOT_BYTES = 512 * 1024;
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_-]{16,80}$/;
 const CODE_RE = /^[a-z0-9_]{1,64}$/;
 
-/** Rendered-route checks during an automatic finish. The finish route allows
- * 240s; this leaves time to open the preview and commit the version. */
+/** Rendered-route checks during an automatic finish. Nothing on Cloud Run cuts
+ * the finish request off (the service timeout is 1200s; `maxDuration` is not
+ * enforced self-hosted): the bound is the capture job's 270s finish wait
+ * (jobs/theme-studio-capture FINISH_TIMEOUT_MS). This leaves time inside it to
+ * open the preview and commit the version. */
 const AUTOMATIC_ROUTE_BUDGET_MS = 150_000;
 const CAPTURE_STATES = ["ready", "candidate"] as const;
 
@@ -422,8 +425,12 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
   // see, and its events name them. An operator since removed cannot.
   // Automatic finish re-checks this before recording acceptance evidence;
   // checking it here too refuses the capture before any browser work.
-  if (!owner || (capture.automatic && owner.role !== "superadmin")) {
+  if (!owner) {
     await fail("operator_removed");
+    return null;
+  }
+  if (capture.automatic && owner.role !== "superadmin") {
+    await fail("operator_not_superadmin");
     return null;
   }
   const recapture = capture.automatic && isEvidenceRecapture(version!);
@@ -536,6 +543,27 @@ export async function finishThemeStudioCapture(input: {
   );
   if (!capture) return { status: "lost" };
 
+  // Terminal: the capture is failed now, whatever attempts it has left.
+  const failNow = async (code: string): Promise<CaptureFinish> =>
+    withService(async (db) => {
+      const held = await heldCapture(db, capture.id, input.leaseToken, true);
+      if (!held) return { status: "lost" } as const;
+      await failCapture(db, held, code);
+      return { status: "failed", errorCode: code } as const;
+    });
+
+  // A capture job too old to report its build cannot succeed on any retry
+  // until it is redeployed, so fail now rather than repeat minutes of browser
+  // work four more times; the operator retries automatic QA afterwards.
+  if (
+    capture.automatic &&
+    input.images &&
+    !input.error &&
+    input.qa &&
+    !input.qa.buildId
+  ) {
+    return failNow("capture_job_outdated");
+  }
   // A missing QA payload is not a build change: it falls through to the
   // evidence validation below and fails as qa_report_invalid.
   if (
@@ -548,11 +576,8 @@ export async function finishThemeStudioCapture(input: {
     return finishThemeStudioCapture({
       captureId: input.captureId,
       leaseToken: input.leaseToken,
-      // No build id at all means a capture job older than this contract,
-      // which no retry can fix until the job image is redeployed.
-      error: input.qa.buildId
-        ? "capture_build_changed"
-        : "capture_job_outdated",
+      // A deploy between claim and finish: retry against the new build.
+      error: "capture_build_changed",
     });
   }
 
@@ -592,13 +617,6 @@ export async function finishThemeStudioCapture(input: {
       .limit(1),
   );
   const parsed = version ? validateThemePackageV2(version.packageJson) : null;
-  const failNow = async (code: string): Promise<CaptureFinish> =>
-    withService(async (db) => {
-      const held = await heldCapture(db, capture.id, input.leaseToken, true);
-      if (!held) return { status: "lost" } as const;
-      await failCapture(db, held, code);
-      return { status: "failed", errorCode: code } as const;
-    });
   if (!parsed?.ok || !version) return failNow("base_invalid");
   const pkg: ThemePackageV2 = parsed.value;
   if (captureBlockers(pkg).length) return failNow("capture_not_ready");
@@ -719,8 +737,8 @@ export async function finishThemeStudioCapture(input: {
         .where(eq(platformAdmins.id, ownerId))
         .limit(1),
     );
-    if (!owner || owner.role !== "superadmin")
-      return failNow("operator_removed");
+    if (!owner) return failNow("operator_removed");
+    if (owner.role !== "superadmin") return failNow("operator_not_superadmin");
     const opened = await openThemeStudioPreview(owner, {
       projectId: capture.projectId,
       versionId: capture.versionId,

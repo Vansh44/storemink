@@ -60,6 +60,7 @@ function fixture({
   claimStatus = "generating",
   settleStatus = "generating",
   acceptanceStatus = undefined as string | undefined,
+  recaptures = 0,
 } = {}) {
   const gates = passing().map((g) =>
     fail && g.id === "browser.accessibility"
@@ -103,6 +104,8 @@ function fixture({
         browserReport: { gates: [] },
       },
     ],
+    // Prior build recaptures of this version (read only on a build change).
+    ...(oldBuild ? [[{ n: recaptures }]] : []),
   ];
   const writes: { table: unknown; values: Record<string, unknown> }[] = [];
   const db = {
@@ -236,6 +239,16 @@ describe("automatic acceptance and visual settlement", () => {
       writes.find((w) => w.table === themeStudioCaptures)?.values,
     ).toMatchObject({ versionId: "version", automatic: true, qaIteration: 0 });
     expect(writes.some((w) => w.table === themeStudioRuns)).toBe(false);
+  });
+  it("stops recapturing a version whose evidence keeps going stale", async () => {
+    const writes = fixture({ oldBuild: true, recaptures: 2 });
+    expect(
+      await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
+    ).toMatchObject({ failed: 1, recaptureQueued: 0 });
+    expect(writes.some((w) => w.table === themeStudioCaptures)).toBe(false);
+    expect(writes.find((w) => w.values.errorCode)?.values.errorCode).toBe(
+      "acceptance_build_unstable",
+    );
   });
   it("refuses stale asset evidence and results from a lost lease", async () => {
     verify.mockResolvedValue({ ok: false, reason: "Assets changed" });

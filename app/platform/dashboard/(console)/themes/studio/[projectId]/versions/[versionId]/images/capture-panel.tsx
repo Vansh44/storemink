@@ -21,6 +21,8 @@ export const CAPTURE_ERROR_TEXT: Record<string, string> = {
   capture_not_ready:
     "This version has image issues that prevent capture. Resolve the artwork or slot issues listed below first.",
   operator_removed: "The operator who asked for it has been removed.",
+  operator_not_superadmin:
+    "The operator who asked for it is no longer a superadmin. A superadmin can retry automatic QA.",
   preview_failed: "The preview store couldn't be built for this version.",
   lease_expired: "The capture job stopped responding after all retry attempts.",
   project_state_changed:

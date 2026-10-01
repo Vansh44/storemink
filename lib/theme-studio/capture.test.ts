@@ -84,8 +84,8 @@ function queueDb({
 describe("Theme Studio catalog capture deployment gate", () => {
   afterEach(() => vi.unstubAllEnvs());
 
-  it.each([undefined, "earlier-build"])(
-    "retries automatic results from an absent or earlier build (%s) before saving images",
+  it.each(["earlier-build"])(
+    "retries automatic results from an earlier build (%s) before saving images",
     async (buildId) => {
       vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
       const held = {
@@ -267,6 +267,26 @@ describe("why an automatic capture failed", () => {
     maxAttempts: 5,
   };
 
+  it("fails an outdated capture job at once, without spending its remaining attempts", async () => {
+    vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
+    const writes = finishDb({ ...lastAttempt, attemptCount: 1 });
+    expect(
+      await finishThemeStudioCapture({
+        captureId: input.versionId,
+        leaseToken: actor.id,
+        images: [],
+        qa: { evidence: {}, screenshots: [] },
+      }),
+    ).toEqual({ status: "failed", errorCode: "capture_job_outdated" });
+    expect(writes[0]).toMatchObject({
+      status: "failed",
+      errorCode: "capture_job_outdated",
+    });
+    expect(writes).not.toContainEqual(
+      expect.objectContaining({ status: "queued" }),
+    );
+  });
+
   it.each([
     [undefined, "capture_job_outdated"],
     ["earlier-build", "capture_build_changed"],
@@ -371,7 +391,7 @@ describe("claiming a capture", () => {
     expect(openPreview).not.toHaveBeenCalled();
     expect(writes.at(-1)).toBeDefined();
     expect(
-      writes.find((w) => w.errorCode === "operator_removed"),
+      writes.find((w) => w.errorCode === "operator_not_superadmin"),
     ).toBeDefined();
   });
 

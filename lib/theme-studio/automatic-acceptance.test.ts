@@ -225,6 +225,36 @@ describe("shared rendered preview checks", () => {
     );
   });
 
+  it("does not start a page read with only a sliver of budget left", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchPage.mockReset().mockImplementation(async ({ path }) => {
+        if (path === "/") vi.advanceTimersByTime(9_000); // 1s of 10s left.
+        return {
+          status: 200,
+          error: null,
+          headers: { "x-robots-tag": "noindex" },
+          body: '<html lang="en"><main class="storefront-root sm-themed-type"></main></html>',
+        };
+      });
+      const gates = await renderedPreviewGates({
+        origin: "https://studio-preview.storemink.com",
+        cookies: {},
+        budgetMs: 10_000,
+        pages: [
+          { surface: "home", path: "/", label: "Home" },
+          { surface: "shop", path: "/shop", label: "Shop" },
+        ],
+      });
+      expect(fetchPage).toHaveBeenCalledTimes(1);
+      expect(
+        gates.find((g) => g.id === "routes.render")!.findings[0].message,
+      ).toMatch(/time budget exhausted/);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses the normal per-page timeouts under a total budget, and stops fetching once it is spent", async () => {
     vi.useFakeTimers();
     try {
@@ -252,7 +282,11 @@ describe("shared rendered preview checks", () => {
       expect(fetchPage.mock.calls[0][0].timeoutMs).toBe(10_000);
       const render = gates.find((g) => g.id === "routes.render")!;
       expect(render.findings).toEqual([
-        expect.objectContaining({ code: "fetch", where: "/shop" }),
+        expect.objectContaining({
+          code: "fetch",
+          where: "/shop",
+          message: expect.stringContaining("time budget exhausted"),
+        }),
       ]);
     } finally {
       vi.useRealTimers();

@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, eq, gt, inArray, sql } from "drizzle-orm";
+import { and, count, eq, gt, inArray, like, sql } from "drizzle-orm";
 import sharp from "sharp";
 import {
   themeStudioAssets,
@@ -45,6 +45,10 @@ import {
 } from "./scorecard";
 
 const QA_LEASE_SECONDS = 5 * 60;
+/** Recaptures one version may take because a deploy outdated its evidence.
+ * Deploys are finite, but a busy day of them must not keep a project cycling
+ * through full browser captures without ever reaching a verdict. */
+export const MAX_BUILD_RECAPTURES = 2;
 const QA_TIMEOUT_MS = 4 * 60_000;
 
 export const VISUAL_QA_PROMPT_VERSION = "theme-studio-visual-qa-v1";
@@ -498,6 +502,19 @@ async function settleQa(
     if (acceptance.buildId !== currentAcceptanceBuildId()) {
       // A deploy invalidates old rendering evidence. Recapture this same
       // immutable version instead of paying to regenerate its design/images.
+      const [{ n: recaptures }] = await db
+        .select({ n: count() })
+        .from(themeStudioCaptures)
+        .where(
+          and(
+            eq(themeStudioCaptures.versionId, qa.versionId),
+            like(themeStudioCaptures.idempotencyKey, "auto\\_recapture\\_%"),
+          ),
+        );
+      if (Number(recaptures) >= MAX_BUILD_RECAPTURES) {
+        await revealFailed(db, qa, "acceptance_build_unstable");
+        return "failed" as const;
+      }
       await db.insert(themeStudioCaptures).values({
         projectId: qa.projectId,
         versionId: qa.versionId,

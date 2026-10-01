@@ -5478,12 +5478,18 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     A deployment between capture and visual settlement queues a fresh capture
     of the same version rather than redrawing the theme; that recapture
     re-measures the version in place (no catalog shots, no new version) and
-    is counted as `recaptureQueued`, never as a revision. A capture job too
-    old to report its build fails as `capture_job_outdated`, a missing QA
-    payload as `qa_report_invalid`. Passing gates over a stored acceptance
+    is counted as `recaptureQueued`, never as a revision; after
+    `MAX_BUILD_RECAPTURES` (2) for one version, QA stops as
+    `acceptance_build_unstable` instead of cycling through deploys. A capture
+    job too old to report its build fails at once as `capture_job_outdated`
+    (no retries), a missing QA payload as `qa_report_invalid`. Passing gates over a stored acceptance
     outcome that is not `passed` stop as `acceptance_outcome_mismatch` rather
     than buying a revision. An automatic capture whose owner is no longer a
-    superadmin is refused at claim, before any browser work. Capture/QA settlement
+    superadmin is refused at claim, before any browser work, as
+    `operator_not_superadmin` (distinct from a removed `operator_removed`).
+    The compiler refuses storefront content naming a catalog system slot
+    (`preview`, `screenshot-*`) as a repair, so such a theme is fixed before
+    generation and imagery are paid for rather than failing capture. Capture/QA settlement
     rejects expired leases. A QA run whose project stopped generating is
     closed as `project_state_changed` (lease released, project and version
     untouched) instead of being re-claimed and re-judged by paid vision calls.
@@ -5493,11 +5499,13 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     Browser capture uses two isolated viewport contexts at a time and keeps
     evidence ordered, removes redundant network-idle waits, and bounds launch
     plus rendering (at most `MAX_QA_CONTEXTS`, two, QA contexts at once)
-    while reserving the full 270-second finish timeout (longer
-    than the 240-second finish route). A claim starts only with at least three
+    while reserving the full 270-second finish timeout — the real bound on
+    server acceptance, since Cloud Run does not enforce the route's
+    `maxDuration`. A claim starts only with at least three
     minutes of browser time left, and a 409 (lost lease) finish does not stop
     the execution. Automatic route checks keep the manual per-page timeouts
-    under a 150-second total budget.
+    under a 150-second total budget, never starting a page with under two
+    seconds left.
     Operator reads filter out internal versions; visible versions show an auto
     QA badge and iteration count. ★ Migration `20260927_0144` owns the version,
     run and capture QA columns, the service-only visual queue, QA asset/event
