@@ -685,10 +685,28 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
     ],
     [palette.ink, palette.surface, THEME_TEXT_CONTRAST, "Text on cards"],
     [
+      palette.ink,
+      palette.creamDeep,
+      THEME_TEXT_CONTRAST,
+      "Text on alternate page backgrounds (including footer headings)",
+    ],
+    [
       palette.inkSoft,
       palette.cream,
       THEME_TEXT_CONTRAST,
       "Muted text on the page background",
+    ],
+    [
+      palette.inkSoft,
+      palette.surface,
+      THEME_TEXT_CONTRAST,
+      "Muted text on cards (including original prices)",
+    ],
+    [
+      palette.inkSoft,
+      palette.creamDeep,
+      THEME_TEXT_CONTRAST,
+      "Muted text on alternate page backgrounds (including footer links)",
     ],
     [
       palette.inkSoft,
@@ -709,6 +727,24 @@ export function validateThemeDesign(theme: ThemeDefinition): ThemeFinding[] {
       "Button labels on the accent colour",
     ],
   ];
+  // Grocery cards paint butter rather than surface. Their names, prices and
+  // discounts use ink; checking only the generic card surface misses this.
+  if (layout?.storefront === "grocery") {
+    pairs.push(
+      [
+        palette.ink,
+        palette.butter,
+        THEME_TEXT_CONTRAST,
+        "Grocery product text on butter cards",
+      ],
+      [
+        palette.inkSoft,
+        palette.butter,
+        THEME_TEXT_CONTRAST,
+        "Grocery muted text on butter cards (including from prices)",
+      ],
+    );
+  }
   // A ringed or underlined button, or the ringed half of an inverting hover,
   // draws the accent as TEXT on the page and on cards, so the accent has to
   // read there as body text does. (Ink-coloured buttons are ink on the page,

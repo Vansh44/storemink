@@ -38,7 +38,7 @@ export function acceptanceRepairDraft(
           ),
         ),
       ].slice(0, 6);
-      return `${gate.label} (${gate.findings.length} reported findings):\n${examples.map((text) => `- ${text.slice(0, 700)}`).join("\n")}`;
+      return `${gate.label} (${gate.findings.length} reported findings):\n${examples.map((text) => `- ${text.slice(0, 1800)}`).join("\n")}`;
     });
   if (!sections.length) return null;
   return `Fix the theme-specific acceptance failures in version ${version.versionNumber}. Keep its visual identity, content and existing images. Repair the relevant palette, section settings, layout and content across all affected pages and viewport sizes. Do not hide content or disable checks to make them pass. If a finding needs a shared storefront code change that the theme cannot express, explain that limitation.\n\nAcceptance run ${run.id}:\n${sections.join("\n\n")}`.slice(

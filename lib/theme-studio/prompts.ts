@@ -25,7 +25,7 @@ import { industryPlaybookPrompt } from "./industry-playbooks";
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v17";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v18";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -75,7 +75,7 @@ ${UNTRUSTED_RULES}
 ${COPYRIGHT_RULES}
 
 Design tokens
-- Every palette value is a hex colour. shadowRgb is three comma-separated integers such as "23, 23, 21". Body text (ink) on the page (cream) and on cards (surface), and secondary text (inkSoft) on the page, must each reach WCAG AA contrast of 4.5:1. onAccent must be readable on the accent colour and onInk on ink.
+- Every palette value is a hex colour. shadowRgb is three comma-separated integers such as "23, 23, 21". Body text (ink) and secondary text (inkSoft) must each reach WCAG AA contrast of 4.5:1 on the page (cream), cards (surface) and alternate/standard footer backgrounds (creamDeep). Grocery cards paint butter, so ink and inkSoft on butter must also reach 4.5:1. Original prices are readable text even when crossed out; inkFaint is decorative and must not be used to make important text disappear. onAccent must be readable on the accent colour and onInk on ink. The accent is a brand/CTA colour, not a guarantee of readable text on light backgrounds.
 - Fonts must be exactly one of: ${THEME_STUDIO_FONT_VALUES.join(", ")}.
 - Shape values are CSS lengths in px, for example "4px" or "999px".
 - Layout values may be null to keep the shared default. For a storefront that should feel like a premium theme, set stickyAddToCart to true (a phone add-to-cart bar once the page's own button scrolls away) and gridColumnsMobile to 2 (two products per row on phones); choose gridColumnsDesktop 3 for large editorial product photography, 5 for dense catalogues, otherwise leave it null. Set shopFilters to true (a sort menu, availability and price filters, and products 24 at a time with Load more) for any store with more than a handful of products, and collectionBanner to true so each category page opens with its image and description.

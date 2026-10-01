@@ -477,6 +477,46 @@ function fullCoverage(surfaces: AcceptanceSurface[]): BrowserSample[] {
 }
 
 describe("browser evidence", () => {
+  it("bounds diagnostic examples and preserves contrast details in repair findings", () => {
+    const parsed = parseBrowserEvidence({
+      samples: [
+        sample({
+          violations: [
+            {
+              id: "color-contrast",
+              impact: "serious",
+              nodes: 27,
+              help: "Low contrast",
+              examples: [
+                {
+                  target: ".shop-card-base",
+                  summary: "Foreground #aaa on #fff: 2.1:1; expected 4.5:1.",
+                },
+                { target: ".columnTitle", summary: "Footer heading: 2.3:1." },
+                { target: "x".repeat(500), summary: "y".repeat(1000) },
+                { target: ".ignored", summary: "Fourth example" },
+              ],
+            },
+          ],
+        }),
+      ],
+    });
+    expect(parsed.ok).toBe(true);
+    if (!parsed.ok) return;
+    const examples = parsed.value.samples[0].violations[0].examples!;
+    expect(examples).toHaveLength(3);
+    expect(examples[2].target).toHaveLength(180);
+    expect(examples[2].summary).toHaveLength(300);
+    const gate = evaluateBrowserGates(parsed.value, ["home"]).find(
+      (g) => g.id === "browser.accessibility",
+    )!;
+    expect(gate.status).toBe("fail");
+    expect(gate.findings[0].message).toContain(".columnTitle");
+    expect(gate.findings[0].message).toContain(
+      "Foreground #aaa on #fff: 2.1:1",
+    );
+    expect(gate.findings[0].message).not.toContain(".ignored");
+  });
   it("parses a well-formed report and refuses malformed ones", () => {
     const good = parseBrowserEvidence({
       userAgent: "Chrome",

@@ -6,6 +6,10 @@ import {
 } from "./contracts";
 import { productSlotId } from "./compiler";
 import { createFakeModelClient } from "./fake-provider";
+import {
+  resumableGenerationClient,
+  type SavedModelResponse,
+} from "./generation-recovery";
 import { runThemeGeneration, type GenerationInput } from "./pipeline";
 import {
   ZERO_USAGE,
@@ -59,6 +63,56 @@ const run = (brief?: string, client?: ThemeStudioModelClient) =>
   );
 
 describe("theme generation pipeline", () => {
+  it("resumes a rate-limited draft without repeating successful intent or its repair", async () => {
+    const fake = createFakeModelClient(base);
+    const paidCalls: string[] = [];
+    let intents = 0;
+    let drafts = 0;
+    const provider: ThemeStudioModelClient = {
+      provider: "vertex-gemini",
+      async generate(request, signal) {
+        paidCalls.push(request.stage);
+        if (request.stage === "draft" && drafts++ === 0) {
+          return { kind: "error", code: "rate_limited", usage: ZERO_USAGE };
+        }
+        const result = await fake.generate(request, signal);
+        result.usage = { ...ZERO_USAGE, inputTokens: 100, outputTokens: 50 };
+        if (
+          request.stage === "intent" &&
+          intents++ === 0 &&
+          result.kind === "ok"
+        ) {
+          (
+            result.value as { intent: { assetBriefs: { id: string }[] } }
+          ).intent.assetBriefs[0].id = "preview";
+        }
+        return result;
+      },
+    };
+    const saved = new Map<string, SavedModelResponse>();
+    const store = {
+      async read(key: string) {
+        return structuredClone(saved.get(key) ?? null);
+      },
+      async write(key: string, response: SavedModelResponse) {
+        saved.set(key, structuredClone(response));
+      },
+    };
+    const first = await run(
+      undefined,
+      resumableGenerationClient(provider, store),
+    );
+    expect(first).toMatchObject({ kind: "failed", errorCode: "rate_limited" });
+    const resumed = await run(
+      undefined,
+      resumableGenerationClient(provider, store),
+    );
+    expect(resumed.kind).toBe("version");
+    expect(paidCalls).toEqual(["intent", "intent", "draft", "draft"]);
+    expect(resumed.telemetry.repairs.intent).toBe(1);
+    expect(resumed.telemetry.totals.inputTokens).toBe(300);
+    expect(resumed.telemetry.calls).toHaveLength(3);
+  });
   it.each([null, "", "preview", "unknown-brief"])(
     "repairs a category with invalid image slot %s before image generation",
     async (imageSlot) => {

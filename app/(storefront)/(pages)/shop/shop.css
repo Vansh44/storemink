@@ -603,7 +603,7 @@
 }
 
 .shop-listing .shop-card-base {
-  color: var(--sm-ink-faint);
+  color: var(--sm-ink-soft);
 }
 
 .shop-listing .shop-card-off {
@@ -1893,13 +1893,13 @@
 }
 .sm-storefront-grocery .gpdp-price-base {
   font-size: 1.05rem;
-  color: var(--sm-ink-faint);
+  color: var(--sm-ink-soft);
   text-decoration: line-through;
 }
 .sm-storefront-grocery .gpdp-price-off {
   font-size: 0.9rem;
   font-weight: 700;
-  color: var(--sm-accent, var(--brand-primary));
+  color: var(--sm-ink);
 }
 .sm-storefront-grocery .gpdp-price-note {
   font-size: 0.85rem;
@@ -1941,7 +1941,7 @@
   margin-left: 6px;
   font-size: 0.7rem;
   font-weight: 700;
-  color: var(--sm-accent, var(--brand-primary));
+  color: var(--sm-ink);
 }
 .sm-storefront-grocery .gpdp-variant.active .gpdp-variant-tag {
   color: var(--sm-on-ink);

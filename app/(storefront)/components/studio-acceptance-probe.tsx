@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import type { Result as AxeResult } from "axe-core";
 import { isPlatformHost } from "@/lib/store/host";
 import { REVEAL_ALL_EVENT } from "@/lib/themes/motion";
 
@@ -42,6 +43,26 @@ declare global {
 
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+function violationExamples(violation: AxeResult) {
+  const seen = new Set<string>();
+  const examples: { target: string; summary: string }[] = [];
+  for (const node of violation.nodes) {
+    const target = String(node.target[0] ?? "");
+    const summary = (node.failureSummary ?? "").replace(/\s+/g, " ").trim();
+    // Twenty cards failing the same check must not crowd out the footer or
+    // a discount label. Keep distinct selector patterns and colour pairs.
+    const key = `${target.replace(/:nth-(?:child|of-type)\(\d+\)/g, "")}|${summary}`;
+    if (!target || seen.has(key)) continue;
+    seen.add(key);
+    examples.push({
+      target: target.slice(-180),
+      summary: summary.slice(0, 300),
+    });
+    if (examples.length === 3) break;
+  }
+  return examples;
+}
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<void> {
   await Promise.race([promise.then(() => undefined), sleep(ms)]);
@@ -405,6 +426,9 @@ async function measure(perf: { lcp: number | null; cls: number }) {
       help: violation.help.slice(0, 200),
       // The first offending element, so a reviewer can find it.
       target: String(violation.nodes[0]?.target?.[0] ?? "").slice(0, 120),
+      // Include axe's measured colours and ratio, not just the generic rule
+      // name. Both automatic and operator repair use this same evidence.
+      examples: violationExamples(violation),
     })),
     lcpMs: perf.lcp === null ? null : Math.round(perf.lcp),
     cls: Math.round(perf.cls * 10_000) / 10_000,

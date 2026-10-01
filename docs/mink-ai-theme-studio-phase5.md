@@ -32,7 +32,7 @@ findings, and the exact inputs the run judged.
 | -------------------------- | ------- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Package contract           | server  | yes          | `validateThemePackageV2` under today's rules                                                                                                                |
 | Pages, catalogue and links | server  | yes          | the extracted theme-acceptance floors (TA-2.1–2.5), dead links, a blocking capability gap                                                                   |
-| Design system and contrast | server  | yes          | an incomplete or invalid palette, fonts or shape; WCAG AA on six rendered colour pairs                                                                      |
+| Design system and contrast | server  | yes          | an incomplete or invalid palette, fonts or shape; WCAG AA on rendered text/background pairs, including alternate footer and grocery card backgrounds        |
 | Security scan              | server  | yes, blocks  | script/iframe/style tags, inline handlers, `javascript:`/`data:` URLs, off-site media or links, CSS escapes in tokens, custom code, undeclared capabilities |
 | Asset integrity            | server  | yes          | an asset with no matching stored bytes, the wrong purpose, format or dimensions, production sizing                                                          |
 | Asset provenance           | server  | yes          | any StoreMink placeholder image, missing alt text, bundled legacy imagery, a missing licence note                                                           |
@@ -61,7 +61,16 @@ and image sizing. `themes.test.ts` asserts every bundled theme returns none.
 The Studio gates call the same functions. Three rules are new:
 
 - **Rendered contrast pairs.** Body, card, muted and ink-surface text, plus
-  button labels at 3:1, header text, and muted labels on sand.
+  button labels at 3:1, header text, and muted labels on sand. Secondary text
+  must also read on card surfaces; grocery text must read on its actual butter
+  card background; heading and muted text must read on alternate/footer
+  creamDeep backgrounds. The generation compiler applies these same checks before
+  creating a version. Shared original-price styles use readable text colours,
+  grocery discount labels use ink, and footer headings use ink on creamDeep
+  (onInk in the editorial footer), rather than a decorative faint or CTA colour.
+  Browser findings include up to three distinct selector patterns and axe's
+  measured contrast details. Repeated product cards do not crowd out other
+  failing controls; older reports with only a first selector remain readable.
 - **Dead page links.** A single-segment link must reach a seeded page or a
   storefront route. `STOREFRONT_CODE_ROUTES` is pinned against
   `app/(storefront)/(pages)`. The menus are read as the storefront reads them

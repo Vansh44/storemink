@@ -41,7 +41,7 @@ const ERROR_TEXT: Record<string, string> = {
   model_declined: "The model declined to build this theme.",
   output_truncated: "The model ran out of output space before finishing.",
   rate_limited:
-    "The model provider is rate-limiting requests. Try again shortly.",
+    "The model provider still refused this request after automatic retries. Your existing version is unchanged. Retry this run when provider capacity is available.",
   provider_auth: "StoreMink couldn't authenticate with the model provider.",
   provider_rejected: "The model provider rejected the request.",
   provider_timeout: "The model provider took too long to respond.",
@@ -303,12 +303,20 @@ export function ProjectWorkspace({
                       {r.provider === "fake"
                         ? "Test provider"
                         : "Gemini on Vertex AI"}{" "}
-                      · attempt {r.attemptCount}/{r.maxAttempts} · queued{" "}
+                      · worker attempt {r.attemptCount}/{r.maxAttempts} · queued{" "}
                       {studioDate(r.createdAt)}
                       {r.finishedAt
                         ? ` · finished ${studioDate(r.finishedAt)}`
                         : ""}
                     </p>
+                    {r.status === "queued" && r.retryNotBefore ? (
+                      <p className="text-xs text-amber-700">
+                        Waiting for model provider capacity. Automatic recovery{" "}
+                        {r.rateLimitDeferrals}/4 is scheduled after{" "}
+                        {studioDate(r.retryNotBefore)}. Completed model stages
+                        are saved; you can leave this page open or return later.
+                      </p>
+                    ) : null}
                     {r.kind === "images" ? (
                       <p className="text-xs text-slate-700">
                         {r.imageSlotIds.length > 0

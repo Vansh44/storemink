@@ -140,6 +140,9 @@ export interface ThemeStudioRunView {
   modelKey: ThemeStudioModelKey;
   attemptCount: number;
   maxAttempts: number;
+  /** Delayed provider recovery, distinct from crash/lease attempts. */
+  retryNotBefore?: string | null;
+  rateLimitDeferrals?: number;
   errorCode: string | null;
   cancelRequested: boolean;
   retryOfRunId: string | null;
@@ -560,6 +563,8 @@ export async function getThemeStudioProject(
         modelKey: r.modelKey as ThemeStudioModelKey,
         attemptCount: r.attemptCount,
         maxAttempts: r.maxAttempts,
+        retryNotBefore: r.retryNotBefore,
+        rateLimitDeferrals: r.rateLimitDeferrals,
         errorCode: r.errorCode,
         cancelRequested: r.cancelRequestedAt !== null,
         retryOfRunId: r.retryOfRunId,
@@ -1456,6 +1461,7 @@ export async function cancelThemeStudioRun(
         .update(themeStudioRuns)
         .set({
           status: "cancelled",
+          retryNotBefore: null,
           cancelRequestedAt: sql`now()`,
           finishedAt: sql`now()`,
           updatedAt: sql`now()`,

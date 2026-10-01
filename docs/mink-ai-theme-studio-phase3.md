@@ -110,7 +110,8 @@ provider errors
 with jitter, at most six minutes of waiting, and never past the run's own
 abort signal. That is safe because Vertex refuses a 429 before running the
 model, so a retry cannot be a second bill. Only a rate limit that outlasts all
-of that reaches the pipeline as `rate_limited`. There is no fallback to another model:
+of that reaches the pipeline as `rate_limited`. Generation/revision workers
+then defer the same run for a longer cooldown, described below. There is no fallback to another model:
 the Phase 0 registry forbids substitution, and a provider-id override may only
 pin a dated version of the SAME model (`-001`, `-09-2026`), never switch to
 `-lite` or another family.
@@ -172,6 +173,37 @@ The worker re-checks the emergency stop and the per-model switch before
 executing, stops the provider call mid-flight when an operator cancels
 (checked every 10 s), and enforces a 19-minute run deadline inside the
 20-minute lease.
+
+### Capacity recovery
+
+`generation-recovery.ts` adds durable recovery for Vertex **text generation
+and revision**. After the immediate 429 retries are exhausted, the same run
+returns to `queued`, keeping its project active and existing version intact.
+Migration `20261002_0146_theme_studio_rate_limit_recovery` adds
+`retry_not_before` and `rate_limit_deferrals`, plus the private
+`theme_studio_generation_responses` table. The worker claims only due queued
+runs. Up to four cooldowns use 5/10/20/20-minute ceilings with 75–100% jitter;
+the Scheduler claims eligible runs when its worker lanes are available. After those four
+recoveries, another capacity refusal ends the run with `rate_limited`.
+Recovery does not consume the three-attempt crash/lease budget.
+
+Each completed intent/draft call is saved under a digest of the exact provider,
+request and call ordinal. A fresh execution replays those responses through
+the ordinary validation/repair pipeline, then calls the provider only for the
+unsaved request. The ordinal keeps identical repair requests distinct. Original
+usage is counted once in the reconstructed run total; errors are not saved.
+Checkpoints require the current worker lease and are service-only under RLS,
+with no merchant/public grants. A crash after a model answer but before the
+checkpoint commits can still repeat that call; this is not an external
+exactly-once guarantee.
+
+Runs displays the wait, scheduled recovery and recovery count. Cancel stops
+a waiting run immediately and an active call through the existing polling
+path. The emergency stop and disabled-model switches are checked again on
+recovery. Existing failed runs remain historical; Retry starts a new run with
+this recovery policy once deployed. Image generation and image/visual review
+keep their existing retry policies, so whole image batches are not redrawn
+by this recovery path. Model selection and all acceptance gates are unchanged.
 
 ## 7. Usage, cost and emergency controls
 
@@ -253,10 +285,16 @@ intent and package in the immutable version row with their canonical digests.
   truncation, invalid JSON, discarded thought parts and error classification;
   the rate-limit backoff (429 excluded from the SDK's retry, waits and retry
   count, stopping on abort, nothing but a 429 waited on);
+  durable response replay across intent/draft repairs, exact request matching,
+  delayed recovery bounds, cancellation and lease-fenced settlement;
   the model registry refusing a cross-family override; config; the worker route's auth, one-run execution and
   503; the heartbeat running only the offline provider; evaluation grading
   and safety checks; the details action's gate.
 - End to end against the local PostgreSQL through the repository and worker:
+  `THEME_STUDIO_RECOVERY_DB_TEST=1 npx vitest run --coverage=false lib/theme-studio/worker-recovery-postgres.test.ts`
+  applies pending recovery DDL and runs the real worker with an offline model
+  inside a rolled-back transaction, verifying cooldown eligibility, response
+  persistence, single version creation, usage, grants and database bounds;
   a stored version whose package still validates after the jsonb round trip
   and whose digest matches the registry's; placeholders stored under their own
   purpose and resolving every package asset by digest; clarify → blocked →
