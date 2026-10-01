@@ -5960,13 +5960,9 @@
       "description": "Delay and resume rate-limited Theme Studio generation without replaying completed model calls",
       "file": "sql/20261002_0146_theme_studio_rate_limit_recovery.sql",
       "transaction": true,
-      "requires": [
-        "20260929_0145_theme_studio_qa_iterations"
-      ],
+      "requires": ["20260929_0145_theme_studio_qa_iterations"],
       "verify": {
-        "tables": [
-          "theme_studio_generation_responses"
-        ],
+        "tables": ["theme_studio_generation_responses"],
         "columns": [
           "theme_studio_runs.retry_not_before",
           "theme_studio_runs.rate_limit_deferrals"
@@ -5976,9 +5972,7 @@
           "theme_studio_generation_responses_pkey",
           "theme_studio_generation_responses_shape_check"
         ],
-        "rlsTables": [
-          "theme_studio_generation_responses"
-        ]
+        "rlsTables": ["theme_studio_generation_responses"]
       },
       "applyVerify": {
         "queries": [
