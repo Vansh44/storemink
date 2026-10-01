@@ -21,6 +21,23 @@
 
 import { pathToFileURL } from "node:url";
 
+/** Longest a capture's browser work may run. */
+export const CAPTURE_WINDOW_MS = 5 * 60_000;
+/** A claim is only taken when at least this much browser time remains;
+ * starting one with less only burns an attempt on a certain timeout. */
+export const MIN_CAPTURE_MS = 3 * 60_000;
+/** Finish runs server acceptance (route checks bounded to 150s, preview, one
+ * transaction). Cloud Run does not cut that request off (`maxDuration` is not
+ * enforced self-hosted; the service timeout is 1200s), so THIS wait is the
+ * bound the server work is sized against: generous enough that a slow but
+ * healthy finish is not abandoned mid-commit. */
+export const FINISH_TIMEOUT_MS = 270_000;
+/** The job's task timeout is 600s; keep 30s for claims and shutdown. */
+export const DEFAULT_BUDGET_MS = 570_000;
+/** Most QA browser contexts measured at once. Each holds full-page renders,
+ * and the job runs with 2 GiB; callers may ask for fewer, never more. */
+export const MAX_QA_CONTEXTS = 2;
+
 export class CaptureError extends Error {
   constructor(code) {
     super(code);
@@ -69,9 +86,8 @@ export async function takeShots(browser, claim, { settleMs = 400 } = {}) {
       });
       const status = response ? response.status() : 0;
       if (status !== 200) throw new CaptureError(`preview_status_${status}`);
-      await page
-        .waitForLoadState("networkidle", { timeout: 15_000 })
-        .catch(() => {});
+      // Readiness below waits for the actual fonts/images. Analytics and
+      // background requests must not add a 15-second network-idle wait.
       // Next's development badge is not part of the storefront (it never
       // renders in production), so a local capture hides it.
       await page.addStyleTag({
@@ -113,106 +129,144 @@ export async function takeShots(browser, claim, { settleMs = 400 } = {}) {
 export async function takeQaScreenshots(
   browser,
   claim,
-  { settleMs = 250 } = {},
+  { settleMs = 250, concurrency = MAX_QA_CONTEXTS } = {},
 ) {
   if (!claim.qa) return undefined;
-  const samples = [];
-  const screenshots = [];
-  for (const [viewport, dimensions] of Object.entries(claim.qa.viewports)) {
-    const mobile = dimensions.width <= 768;
-    const context = await browser.newContext({
-      viewport: dimensions,
-      deviceScaleFactor: 1,
-      isMobile: mobile,
-      hasTouch: mobile,
-      reducedMotion: "reduce",
-      ...(mobile ? { userAgent: PHONE_UA } : {}),
-    });
-    try {
-      await context.addCookies([
-        {
-          name: claim.cookie.name,
-          value: claim.cookie.value,
-          url: claim.origin,
-        },
-      ]);
-      for (const preview of claim.qa.pages) {
-        const page = await context.newPage();
-        const response = await page.goto(
-          new URL(preview.path, claim.origin).href,
-          { waitUntil: "load", timeout: 60_000 },
-        );
-        const status = response ? response.status() : 0;
-        const expected = preview.surface === "not_found" ? 404 : 200;
-        if (status !== expected)
-          throw new CaptureError(`preview_status_${status}`);
-        // The probe waits for fonts and images itself. Network-idle can add
-        // 15 seconds to each of thirty pages because of unrelated traffic.
-        await page.addStyleTag({
-          content: "nextjs-portal{display:none!important}",
-        });
-        await page.waitForTimeout(settleMs);
-        // load/networkidle do not guarantee React's effect has installed the
-        // probe (especially on a cold streamed 404). Wait for that condition.
-        await page
-          .waitForFunction(
-            () => typeof window.__smThemeStudioMeasure === "function",
-            undefined,
-            { timeout: 20_000 },
-          )
-          .catch(() => {
-            throw new CaptureError("qa_probe_missing");
+  const measured = await mapCaptureWork(
+    Object.entries(claim.qa.viewports),
+    Math.min(concurrency, MAX_QA_CONTEXTS),
+    async ([viewport, dimensions]) => {
+      const samples = [];
+      const screenshots = [];
+      const mobile = dimensions.width <= 768;
+      const context = await browser.newContext({
+        viewport: dimensions,
+        deviceScaleFactor: 1,
+        isMobile: mobile,
+        hasTouch: mobile,
+        reducedMotion: "reduce",
+        ...(mobile ? { userAgent: PHONE_UA } : {}),
+      });
+      try {
+        await context.addCookies([
+          {
+            name: claim.cookie.name,
+            value: claim.cookie.value,
+            url: claim.origin,
+          },
+        ]);
+        for (const preview of claim.qa.pages) {
+          const page = await context.newPage();
+          const response = await page.goto(
+            new URL(preview.path, claim.origin).href,
+            { waitUntil: "load", timeout: 60_000 },
+          );
+          const status = response ? response.status() : 0;
+          const expected = preview.surface === "not_found" ? 404 : 200;
+          if (status !== expected)
+            throw new CaptureError(`preview_status_${status}`);
+          // The probe waits for fonts and images itself. Network-idle can add
+          // 15 seconds to each of thirty pages because of unrelated traffic.
+          await page.addStyleTag({
+            content: "nextjs-portal{display:none!important}",
           });
-        const result = await page.evaluate(async () => {
-          let timer;
-          try {
-            return await Promise.race([
-              window.__smThemeStudioMeasure(),
-              new Promise((_, reject) => {
-                timer = setTimeout(
-                  () => reject(new Error("qa_measure_timeout")),
-                  45_000,
-                );
-              }),
-            ]);
-          } catch (error) {
-            throw new Error(
-              /timeout/i.test(String(error))
-                ? "qa_measure_timeout"
-                : "qa_measure_failed",
-            );
-          } finally {
-            clearTimeout(timer);
+          await page.waitForTimeout(settleMs);
+          // load/networkidle do not guarantee React's effect has installed the
+          // probe (especially on a cold streamed 404). Wait for that condition.
+          await page
+            .waitForFunction(
+              () => typeof window.__smThemeStudioMeasure === "function",
+              undefined,
+              { timeout: 20_000 },
+            )
+            .catch(() => {
+              throw new CaptureError("qa_probe_missing");
+            });
+          const result = await page.evaluate(async () => {
+            let timer;
+            try {
+              return await Promise.race([
+                window.__smThemeStudioMeasure(),
+                new Promise((_, reject) => {
+                  timer = setTimeout(
+                    () => reject(new Error("qa_measure_timeout")),
+                    45_000,
+                  );
+                }),
+              ]);
+            } catch (error) {
+              throw new Error(
+                /timeout/i.test(String(error))
+                  ? "qa_measure_timeout"
+                  : "qa_measure_failed",
+              );
+            } finally {
+              clearTimeout(timer);
+            }
+          });
+          samples.push({ ...result, viewport, surface: preview.surface });
+          // The evidence above is measured at the real viewport. Compress only
+          // the visual evidence so six long pages stay inside the job payload.
+          await page.evaluate(() => {
+            document.documentElement.style.zoom = "0.65";
+          });
+          const bytes = await page.screenshot({
+            type: "jpeg",
+            quality: 55,
+            fullPage: true,
+          });
+          if (bytes.byteLength > 512 * 1024) {
+            throw new CaptureError("qa_screenshot_too_large");
           }
-        });
-        samples.push({ ...result, viewport, surface: preview.surface });
-        // The evidence above is measured at the real viewport. Compress only
-        // the visual evidence so six long pages stay inside the job payload.
-        await page.evaluate(() => {
-          document.documentElement.style.zoom = "0.65";
-        });
-        const bytes = await page.screenshot({
-          type: "jpeg",
-          quality: 55,
-          fullPage: true,
-        });
-        if (bytes.byteLength > 512 * 1024) {
-          throw new CaptureError("qa_screenshot_too_large");
+          screenshots.push({
+            key: `${viewport}:${preview.surface}`,
+            viewport,
+            surface: preview.surface,
+            path: preview.path,
+            base64: bytes.toString("base64"),
+          });
+          await page.close?.();
         }
-        screenshots.push({
-          key: `${viewport}:${preview.surface}`,
-          viewport,
-          surface: preview.surface,
-          path: preview.path,
-          base64: bytes.toString("base64"),
-        });
-        await page.close?.();
+      } finally {
+        await context.close();
       }
-    } finally {
-      await context.close();
-    }
-  }
-  return { evidence: { userAgent: PHONE_UA, samples }, screenshots };
+      return { samples, screenshots };
+    },
+  );
+  return {
+    buildId: claim.qa.buildId,
+    evidence: {
+      userAgent: PHONE_UA,
+      samples: measured.flatMap((value) => value.samples),
+    },
+    screenshots: measured.flatMap((value) => value.screenshots),
+  };
+}
+
+/** Bounded browser work; preserve plan order and drain in-flight contexts
+ * before returning an error. Never leave asynchronous work on a reused browser. */
+export async function mapCaptureWork(items, concurrency, work) {
+  const output = new Array(items.length);
+  let next = 0;
+  let failure;
+  const lanes = Array.from(
+    {
+      length: Math.min(items.length, Math.max(1, Math.floor(concurrency) || 1)),
+    },
+    async () => {
+      while (!failure && next < items.length) {
+        const index = next++;
+        try {
+          output[index] = await work(items[index], index);
+        } catch (error) {
+          failure = error || new Error("capture_work_failed");
+        }
+      }
+    },
+  );
+  await Promise.all(lanes);
+  if (failure) throw failure;
+  return output;
 }
 
 /**
@@ -226,10 +280,13 @@ export async function runCaptureJob({
   fetchImpl = fetch,
   log = console,
   maxCaptures = 5,
-  budgetMs = 8 * 60_000,
+  budgetMs = DEFAULT_BUDGET_MS,
   now = () => Date.now(),
 }) {
   const started = now();
+  // Browser time left for a capture claimed now, after reserving the finish.
+  const captureTimeLeft = () =>
+    budgetMs - (now() - started) - FINISH_TIMEOUT_MS;
   const headers = {
     authorization: `Bearer ${cronSecret}`,
     "content-type": "application/json",
@@ -239,7 +296,7 @@ export async function runCaptureJob({
   try {
     while (
       results.length < maxCaptures &&
-      now() - started < budgetMs - 120_000
+      captureTimeLeft() >= MIN_CAPTURE_MS
     ) {
       const response = await fetchImpl(
         new URL("/api/internal/theme-studio/captures/claim", appOrigin),
@@ -252,18 +309,24 @@ export async function runCaptureJob({
       const claim = await response.json();
       let body;
       let timer;
+      let expired = false;
       try {
-        // Leave a minute to report failure before the 10-minute lease/job
-        // expires. A hung page/evaluate must not hold a theme forever.
-        const remainingMs = Math.min(
-          7 * 60_000,
-          budgetMs - (now() - started) - 60_000,
-        );
+        // Leave the whole finish timeout for server acceptance before the
+        // 10-minute lease/job expires. A hung page/evaluate must not hold a
+        // theme forever.
+        const remainingMs = Math.min(CAPTURE_WINDOW_MS, captureTimeLeft());
         if (remainingMs <= 0) throw new CaptureError("capture_timeout");
-        browser ??= await launch();
-        const activeBrowser = browser;
         body = await Promise.race([
           (async () => {
+            if (!browser) {
+              const launched = await launch();
+              if (expired) {
+                await launched.close().catch(() => {});
+                throw new CaptureError("capture_timeout");
+              }
+              browser = launched;
+            }
+            const activeBrowser = browser;
             const images = await takeShots(activeBrowser, claim);
             return {
               leaseToken: claim.leaseToken,
@@ -274,10 +337,10 @@ export async function runCaptureJob({
             };
           })(),
           new Promise((_, reject) => {
-            timer = setTimeout(
-              () => reject(new CaptureError("capture_timeout")),
-              remainingMs,
-            );
+            timer = setTimeout(() => {
+              expired = true;
+              reject(new CaptureError("capture_timeout"));
+            }, remainingMs);
           }),
         ]);
       } catch (error) {
@@ -298,10 +361,13 @@ export async function runCaptureJob({
           method: "POST",
           headers,
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(60_000),
+          signal: AbortSignal.timeout(FINISH_TIMEOUT_MS),
         },
       );
-      if (!finished.ok)
+      // 409 means the lease was lost (expired or re-claimed): this capture is
+      // no longer ours and nothing went wrong on the server, so carry on with
+      // the queue. Any other failure stops the execution for monitoring.
+      if (!finished.ok && finished.status !== 409)
         throw new Error(`finish failed with HTTP ${finished.status}`);
       const outcome = await finished.json().catch(() => ({}));
       results.push({

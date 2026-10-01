@@ -2734,6 +2734,8 @@ wholesip/
 │       │                      # bearer, maxDuration 1200, TWO run lanes + an independent visual-QA lane.
 │       │                      # Needs its own Scheduler job (1200s deadline, no retries) and a
 │       │                      # ≥1200s Cloud Run timeout — docs/cron-jobs.md. Takes no input.
+│       ├── internal/theme-studio/qa/ # Independent CRON_SECRET-gated visual-QA drain: two
+│       │                      # leased lanes, 300s deadline; deploy a separate one-minute scheduler.
 │       ├── cron/mink-workflows/ # ★ Every minute: CRON_SECRET-gated Phase 6A lease worker;
 │       │                      # bounded deterministic steps, retries, cancellation and completion.
 │       │                      # Also sweeps idle Theme Studio preview stores (isolated).
@@ -3351,6 +3353,8 @@ wholesip/
 │   │                          # page/section/palette/imagery starts; visual-qa.ts
 │   │                          # leases five-width screenshot evidence, applies the
 │   │                          # eight-row scorecard and queues ≤2 hidden revisions.
+│   │                          # automatic-qa-policy.ts requires all acceptance gates, classifies
+│   │                          # repairable failures and enforces the database iteration bound.
 │   │                          # slot-images-core.ts (pure: describe slots, apply
 │   │                          # replacements, carry images into a revision) +
 │   │                          # slot-images.ts (crop/compress an upload, store it,
@@ -5442,17 +5446,72 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `__smThemeStudioMeasure` probe used by acceptance, and returns raw
     overflow, clipped-text, 24px target, extreme-crop, axe, broken-image, LCP
     and CLS measurements plus compressed full-page screenshots. `capture.ts`
-    revalidates the raw evidence, derives deterministic gates, stores WebP
-    `qa_screenshot` assets and queues `theme_studio_visual_qa_runs`.
-    `visual-qa.ts` leases one row, builds a contact sheet per width, and asks
-    the configured Studio provider for the exact eight `scorecard.ts`
-    dimensions and closed rejection conditions. Passing means every row ≥4,
-    total ≥34, no rejection AND no required browser-gate failure. Otherwise it
-    writes an immutable revision message and queues an automatic `revise` run
-    against that exact package; iterations 0→1→2 are the hard bound. A pass
-    changes only the version envelope to `operator/passed` and makes it current.
-    A third miss or terminal child/capture/provider failure reveals the last
-    complete version as `operator/failed`, so no project is stranded hidden.
+    revalidates the raw evidence against package-derived surfaces, stores WebP
+    `qa_screenshot` assets, and runs the SAME full package/assets/preview-route/
+    link/markup/browser acceptance gates as the operator's Checks page.
+    `recordAutomaticAcceptance` saves a final, digest/build-bound acceptance
+    row for the new catalog-capture version in the settlement transaction.
+    Capture refuses catalog slots reused in storefront content, so replacing
+    catalog pictures cannot change the storefront the evidence measured.
+    Route reads use the still-leased capture cookie; fetch failures retry the
+    capture without generating a new design. Claims carry a build identity;
+    changed-build screenshots are retried before acceptance is recorded.
+    `visual-qa.ts` skips paid vision when deterministic failures already give
+    a repair brief. Once they pass it builds contact sheets and asks the
+    configured Studio provider for the exact eight `scorecard.ts` dimensions.
+    Passing requires every row ≥4, total ≥34, no rejection, EVERY required
+    acceptance gate passing, and revalidated current build/package/asset evidence.
+    Settlement reveals `operator/passed` and moves generating → ready → candidate
+    atomically, so there is no extra manual acceptance step for a successful
+    automatic run. Human design/commerce approval and publication stay separate.
+    `automatic-qa-policy.ts` queues targeted exact-package revisions for theme
+    failures, up to THREE repairs (iterations 0→1→2→3, the ceiling migration
+    0145 allows; `MAX_AUTOMATIC_QA_REPAIRS`).
+    Every revision repeats imagery/capture/acceptance/vision; compatible images
+    already carry over. Security failures block; runtime/coverage/asset-integrity
+    failures and the final unsuccessful repair reveal `operator/failed` for
+    recovery, with **Needs attention** on the workspace's current failed result.
+    Shared Studio badges label the unverified `ready` database state **Needs
+    checks**, rather than implying a successful acceptance result, and
+    **Needs attention** when automatic QA failed the current version — one
+    rule (`StudioStatusBadge` + `currentQaFailed`) on every Studio page and
+    the project list, which reads the current version's QA status.
+    A deployment between capture and visual settlement queues a fresh capture
+    of the same version rather than redrawing the theme; that recapture
+    re-measures the version in place (no catalog shots, no new version) and
+    is counted as `recaptureQueued`, never as a revision; after
+    `MAX_BUILD_RECAPTURES` (2) for one version, QA stops as
+    `acceptance_build_unstable` instead of cycling through deploys. A capture
+    job too old to report its build fails at once as `capture_job_outdated`
+    (no retries), a missing QA payload as `qa_report_invalid`. Passing gates over a stored acceptance
+    outcome that is not `passed` stop as `acceptance_outcome_mismatch` rather
+    than buying a revision. An automatic capture whose owner is no longer a
+    superadmin is refused at claim, before any browser work, as
+    `operator_not_superadmin` (distinct from a removed `operator_removed`).
+    The compiler refuses storefront content naming a catalog system slot
+    (`preview`, `screenshot-*`) as a repair, so such a theme is fixed before
+    generation and imagery are paid for rather than failing capture. Stage A
+    output naming an asset brief after one (`reservedBriefIssues`) is repaired
+    at Stage A, since Stage B cannot rename a brief; the check runs on new
+    output only, so intents already stored on versions stay readable. Capture/QA settlement
+    rejects expired leases. A QA run whose project stopped generating is
+    closed as `project_state_changed` (lease released, project and version
+    untouched) instead of being re-claimed and re-judged by paid vision calls.
+    The independent `/api/internal/theme-studio/qa`
+    worker drains two leased rows so long model/image runs cannot occupy its
+    scheduler; the original run worker keeps its QA lane as a fallback.
+    Browser capture uses two isolated viewport contexts at a time and keeps
+    evidence ordered, removes redundant network-idle waits, and bounds launch
+    plus rendering (at most `MAX_QA_CONTEXTS`, two, QA contexts at once)
+    while reserving the full 270-second finish timeout — the real bound on
+    server acceptance, since Cloud Run does not enforce the route's
+    `maxDuration`. A claim starts only with at least three
+    minutes of browser time left, and a 409 (lost lease) finish does not stop
+    the execution. Automatic route checks keep the manual per-page timeouts
+    under a 150-second total budget, never starting a page with under two
+    seconds left. An exhausted budget (`budget`) or a page that timed out
+    (`timeout`) is not a `fetch`: neither is recaptured, and automatic QA
+    routes both to needs-attention; only a reset/dropped connection recaptures.
     Operator reads filter out internal versions; visible versions show an auto
     QA badge and iteration count. ★ Migration `20260927_0144` owns the version,
     run and capture QA columns, the service-only visual queue, QA asset/event

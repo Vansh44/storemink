@@ -340,8 +340,9 @@ export function ThemeConversation({
             className="flex items-center gap-2 text-sm text-indigo-700"
           >
             <Loader2 className="h-4 w-4 animate-spin" />
-            Working on your theme, images, and quality checks. You can leave
-            this page and come back.
+            Creating your theme, generating missing images, running acceptance
+            and visual checks, and repairing theme issues automatically. You can
+            leave this page and come back.
           </p>
         ) : null}
       </div>

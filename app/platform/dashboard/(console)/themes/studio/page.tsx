@@ -96,7 +96,10 @@ async function ProjectList() {
                       <span className="font-medium text-slate-900">
                         {p.name}
                       </span>
-                      <StudioStatusBadge status={p.status} />
+                      <StudioStatusBadge
+                        status={p.status}
+                        qaFailed={p.currentQaStatus === "failed"}
+                      />
                       {p.activeRunStatus ? (
                         <span className="text-xs text-sky-700">
                           Run {p.activeRunStatus}

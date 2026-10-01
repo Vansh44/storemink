@@ -26,7 +26,7 @@ import type {
   ThemeStudioRunView,
 } from "@/lib/theme-studio/repository";
 import { THEME_IMAGE_PROBLEM_LABEL } from "@/lib/theme-studio/image-history";
-import { StudioStatusBadge, studioDate } from "../studio-ui";
+import { StudioStatusBadge, currentQaFailed, studioDate } from "../studio-ui";
 import { ThemeConversation } from "./conversation";
 
 // The project workspace. Everything shown was read server-side behind the
@@ -218,7 +218,10 @@ export function ProjectWorkspace({
             <h1 className="text-2xl font-semibold tracking-tight text-slate-950">
               {project.name}
             </h1>
-            <StudioStatusBadge status={project.status} />
+            <StudioStatusBadge
+              status={project.status}
+              qaFailed={currentQaFailed(project)}
+            />
           </div>
           <p className="mt-1 text-sm text-slate-500">
             <span className="font-mono">{project.themeId}</span> · {modelLabel}{" "}

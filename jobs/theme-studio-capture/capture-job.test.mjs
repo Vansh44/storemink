@@ -5,6 +5,12 @@ import {
   runCaptureJob,
   takeQaScreenshots,
   takeShots,
+  mapCaptureWork,
+  CAPTURE_WINDOW_MS,
+  DEFAULT_BUDGET_MS,
+  FINISH_TIMEOUT_MS,
+  MIN_CAPTURE_MS,
+  MAX_QA_CONTEXTS,
 } from "./capture-job.mjs";
 
 const claim = {
@@ -104,6 +110,38 @@ function response(status, body) {
 }
 
 describe("taking the shots", () => {
+  it("bounds parallel browser work, preserves order and drains in-flight work on failure", async () => {
+    let active = 0,
+      peak = 0;
+    const results = await mapCaptureWork([1, 2, 3, 4, 5], 2, async (n) => {
+      active++;
+      peak = Math.max(peak, active);
+      await new Promise((resolve) => setTimeout(resolve, n === 1 ? 15 : 1));
+      active--;
+      return n;
+    });
+    expect(peak).toBe(2);
+    expect(results).toEqual([1, 2, 3, 4, 5]);
+    // The helper honours what it is asked for; the QA cap lives in one place.
+    let widest = 0;
+    let running = 0;
+    await mapCaptureWork([1, 2, 3, 4], 3, async () => {
+      running++;
+      widest = Math.max(widest, running);
+      await new Promise((resolve) => setTimeout(resolve, 2));
+      running--;
+    });
+    expect(widest).toBe(3);
+    let drained = false;
+    await expect(
+      mapCaptureWork([1, 2, 3], 2, async (n) => {
+        if (n === 1) throw new Error("broken page");
+        await new Promise((resolve) => setTimeout(resolve, 10));
+        drained = true;
+      }),
+    ).rejects.toThrow("broken page");
+    expect(drained).toBe(true);
+  });
   it("opens each shot in its own context at its size and device, with the capture cookie", async () => {
     const { browser, contexts } = fakeBrowser();
     const images = await takeShots(browser, claim, { settleMs: 0 });
@@ -268,6 +306,34 @@ describe("the job", () => {
     expect(bodies).toEqual([{ leaseToken: "l-1", error: "capture_timeout" }]);
   });
 
+  it("includes browser launch in the deadline and closes a browser that arrives late", async () => {
+    const { browser } = fakeBrowser();
+    let launched;
+    const times = [0, 0, 299_990];
+    const bodies = [];
+    await runCaptureJob({
+      appOrigin: "http://localhost:3000",
+      cronSecret: "s",
+      maxCaptures: 1,
+      now: () => times.shift() ?? 300_000,
+      launch: () =>
+        new Promise((resolve) => {
+          launched = resolve;
+        }),
+      fetchImpl: async (_url, init) => {
+        if (!init.body) return response(200, claim);
+        bodies.push(JSON.parse(init.body));
+        return response(200, { status: "requeued" });
+      },
+      log: {},
+    });
+    expect(bodies).toEqual([{ leaseToken: "l-1", error: "capture_timeout" }]);
+    launched(browser);
+    await Promise.resolve();
+    expect(browser.close).toHaveBeenCalledOnce();
+    expect(browser.newContext).not.toHaveBeenCalled();
+  });
+
   it("launches no browser when nothing is queued, and fails loudly when the claim does", async () => {
     const launch = vi.fn();
     expect(
@@ -426,4 +492,108 @@ it("reports a hung browser before its lease expires and closes it", async () => 
   } finally {
     vi.useRealTimers();
   }
+});
+
+describe("execution time budget", () => {
+  it("waits on finish longer than the route runs, and fits one full capture in the task timeout", () => {
+    // app/api/internal/theme-studio/captures/[captureId]/route.ts maxDuration.
+    expect(FINISH_TIMEOUT_MS).toBeGreaterThan(240_000);
+    expect(CAPTURE_WINDOW_MS + FINISH_TIMEOUT_MS).toBeLessThanOrEqual(
+      DEFAULT_BUDGET_MS,
+    );
+    // Cloud Run task timeout (docs/theme-studio-capture-job.md).
+    expect(DEFAULT_BUDGET_MS).toBeLessThan(600_000);
+  });
+
+  it("claims nothing once a capture could no longer get its minimum browser time", async () => {
+    const fetchImpl = vi.fn();
+    const elapsed = DEFAULT_BUDGET_MS - FINISH_TIMEOUT_MS - MIN_CAPTURE_MS + 1;
+    const times = [0, elapsed];
+    expect(
+      await runCaptureJob({
+        appOrigin: claim.origin,
+        cronSecret: "s",
+        launch: vi.fn(),
+        fetchImpl,
+        now: () => times.shift() ?? elapsed,
+        log: {},
+      }),
+    ).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("carries on with the queue when a finish reports the lease was lost", async () => {
+    const { browser } = fakeBrowser();
+    const answers = [
+      response(200, claim),
+      response(409, { status: "lost" }),
+      response(200, { ...claim, captureId: "c-2" }),
+      response(200, { status: "succeeded" }),
+      response(204),
+    ];
+    const results = await runCaptureJob({
+      appOrigin: claim.origin,
+      cronSecret: "s",
+      launch: async () => browser,
+      fetchImpl: async () => answers.shift(),
+      log: {},
+    });
+    expect(results).toEqual([
+      { captureId: "c-1", http: 409, status: "lost" },
+      { captureId: "c-2", http: 200, status: "succeeded" },
+    ]);
+  });
+});
+
+it("never measures more QA contexts at once than MAX_QA_CONTEXTS, whatever is asked", async () => {
+  let open = 0;
+  let peak = 0;
+  const browser = {
+    close: vi.fn(async () => {}),
+    newContext: vi.fn(async (options) => {
+      open++;
+      peak = Math.max(peak, open);
+      return {
+        async addCookies() {},
+        async newPage() {
+          return {
+            async goto() {
+              await new Promise((resolve) => setTimeout(resolve, 2));
+              return { status: () => 200 };
+            },
+            async addStyleTag() {},
+            async waitForTimeout() {},
+            async waitForFunction() {},
+            async evaluate() {
+              return { width: options.viewport.width };
+            },
+            async screenshot() {
+              return Buffer.from("jpeg");
+            },
+            async close() {},
+          };
+        },
+        async close() {
+          open--;
+        },
+      };
+    }),
+  };
+  await takeQaScreenshots(
+    browser,
+    {
+      ...claim,
+      qa: {
+        pages: [{ surface: "home", path: "/" }],
+        viewports: {
+          a: { width: 360, height: 800 },
+          b: { width: 390, height: 844 },
+          c: { width: 768, height: 1024 },
+          d: { width: 1024, height: 768 },
+        },
+      },
+    },
+    { settleMs: 0, concurrency: 9 },
+  );
+  expect(peak).toBe(MAX_QA_CONTEXTS);
 });

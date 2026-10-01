@@ -94,3 +94,53 @@ mandatory not-found surface. Both are deterministic defects.
 No merchant-visible change, no Help Centre update. POS, inventory, locations
 and fulfilment behavior are unchanged, so their roadmap/acceptance docs do not
 change.
+
+## Automatic acceptance and generation latency — 2026-10-01
+
+This follow-up is local until the coordinated web/capture deployment and
+scheduler changes described in the runbooks are applied. No production themes,
+acceptance records or schedules were changed during this implementation.
+
+Automatic capture settlement runs the same package, asset, route, link, markup
+and browser gates used by manual acceptance. The final report is bound to the
+version containing the captured catalog images, stored asset bytes and current
+build. Catalog slots cannot double as storefront artwork. Coverage is derived
+from expected pages, so missing a whole page cannot make checks pass.
+
+`automatic-qa-policy.ts` distinguishes theme repairs from security/runtime
+failures. Theme failures produce an exact-version repair prompt and repeat the
+pipeline, with at most three repairs (four attempts including the original,
+matching migration 0145's iteration constraint). Expensive vision is deferred
+until deterministic gates pass. A successful visual verdict then revalidates
+acceptance bindings and atomically reveals a candidate. Human review and
+publication remain separate. Exhausted repairs or runtime faults preserve the
+work with **Needs attention**; security faults block. The worker never calls an
+unsuccessful result a passed theme. Performance remains advisory.
+
+Browser capture measures two isolated viewport contexts concurrently and
+preserves sample order. It avoids redundant catalog network-idle waits and
+includes launch in its deadline. A dedicated authenticated two-lane QA endpoint
+can run independently of the long model/image scheduler. Compatible images
+continue to carry over on revisions; no model quality setting was reduced.
+
+Verification for this follow-up includes worker settlement, repair/stop/stale
+binding cases, automatic acceptance persistence and omitted-page coverage,
+authenticated QA draining, capture deadlines and the existing Studio regression
+suite: 455 tests across 49 files (454 in the full focused run, plus one added
+low-score repair regression). Type checking, changed-file ESLint, formatting,
+Help lint and diff checks passed. A real Chrome 154 fixture used the production
+probe and capture function
+on home and 404 pages at all five widths: both serial and parallel runs returned
+ten screenshots and ten measurements, retaining deliberate clipped-text
+findings. Sequential capture took 15,465 ms; two lanes took 9,319 ms (~40% less
+wall time). This is one local fixture measurement, not a production theme ETA.
+The local PostgreSQL cluster was unavailable; a deployed end-to-end run is still
+required to validate actual provider latency and database/worker integration.
+
+Roll out the web app and rebuilt capture job together (`qa.buildId` is part of
+the automatic claim/finish protocol), add the independent minute QA scheduler,
+and shorten the capture schedule to one minute. Older queued visual-QA evidence
+without an acceptance binding fails closed and can be recovered with **Images →
+Retry automatic QA**. No schema migration is required. Verify a new generation
+and a revision in dev, including concurrent projects and a failed gate, before
+production rollout. No merchant-visible change, no Help Centre update.

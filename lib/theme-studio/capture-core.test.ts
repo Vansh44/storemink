@@ -4,6 +4,7 @@ import {
   applyCapturedImages,
   captureBlockers,
   captureShots,
+  isEvidenceRecapture,
 } from "./capture-core";
 import { PLACEHOLDER_LICENSE_NOTE } from "./compiler";
 import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
@@ -75,6 +76,14 @@ async function drawn(): Promise<ThemePackageV2> {
 }
 
 describe("what a capture photographs", () => {
+  it("refuses catalog slots reused as storefront art so capture cannot invalidate browser evidence", async () => {
+    const pkg = await drawn();
+    pkg.definition.preset.sampleData!.products[0].image_url =
+      pkg.definition.catalog.previewImage;
+    expect(captureBlockers(pkg).join(" ")).toContain(
+      "storefront image uses a catalog screenshot slot",
+    );
+  });
   it("shoots the card and both screenshots, each rendered larger than its slot", async () => {
     const shots = captureShots(await fixture());
     expect(shots.map((s) => s.slotId)).toEqual([
@@ -222,5 +231,34 @@ describe("the next version's package", () => {
       ).ok,
     ).toBe(false);
     expect(applyCapturedImages(pkg, [], 2).ok).toBe(false);
+  });
+});
+
+describe("isEvidenceRecapture", () => {
+  const produced = {
+    origin: "asset_edit",
+    visibility: "internal",
+    qaStatus: "pending",
+    editDetail: { kind: "capture" },
+  };
+  it("recognises only a hidden, unjudged version an earlier capture produced", () => {
+    expect(isEvidenceRecapture(produced)).toBe(true);
+    // A generated or revised version still needs its catalog pictures taken.
+    expect(isEvidenceRecapture({ ...produced, origin: "run" })).toBe(false);
+    // An operator's image edit (no `kind`) is not a capture result.
+    expect(
+      isEvidenceRecapture({
+        ...produced,
+        editDetail: { fromVersionId: "v", slots: ["hero"] },
+      }),
+    ).toBe(false);
+    // Already revealed or judged: a fresh capture, not a re-measure.
+    expect(isEvidenceRecapture({ ...produced, visibility: "operator" })).toBe(
+      false,
+    );
+    expect(isEvidenceRecapture({ ...produced, qaStatus: "failed" })).toBe(
+      false,
+    );
+    expect(isEvidenceRecapture({ ...produced, editDetail: null })).toBe(false);
   });
 });

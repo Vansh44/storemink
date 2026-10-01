@@ -6,7 +6,11 @@ import { getThemeStudioProject } from "@/lib/theme-studio/repository";
 import { getThemeStudioReleaseState } from "@/lib/theme-studio/publication";
 import { subdomainOrigin } from "@/lib/store/host";
 import { requireOperator } from "../../../../require-operator";
-import { StudioStatusBadge, SuperadminOnly } from "../../studio-ui";
+import {
+  StudioStatusBadge,
+  currentQaFailed,
+  SuperadminOnly,
+} from "../../studio-ui";
 import { ReleaseWorkspace } from "./release-workspace";
 
 export const metadata = { title: "Theme release — StoreMink Admin" };
@@ -52,7 +56,10 @@ export default async function ThemeStudioReleasePage({
           <h1 className="text-xl font-semibold tracking-tight text-slate-950">
             {project.name} · review and release
           </h1>
-          <StudioStatusBadge status={project.status} />
+          <StudioStatusBadge
+            status={project.status}
+            qaFailed={currentQaFailed(project)}
+          />
         </div>
         <p className="max-w-3xl text-sm text-slate-500">
           Two people review the candidate against the release scorecard — one

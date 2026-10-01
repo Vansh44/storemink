@@ -5,7 +5,11 @@ import { getThemeStudioActor } from "@/lib/theme-studio/access";
 import { getThemeStudioProject } from "@/lib/theme-studio/repository";
 import { listThemeStudioSlots } from "@/lib/theme-studio/slot-images";
 import { requireOperator } from "../../../../../../require-operator";
-import { StudioStatusBadge, SuperadminOnly } from "../../../../studio-ui";
+import {
+  StudioStatusBadge,
+  currentQaFailed,
+  SuperadminOnly,
+} from "../../../../studio-ui";
 import { SlotImagesEditor } from "./slot-images-editor";
 import { GenerateImagesButton } from "./generate-images-button";
 import { CapturePanel } from "./capture-panel";
@@ -80,7 +84,10 @@ export default async function ThemeStudioSlotImagesPage({
           <h1 className="text-xl font-semibold tracking-tight text-slate-950">
             {project.name} · version {listing.versionNumber} images
           </h1>
-          <StudioStatusBadge status={project.status} />
+          <StudioStatusBadge
+            status={project.status}
+            qaFailed={currentQaFailed(project)}
+          />
           {isCurrent ? (
             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">
               current

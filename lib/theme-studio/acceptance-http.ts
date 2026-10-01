@@ -2,6 +2,7 @@ import "server-only";
 
 import http from "node:http";
 import https from "node:https";
+import { pageTimeoutError } from "./acceptance-gates";
 
 // ---------------------------------------------------------------------------
 // Fetching a Theme Studio preview page from inside the server.
@@ -125,7 +126,7 @@ export function fetchInternalPage(input: {
         status: null,
         headers: {},
         body: "",
-        error: `No response within ${Math.round(input.timeoutMs / 1000)}s.`,
+        error: pageTimeoutError(input.timeoutMs),
       });
     });
     request.on("error", (error) =>

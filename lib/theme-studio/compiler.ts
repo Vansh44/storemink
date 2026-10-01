@@ -70,6 +70,44 @@ export const SYSTEM_SLOTS = {
   "screenshot-mobile": { aspectRatio: "9:19", alt: "Storefront on mobile" },
 } as const;
 
+/** Own keys only: `in` would also match Object.prototype names such as
+ * `constructor`, which pass the kebab-case id rule. */
+function isSystemSlot(slot: string): slot is keyof typeof SYSTEM_SLOTS {
+  return Object.hasOwn(SYSTEM_SLOTS, slot);
+}
+
+/**
+ * The repair sentence for storefront content naming a catalog picture slot.
+ * Those slots are photographs OF the finished storefront, replaced by capture
+ * after acceptance measured it; a storefront image living in one would change
+ * under the evidence, so capture refuses such a theme (captureBlockers). Saying
+ * so here lets the model fix it before generation and imagery are paid for.
+ */
+function systemSlotIssue(where: string, slot: string): string | null {
+  return isSystemSlot(slot)
+    ? `${where} uses "${slot}", a catalog picture of the finished storefront; storefront images need their own asset brief.`
+    : null;
+}
+
+/**
+ * Stage A issues for asset briefs whose ids collide with the catalog picture
+ * slots. Stage B cannot rename a brief, and the compiler refuses storefront
+ * content naming a system slot, so a brief called `preview` could never be
+ * used; a `screenshot-*` brief is classified as a catalog picture and is never
+ * generated. Checked on NEW Stage A output only, not in the intent contract,
+ * so intents already stored on versions stay readable.
+ */
+export function reservedBriefIssues(intent: {
+  assetBriefs: readonly { id: string }[];
+}): string[] {
+  return intent.assetBriefs
+    .filter((b) => isSystemSlot(b.id) || b.id.startsWith("screenshot-"))
+    .map(
+      (b) =>
+        `assetBriefs id "${b.id}" is reserved for catalog pictures of the finished storefront; give this brief a different id.`,
+    );
+}
+
 // ---------------------------------------------------------------------------
 // Product photographs: one slot per product (Track 3.3).
 //
@@ -203,10 +241,12 @@ function checkConfigUrls(
         );
       } else if (key.endsWith("_url")) {
         const slot = slotOf(nested);
+        const reserved = slot ? systemSlotIssue(at, slot) : null;
         if (!slot)
           issues.push(
             `${at} must be "" or a theme-asset:// slot, not an external URL.`,
           );
+        else if (reserved) issues.push(reserved);
         else if (!known.has(slot))
           issues.push(`${at} uses unknown image slot "${slot}".`);
         else used.add(slot);
@@ -482,6 +522,11 @@ function buildCatalogue(
   const slotUrl = (slot: unknown, where: string): string | null => {
     const id = text(slot);
     if (!id) return null;
+    const reserved = systemSlotIssue(where, id);
+    if (reserved) {
+      issues.push(reserved);
+      return null;
+    }
     if (!known.has(id)) {
       issues.push(`${where} uses unknown image slot "${id}".`);
       return null;
@@ -494,7 +539,12 @@ function buildCatalogue(
     // Missing references never enter the asset manifest, so image generation
     // and placeholder checks cannot see them. Repair the draft before saving
     // a category tile that would render an empty-image icon forever.
-    if (!text(raw.imageSlot) || !briefIds.has(text(raw.imageSlot))) {
+    // A reserved slot gets its own, precise sentence from slotUrl below;
+    // "needs an imageSlot" would read as if none had been given.
+    if (
+      !isSystemSlot(text(raw.imageSlot)) &&
+      (!text(raw.imageSlot) || !briefIds.has(text(raw.imageSlot)))
+    ) {
       issues.push(`categories[${i}] needs an imageSlot from the asset briefs.`);
     }
     const image = slotUrl(raw.imageSlot, `categories[${i}].imageSlot`);
@@ -637,8 +687,7 @@ export function slotSpec(
   intent: ThemeIntent,
   productSlots?: ReadonlyMap<string, ProductSlot>,
 ): { aspectRatio: string; alt: string } {
-  if (slot in SYSTEM_SLOTS)
-    return SYSTEM_SLOTS[slot as keyof typeof SYSTEM_SLOTS];
+  if (isSystemSlot(slot)) return SYSTEM_SLOTS[slot];
   const product = productSlots?.get(slot);
   if (product) {
     const brief = intent.assetBriefs.find((b) => b.id === product.briefId);

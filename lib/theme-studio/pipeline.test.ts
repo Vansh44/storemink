@@ -96,6 +96,80 @@ describe("theme generation pipeline", () => {
     },
   );
 
+  it.each(["preview", "screenshot-desktop", "screenshot-hero"])(
+    "asks Stage A to rename an asset brief called %s before drafting",
+    async (reservedId) => {
+      const fake = createFakeModelClient(base);
+      let intents = 0;
+      const requests: StructuredRequest[] = [];
+      const client: ThemeStudioModelClient = {
+        provider: "fake",
+        async generate(request, signal) {
+          requests.push(request);
+          const result = await fake.generate(request, signal);
+          if (
+            request.stage === "intent" &&
+            result.kind === "ok" &&
+            intents++ === 0
+          ) {
+            const value = result.value as {
+              intent: { assetBriefs: { id: string }[] };
+            };
+            value.intent.assetBriefs[0].id = reservedId;
+          }
+          return result;
+        },
+      };
+      const outcome = await run(undefined, client);
+      expect(outcome.kind).toBe("version");
+      const repair = requests.filter((r) => r.stage === "intent")[1];
+      expect(
+        repair.content.some(
+          (block) =>
+            block.type === "text" &&
+            block.text.includes(
+              `"${reservedId}" is reserved for catalog pictures`,
+            ),
+        ),
+      ).toBe(true);
+      // The repair happened at Stage A: no draft was spent on the bad brief.
+      expect(requests.filter((r) => r.stage === "draft")).toHaveLength(1);
+    },
+  );
+
+  it("reports a reserved brief and missing reference analysis in one repair round", async () => {
+    const fake = createFakeModelClient(base);
+    let intents = 0;
+    const requests: StructuredRequest[] = [];
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request, signal) {
+        requests.push(request);
+        const result = await fake.generate(request, signal);
+        if (
+          request.stage === "intent" &&
+          result.kind === "ok" &&
+          intents++ === 0
+        ) {
+          const value = result.value as {
+            intent: { assetBriefs: { id: string }[]; referenceAnalysis: [] };
+          };
+          value.intent.assetBriefs[0].id = "preview";
+          value.intent.referenceAnalysis = [];
+        }
+        return result;
+      },
+    };
+    expect((await run(undefined, client)).kind).toBe("version");
+    const repair = requests.filter((r) => r.stage === "intent")[1];
+    const text = repair.content
+      .map((block) => (block.type === "text" ? block.text : ""))
+      .join("\n");
+    expect(text).toContain('"preview" is reserved for catalog pictures');
+    expect(text).toContain("referenceAnalysis must contain exactly one item");
+    expect(requests.filter((r) => r.stage === "intent")).toHaveLength(2);
+  });
+
   it("fails after bounded repairs if a category never receives an image slot", async () => {
     const fake = createFakeModelClient(base);
     const client: ThemeStudioModelClient = {
