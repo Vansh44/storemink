@@ -86,6 +86,10 @@ export const MAX_QA_SCREENSHOT_BYTES = 512 * 1024;
 
 const IDEMPOTENCY_RE = /^[A-Za-z0-9_-]{16,80}$/;
 const CODE_RE = /^[a-z0-9_]{1,64}$/;
+
+/** Rendered-route checks during an automatic finish. The finish route allows
+ * 240s; this leaves time to open the preview and commit the version. */
+const AUTOMATIC_ROUTE_BUDGET_MS = 150_000;
 const CAPTURE_STATES = ["ready", "candidate"] as const;
 
 export interface ThemeStudioCaptureView {
@@ -697,7 +701,9 @@ export async function finishThemeStudioCapture(input: {
     const gates = await renderedPreviewGates({
       origin: opened.origin,
       pages: previewPagesFor(pkg),
-      timeoutMs: 5000,
+      // Normal per-page timeouts (a slow page is a real finding, not a reason
+      // to discard the capture), bounded in total to fit the finish route.
+      budgetMs: AUTOMATIC_ROUTE_BUDGET_MS,
       cookies: {
         [CAPTURE_COOKIE]: signPreviewToken(
           "capture",

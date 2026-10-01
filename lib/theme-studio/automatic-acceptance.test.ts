@@ -224,4 +224,38 @@ describe("shared rendered preview checks", () => {
       "/linked",
     );
   });
+
+  it("uses the normal per-page timeouts under a total budget, and stops fetching once it is spent", async () => {
+    vi.useFakeTimers();
+    try {
+      fetchPage.mockReset().mockImplementation(async ({ path }) => {
+        // The home page alone consumes the whole budget.
+        if (path === "/") vi.advanceTimersByTime(10_000);
+        return {
+          status: 200,
+          error: null,
+          headers: { "x-robots-tag": "noindex" },
+          body: '<html lang="en"><main class="storefront-root sm-themed-type"></main></html>',
+        };
+      });
+      const gates = await renderedPreviewGates({
+        origin: "https://studio-preview.storemink.com",
+        cookies: {},
+        budgetMs: 10_000,
+        pages: [
+          { surface: "home", path: "/", label: "Home" },
+          { surface: "shop", path: "/shop", label: "Shop" },
+        ],
+      });
+      expect(fetchPage).toHaveBeenCalledTimes(1);
+      // Clamped to the budget, never above the normal first-page timeout.
+      expect(fetchPage.mock.calls[0][0].timeoutMs).toBe(10_000);
+      const render = gates.find((g) => g.id === "routes.render")!;
+      expect(render.findings).toEqual([
+        expect.objectContaining({ code: "fetch", where: "/shop" }),
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

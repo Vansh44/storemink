@@ -6,6 +6,10 @@ import {
   takeQaScreenshots,
   takeShots,
   mapCaptureWork,
+  CAPTURE_WINDOW_MS,
+  DEFAULT_BUDGET_MS,
+  FINISH_TIMEOUT_MS,
+  MIN_CAPTURE_MS,
 } from "./capture-job.mjs";
 
 const claim = {
@@ -477,4 +481,55 @@ it("reports a hung browser before its lease expires and closes it", async () => 
   } finally {
     vi.useRealTimers();
   }
+});
+
+describe("execution time budget", () => {
+  it("waits on finish longer than the route runs, and fits one full capture in the task timeout", () => {
+    // app/api/internal/theme-studio/captures/[captureId]/route.ts maxDuration.
+    expect(FINISH_TIMEOUT_MS).toBeGreaterThan(240_000);
+    expect(CAPTURE_WINDOW_MS + FINISH_TIMEOUT_MS).toBeLessThanOrEqual(
+      DEFAULT_BUDGET_MS,
+    );
+    // Cloud Run task timeout (docs/theme-studio-capture-job.md).
+    expect(DEFAULT_BUDGET_MS).toBeLessThan(600_000);
+  });
+
+  it("claims nothing once a capture could no longer get its minimum browser time", async () => {
+    const fetchImpl = vi.fn();
+    const elapsed = DEFAULT_BUDGET_MS - FINISH_TIMEOUT_MS - MIN_CAPTURE_MS + 1;
+    const times = [0, elapsed];
+    expect(
+      await runCaptureJob({
+        appOrigin: claim.origin,
+        cronSecret: "s",
+        launch: vi.fn(),
+        fetchImpl,
+        now: () => times.shift() ?? elapsed,
+        log: {},
+      }),
+    ).toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("carries on with the queue when a finish reports the lease was lost", async () => {
+    const { browser } = fakeBrowser();
+    const answers = [
+      response(200, claim),
+      response(409, { status: "lost" }),
+      response(200, { ...claim, captureId: "c-2" }),
+      response(200, { status: "succeeded" }),
+      response(204),
+    ];
+    const results = await runCaptureJob({
+      appOrigin: claim.origin,
+      cronSecret: "s",
+      launch: async () => browser,
+      fetchImpl: async () => answers.shift(),
+      log: {},
+    });
+    expect(results).toEqual([
+      { captureId: "c-1", http: 409, status: "lost" },
+      { captureId: "c-2", http: 200, status: "succeeded" },
+    ]);
+  });
 });

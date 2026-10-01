@@ -249,22 +249,44 @@ export async function renderedPreviewGates(input: {
   pages: PreviewPage[];
   cookies: Record<string, string>;
   timeoutMs?: number;
+  /** Total time for every page and link. Per-request timeouts shrink to fit,
+   * so the caller's own deadline (a route's maxDuration) holds. */
+  budgetMs?: number;
 }): Promise<GateResult[]> {
   const host = new URL(input.origin).host;
   const cookies = input.cookies;
+  const deadline =
+    input.budgetMs === undefined ? null : Date.now() + input.budgetMs;
+  const fetchWithin = async (path: string, timeoutMs: number) => {
+    if (deadline === null) {
+      return fetchInternalPageWithRetry({ host, path, cookies, timeoutMs });
+    }
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      return {
+        status: null,
+        error: "Acceptance time budget exhausted before this page was read.",
+        headers: {},
+        body: "",
+      };
+    }
+    return fetchInternalPageWithRetry({
+      host,
+      path,
+      cookies,
+      timeoutMs: Math.min(timeoutMs, left),
+    });
+  };
 
   const routes: RouteFetchResult[] = [];
   const bodies: { path: string; html: string }[] = [];
   const crawlSources: string[] = [];
   const readPage = async (page: PreviewPage, index: number) => {
-    const response = await fetchInternalPageWithRetry({
-      host,
-      path: page.path,
-      cookies,
-      timeoutMs:
-        input.timeoutMs ??
+    const response = await fetchWithin(
+      page.path,
+      input.timeoutMs ??
         (index === 0 ? FIRST_PAGE_TIMEOUT_MS : PAGE_TIMEOUT_MS),
-    });
+    );
     const robotsHeader = String(response.headers["x-robots-tag"] ?? "");
     routes.push({
       surface: page.surface as AcceptanceSurface,
@@ -319,12 +341,10 @@ export async function renderedPreviewGates(input: {
   for (let i = 0; i < toCrawl.length; i += LINK_CONCURRENCY) {
     const batch = await Promise.all(
       toCrawl.slice(i, i + LINK_CONCURRENCY).map(async (path) => {
-        const response = await fetchInternalPageWithRetry({
-          host,
+        const response = await fetchWithin(
           path,
-          cookies,
-          timeoutMs: input.timeoutMs ?? PAGE_TIMEOUT_MS,
-        });
+          input.timeoutMs ?? PAGE_TIMEOUT_MS,
+        );
         return { path, status: response.status, error: response.error };
       }),
     );

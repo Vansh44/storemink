@@ -57,6 +57,8 @@ function fixture({
   iteration = 0,
   oldBuild = false,
   lostLease = false,
+  claimStatus = "generating",
+  settleStatus = "generating",
 } = {}) {
   const gates = passing().map((g) =>
     fail && g.id === "browser.accessibility"
@@ -85,11 +87,11 @@ function fixture({
   const reads = [
     [],
     [qa],
-    [{ name: "Crave", modelKey: "gemini-3.8-flash" }],
+    [{ name: "Crave", modelKey: "gemini-3.8-flash", status: claimStatus }],
     [{ packageJson: {} }],
     [],
     lostLease ? [] : [qa],
-    [{ status: "generating" }],
+    [{ status: settleStatus }],
     [
       {
         id: "acceptance",
@@ -246,5 +248,34 @@ describe("automatic acceptance and visual settlement", () => {
       await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
     ).toMatchObject({ passed: 0, failed: 0 });
     expect(writes).toHaveLength(1); // Claim only; no late settlement.
+  });
+  it("closes a run whose project stopped generating before paying for vision", async () => {
+    const writes = fixture({ claimStatus: "archived" });
+    expect(
+      await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
+    ).toMatchObject({ claimed: 0, passed: 0, failed: 0 });
+    expect(generate).not.toHaveBeenCalled();
+    expect(writes.at(-1)?.values).toMatchObject({
+      status: "failed",
+      errorCode: "project_state_changed",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+    });
+    expect(writes.some((w) => w.table === themeStudioVersions)).toBe(false);
+    expect(writes.some((w) => w.table === themeStudioProjects)).toBe(false);
+  });
+  it("releases the lease when the project stops generating during the vision call", async () => {
+    const writes = fixture({ settleStatus: "archived" });
+    expect(
+      await runThemeStudioVisualQaWorker({ providers: ["fake"] }),
+    ).toMatchObject({ failed: 1, passed: 0 });
+    expect(writes.at(-1)?.values).toMatchObject({
+      status: "failed",
+      errorCode: "project_state_changed",
+      leaseOwner: null,
+    });
+    // The version stays hidden and the project is left as the operator set it.
+    expect(writes.some((w) => w.table === themeStudioVersions)).toBe(false);
+    expect(writes.some((w) => w.table === themeStudioProjects)).toBe(false);
   });
 });

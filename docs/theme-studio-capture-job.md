@@ -134,14 +134,19 @@ calling HTML-only text APIs. It waits for fonts/images itself, so automatic
 QA does not also pay a 15-second network-idle wait on every sample.
 
 Browser launch and capture work are bounded to five minutes or the execution's
-remaining budget minus three minutes for server acceptance. Claims have a
-60-second timeout; finish has a 240-second timeout. No new claim starts in the
-last 210 seconds of the default eight-minute budget. Leases and job execution
-still expire at ten minutes. Server route checks use bounded two-page batches
-and five-second reads; a failed fetch retries capture rather than paying for a
-redesign. Browsers that arrive after their launch deadline are closed. Failed or
-timed-out browsers are closed before a subsequent capture. A rejected finish
-request fails the execution for monitoring; lease expiry/retry recovers it.
+remaining budget minus the finish timeout. The default budget is 570 seconds
+(the 600-second task timeout less 30 seconds for claims and shutdown). Claims
+have a 60-second timeout; finish has a 270-second timeout, longer than the
+finish route's 240 seconds, so a healthy finish is never abandoned mid-commit.
+A new claim starts only when at least three minutes of browser time remain;
+starting one with less would only burn an attempt on a certain timeout. Leases
+still expire at ten minutes. Server route checks use bounded two-page batches,
+the normal 90-second first-page and 45-second page timeouts, and a 150-second
+total budget; a failed fetch retries capture rather than paying for a redesign.
+Browsers that arrive after their launch deadline are closed. Failed or
+timed-out browsers are closed before a subsequent capture. A 409 finish (the
+lease was lost) is recorded and the job continues; any other rejected finish
+fails the execution for monitoring, and lease expiry/retry recovers it.
 
 **Deploy the capture image separately from the web service.** Web-only deploys
 do not update this job's 404/readiness/timeout behavior. Regression evidence and

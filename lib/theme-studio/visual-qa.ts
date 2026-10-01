@@ -205,6 +205,35 @@ async function revealFailed(
   });
 }
 
+/**
+ * Close a run whose project stopped generating (cancelled, archived, or moved
+ * on by an operator). Only the run is touched: the project is no longer this
+ * worker's to change, and revealing its version would contradict whatever the
+ * operator did. Releasing the lease is what stops the run being re-claimed and
+ * re-judged by a paid vision call on every lease expiry.
+ */
+async function closeAbandoned(db: Db, qaRunId: string) {
+  await db
+    .update(themeStudioVisualQaRuns)
+    .set({
+      status: "failed",
+      errorCode: "project_state_changed",
+      leaseOwner: null,
+      leaseExpiresAt: null,
+      finishedAt: sql`now()`,
+    })
+    .where(eq(themeStudioVisualQaRuns.id, qaRunId));
+}
+
+async function projectIsGenerating(db: Db, projectId: string) {
+  const [project] = await db
+    .select({ status: themeStudioProjects.status })
+    .from(themeStudioProjects)
+    .where(eq(themeStudioProjects.id, projectId))
+    .limit(1);
+  return project?.status === "generating";
+}
+
 async function claimQa(db: Db, workerId: string): Promise<ClaimedQa | null> {
   const exhausted = await db
     .select()
@@ -215,7 +244,13 @@ async function claimQa(db: Db, workerId: string): Promise<ClaimedQa | null> {
           AND ${themeStudioVisualQaRuns.attemptCount} >= ${themeStudioVisualQaRuns.maxAttempts}`,
     )
     .for("update", { skipLocked: true });
-  for (const row of exhausted) await revealFailed(db, row, "qa_lease_expired");
+  for (const row of exhausted) {
+    if (await projectIsGenerating(db, row.projectId)) {
+      await revealFailed(db, row, "qa_lease_expired");
+    } else {
+      await closeAbandoned(db, row.id);
+    }
+  }
 
   const [next] = await db
     .select()
@@ -244,10 +279,16 @@ async function claimQa(db: Db, workerId: string): Promise<ClaimedQa | null> {
     .select({
       name: themeStudioProjects.name,
       modelKey: themeStudioProjects.modelKey,
+      status: themeStudioProjects.status,
     })
     .from(themeStudioProjects)
     .where(eq(themeStudioProjects.id, next.projectId))
     .limit(1);
+  // Never pay for a vision call on a project nobody is generating any more.
+  if (project && project.status !== "generating") {
+    await closeAbandoned(db, next.id);
+    return null;
+  }
   const [version] = await db
     .select({ packageJson: themeStudioVersions.packageJson })
     .from(themeStudioVersions)
@@ -427,7 +468,12 @@ async function settleQa(
       .where(eq(themeStudioProjects.id, qa.projectId))
       .for("update")
       .limit(1);
-    if (!project || project.status !== "generating") return "lost" as const;
+    if (!project || project.status !== "generating") {
+      // The run is still ours (locked above): close it rather than leave it
+      // leased, or it is re-claimed after every expiry until it exhausts.
+      await closeAbandoned(db, qa.id);
+      return "failed" as const;
+    }
     const binding = qa.browserReport as {
       acceptanceRunId?: string;
       buildId?: string;

@@ -5474,12 +5474,19 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     checks**, rather than implying a successful acceptance result.
     A deployment between capture and visual settlement queues a fresh capture
     of the same version rather than redrawing the theme. Capture/QA settlement
-    rejects expired leases. The independent `/api/internal/theme-studio/qa`
+    rejects expired leases. A QA run whose project stopped generating is
+    closed as `project_state_changed` (lease released, project and version
+    untouched) instead of being re-claimed and re-judged by paid vision calls.
+    The independent `/api/internal/theme-studio/qa`
     worker drains two leased rows so long model/image runs cannot occupy its
     scheduler; the original run worker keeps its QA lane as a fallback.
     Browser capture uses two isolated viewport contexts at a time and keeps
     evidence ordered, removes redundant network-idle waits, and bounds launch
-    plus rendering while reserving time for full server acceptance.
+    plus rendering while reserving the full 270-second finish timeout (longer
+    than the 240-second finish route). A claim starts only with at least three
+    minutes of browser time left, and a 409 (lost lease) finish does not stop
+    the execution. Automatic route checks keep the manual per-page timeouts
+    under a 150-second total budget.
     Operator reads filter out internal versions; visible versions show an auto
     QA badge and iteration count. ★ Migration `20260927_0144` owns the version,
     run and capture QA columns, the service-only visual queue, QA asset/event

@@ -21,6 +21,18 @@
 
 import { pathToFileURL } from "node:url";
 
+/** Longest a capture's browser work may run. */
+export const CAPTURE_WINDOW_MS = 5 * 60_000;
+/** A claim is only taken when at least this much browser time remains;
+ * starting one with less only burns an attempt on a certain timeout. */
+export const MIN_CAPTURE_MS = 3 * 60_000;
+/** Finish runs server acceptance (route checks bounded to 150s, preview, one
+ * transaction); its own route allows 240s. Wait longer than the server does,
+ * so a slow-but-healthy finish is never abandoned mid-commit. */
+export const FINISH_TIMEOUT_MS = 270_000;
+/** The job's task timeout is 600s; keep 30s for claims and shutdown. */
+export const DEFAULT_BUDGET_MS = 570_000;
+
 export class CaptureError extends Error {
   constructor(code) {
     super(code);
@@ -266,10 +278,13 @@ export async function runCaptureJob({
   fetchImpl = fetch,
   log = console,
   maxCaptures = 5,
-  budgetMs = 8 * 60_000,
+  budgetMs = DEFAULT_BUDGET_MS,
   now = () => Date.now(),
 }) {
   const started = now();
+  // Browser time left for a capture claimed now, after reserving the finish.
+  const captureTimeLeft = () =>
+    budgetMs - (now() - started) - FINISH_TIMEOUT_MS;
   const headers = {
     authorization: `Bearer ${cronSecret}`,
     "content-type": "application/json",
@@ -279,7 +294,7 @@ export async function runCaptureJob({
   try {
     while (
       results.length < maxCaptures &&
-      now() - started < budgetMs - 210_000
+      captureTimeLeft() >= MIN_CAPTURE_MS
     ) {
       const response = await fetchImpl(
         new URL("/api/internal/theme-studio/captures/claim", appOrigin),
@@ -294,12 +309,10 @@ export async function runCaptureJob({
       let timer;
       let expired = false;
       try {
-        // Leave time for server acceptance before the 10-minute lease/job
-        // expires. A hung page/evaluate must not hold a theme forever.
-        const remainingMs = Math.min(
-          5 * 60_000,
-          budgetMs - (now() - started) - 180_000,
-        );
+        // Leave the whole finish timeout for server acceptance before the
+        // 10-minute lease/job expires. A hung page/evaluate must not hold a
+        // theme forever.
+        const remainingMs = Math.min(CAPTURE_WINDOW_MS, captureTimeLeft());
         if (remainingMs <= 0) throw new CaptureError("capture_timeout");
         body = await Promise.race([
           (async () => {
@@ -346,10 +359,13 @@ export async function runCaptureJob({
           method: "POST",
           headers,
           body: JSON.stringify(body),
-          signal: AbortSignal.timeout(240_000),
+          signal: AbortSignal.timeout(FINISH_TIMEOUT_MS),
         },
       );
-      if (!finished.ok)
+      // 409 means the lease was lost (expired or re-claimed): this capture is
+      // no longer ours and nothing went wrong on the server, so carry on with
+      // the queue. Any other failure stops the execution for monitoring.
+      if (!finished.ok && finished.status !== 409)
         throw new Error(`finish failed with HTTP ${finished.status}`);
       const outcome = await finished.json().catch(() => ({}));
       results.push({
