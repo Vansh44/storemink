@@ -480,6 +480,22 @@ export function createFakeModelClient(
       const intent = runFakeProvider(input);
       if (!intent.ok) return { kind: "invalid_json", usage: ZERO_USAGE };
       const draft = fakeDraft(intent.value, input.name);
+      if (
+        Object.hasOwn(
+          (request.schema?.properties ?? {}) as object,
+          "composition",
+        )
+      ) {
+        draft.composition = "editorial";
+        draft.navigation = "collections";
+        const design = draft.design as Record<string, unknown>;
+        design.layoutOverridesJson = JSON.stringify(design.layout);
+        delete design.layout;
+        delete draft.menus;
+        delete draft.features;
+        for (const product of draft.products as Record<string, unknown>[])
+          delete product.variants;
+      }
       if (hook("repair") && !isRepair) {
         return {
           kind: "ok",

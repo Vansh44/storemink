@@ -18,6 +18,7 @@ import { logError } from "@/lib/observability/logger";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
 import { createFakeModelClient } from "./fake-provider";
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
+import { sharedProviderCapacity } from "./provider-capacity-store";
 import { resolveThemeStudioModel, type ThemeStudioModelKey } from "./models";
 import { THEME_STUDIO_PROMPT_VERSION } from "./prompts";
 import type {
@@ -499,13 +500,23 @@ function qaClient(provider: ThemeStudioProvider, qa: ClaimedQa) {
     });
   }
   const vertex = getVertexConfig();
-  return vertex ? createVertexModelClient(vertex) : null;
+  return vertex
+    ? createVertexModelClient(vertex, {
+        capacity: (model) =>
+          sharedProviderCapacity(vertex.projectId, vertex.region, model),
+      })
+    : null;
 }
 
 async function evaluateQa(
   qa: ClaimedQa,
   provider: ThemeStudioProvider,
-): Promise<{ report: VisualQaReport; usage: ProviderUsage }> {
+): Promise<{
+  report: VisualQaReport;
+  usage: ProviderUsage;
+  provider: ThemeStudioProvider;
+  providerModel: string;
+}> {
   const client: ThemeStudioModelClient | null = qaClient(provider, qa);
   if (!client) throw new Error("provider_unavailable");
   const model = resolveThemeStudioModel(qa.modelKey);
@@ -548,7 +559,12 @@ async function evaluateQa(
     if (result.kind !== "ok") throw new Error(`provider_${result.kind}`);
     const report = parseVisualQaReport(result.value);
     if (!report) throw new Error("qa_output_invalid");
-    return { report, usage: result.usage };
+    return {
+      report,
+      usage: result.usage,
+      provider: client.provider,
+      providerModel: provider === "fake" ? "fake" : model.providerModel,
+    };
   } finally {
     clearTimeout(timeout);
   }
@@ -557,7 +573,12 @@ async function evaluateQa(
 async function settleQa(
   workerId: string,
   qa: ClaimedQa,
-  evaluated: { report: VisualQaReport | null; usage: ProviderUsage | null },
+  evaluated: {
+    report: VisualQaReport | null;
+    usage: ProviderUsage | null;
+    provider?: ThemeStudioProvider;
+    providerModel?: string;
+  },
 ) {
   return withService(async (db) => {
     const [held] = await db
@@ -683,6 +704,8 @@ async function settleQa(
       promptVersion: VISUAL_QA_PROMPT_VERSION,
       usage: evaluated.usage,
       ...evaluated.report,
+      provider: evaluated.provider ?? null,
+      providerModel: evaluated.providerModel ?? null,
       repairs: [
         ...deterministicRepairs(gates),
         ...(evaluated.report?.repairs ?? []),

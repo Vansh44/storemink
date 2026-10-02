@@ -29,6 +29,7 @@ import {
   stageASystemPrompt,
   stageAUserText,
   stageBSystemPrompt,
+  stageBInitialSystemPrompt,
   stageBUserText,
   type BriefMessage,
   type ProjectFacts,
@@ -41,7 +42,12 @@ import {
   type ThemeStudioContentBlock,
   type ThemeStudioModelClient,
 } from "./provider";
-import { STAGE_A_ENVELOPE_SCHEMA, STAGE_B_DRAFT_SCHEMA } from "./schemas";
+import {
+  STAGE_A_ENVELOPE_SCHEMA,
+  STAGE_B_DRAFT_SCHEMA,
+  STAGE_B_INITIAL_DRAFT_SCHEMA,
+} from "./schemas";
+import { expandInitialDraft } from "./initial-draft";
 import {
   applyTargetedRepair,
   repairTargets,
@@ -85,12 +91,20 @@ export interface StageUsage {
   stage: "intent" | "draft";
   attempt: number;
   usage: ProviderUsage;
+  /** End-to-end request time, including admission and provider retries. */
+  durationMs?: number;
 }
 
 export interface GenerationTelemetry {
   calls: StageUsage[];
   totals: ProviderUsage;
   repairs: { intent: number; draft: number };
+  /** Bounded validator diagnostics, without prompts or raw model responses. */
+  repairReasons?: {
+    stage: "intent" | "draft";
+    attempt: number;
+    issues: string[];
+  }[];
   estimatedCostMicroUsd: number;
   pricingVersion: string;
 }
@@ -117,9 +131,23 @@ const MAX_QUESTIONS = 5;
 class Telemetry {
   calls: StageUsage[] = [];
   repairs = { intent: 0, draft: 0 };
+  repairReasons: NonNullable<GenerationTelemetry["repairReasons"]> = [];
   constructor(private readonly modelKey: CompileFacts["modelKey"]) {}
-  record(stage: "intent" | "draft", attempt: number, usage: ProviderUsage) {
-    this.calls.push({ stage, attempt, usage });
+  record(
+    stage: "intent" | "draft",
+    attempt: number,
+    usage: ProviderUsage,
+    durationMs: number,
+  ) {
+    this.calls.push({ stage, attempt, usage, durationMs });
+  }
+  repair(stage: "intent" | "draft", attempt: number, issues: string[]) {
+    this.repairs[stage] += 1;
+    this.repairReasons.push({
+      stage,
+      attempt,
+      issues: issues.slice(0, 15).map((issue) => issue.slice(0, 500)),
+    });
   }
   snapshot(): GenerationTelemetry {
     const totals = this.calls.reduce(
@@ -130,6 +158,7 @@ class Telemetry {
       calls: this.calls,
       totals,
       repairs: { ...this.repairs },
+      repairReasons: this.repairReasons,
       // Per call, then summed: Gemini 3.1 Pro's tier depends on each
       // request's own prompt size, so pricing the totals would mis-tier it.
       estimatedCostMicroUsd: this.calls.reduce(
@@ -156,8 +185,14 @@ async function call(
   attempt: number,
   signal: AbortSignal,
 ): Promise<{ value: unknown } | { invalid: string } | StageFailure> {
+  const started = performance.now();
   const result = await client.generate(request, signal);
-  telemetry.record(request.stage, attempt, result.usage);
+  telemetry.record(
+    request.stage,
+    attempt,
+    result.usage,
+    Math.round(performance.now() - started),
+  );
   switch (result.kind) {
     case "ok":
       return { value: result.value };
@@ -222,7 +257,7 @@ export async function runThemeGeneration(
     // full design rewrite or restarts reference analysis and image generation.
     for (let attempt = 0; attempt < 2; attempt++) {
       signal.throwIfAborted();
-      if (attempt) telemetry.repairs.draft += 1;
+      if (attempt) telemetry.repair("draft", attempt, issues);
       const response = await call(
         client,
         {
@@ -318,7 +353,7 @@ export async function runThemeGeneration(
     attempt <= THEME_STUDIO_LIMITS.repairAttempts;
     attempt++
   ) {
-    if (attempt > 0) telemetry.repairs.intent += 1;
+    if (attempt > 0) telemetry.repair("intent", attempt, issuesA);
     const userText =
       attempt === 0
         ? baseA
@@ -329,7 +364,7 @@ export async function runThemeGeneration(
         stage: "intent",
         modelKey: input.compile.modelKey,
         providerModel: input.providerModel,
-        system: stageASystemPrompt(),
+        system: stageASystemPrompt(input.promptVersion === "theme-studio-v20"),
         content: [{ type: "text", text: userText }, ...images],
         schema: STAGE_A_ENVELOPE_SCHEMA,
         effort: "high",
@@ -415,6 +450,8 @@ export async function runThemeGeneration(
   if (!intent) return fail("invalid_output", { stage: "intent" });
 
   // ------------------------------------------------------------- Stage B
+  const compactInitial =
+    input.promptVersion === "theme-studio-v20" && !input.revision;
   const compileFacts: CompileFacts = {
     ...input.compile,
     promptVersion: input.promptVersion,
@@ -428,6 +465,7 @@ export async function runThemeGeneration(
           input.revision.baseIntent,
         )
       : undefined,
+    compactInitial ? input.messages : undefined,
   );
   const placeholders = new Map<string, PlaceholderImage>();
   let previousB: unknown = null;
@@ -437,7 +475,7 @@ export async function runThemeGeneration(
     attempt <= THEME_STUDIO_LIMITS.repairAttempts;
     attempt++
   ) {
-    if (attempt > 0) telemetry.repairs.draft += 1;
+    if (attempt > 0) telemetry.repair("draft", attempt, issuesB);
     signal.throwIfAborted();
     const userText =
       attempt === 0
@@ -449,9 +487,17 @@ export async function runThemeGeneration(
         stage: "draft",
         modelKey: input.compile.modelKey,
         providerModel: input.providerModel,
-        system: stageBSystemPrompt(input.promptVersion === "theme-studio-v19"),
+        system: compactInitial
+          ? stageBInitialSystemPrompt(intent)
+          : stageBSystemPrompt(
+              ["theme-studio-v19", "theme-studio-v20"].includes(
+                input.promptVersion,
+              ),
+            ),
         content: [{ type: "text", text: userText }],
-        schema: STAGE_B_DRAFT_SCHEMA,
+        schema: compactInitial
+          ? STAGE_B_INITIAL_DRAFT_SCHEMA
+          : STAGE_B_DRAFT_SCHEMA,
         effort: "high",
       },
       telemetry,
@@ -466,16 +512,23 @@ export async function runThemeGeneration(
       continue;
     }
     previousB = response.value;
-    const prepared = prepareDraft(response.value, intent);
+    const expanded = compactInitial
+      ? expandInitialDraft(response.value, intent)
+      : { value: response.value, issues: [] };
+    if (expanded.issues.length) {
+      issuesB = expanded.issues;
+      continue;
+    }
+    const prepared = prepareDraft(expanded.value, intent);
     if (!prepared.parts) {
       issuesB = prepared.issues;
       continue;
     }
     const color = String(
-      (isRec(response.value) &&
-        isRec(response.value.design) &&
-        isRec(response.value.design.palette) &&
-        response.value.design.palette.sand) ||
+      (isRec(expanded.value) &&
+        isRec(expanded.value.design) &&
+        isRec(expanded.value.design.palette) &&
+        expanded.value.design.palette.sand) ||
         "",
     );
     const slotAssets = new Map<string, PlaceholderImage>();

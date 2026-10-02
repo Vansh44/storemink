@@ -32,7 +32,7 @@ changing cron frequency alone would not address this workload.
   They skip reference analysis and catalogue regeneration, keep every asset and
   stop unsupported renderer work. One validation correction is allowed, with
   no fallback to a complete rewrite. Manual redesigns still use both stages.
-  New runs record `theme-studio-v19`; older queued runs keep their original
+  Focused repairs support `theme-studio-v19` and `theme-studio-v20`; older queued runs keep their original
   call sequence so saved paid stages remain reusable. New initial drafts match
   hero height to source framing rather than demanding screen-height artwork.
 - All patches pass package, publish-mode section and content-floor checks.
@@ -42,7 +42,7 @@ changing cron frequency alone would not address this workload.
   existing reasoning configuration.
 - Partial image runs reuse the established style anchor. Anchor styling governs
   general imagery; the passed SET reference governs product staging.
-  Shared image permits cover active requests rather than provider cooldowns.
+  Shared provider permits cover active requests rather than provider cooldowns.
 - Browser screenshots preserve the measured viewport without CSS zoom. Vision
   receives complete semantic JSON, supported settings, capability gaps and
   explicit contact-sheet page ordering. Advisory performance timing alone is
@@ -113,7 +113,8 @@ remain dependencies, preserving one coherent product set. Provider 429s pause
 queued requests together; recovery starts with one request and restores one
 permit after three successful responses. This process-local smoothing follows
 [Google's guidance to smooth traffic and use jittered backoff](https://cloud.google.com/vertex-ai/generative-ai/docs/error-code-429).
-It cannot reserve provider capacity or coordinate separate server instances.
+It cannot reserve provider capacity. Cross-instance admission is now backed by
+the database permits described below; the local pool remains a second bound.
 
 Retakes keep the candidate with the fewest applicable nonblocking findings.
 Flagged or unreviewed generated images cannot establish the SET for a reviewed
@@ -237,3 +238,116 @@ phase immutability, and ancestry-based stopping. These are regression fixtures,
 not a measured full production theme or provider throughput guarantee.
 
 No merchant-visible workflow change, no Help Centre update.
+
+## Remaining optimisation work, 2 October 2026
+
+New initial drafts use `theme-studio-v20`. The model selects a native classic,
+editorial or grocery composition and writes the brand, copy, pages, product
+options and artwork briefs. Mechanical section defaults, working navigation and
+stocked variant combinations are derived mechanically. Registry sample copy,
+shipping offers and item lists are never filled automatically; missing required
+content reaches ordinary validation before artwork. Supported layout
+overrides remain expressible; invalid overrides and palettes still fail ordinary
+compilation. In particular, grocery muted text must remain readable on butter
+cards. Manual creative revisions keep the full schema; older queued requests
+keep their original prompts and checkpoint bindings. Initial design keeps HIGH
+reasoning and the provider's full output allowance.
+The new planning prompt names actual native predictive search, variant-safe
+quick add, filters and commerce variants. It distinguishes a supported quick-add
+button from an unsupported inline quantity stepper, and forbids invented optional
+enhancements from becoming capability gaps. Older planning prompts remain intact.
+Initial synthesis also receives the original brief in an untrusted-data fence;
+ordinary routine/ingredient education must not invent an interactive builder or
+bundling requirement. Rich-text repair feedback names the required authored
+`html` field, preventing repeated generic "Add some content" repairs.
+Generation telemetry also records each invocation's elapsed time, including
+admission, retries or checkpoint replay, and the bounded validator issues that
+triggered each repair. The text/compiler evaluator saves completed-case reports
+atomically while running, so later failures cannot lose earlier paid results.
+
+Migration `20261002_0149_theme_studio_provider_capacity` adds service-only,
+RLS-enabled admission tables. Text, draws, per-image reviews and visual QA share
+at most three active permits per provider project/location/model across instances
+using the same database. A 429 registers a shared pause before releasing its
+permit, then probes with one request. Three current-epoch successes restore one
+permit; duplicate or pre-pause responses cannot restore it. Eleven-minute leases
+renew every thirty seconds and abort transport on renewal loss. Failed admission
+starts no provider call. Cleanup is bounded to six seconds and cannot discard a
+completed paid response; expiry reclaims a permit after a cleanup outage.
+Admission and expiry use the database wall clock after locking. A deterministic
+integration test covers a capacity row created after the claiming transaction
+starts, which transaction-start `now()` could wrongly treat as a future pause.
+This coordinates one database environment, not staging and production using
+separate databases or unrelated applications using the same Vertex quota.
+External provider quotas, outages and SDK failures can still delay a run.
+
+The capture job reports browser, catalogue, QA and per-page navigation/probe/
+screenshot durations. The server also records finish time. During final QA, response HTML
+from the first measured viewport can replace a duplicate server fetch only on
+that exact package/build/live claim. Each page is capped at 1 MiB, redirects and
+failed/oversized bodies fall back to fresh fetching, and every existing route,
+markup, noindex, theme and link check still runs. Unmeasured navigation links
+still fetch. There is no evidence cache across captures or mutable preview stores.
+
+`npm run theme-studio:benchmark` reports the real persisted pipeline, including
+stage waits, total wall time, snapshots versus design revisions, slot redraws,
+current failed/flagged slots, provider deferrals, run cost and separate visual
+usage. Visual verdicts record their provider/model. Fake, mixed or unattributed
+visual scores never become a live quality grade. Existing local projects have
+exercised the read-only reporting path without new generation.
+`firstFinalQaPassed` measures the first completed final review;
+`firstPassQaPassed` also requires no earlier preflight repair. A corrected draft
+can pass its first final review without being counted as an initial first-pass success.
+
+After release, run a complete unpublished batch against the same deployment's
+database and credentials. The explicit create mode buys provider work, creates
+four isolated themes and waits for each theme before starting the next:
+
+```bash
+npm run theme-studio:benchmark -- --create --actor-id=<superadmin-UUID> --yes --wait-minutes=60 --out=/tmp/theme-studio-benchmark.json
+```
+
+IDs are saved before queueing and the report is replaced atomically while waiting.
+A timeout stops further creation. Resume reporting without creating or retrying
+anything:
+
+```bash
+npm run theme-studio:benchmark -- --projects=<saved-UUIDs> --wait-minutes=60 --out=/tmp/theme-studio-benchmark.json
+```
+
+The benchmark covers apparel, food, beauty and home with ordinary intake,
+preflight, artwork, browser acceptance and visual QA. It never publishes a theme.
+The app's existing per-operator capacity and provider spend guards still apply.
+The run estimate excludes visual review costs that are not stored as an estimate;
+returned visual token usage remains available separately.
+
+Verification includes 545 passing Theme Studio/capture tests, three real local
+PostgreSQL admission/preflight/recovery checks, 607 Chromium renderer cases,
+TypeScript, lint, migration checks and a clean local schema fingerprint.
+Fresh Gemini 3.8 Flash text/compiler checks produced these final results:
+
+| Case                            | Draft wall time | Repairs | Capability gaps | Estimated text spend |
+| ------------------------------- | --------------- | ------- | --------------- | -------------------- |
+| Apparel/editorial               | about 2m36s     | 0       | 0               | $0.093               |
+| Grocery, after rich-text fix    | 2m18s           | 0       | 0               | $0.091               |
+| Skincare, after brief-scope fix | 2m09s           | 0       | 0               | $0.087               |
+
+Earlier checks were not first-pass successes: grocery needed three repairs,
+then two repeated rich-text repairs after the first prompt adjustment; skincare
+needed a repair and invented a routine-builder gap. Those results led to the
+explicit content-field feedback and original-brief scope described above.
+The final grocery check preceded the additional original-brief scope adjustment;
+the skincare check used the final prompt. These are single-case diagnostics,
+not a statistical performance comparison.
+
+These checks bought no artwork and ran no full storefront or visual review.
+The text evaluator's candidate label is not publication evidence. They do not
+establish complete-theme latency or first-pass visual quality. The four-theme
+deployed benchmark remains required before either claim.
+
+Release the web service and rebuilt capture job together. Cloud Build applies
+0149 before deploying the web revision; the migration is additive and compatible
+with the previous app. Older capture jobs can omit HTML/profiling and keep fresh
+fetching. All worker instances must run the new code before shared admission is
+fully effective. Existing failed themes need an explicit QA retry after rollout.
+No merchant-visible change, no Help Centre update.

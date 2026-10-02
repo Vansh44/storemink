@@ -37,7 +37,12 @@ const claim = {
 };
 
 /** A browser whose every page answers `status` and screenshots `bytes`. */
-function fakeBrowser({ status = 200, failOn } = {}) {
+function fakeBrowser({
+  status = 200,
+  failOn,
+  routeHtml,
+  redirect = false,
+} = {}) {
   const contexts = [];
   const browser = {
     close: vi.fn(async () => {}),
@@ -57,7 +62,23 @@ function fakeBrowser({ status = 200, failOn } = {}) {
               context.visited.push(url);
               if (failOn === "goto")
                 throw new Error("Timeout 60000ms exceeded");
-              return { status: () => status };
+              return {
+                status: () => status,
+                url: () => (redirect ? `${url}redirect` : url),
+                ...(routeHtml !== undefined
+                  ? {
+                      async text() {
+                        context.bodyReads = (context.bodyReads ?? 0) + 1;
+                        if (failOn === "body")
+                          throw new Error("Body unavailable");
+                        return routeHtml;
+                      },
+                      async allHeaders() {
+                        return { "x-robots-tag": "noindex, nofollow" };
+                      },
+                    }
+                  : {}),
+              };
             },
             async waitForLoadState() {},
             async waitForFunction() {
@@ -110,8 +131,61 @@ function response(status, body) {
 }
 
 describe("taking the shots", () => {
+  it.each(["html", "body-error", "redirect", "oversized"])(
+    "reuses bounded initial HTML only on the same claim, without skipping measurements (%s)",
+    async (mode) => {
+      const html =
+        mode === "oversized"
+          ? "x".repeat(1024 * 1024 + 1)
+          : "<html>storefront</html>";
+      const { browser, contexts } = fakeBrowser({
+        routeHtml: html,
+        failOn: mode === "body-error" ? "body" : undefined,
+        redirect: mode === "redirect",
+      });
+      const result = await takeQaScreenshots(
+        browser,
+        {
+          ...claim,
+          qa: {
+            phase: "final",
+            buildId: "build-1",
+            packageDigest: "a".repeat(64),
+            pages: [{ surface: "home", path: "/" }],
+            viewports: {
+              phone360: { width: 360, height: 800 },
+              desktop1440: { width: 1440, height: 900 },
+            },
+          },
+        },
+        { settleMs: 0 },
+      );
+      expect(result.packageDigest).toBe("a".repeat(64));
+      expect(result.evidence.samples).toHaveLength(2);
+      expect(result.screenshots).toHaveLength(2);
+      expect(result.timing.samples).toHaveLength(2);
+      expect(result.timing.qaMs).toBeGreaterThanOrEqual(0);
+      expect(contexts[1].bodyReads).toBeUndefined();
+      expect(contexts.every((c) => c.closed)).toBe(true);
+      expect(result.routes).toEqual(
+        mode === "html"
+          ? [
+              {
+                path: "/",
+                surface: "home",
+                status: 200,
+                html,
+                robots: "noindex, nofollow",
+              },
+            ]
+          : [],
+      );
+    },
+  );
   it("measures preflight at every requested width without catalog or QA screenshots", async () => {
-    const { browser, contexts } = fakeBrowser();
+    const { browser, contexts } = fakeBrowser({
+      routeHtml: "<html>storefront</html>",
+    });
     const layout = {
       ...claim,
       shots: [],
@@ -132,6 +206,8 @@ describe("taking the shots", () => {
     const result = await takeQaScreenshots(browser, layout);
     expect(result.evidence.samples).toHaveLength(4);
     expect(result.screenshots).toEqual([]);
+    expect(result.routes).toEqual([]);
+    expect(contexts.every((c) => c.bodyReads === undefined)).toBe(true);
     expect(contexts.every((c) => c.screenshot === undefined && c.closed)).toBe(
       true,
     );

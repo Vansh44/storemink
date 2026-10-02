@@ -2456,6 +2456,39 @@ export const themeStudioVersions = pgTable("theme_studio_versions", {
     .notNull(),
 });
 
+/** Service-only provider admission shared across worker instances. */
+export const themeStudioProviderCapacity = pgTable(
+  "theme_studio_provider_capacity",
+  {
+    scopeKey: text("scope_key").primaryKey().notNull(),
+    capacity: integer().default(3).notNull(),
+    epoch: integer().default(0).notNull(),
+    successes: integer().default(0).notNull(),
+    pauseUntil: timestamp("pause_until", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+);
+export const themeStudioProviderLeases = pgTable(
+  "theme_studio_provider_leases",
+  {
+    id: uuid().primaryKey().notNull(),
+    scopeKey: text("scope_key")
+      .notNull()
+      .references(() => themeStudioProviderCapacity.scopeKey, {
+        onDelete: "cascade",
+      }),
+    epoch: integer().notNull(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+  },
+);
+
 /** Track 3.6: catalog pictures rendered from a version's preview store by the
  *  headless-Chromium capture job. Service-only; a finished row is final. */
 export const themeStudioCaptures = pgTable("theme_studio_captures", {

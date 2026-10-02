@@ -74,7 +74,7 @@ async function main() {
   const packagesDir = option("packages");
 
   const sharp = (await import("sharp")).default;
-  const { writeFile } = await import("node:fs/promises");
+  const { writeFile, rename } = await import("node:fs/promises");
   const corpus = (await import("@/evals/theme-studio/phase0.json")).default;
   const { parseThemeStudioModelKey, resolveThemeStudioModel } =
     await import("@/lib/theme-studio/models");
@@ -169,15 +169,32 @@ async function main() {
   };
   let spentMicroUsd = 0;
   let stopped = false;
+  async function checkpoint(
+    modelKey: string,
+    results: import("@/lib/theme-studio/evaluation").EvalResult[],
+  ) {
+    (report.models as Record<string, unknown>)[modelKey] = {
+      summary: evaluation.summarize(results),
+      results,
+    };
+    report.estimatedCostMicroUsd = spentMicroUsd;
+    if (out) {
+      const temporary = `${out}.tmp`;
+      await writeFile(temporary, JSON.stringify(report, null, 2));
+      await rename(temporary, out);
+    }
+  }
 
   for (const modelKey of keys) {
     const record = resolveThemeStudioModel(modelKey);
     const results: import("@/lib/theme-studio/evaluation").EvalResult[] = [];
+    await checkpoint(modelKey, results);
     for (const entry of cases) {
       if (live && spentMicroUsd >= maxUsd * 1_000_000) {
         stopped = true;
         break;
       }
+      const started = performance.now();
       const refs = await references(entry.referenceNotes);
       if ("rejected" in refs) {
         const observed = "refuse" as const;
@@ -191,7 +208,9 @@ async function main() {
           violations: [],
           costMicroUsd: 0,
           repairs: 0,
+          durationMs: Math.round(performance.now() - started),
         });
+        await checkpoint(modelKey, results);
         console.log(
           `${modelKey}  ${entry.id.padEnd(36)} expected=${entry.expectedOutcome.padEnd(14)} observed=refuse         sanitizer (${refs.rejected})`,
         );
@@ -232,14 +251,6 @@ async function main() {
         },
         AbortSignal.timeout(RUN_WALL_MS),
       );
-      if (packagesDir && outcome.kind === "version") {
-        const { mkdir } = await import("node:fs/promises");
-        await mkdir(packagesDir, { recursive: true });
-        await writeFile(
-          `${packagesDir}/${modelKey}.${entry.id}.json`,
-          JSON.stringify(outcome.package, null, 2),
-        );
-      }
       const observed = evaluation.observedOutcome(outcome);
       const cost = outcome.telemetry.estimatedCostMicroUsd;
       spentMicroUsd += cost;
@@ -264,7 +275,19 @@ async function main() {
         costMicroUsd: cost,
         repairs:
           outcome.telemetry.repairs.intent + outcome.telemetry.repairs.draft,
+        durationMs: Math.round(performance.now() - started),
+        calls: outcome.telemetry.calls,
+        repairReasons: outcome.telemetry.repairReasons,
       });
+      await checkpoint(modelKey, results);
+      if (packagesDir && outcome.kind === "version") {
+        const { mkdir } = await import("node:fs/promises");
+        await mkdir(packagesDir, { recursive: true });
+        await writeFile(
+          `${packagesDir}/${modelKey}.${entry.id}.json`,
+          JSON.stringify(outcome.package, null, 2),
+        );
+      }
       const last = results.at(-1)!;
       console.log(
         `${modelKey}  ${entry.id.padEnd(36)} expected=${entry.expectedOutcome.padEnd(14)} observed=${observed.padEnd(14)} ${live ? evaluation.finalGrade(last) : last.violations.length ? "UNSAFE" : "ok"}`,
@@ -282,7 +305,10 @@ async function main() {
     console.log(`Stopped early: estimated spend reached $${maxUsd}.`);
     report.stoppedAtUsd = maxUsd;
   }
-  if (out) await writeFile(out, JSON.stringify(report, null, 2));
+  if (out) {
+    await writeFile(`${out}.tmp`, JSON.stringify(report, null, 2));
+    await rename(`${out}.tmp`, out);
+  }
 
   const unsafe = Object.values(
     report.models as Record<string, { summary: { safetyViolations: number } }>,

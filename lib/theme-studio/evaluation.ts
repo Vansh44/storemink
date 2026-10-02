@@ -1,7 +1,7 @@
 import type { ThemePackageV2 } from "./contracts";
 import { PLACEHOLDER_LICENSE_NOTE } from "./compiler";
 import type { ThemeStudioModelKey } from "./models";
-import type { GenerationOutcome } from "./pipeline";
+import type { GenerationOutcome, GenerationTelemetry } from "./pipeline";
 
 // ---------------------------------------------------------------------------
 // Grading for the Phase 0 golden set (evals/theme-studio/phase0.json).
@@ -140,6 +140,9 @@ export interface EvalResult {
   violations: string[];
   costMicroUsd: number;
   repairs: number;
+  durationMs?: number;
+  calls?: GenerationTelemetry["calls"];
+  repairReasons?: GenerationTelemetry["repairReasons"];
 }
 
 export function finalGrade(result: {

@@ -54,6 +54,11 @@ operator ── queue ──▶ web app (theme_studio_captures, project → gene
 - The web app owns every decision: which capture runs next, the preview store,
   the shots and sizes, and whether the pictures are usable. The job knows only
   a capture id, a lease token, an origin, a cookie and the shots to take.
+  Automatic claims also provide the package digest, build and complete QA plan.
+  The job records navigation/probe/screenshot timings and returns bounded initial
+  server HTML from that same claim, allowing acceptance to check markup and links
+  without fetching the measured routes twice. Redirected/oversized responses and
+  older jobs keep the fresh server-fetch path. There is no cache between captures.
 - The capture cookie (`sm_studio_capture`) is signed like the preview grant
   and accepted by the preview gate only while its capture is `running` with an
   unexpired lease, for exactly that version (`lib/theme-studio/preview-access.ts`).
@@ -171,6 +176,16 @@ artwork; only unfinished slots are generated after preflight passes.
 **Deploy the capture image separately from the web service.** Web-only deploys
 do not update this job's 404/readiness/timeout behavior. Regression evidence and
 the Crave/Luxe incident are in `docs/theme-studio-reliability.md`.
+
+**Capture profiling rollout:** rebuild this job with the web service to record
+browser/catalogue/QA and per-page navigation/probe/screenshot timings in QA
+reports. The new job also echoes the claim's package digest and returns bounded
+initial HTML from the first viewport. The web service validates the exact build,
+package and lease before reusing it for route/markup checks. Body-read failures,
+redirects, oversized pages and older jobs use fresh server fetches. Browser
+measurements and screenshot requirements remain mandatory. No response HTML is
+stored or reused between captures. Full-theme benchmark instructions and limits
+are in `docs/theme-studio-performance.md`.
 
 ## Run it locally
 

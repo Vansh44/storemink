@@ -132,12 +132,15 @@ export async function takeQaScreenshots(
   { settleMs = 250, concurrency = MAX_QA_CONTEXTS } = {},
 ) {
   if (!claim.qa) return undefined;
+  const qaStarted = Date.now();
   const measured = await mapCaptureWork(
     Object.entries(claim.qa.viewports),
     Math.min(concurrency, MAX_QA_CONTEXTS),
-    async ([viewport, dimensions]) => {
+    async ([viewport, dimensions], index) => {
       const samples = [];
       const screenshots = [];
+      const timings = [];
+      const routes = [];
       const mobile = dimensions.width <= 768;
       const context = await browser.newContext({
         viewport: dimensions,
@@ -157,6 +160,7 @@ export async function takeQaScreenshots(
         ]);
         for (const preview of claim.qa.pages) {
           const page = await context.newPage();
+          const navigationStarted = Date.now();
           const response = await page.goto(
             new URL(preview.path, claim.origin).href,
             { waitUntil: "load", timeout: 60_000 },
@@ -165,6 +169,35 @@ export async function takeQaScreenshots(
           const expected = preview.surface === "not_found" ? 404 : 200;
           if (status !== expected)
             throw new CaptureError(`preview_status_${status}`);
+          const navigationMs = Date.now() - navigationStarted;
+          // Initial server HTML from the first viewport, reused on this claim
+          // only. A redirect or an oversized page keeps the fresh-fetch path.
+          if (
+            claim.qa.phase !== "layout" &&
+            index === 0 &&
+            response.text &&
+            response.url?.() === new URL(preview.path, claim.origin).href
+          ) {
+            try {
+              const html = await response.text();
+              if (Buffer.byteLength(html) <= 1024 * 1024) {
+                const headers = await response.allHeaders();
+                const route = {
+                  path: preview.path,
+                  surface: preview.surface,
+                  status,
+                  html,
+                  robots: String(headers["x-robots-tag"] ?? ""),
+                };
+                if (Buffer.byteLength(JSON.stringify(route)) <= 1024 * 1024)
+                  routes.push(route);
+              }
+            } catch {
+              // Optional reuse cannot fail browser measurement. Acceptance
+              // fetches the route afresh when this transport body is absent.
+            }
+          }
+          const probeStarted = Date.now();
           // The probe waits for fonts and images itself. Network-idle can add
           // 15 seconds to each of thirty pages because of unrelated traffic.
           await page.addStyleTag({
@@ -205,6 +238,8 @@ export async function takeQaScreenshots(
             }
           });
           samples.push({ ...result, viewport, surface: preview.surface });
+          const probeMs = Date.now() - probeStarted;
+          const screenshotStarted = Date.now();
           if (claim.qa.phase !== "layout") {
             // Capture the measured layout unchanged. CSS zoom reflows the page
             // and made vision review a different composition from the probe.
@@ -224,21 +259,34 @@ export async function takeQaScreenshots(
               base64: bytes.toString("base64"),
             });
           }
+          timings.push({
+            viewport,
+            surface: preview.surface,
+            navigationMs,
+            probeMs,
+            screenshotMs: Date.now() - screenshotStarted,
+          });
           await page.close?.();
         }
       } finally {
         await context.close();
       }
-      return { samples, screenshots };
+      return { samples, screenshots, timings, routes };
     },
   );
   return {
     buildId: claim.qa.buildId,
+    packageDigest: claim.qa.packageDigest,
     evidence: {
       userAgent: PHONE_UA,
       samples: measured.flatMap((value) => value.samples),
     },
     screenshots: measured.flatMap((value) => value.screenshots),
+    routes: measured.flatMap((value) => value.routes),
+    timing: {
+      qaMs: Date.now() - qaStarted,
+      samples: measured.flatMap((value) => value.timings),
+    },
   };
 }
 
@@ -317,6 +365,7 @@ export async function runCaptureJob({
         if (remainingMs <= 0) throw new CaptureError("capture_timeout");
         body = await Promise.race([
           (async () => {
+            const browserStarted = Date.now();
             if (!browser) {
               const launched = await launch();
               if (expired) {
@@ -326,13 +375,22 @@ export async function runCaptureJob({
               browser = launched;
             }
             const activeBrowser = browser;
+            const catalogStarted = Date.now();
             const images = await takeShots(activeBrowser, claim);
+            const catalogMs = Date.now() - catalogStarted;
+            const qa = claim.qa
+              ? await takeQaScreenshots(activeBrowser, claim)
+              : undefined;
+            if (qa)
+              qa.timing = {
+                ...qa.timing,
+                browserMs: Date.now() - browserStarted,
+                catalogMs,
+              };
             return {
               leaseToken: claim.leaseToken,
               images,
-              ...(claim.qa
-                ? { qa: await takeQaScreenshots(activeBrowser, claim) }
-                : {}),
+              ...(qa ? { qa } : {}),
             };
           })(),
           new Promise((_, reject) => {

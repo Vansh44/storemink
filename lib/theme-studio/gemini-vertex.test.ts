@@ -30,6 +30,7 @@ import {
   getVertexConfig,
 } from "./gemini-vertex";
 import type { StructuredRequest } from "./provider";
+import type { ProviderCapacity } from "./provider-capacity";
 import {
   RATE_LIMIT_BACKOFF,
   rateLimitDelayMs,
@@ -337,6 +338,63 @@ describe("waiting out a rate limit", () => {
     });
     expect(state.requests).toHaveLength(3);
     expect(sleep.mock.calls.map((c) => c[0])).toEqual([15_000, 30_000]);
+  });
+
+  it("registers the same jittered cooldown before shared release and acquires a new permit for the retry", async () => {
+    const events: string[] = [];
+    const pause = vi.fn(async (ms: number) => {
+      void ms;
+      events.push("pause");
+    });
+    const capacity: ProviderCapacity = {
+      async run(operation, signal) {
+        events.push("admit");
+        try {
+          return await operation({
+            signal,
+            succeeded: () => {
+              events.push("success");
+            },
+            rateLimited: pause,
+          });
+        } finally {
+          events.push("release");
+        }
+      },
+    };
+    const scope = vi.fn(() => capacity);
+    const random = vi.fn().mockReturnValueOnce(0.3).mockReturnValue(0.9);
+    const sleep = vi.fn(async (ms: number) => {
+      void ms;
+      events.push("sleep");
+      return true;
+    });
+    let calls = 0;
+    state.next = () => {
+      events.push("send");
+      return ++calls === 1 ? rateLimited() : Promise.resolve(response());
+    };
+    const client = createVertexModelClient(
+      { projectId: "p", region: "global" },
+      { capacity: scope, random, sleep },
+    );
+    expect(await client.generate(request, signal())).toMatchObject({
+      kind: "ok",
+    });
+    expect(scope).toHaveBeenCalledWith(request.providerModel);
+    expect(random).toHaveBeenCalledOnce();
+    expect(pause.mock.calls[0][0]).toBe(sleep.mock.calls[0][0]);
+    expect(events).toEqual([
+      "admit",
+      "send",
+      "pause",
+      "release",
+      "sleep",
+      "admit",
+      "send",
+      "success",
+      "release",
+    ]);
   });
 
   it("gives up after five retries and says it was rate limited", async () => {

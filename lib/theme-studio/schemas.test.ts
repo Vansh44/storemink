@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   STAGE_A_ENVELOPE_SCHEMA,
   STAGE_B_DRAFT_SCHEMA,
+  STAGE_B_INITIAL_DRAFT_SCHEMA,
   THEME_STUDIO_SECTION_TYPES,
 } from "./schemas";
 
@@ -45,6 +46,7 @@ describe("provider schemas", () => {
   it.each([
     ["stage A", STAGE_A_ENVELOPE_SCHEMA],
     ["stage B", STAGE_B_DRAFT_SCHEMA],
+    ["initial draft", STAGE_B_INITIAL_DRAFT_SCHEMA],
   ])("%s is closed and uses only supported keywords", (_name, schema) => {
     const problems: string[] = [];
     walk(schema, "$", problems);

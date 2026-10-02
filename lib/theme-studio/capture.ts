@@ -42,6 +42,7 @@ import {
 } from "./repository";
 import { prepareSlotImage } from "./slot-images";
 import type { SlotImageRow } from "./slot-images-core";
+import { parseCaptureTiming, parseCapturedRoutes } from "./capture-profile";
 import { getThemeStudioConfig } from "./config";
 import {
   THEME_STUDIO_QA_VIEWPORTS,
@@ -118,6 +119,7 @@ export interface ClaimedCapture {
   shots: Omit<CaptureShot, "target" | "byteLimit" | "alt">[];
   qa?: {
     buildId: string;
+    packageDigest?: string;
     phase?: "layout" | "final";
     pages: { surface: string; path: string }[];
     viewports: typeof THEME_STUDIO_QA_VIEWPORTS;
@@ -485,6 +487,7 @@ export async function claimThemeStudioCapture(): Promise<ClaimedCapture | null> 
       ? {
           qa: {
             buildId: currentAcceptanceBuildId(),
+            packageDigest: capture.packageDigest,
             phase: capture.phase as "layout" | "final",
             pages: opened.pages.map(({ surface, path }) => ({ surface, path })),
             viewports: THEME_STUDIO_QA_VIEWPORTS,
@@ -536,6 +539,9 @@ export async function finishThemeStudioCapture(input: {
   images?: { slotId: string; bytes: Uint8Array }[];
   qa?: {
     buildId?: string;
+    packageDigest?: string;
+    routes?: unknown;
+    timing?: unknown;
     evidence: unknown;
     screenshots: {
       key: string;
@@ -554,6 +560,8 @@ export async function finishThemeStudioCapture(input: {
     heldCapture(db, input.captureId, input.leaseToken, false),
   );
   if (!capture) return { status: "lost" };
+  const finishStarted = Date.now();
+  const timing = parseCaptureTiming(input.qa?.timing);
 
   // Terminal: the capture is failed now, whatever attempts it has left.
   const failNow = async (code: string): Promise<CaptureFinish> =>
@@ -700,6 +708,9 @@ export async function finishThemeStudioCapture(input: {
           evidence,
           surfaces,
           gates,
+          timing: timing
+            ? { ...timing, finishMs: Date.now() - finishStarted }
+            : null,
         },
         screenshotAssetIds: [],
         createdBy: held.createdBy,
@@ -847,6 +858,10 @@ export async function finishThemeStudioCapture(input: {
     const gates = await renderedPreviewGates({
       origin: opened.origin,
       pages: previewPagesFor(pkg),
+      capturedRoutes:
+        input.qa?.packageDigest === capture.packageDigest
+          ? parseCapturedRoutes(input.qa?.routes, previewPagesFor(pkg))
+          : [],
       // Normal per-page timeouts (a slow page is a real finding, not a reason
       // to discard the capture), bounded in total to fit the finish route.
       budgetMs: AUTOMATIC_ROUTE_BUDGET_MS,
@@ -1056,7 +1071,19 @@ export async function finishThemeStudioCapture(input: {
         versionId: created.id,
         packageDigest,
         qaIteration: held.qaIteration,
-        browserReport: { evidence, surfaces, ...acceptance },
+        browserReport: {
+          evidence,
+          surfaces,
+          ...acceptance,
+          timing: timing
+            ? { ...timing, finishMs: Date.now() - finishStarted }
+            : null,
+          reusedRoutes:
+            input.qa?.packageDigest === capture.packageDigest
+              ? parseCapturedRoutes(input.qa?.routes, previewPagesFor(pkg))
+                  .length
+              : 0,
+        },
         screenshotAssetIds,
         createdBy: held.createdBy,
       });

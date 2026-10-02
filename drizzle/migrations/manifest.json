@@ -6029,6 +6029,32 @@
           "theme_studio_visual_qa_shape_check"
         ]
       }
+    },
+    {
+      "id": "20261002_0149_theme_studio_provider_capacity",
+      "description": "Coordinate Theme Studio provider admission and cooldowns across worker instances",
+      "file": "sql/20261002_0149_theme_studio_provider_capacity.sql",
+      "transaction": true,
+      "requires": ["20261002_0148_theme_studio_layout_preflight"],
+      "verify": {
+        "tables": [
+          "theme_studio_provider_capacity",
+          "theme_studio_provider_leases"
+        ],
+        "functions": ["theme_studio_capacity_lock(text)"],
+        "indexes": ["theme_studio_provider_leases_scope_expiry_idx"],
+        "rlsTables": [
+          "theme_studio_provider_capacity",
+          "theme_studio_provider_leases"
+        ],
+        "queries": [
+          {
+            "name": "provider capacity remains service-only",
+            "sql": "select (not has_table_privilege('app_user','public.theme_studio_provider_capacity','SELECT') and not has_table_privilege('app_user','public.theme_studio_provider_leases','SELECT') and not has_function_privilege('app_user','public.theme_studio_capacity_lock(text)','EXECUTE') and has_table_privilege('app_service','public.theme_studio_provider_leases','SELECT,INSERT,UPDATE,DELETE') and has_function_privilege('app_service','public.theme_studio_capacity_lock(text)','EXECUTE'))::text",
+            "equals": "true"
+          }
+        ]
+      }
     }
   ]
 }

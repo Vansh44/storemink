@@ -14,6 +14,11 @@ import { logWarn } from "@/lib/observability/logger";
 import { classifyProviderError } from "./gemini-vertex";
 import { abortable } from "./abortable";
 import { imageRequestPool } from "./image-request-pool";
+import {
+  uncoordinatedProviderCapacity,
+  ProviderCapacityLost,
+  type ProviderCapacity,
+} from "./provider-capacity";
 import type { ThemeStudioImageConfig } from "./image-models";
 import {
   ZERO_IMAGE_USAGE,
@@ -172,6 +177,7 @@ export interface ImageClientOptions {
   sleep?: (ms: number, signal?: AbortSignal) => Promise<boolean>;
   random?: () => number;
   pool?: ReturnType<typeof imageRequestPool>;
+  capacity?: ProviderCapacity;
   /** Test seam for the SDK call. */
   send?: (
     request: ThemeImageRequest,
@@ -185,6 +191,7 @@ export function createVertexImageClient(
 ): ThemeStudioImageClient {
   const sleep = options.sleep ?? sleepUnlessAborted;
   const random = options.random ?? Math.random;
+  const capacity = options.capacity ?? uncoordinatedProviderCapacity;
   const pool =
     options.pool ??
     imageRequestPool(config.projectId, config.location, config.providerModel);
@@ -249,50 +256,59 @@ export function createVertexImageClient(
       const queuedAt = Date.now();
       try {
         return timed(
-          await pool.run(async (epoch) => {
-            capacityWaitMs += Date.now() - queuedAt;
-            // The attempt clock starts when a permit is acquired. Waiting behind
-            // another theme is bounded by the run signal, not provider latency.
-            signal = AbortSignal.any([
-              outer,
-              AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
-            ]);
-            // Cooldowns consume no active permit; admission waits until the
-            // shared pause settles, then resumes at the reduced probe limit.
-            providerAttempts++;
-            try {
-              const result = parseThemeImageResponse(
-                await abortable(() => send(request, signal), signal),
-              );
-              pool.recovered(epoch);
-              return result;
-            } catch (error) {
-              // Register the shared pause BEFORE releasing this permit, so
-              // queued slots cannot surge into the same exhausted capacity.
-              if (
-                !signal.aborted &&
-                classifyProviderError(error) === "rate_limited"
-              ) {
-                const delay = rateLimitDelayMs(retry, random);
-                if (
-                  retry < RATE_LIMIT_BACKOFF.retries &&
-                  waitedMs + delay <= RATE_LIMIT_BACKOFF.totalMs
-                ) {
-                  retryDelay = delay;
-                  pendingWait = sleep(delay, outer);
+          await pool.run(
+            (epoch) =>
+              capacity.run(async (permit) => {
+                capacityWaitMs += Date.now() - queuedAt;
+                // The attempt clock starts when a permit is acquired. Waiting behind
+                // another theme is bounded by the run signal, not provider latency.
+                signal = AbortSignal.any([
+                  outer,
+                  permit.signal,
+                  AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
+                ]);
+                // Cooldowns consume no active permit; admission waits until the
+                // shared pause settles, then resumes at the reduced probe limit.
+                providerAttempts++;
+                try {
+                  const result = parseThemeImageResponse(
+                    await abortable(() => send(request, signal), signal),
+                  );
+                  pool.recovered(epoch);
+                  permit.succeeded();
+                  return result;
+                } catch (error) {
+                  // Register the shared pause BEFORE releasing this permit, so
+                  // queued slots cannot surge into the same exhausted capacity.
+                  if (
+                    !signal.aborted &&
+                    classifyProviderError(error) === "rate_limited"
+                  ) {
+                    const delay = rateLimitDelayMs(retry, random);
+                    await permit.rateLimited(delay);
+                    if (
+                      retry < RATE_LIMIT_BACKOFF.retries &&
+                      waitedMs + delay <= RATE_LIMIT_BACKOFF.totalMs
+                    ) {
+                      retryDelay = delay;
+                      pendingWait = sleep(delay, outer);
+                    }
+                    pool.coolDown(pendingWait ?? Promise.resolve());
+                  }
+                  throw error;
                 }
-                pool.coolDown(pendingWait ?? Promise.resolve());
-              }
-              throw error;
-            }
-          }, outer),
+              }, outer),
+            outer,
+          ),
         );
       } catch (error) {
         const code = outer.aborted
           ? "cancelled"
-          : signal.aborted
-            ? "provider_timeout"
-            : classifyProviderError(error);
+          : signal.reason instanceof ProviderCapacityLost
+            ? "provider_unavailable"
+            : signal.aborted
+              ? "provider_timeout"
+              : classifyProviderError(error);
         const delay =
           code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
             ? retryDelay

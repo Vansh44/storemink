@@ -11,6 +11,11 @@ import { logWarn } from "@/lib/observability/logger";
 import { THEME_STUDIO_LIMITS } from "./contracts";
 import { abortable } from "./abortable";
 import {
+  uncoordinatedProviderCapacity,
+  ProviderCapacityLost,
+  type ProviderCapacity,
+} from "./provider-capacity";
+import {
   RATE_LIMIT_BACKOFF,
   rateLimitDelayMs,
   sleepUnlessAborted,
@@ -179,6 +184,7 @@ export interface VertexClientOptions {
   /** Test seams; production uses real timers and Math.random. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<boolean>;
   random?: () => number;
+  capacity?: (providerModel: string) => ProviderCapacity;
 }
 
 export function createVertexModelClient(
@@ -208,26 +214,50 @@ export function createVertexModelClient(
     async generate(request, outer) {
       // Keep HIGH thinking and the full output allowance, but bound wall time
       // across SDK retries, auth and 429 backoff, not just one HTTP attempt.
-      const signal = AbortSignal.any([
-        outer,
-        AbortSignal.timeout(
-          request.stage === "image_review" ? 180_000 : REQUEST_TIMEOUT_MS,
-        ),
-      ]);
+      const capacity =
+        options.capacity?.(request.providerModel) ??
+        uncoordinatedProviderCapacity;
+      let deadline: AbortSignal | undefined;
+      let signal = outer;
       let response: GenerateContentResponse | undefined;
       let waitedMs = 0;
       for (let retry = 0; !response; retry++) {
+        let retryDelay: number | undefined;
         try {
-          response = await abortable(send, signal);
+          response = await capacity.run(
+            async (permit) => {
+              deadline ??= AbortSignal.timeout(
+                request.stage === "image_review" ? 180_000 : REQUEST_TIMEOUT_MS,
+              );
+              signal = AbortSignal.any([outer, deadline, permit.signal]);
+              try {
+                const value = await abortable(send, signal);
+                permit.succeeded();
+                return value;
+              } catch (error) {
+                if (
+                  !signal.aborted &&
+                  classifyProviderError(error) === "rate_limited"
+                ) {
+                  retryDelay = rateLimitDelayMs(retry, random);
+                  await permit.rateLimited(retryDelay);
+                }
+                throw error;
+              }
+            },
+            deadline ? AbortSignal.any([outer, deadline]) : outer,
+          );
         } catch (error) {
           const code = outer.aborted
             ? "cancelled"
-            : signal.aborted
-              ? "provider_timeout"
-              : classifyProviderError(error);
+            : signal.reason instanceof ProviderCapacityLost
+              ? "provider_unavailable"
+              : signal.aborted
+                ? "provider_timeout"
+                : classifyProviderError(error);
           const delay =
             code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
-              ? rateLimitDelayMs(retry, random)
+              ? (retryDelay ?? rateLimitDelayMs(retry, random))
               : null;
           if (delay === null || waitedMs + delay > RATE_LIMIT_BACKOFF.totalMs) {
             return { kind: "error", code, usage: ZERO_USAGE };

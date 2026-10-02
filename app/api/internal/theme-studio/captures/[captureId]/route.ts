@@ -21,6 +21,7 @@ export const maxDuration = 240;
 const MAX_BODY_BYTES =
   3 * Math.ceil((MAX_CAPTURE_BYTES * 4) / 3) +
   30 * Math.ceil((MAX_QA_SCREENSHOT_BYTES * 4) / 3) +
+  6 * 1024 * 1024 +
   64 * 1024;
 
 async function readBody(request: Request): Promise<unknown | null> {
@@ -83,6 +84,9 @@ export async function POST(
   let qa:
     | {
         buildId?: string;
+        packageDigest?: string;
+        routes?: unknown;
+        timing?: unknown;
         evidence: unknown;
         screenshots: {
           key: string;
@@ -96,6 +100,9 @@ export async function POST(
   if (body.qa !== undefined) {
     const raw = body.qa as {
       buildId?: unknown;
+      packageDigest?: unknown;
+      routes?: unknown;
+      timing?: unknown;
       evidence?: unknown;
       screenshots?: unknown;
     };
@@ -140,6 +147,10 @@ export async function POST(
     }
     qa = {
       buildId: typeof raw.buildId === "string" ? raw.buildId : undefined,
+      packageDigest:
+        typeof raw.packageDigest === "string" ? raw.packageDigest : undefined,
+      routes: raw.routes,
+      timing: raw.timing,
       evidence: raw.evidence,
       screenshots,
     };

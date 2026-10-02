@@ -3329,6 +3329,8 @@ wholesip/
 │   │                          # (deterministic, versioned, untrusted input fenced),
 │   │                          # compiler.ts (draft → ThemePackageV2; the server owns id,
 │   │                          # engine, release, assets; URLs/hrefs/sources refused),
+│   │                          # initial-draft.ts (v20 native compositions, section defaults,
+│   │                          # catalogue-derived navigation and option combinations),
 │   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
 │   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
 │   │                          # rate-limit-backoff.ts (the 429 wait: bounded, jittered,
@@ -3337,6 +3339,11 @@ wholesip/
 │   │                          # image-request-pool.ts (three image calls shared by concurrent
 │   │                          # worker lanes per provider project/location/model, shared 429
 │   │                          # pause and gradual recovery, process-local),
+│   │                          # provider-capacity.ts / provider-capacity-store.ts (shared
+│   │                          # service-only PostgreSQL admission, fenced expiring permits
+│   │                          # and cross-instance cooldown/recovery; migration 0149),
+│   │                          # capture-profile.ts (bounded timings and same-claim HTML
+│   │                          # reuse), benchmark.ts (complete persisted pipeline metrics),
 │   │                          # image-recovery.ts (exact paid-response replay and
 │   │                          # independent image-review recovery), image-checkpoint-store.ts
 │   │                          # (private byte/evidence checkpoints, live-lease fencing and
@@ -5565,7 +5572,7 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     is an operator/internal pipeline change; no merchant workflow change or Help
     Centre update.
     **Automatic repair performance (2026-10-02):** automatic `revise` runs
-    recorded with prompt version `theme-studio-v19` use `targeted-repair.ts`,
+    recorded with prompt version `theme-studio-v19` or `theme-studio-v20` use `targeted-repair.ts`,
     skipping Stage A and full Stage B regeneration. Older queued runs retain
     their original request sequence and paid checkpoints. New initial drafts
     choose hero height from source framing rather than demanding screen height.
@@ -5593,13 +5600,74 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     into default commerce footers while preserving merchant-authored copy and
     toggles. No merchant action changes and no Help Centre update.
     Diagnosis and verification: `docs/theme-studio-performance.md`.
+    **Compact initial drafts, shared capacity and capture profiling (2026-10-02):**
+    only new initial `theme-studio-v20` drafts use the compact schema. The model
+    chooses a classic/editorial/grocery native composition and writes original
+    copy, design tokens, pages, asset references and product options.
+    Planning describes actual native predictive search, variant-safe quick add,
+    filtering and commerce variants so optional inventions do not become false
+    capability gaps. Initial synthesis receives the fenced original brief as well
+    as the intent, so educational routines do not invent a required interactive
+    builder. Rich-text configurations require authored `html` and repair feedback
+    names that field explicitly. Older prompt versions keep their original text.
+    The compiler fills omitted mechanical section fields (never sample story copy, offers or
+    item lists), derives navigation from actual
+    categories/pages, and expands at most three option axes/100 combinations to
+    stocked variants at the product's prices. `layoutOverridesJson` permits only
+    supported keys and passes ordinary design validation. Existing queued paid
+    responses and manual creative revisions retain their full schemas and prompts;
+    automatic repairs retain the focused settings path. Initial generation remains
+    HIGH effort with the model's full output allowance. Existing package, security,
+    contrast, content-floor, preflight and final quality thresholds remain required.
+    `theme_studio_provider_capacity` and `theme_studio_provider_leases` are
+    service-only, RLS-enabled tables introduced by migration 0149. A short row lock
+    admits at most three active requests per hashed provider project/location/model
+    across workers. Admission/expiry use the database wall clock after lock waits,
+    avoiding a false initial pause from PostgreSQL's transaction-start `now()`.
+    A 429 pauses every instance, releases active capacity while
+    sleeping, and resumes at one request; three successes from the current epoch
+    restore one permit. Duplicate/stale responses cannot restore capacity.
+    Permits expire after eleven minutes (longer than the ten-minute provider
+    ceiling), renew every thirty seconds and cancel transport on heartbeat loss.
+    Admission failures make no paid call; cleanup failures preserve paid responses
+    and log an error while expiry safely reclaims capacity. Standalone DB-free
+    evaluation clients retain local behavior and are not a shared-quota guarantee.
+    Automatic capture claims additionally bind reusable route HTML to the exact
+    package digest. Final QA returns original response HTML from the first measured
+    viewport only for the same URL, capped at 1 MiB per page; unknown, duplicate,
+    redirected, malformed or oversized routes use fresh server fetches. The server
+    re-runs markup/theming/noindex/link gates under the current build and live lease.
+    Unmeasured navigation links are still fetched. This reuse lasts for one claim;
+    mutable preview stores and older captures never supply cached acceptance.
+    Browser, catalogue, QA, per-page navigation/probe/screenshot and server-finish
+    timings are bounded and saved in QA browser reports, independently of verdicts.
+    `scripts/theme-studio-benchmark.ts` (`npm run theme-studio:benchmark`) defaults
+    to read-only reports over explicitly supplied project UUIDs. Explicit
+    `--create --actor-id=<superadmin UUID> --yes --wait-minutes=60` queues isolated
+    unpublished apparel, food, beauty and home themes through the real deployed
+    pipeline, one at a time, using ordinary intake and capacity gates. It persists
+    IDs before queueing and saves reports while waiting; timeout stops further
+    theme creation and IDs permit read-only resumption. Reports distinguish total
+    snapshots from design revisions, first final QA from generation success and
+    initial first-pass quality (a preflight repair fails the latter),
+    stage/capture waits, redraw/failure events, provider deferrals, run spend and
+    visual usage; visual verdicts retain the actual provider/model. Fake/mixed
+    runs and unattributed visual scores never receive a live quality grade.
+    Generation telemetry records per-invocation elapsed time (including admission,
+    retries or checkpoint replay) and bounded validator reasons for each repair,
+    without storing prompts or raw responses in diagnostics. The text/compiler
+    evaluator saves completed-case reports atomically after every case, including
+    repair reasons, usage and timings; a later interruption cannot erase earlier
+    completed paid checks. These results do not replace full storefront QA. This is
+    operator/internal work: no merchant-visible change, no Help Centre update.
     **Image execution optimisation (2026-10-02):** image draws and HIGH-effort
     reviews have separate per-run pools capped at three, with a bounded six
     in-flight slot tasks so slow reviews do not occupy drawing capacity. The
     shared provider pool pauses queued requests together after 429s, probes
     with one request, then restores one permit per three successful responses;
     pre-cooldown responses cannot restore capacity. Cooldowns consume no active
-    permit. This is process-local smoothing, not a provider quota guarantee.
+    permit. Local smoothing is backed by shared PostgreSQL admission for all
+    deployed Studio generation, image, image-review and visual-QA clients.
     Paid errors remain single-attempt; free 429 retries retain existing bounds.
     Retakes keep the candidate with the fewest applicable nonblocking findings
     rather than blindly replacing it with the last image. Reviewed runs select
@@ -5740,9 +5808,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `image-request-pool.ts` shares three image permits across both lanes for
     each provider project/location/model; 429s pause admission while releasing
     active permits and then probe with reduced concurrency. Cancelled
-    waiters leave the queue. This bound is process-local, not distributed
-    quota enforcement. Separate concurrent worker invocations can still meet
-    provider rate limits; bounded backoff and missing-slot fill runs remain.
+    waiters leave the queue. The local bound is additionally coordinated across
+    worker invocations by migration 0149; actual provider quota remains external,
+    so bounded backoff and missing-slot fill runs remain.
     `abortable.ts` fences late SDK results across authentication, retries and
     body decoding. Image reviews retain HIGH effort and uncapped output but
     have a 180-second whole-call deadline; other structured requests have ten

@@ -71,8 +71,8 @@ describe("finishing a capture", () => {
         )
       ).status,
     ).toBe(400);
-    // Past the ceiling: three maximum pictures plus 64 KiB of headroom.
-    const huge = "a".repeat(200 * 1024);
+    // Past the ceiling: catalog/QA images, six bounded HTML pages and headroom.
+    const huge = "a".repeat(6 * 1024 * 1024 + 200 * 1024);
     expect(
       (
         await finishRoute(
@@ -82,6 +82,31 @@ describe("finishing a capture", () => {
       ).status,
     ).toBe(400);
     expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("passes same-claim route responses, digest and timing to leased server validation", async () => {
+    finish.mockResolvedValueOnce({ status: "succeeded", versionId: "v" });
+    const qa = {
+      buildId: "build",
+      packageDigest: "a".repeat(64),
+      routes: [
+        {
+          path: "/",
+          surface: "home",
+          status: 200,
+          html: "<main>Theme</main>",
+          robots: "noindex",
+        },
+      ],
+      timing: { browserMs: 100, catalogMs: 10, qaMs: 90, samples: [] },
+      evidence: { samples: [] },
+      screenshots: [],
+    };
+    expect(
+      (await finishRoute(post({ leaseToken: "l", images: [], qa }), params))
+        .status,
+    ).toBe(200);
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ qa }));
   });
 
   it("decodes the pictures and passes them on with the lease", async () => {

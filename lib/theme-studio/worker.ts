@@ -19,6 +19,7 @@ import type {
   ThemeIndustry,
 } from "@/lib/themes/meta";
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
+import { sharedProviderCapacity } from "./provider-capacity-store";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
 import {
   THEME_STUDIO_LIMITS,
@@ -578,7 +579,12 @@ function clientFor(
   }
   if (provider === "vertex-gemini") {
     const vertex = getVertexConfig();
-    return vertex ? createVertexModelClient(vertex) : null;
+    return vertex
+      ? createVertexModelClient(vertex, {
+          capacity: (model) =>
+            sharedProviderCapacity(vertex.projectId, vertex.region, model),
+        })
+      : null;
   }
   return null;
 }
@@ -768,7 +774,15 @@ function imageClientFor(provider: string): ThemeStudioImageClient | null {
   if (provider === "fake") return createFakeImageClient();
   if (provider === "vertex-gemini") {
     const config = getThemeStudioImageConfig();
-    return config ? createVertexImageClient(config) : null;
+    return config
+      ? createVertexImageClient(config, {
+          capacity: sharedProviderCapacity(
+            config.projectId,
+            config.location,
+            config.providerModel,
+          ),
+        })
+      : null;
   }
   return null;
 }
@@ -790,7 +804,10 @@ function imageReviewerFor(provider: string): ThemeImageReviewer | null {
   const vertex = getVertexConfig();
   if (!vertex) return null;
   return {
-    client: createVertexModelClient(vertex),
+    client: createVertexModelClient(vertex, {
+      capacity: (model) =>
+        sharedProviderCapacity(vertex.projectId, vertex.region, model),
+    }),
     providerModel: resolveThemeStudioModel(THEME_IMAGE_REVIEW_MODEL_KEY)
       .providerModel,
   };
@@ -1000,7 +1017,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
         automaticRepair:
           run.automatic &&
           run.kind === "revise" &&
-          run.promptVersion === "theme-studio-v19",
+          ["theme-studio-v19", "theme-studio-v20"].includes(run.promptVersion),
       },
       controller.signal,
     );
