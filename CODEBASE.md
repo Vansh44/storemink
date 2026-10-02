@@ -5511,8 +5511,35 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `automatic-qa-policy.ts` queues targeted exact-package revisions for theme
     failures, up to THREE repairs (iterations 0→1→2→3, the ceiling migration
     0145 allows; `MAX_AUTOMATIC_QA_REPAIRS`).
-    Every revision repeats imagery/capture/acceptance/vision; compatible images
-    already carry over. Security failures block; runtime/coverage/asset-integrity
+    **Automatic repair performance (2026-10-02):** automatic `revise` runs
+    recorded with prompt version `theme-studio-v19` use `targeted-repair.ts`,
+    skipping Stage A and full Stage B regeneration. Older queued runs retain
+    their original request sequence and paid checkpoints. New initial drafts
+    choose hero height from source framing rather than demanding screen height.
+    One focused settings call (LOW effort, 8,192-token allowance, one validation
+    correction) edits at most 24 scalar design, brand, section-config or style
+    settings. The server derives paths and choices, validates the package and
+    content floors, and rejects edits that the section renderer would silently
+    normalise. Assets, image shapes, products, section identities, routes,
+    capabilities and engine metadata cannot be edited. A no-op or unsupported
+    renderer request stops with `repair_not_supported`; there is no full-design
+    fallback. Manual creative revisions retain the full Stage A/B pipeline.
+    Every successful repair repeats capture/acceptance/vision; image generation
+    runs only if unfinished slots remain. Partial artwork fills reuse the
+    ancestry's anchor and product-set reference even without explicit redraw
+    IDs. Image 429 cooldowns release the shared request permit while sleeping.
+    QA screenshots preserve the measured layout without CSS zoom. Vision gets
+    complete semantic JSON rather than truncated package/report prefixes,
+    including supported settings and capability gaps; advisory performance
+    timing alone does not request a design revision. Visual quality thresholds
+    remain unchanged. The operator workspace shows the latest visual findings
+    and resolves parent version numbers even for private intermediate snapshots.
+    Shared editorial PDP CSS bounds title scale, enlarges the gallery and uses
+    a portrait frame; `lib/themes/footer.ts` carries homepage newsletter copy
+    into default commerce footers while preserving merchant-authored copy and
+    toggles. No merchant action changes and no Help Centre update.
+    Diagnosis and verification: `docs/theme-studio-performance.md`.
+    Security failures block; runtime/coverage/asset-integrity
     failures and the final unsuccessful repair reveal `operator/failed` for
     recovery, with **Needs attention** on the workspace's current failed result.
     Shared Studio badges label the unverified `ready` database state **Needs

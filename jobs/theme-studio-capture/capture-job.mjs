@@ -205,11 +205,8 @@ export async function takeQaScreenshots(
             }
           });
           samples.push({ ...result, viewport, surface: preview.surface });
-          // The evidence above is measured at the real viewport. Compress only
-          // the visual evidence so six long pages stay inside the job payload.
-          await page.evaluate(() => {
-            document.documentElement.style.zoom = "0.65";
-          });
+          // Capture the measured layout unchanged. CSS zoom reflows the page
+          // and made vision review a different composition from the probe.
           const bytes = await page.screenshot({
             type: "jpeg",
             quality: 55,

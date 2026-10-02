@@ -13,6 +13,7 @@ import {
   themeStudioProjects,
   themeStudioRuns,
   themeStudioVersions,
+  themeStudioVisualQaRuns,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
 import { isUniqueViolation } from "@/lib/db/errors";
@@ -168,6 +169,7 @@ export interface ThemeStudioVersionView {
   id: string;
   versionNumber: number;
   parentVersionId: string | null;
+  parentVersionNumber?: number | null;
   /** Null for a version made by replacing images, which no run produced. */
   runId: string | null;
   origin: "run" | "asset_edit";
@@ -180,6 +182,7 @@ export interface ThemeStudioVersionView {
   hasPackage: boolean;
   qaStatus: "not_required" | "passed" | "failed";
   qaIteration: number;
+  qaFindings?: string[];
   /** The latest catalog capture for this version, when one exists. */
   captureStatus?: "queued" | "running" | "succeeded" | "failed" | null;
   captureErrorCode?: string | null;
@@ -462,6 +465,9 @@ export async function getThemeStudioProject(
         id: themeStudioVersions.id,
         versionNumber: themeStudioVersions.versionNumber,
         parentVersionId: themeStudioVersions.parentVersionId,
+        parentVersionNumber: sql<
+          number | null
+        >`(SELECT p.version_number FROM theme_studio_versions p WHERE p.id = ${themeStudioVersions.parentVersionId} AND p.project_id = ${projectId}::uuid)`,
         runId: themeStudioVersions.runId,
         origin: themeStudioVersions.origin,
         editDetail: themeStudioVersions.editDetail,
@@ -491,6 +497,28 @@ export async function getThemeStudioProject(
       .from(themeStudioCaptures)
       .where(eq(themeStudioCaptures.projectId, projectId))
       .orderBy(desc(themeStudioCaptures.createdAt));
+    const qaReviews = versions.length
+      ? await db
+          .select({
+            versionId: themeStudioVisualQaRuns.versionId,
+            visionReport: themeStudioVisualQaRuns.visionReport,
+          })
+          .from(themeStudioVisualQaRuns)
+          .where(
+            and(
+              eq(themeStudioVisualQaRuns.projectId, projectId),
+              inArray(
+                themeStudioVisualQaRuns.versionId,
+                versions.map((v) => v.id),
+              ),
+            ),
+          )
+          .orderBy(desc(themeStudioVisualQaRuns.createdAt))
+      : [];
+    const latestQaByVersion = new Map<string, unknown>();
+    for (const review of qaReviews)
+      if (!latestQaByVersion.has(review.versionId))
+        latestQaByVersion.set(review.versionId, review.visionReport);
     const previews = await db
       .select({
         id: themeStudioPreviews.id,
@@ -577,11 +605,15 @@ export async function getThemeStudioProject(
         const summary = intentField(v.intentJson, "summary");
         const assumptions = intentField(v.intentJson, "assumptions");
         const capture = latestCaptureByVersion.get(v.id);
+        const qa = latestQaByVersion.get(v.id) as
+          | { findings?: unknown[] }
+          | undefined;
         return {
           packageSummary: packageSummary(v.packageJson),
           id: v.id,
           versionNumber: v.versionNumber,
           parentVersionId: v.parentVersionId,
+          parentVersionNumber: v.parentVersionNumber,
           runId: v.runId,
           origin: (v.origin === "asset_edit" ? "asset_edit" : "run") as
             | "run"
@@ -596,6 +628,12 @@ export async function getThemeStudioProject(
           hasPackage: v.packageDigest !== null,
           qaStatus: v.qaStatus as ThemeStudioVersionView["qaStatus"],
           qaIteration: v.qaIteration,
+          qaFindings: Array.isArray(qa?.findings)
+            ? qa.findings
+                .filter((f): f is string => typeof f === "string")
+                .slice(0, 5)
+                .map((f) => f.slice(0, 600))
+            : [],
           captureStatus:
             (capture?.status as ThemeStudioVersionView["captureStatus"]) ??
             null,

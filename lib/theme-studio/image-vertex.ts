@@ -216,7 +216,7 @@ export function createVertexImageClient(
     async generateImage(request, outer) {
       assertThemeImageRequest(request);
       try {
-        return await pool.run(() => generate(request, outer), outer);
+        return await generate(request, outer);
       } catch {
         return {
           kind: "error",
@@ -233,14 +233,21 @@ export function createVertexImageClient(
   ): Promise<ThemeImageResult> {
     let waitedMs = 0;
     for (let retry = 0; ; retry++) {
-      const signal = AbortSignal.any([
-        outer,
-        AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
-      ]);
+      let signal = outer;
       try {
-        return parseThemeImageResponse(
-          await abortable(() => send(request, signal), signal),
-        );
+        return await pool.run(async () => {
+          // The attempt clock starts when a permit is acquired. Waiting behind
+          // another theme is bounded by the run signal, not provider latency.
+          signal = AbortSignal.any([
+            outer,
+            AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
+          ]);
+          // A provider cooldown must not occupy a permit while no request is
+          // running; other themes can still use available provider capacity.
+          return parseThemeImageResponse(
+            await abortable(() => send(request, signal), signal),
+          );
+        }, outer);
       } catch (error) {
         const code = outer.aborted
           ? "cancelled"

@@ -39,6 +39,7 @@ SET RULES
 2. The goods are fictional demonstration products for a theme preview. Invent believable, well-made, unbranded products that fit the store's industry. Never depict a real brand, a recognisable trademarked design, a celebrity product or a competitor's packaging.
 3. Photograph real-looking physical objects with believable scale, contact shadows, reflections and material texture. It must look shot, not rendered or pasted.
 4. Keep the whole subject inside the crop-safe area described in the composition, with breathing room on every edge, and extend the background naturally so a responsive crop never cuts the subject.
+5. When a style anchor is supplied, its lighting, background palette, surfaces and camera treatment take precedence over conflicting styling details in THIS IMAGE. Keep this image's subject and product identity, but adapt its setting to the anchor. Do not substitute warm limestone or a dark wooden table for a bright white/concrete anchor merely because the asset brief mentions those surfaces.
 
 OUTPUT RULES
 - One photograph only: not a collage, grid, contact sheet, split panel, mockup frame or design board.

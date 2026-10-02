@@ -51,6 +51,47 @@ const props = {
   referenceLimit: 10,
   acceptance: {},
 };
+it("shows visual findings beside passing browser checks and resolves a hidden parent version number", () => {
+  render(
+    <ProjectWorkspace
+      {...props}
+      acceptance={{ v: { status: "passed" } } as never}
+      project={{
+        ...project,
+        status: "ready",
+        currentVersionId: "v",
+        versions: [
+          {
+            id: "v",
+            versionNumber: 12,
+            parentVersionId: "hidden",
+            parentVersionNumber: 11,
+            runId: null,
+            origin: "asset_edit",
+            editedSlots: ["hero"],
+            intentDigest: "digest",
+            packageDigest: "package",
+            packageSummary: null,
+            summary: "Vanta",
+            assumptions: [],
+            hasPackage: true,
+            qaStatus: "failed",
+            qaIteration: 3,
+            qaFindings: ["Product titles split mid-word at laptop widths."],
+            createdAt: project.createdAt,
+          },
+        ],
+      }}
+    />,
+  );
+  expect(screen.getByText("Visual review needs attention")).toBeTruthy();
+  expect(
+    screen.getByText("Product titles split mid-word at laptop widths."),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/images replaced \(1\) on version/).textContent,
+  ).toContain("11");
+});
 afterEach(() => {
   cleanup();
   vi.useRealTimers();

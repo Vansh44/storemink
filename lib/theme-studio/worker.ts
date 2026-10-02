@@ -883,8 +883,15 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
   }
   const client = imageClientFor(run.provider);
   if (!client) return { kind: "failed", errorCode: "provider_unavailable" };
-  // Only a redraw reuses references; a full run sets the theme's look afresh.
-  const reuse = only ? await loadImageSeed(run, input.package) : null;
+  // Filling new slots beside finished artwork must keep the original style.
+  // A wholly new art set may establish a fresh anchor.
+  const hasFinishedArt = describeSlots(input.package).some(
+    (slot) =>
+      !slot.placeholder &&
+      ["hero", "product", "category", "content"].includes(slot.kind),
+  );
+  const reuse =
+    only || hasFinishedArt ? await loadImageSeed(run, input.package) : null;
 
   const controller = new AbortController();
   const deadline = setTimeout(() => controller.abort(), RUN_DEADLINE_MS);
@@ -1048,6 +1055,12 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
           sha256: r.sha256,
         })),
         ...(input.revision ? { revision: input.revision } : {}),
+        // Old queued runs must retain their original request sequence so paid
+        // Stage A checkpoints remain replayable and included in their usage.
+        automaticRepair:
+          run.automatic &&
+          run.kind === "revise" &&
+          run.promptVersion === "theme-studio-v19",
       },
       controller.signal,
     );
