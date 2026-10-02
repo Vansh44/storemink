@@ -29,6 +29,15 @@ import { updateAuthUser } from "@/lib/auth/firebase-users";
 import { getServerUser } from "@/lib/auth/server-user";
 import { claimPosCustomer } from "@/lib/pos/claim-customer";
 import { emitEvent } from "@/lib/notifications/record";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
+
+const DEMO =
+  "This is a theme preview, so orders, accounts and forms are turned off.";
+// Demo stores refuse every public write (lib/store/demo-guard.ts); a real
+// store is the default here.
+vi.mock("@/lib/store/demo-guard", () => ({
+  demoStoreRefusal: vi.fn(async () => null),
+}));
 
 function makeFormData(fields: Record<string, string | null | undefined>) {
   const fd = new FormData();
@@ -59,6 +68,15 @@ describe("updateCustomerProfile", () => {
     vi.mocked(getServerUser).mockResolvedValue(serverUser() as any);
     // ⚠ clearAllMocks clears CALLS, not IMPLEMENTATIONS — restore explicitly.
     vi.mocked(claimPosCustomer).mockResolvedValue({ claimed: false });
+  });
+
+  it("refuses on a theme demo store: a preview keeps no accounts", async () => {
+    vi.mocked(demoStoreRefusal).mockResolvedValueOnce(DEMO);
+    const result = await updateCustomerProfile(
+      makeFormData({ firstName: "Ada" }),
+    );
+    expect(result.error).toBe(DEMO);
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
   });
 
   // First name is the only required field.

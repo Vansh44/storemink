@@ -4,20 +4,16 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 import { revalidateTag } from "next/cache";
 import {
-  stores,
   themeCatalogAudit,
   themeCatalogEntries,
   themeReleases,
   themeStudioAcceptanceRuns,
   themeStudioAssets,
-  themeStudioEvents,
   themeStudioProjects,
   themeStudioPublications,
-  themeStudioReviews,
   themeStudioVersions,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
-import { isUniqueViolation } from "@/lib/db/errors";
 import { logError } from "@/lib/observability/logger";
 import {
   gcsConfigured,
@@ -29,6 +25,10 @@ import { STORE_TAG } from "@/lib/store/resolve";
 import { subdomainOrigin } from "@/lib/store/host";
 import { TAGS } from "@/lib/storefront/tags";
 import { applyThemeDefinition } from "@/lib/themes/apply";
+import {
+  NotADemoStoreError,
+  upsertDemoStoreRow,
+} from "@/lib/themes/demo-store";
 import {
   THEME_REGISTRY_TAG,
   insertThemeReleaseWithDb,
@@ -42,18 +42,11 @@ import { verifyCandidateEvidenceWithDb } from "./acceptance";
 import { fetchInternalPageWithRetry } from "./acceptance-http";
 import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
 import {
-  AUTHORING_EVENTS,
-  SCORECARD_DIMENSIONS,
-  approvalReadiness,
   buildPublishedPackage,
   nextReleaseVersion,
   publicationBlockers,
   releaseDate,
   validateCatalogChange,
-  validateScorecard,
-  type ReviewFacts,
-  type ReviewerRole,
-  type Scores,
 } from "./publication-core";
 import { isUuid, recordThemeStudioEvent, ThemeStudioError } from "./repository";
 
@@ -162,62 +155,6 @@ async function lockThemeId(db: Db, themeId: string) {
   );
 }
 
-/** Everyone who shaped this theme (publication-core AUTHORING_EVENTS). */
-async function authorEmails(db: Db, projectId: string, creator: string) {
-  const rows = await db
-    .selectDistinct({ email: themeStudioEvents.actorEmail })
-    .from(themeStudioEvents)
-    .where(
-      and(
-        eq(themeStudioEvents.projectId, projectId),
-        inArray(themeStudioEvents.eventType, [...AUTHORING_EVENTS]),
-      ),
-    );
-  const emails = new Set([creator.toLowerCase()]);
-  for (const row of rows) if (row.email) emails.add(row.email.toLowerCase());
-  return emails;
-}
-
-type ReviewRow = typeof themeStudioReviews.$inferSelect;
-
-function reviewFacts(rows: readonly ReviewRow[]): ReviewFacts[] {
-  return rows.map((row) => ({
-    role: row.reviewerRole as ReviewerRole,
-    verdict: row.verdict as "approve" | "reject",
-    reviewerIsAuthor: row.reviewerIsAuthor,
-    reviewerEmail: row.createdByEmail,
-  }));
-}
-
-async function reviewsForRun(db: Db, runId: string) {
-  return db
-    .select()
-    .from(themeStudioReviews)
-    .where(eq(themeStudioReviews.acceptanceRunId, runId))
-    .orderBy(themeStudioReviews.createdAt);
-}
-
-function scoresOf(row: ReviewRow): Scores {
-  return {
-    artDirection: row.artDirection,
-    distinctness: row.distinctness,
-    commerceClarity: row.commerceClarity,
-    typography: row.typography,
-    imagery: row.imagery,
-    responsiveComposition: row.responsiveComposition,
-    detailQuality: row.detailQuality,
-    brandAdaptability: row.brandAdaptability,
-  };
-}
-
-/** The violated constraint's name, from a pg error or Drizzle's wrapper. */
-function constraintOf(error: unknown): string {
-  const direct = (error as { constraint?: unknown })?.constraint;
-  const nested = (error as { cause?: { constraint?: unknown } })?.cause
-    ?.constraint;
-  return String(direct ?? nested ?? "");
-}
-
 function expireCaches() {
   // Immediate expiry, not stale-while-revalidate: publication reads its own
   // writes (the demo check renders the release it just stored), and an
@@ -232,168 +169,6 @@ function expireCaches() {
   ]) {
     revalidateTag(tag, { expire: 0 });
   }
-}
-
-// ------------------------------------------------------------------ reviews
-
-export async function submitThemeStudioReview(
-  actor: ThemeStudioActor,
-  input: {
-    projectId: string;
-    versionId: string;
-    expectedPackageDigest: string;
-    scorecard: unknown;
-  },
-): Promise<{ reviewId: string }> {
-  if (!isUuid(input.projectId) || !isUuid(input.versionId)) {
-    throw new ThemeStudioError("not_found", "That version no longer exists.");
-  }
-  const parsed = validateScorecard(input.scorecard);
-  if (!parsed.ok) throw new ThemeStudioError("invalid_input", parsed.error);
-  const card = parsed.value;
-  return withService(async (db) => {
-    const project = await lockProject(db, input.projectId);
-    if (project.status !== "candidate") {
-      throw new ThemeStudioError(
-        "illegal_state",
-        "Only a candidate can be reviewed. Pass the acceptance checks first.",
-      );
-    }
-    if (project.currentVersionId !== input.versionId) {
-      throw new ThemeStudioError(
-        "stale",
-        "The current version changed. Reload before reviewing.",
-      );
-    }
-    const evidence = await verifyCandidateEvidenceWithDb(db, project);
-    if (!evidence.ok) throw new ThemeStudioError("stale", evidence.reason);
-    const [version] = await db
-      .select({ packageDigest: themeStudioVersions.packageDigest })
-      .from(themeStudioVersions)
-      .where(eq(themeStudioVersions.id, input.versionId))
-      .limit(1);
-    if (
-      !version?.packageDigest ||
-      version.packageDigest !== input.expectedPackageDigest
-    ) {
-      throw new ThemeStudioError(
-        "stale",
-        "You reviewed a different version. Reload to review the current one.",
-      );
-    }
-    const authors = await authorEmails(db, project.id, project.createdByEmail);
-    const reviewerIsAuthor = authors.has(actor.email.toLowerCase());
-    try {
-      const [row] = await db
-        .insert(themeStudioReviews)
-        .values({
-          projectId: project.id,
-          versionId: input.versionId,
-          acceptanceRunId: evidence.runId,
-          packageDigest: version.packageDigest,
-          evidenceDigest: evidence.evidenceDigest,
-          reviewerRole: card.role,
-          reviewerIsAuthor,
-          artDirection: card.scores.artDirection,
-          distinctness: card.scores.distinctness,
-          commerceClarity: card.scores.commerceClarity,
-          typography: card.scores.typography,
-          imagery: card.scores.imagery,
-          responsiveComposition: card.scores.responsiveComposition,
-          detailQuality: card.scores.detailQuality,
-          brandAdaptability: card.scores.brandAdaptability,
-          rejections: card.rejections,
-          verdict: card.verdict,
-          notes: card.notes,
-          createdBy: actor.id,
-          createdByEmail: actor.email,
-        })
-        .returning({ id: themeStudioReviews.id });
-      await recordThemeStudioEvent(db, {
-        projectId: project.id,
-        actor,
-        eventType: "review_submitted",
-        detail: {
-          versionId: input.versionId,
-          reviewId: row.id,
-          role: card.role,
-          verdict: card.verdict,
-          reviewerIsAuthor,
-        },
-      });
-      return { reviewId: row.id };
-    } catch (error) {
-      if (isUniqueViolation(error)) {
-        const constraint = constraintOf(error);
-        throw new ThemeStudioError(
-          "illegal_state",
-          constraint.includes("reviewer")
-            ? "You have already reviewed this version. The other review needs a second reviewer."
-            : "That review has already been given for this version.",
-        );
-      }
-      throw error;
-    }
-  });
-}
-
-export async function approveThemeStudioCandidate(
-  actor: ThemeStudioActor,
-  input: { projectId: string; expectedRevision: number },
-): Promise<void> {
-  if (!isUuid(input.projectId)) {
-    throw new ThemeStudioError("not_found", "That project no longer exists.");
-  }
-  await withService(async (db) => {
-    const project = await lockProject(db, input.projectId);
-    if (project.revision !== input.expectedRevision) {
-      throw new ThemeStudioError(
-        "stale",
-        "This project changed in another tab. Reload to see it.",
-      );
-    }
-    if (project.status !== "candidate") {
-      throw new ThemeStudioError(
-        "illegal_state",
-        "Only a candidate can be approved.",
-      );
-    }
-    const evidence = await verifyCandidateEvidenceWithDb(db, project);
-    if (!evidence.ok) throw new ThemeStudioError("stale", evidence.reason);
-    const reviews = await reviewsForRun(db, evidence.runId);
-    const readiness = approvalReadiness(reviewFacts(reviews));
-    if (!readiness.ok) {
-      throw new ThemeStudioError("illegal_state", readiness.reasons[0]);
-    }
-    // Approving means "publish this"; a version the publisher would refuse
-    // is not approvable.
-    const [version] = await db
-      .select({ packageJson: themeStudioVersions.packageJson })
-      .from(themeStudioVersions)
-      .where(eq(themeStudioVersions.id, project.currentVersionId!))
-      .limit(1);
-    const parsed = validateThemePackageV2(version?.packageJson);
-    const blockers = parsed.ok
-      ? publicationBlockers(parsed.value)
-      : ["The version no longer passes its contract."];
-    if (blockers.length > 0) {
-      throw new ThemeStudioError("illegal_state", blockers[0]);
-    }
-    await db
-      .update(themeStudioProjects)
-      .set({ status: "approved", revision: project.revision + 1 })
-      .where(eq(themeStudioProjects.id, project.id));
-    await recordThemeStudioEvent(db, {
-      projectId: project.id,
-      actor,
-      eventType: "project_approved",
-      detail: {
-        versionId: project.currentVersionId,
-        acceptanceRunId: evidence.runId,
-        reviewIds: reviews.map((r) => r.id),
-      },
-    });
-  });
 }
 
 // -------------------------------------------------------------- publication
@@ -413,7 +188,6 @@ async function beginAttempt(
   input: {
     projectId: string;
     expectedRevision: number;
-    confirmThemeId: string;
   },
 ): Promise<BegunAttempt> {
   return withService(async (db) => {
@@ -424,34 +198,27 @@ async function beginAttempt(
         "This project changed in another tab. Reload to see it.",
       );
     }
-    if (project.status !== "approved") {
+    // ONE STEP: a candidate (every automated acceptance gate and the visual
+    // QA scorecard passed) is published directly. `approved` remains only as
+    // the state a failed publication waits in, so a retry resumes rather than
+    // starting over. The database still refuses `approved` without passing
+    // evidence and `published` without a publication (migration 0151).
+    if (project.status !== "candidate" && project.status !== "approved") {
       throw new ThemeStudioError(
         "illegal_state",
-        "Only an approved project can be published.",
-      );
-    }
-    if (input.confirmThemeId.trim() !== project.themeId) {
-      throw new ThemeStudioError(
-        "invalid_input",
-        `Type the theme id, ${project.themeId}, to confirm.`,
+        "Only a theme whose checks have passed can be published.",
       );
     }
     await lockThemeId(db, project.themeId);
 
+    const fromCandidate = project.status === "candidate";
     const evidence = await verifyCandidateEvidenceWithDb(db, project, {
-      status: "approved",
-      requireCurrentBuild: false,
+      status: fromCandidate ? "candidate" : "approved",
+      // A fresh publish needs evidence from this build; a retry of one that
+      // already started keeps the evidence it started on.
+      requireCurrentBuild: fromCandidate,
     });
     if (!evidence.ok) throw new ThemeStudioError("stale", evidence.reason);
-    const readiness = approvalReadiness(
-      reviewFacts(await reviewsForRun(db, evidence.runId)),
-    );
-    if (!readiness.ok) {
-      throw new ThemeStudioError(
-        "illegal_state",
-        "The approval no longer covers the current evidence.",
-      );
-    }
     const [version] = await db
       .select()
       .from(themeStudioVersions)
@@ -467,6 +234,24 @@ async function beginAttempt(
     const blockers = publicationBlockers(parsed.value);
     if (blockers.length > 0) {
       throw new ThemeStudioError("illegal_state", blockers[0]);
+    }
+    if (fromCandidate) {
+      // Freeze the version for publication. Same transaction as the attempt
+      // row, so a refusal below leaves the project a candidate.
+      await db
+        .update(themeStudioProjects)
+        .set({ status: "approved", revision: project.revision + 1 })
+        .where(eq(themeStudioProjects.id, project.id));
+      await recordThemeStudioEvent(db, {
+        projectId: project.id,
+        actor,
+        eventType: "project_approved",
+        detail: {
+          versionId: project.currentVersionId,
+          acceptanceRunId: evidence.runId,
+          automatic: true,
+        },
+      });
     }
 
     const attempts = await db
@@ -703,35 +488,14 @@ async function seedDemo(
   const definition = release.definition;
   const slug = definition.demo.slug;
   const storeId = await withService(async (db) => {
-    const [existing] = await db
-      .select({ id: stores.id, settings: stores.settings })
-      .from(stores)
-      .where(eq(stores.slug, slug))
-      .limit(1);
-    if (existing) {
-      const settings = (existing.settings ?? {}) as Record<string, unknown>;
-      if (settings.demo !== true) {
-        throw new PublicationFailure([
-          `The store ${slug} exists and is not a demo store.`,
-        ]);
+    try {
+      return (await upsertDemoStoreRow(db, definition)).storeId;
+    } catch (error) {
+      if (error instanceof NotADemoStoreError) {
+        throw new PublicationFailure([error.message]);
       }
-      return existing.id;
+      throw error;
     }
-    const [created] = await db
-      .insert(stores)
-      .values({
-        slug,
-        name: `${definition.name} Demo`,
-        status: "active",
-        plan: "free",
-        settings: {
-          demo: true,
-          template: definition.id,
-          brand: { name: `${definition.name} Demo` },
-        },
-      })
-      .returning({ id: stores.id });
-    return created.id;
   });
   const seeded = await applyThemeDefinition(storeId, definition, {
     publish: true,
@@ -842,16 +606,16 @@ export type PublicationResult =
   | { ok: false; publicationId: string; problems: string[] };
 
 /**
- * Publish an approved project. A refusal before anything is written throws a
- * ThemeStudioError; a failure after the attempt row exists is recorded on it
- * and returned, and the project stays approved so the operator can retry.
+ * Publish a candidate (or retry a failed publication). A refusal before
+ * anything is written throws a ThemeStudioError; a failure after the attempt
+ * row exists is recorded on it and returned, and the project stays approved
+ * so the operator can retry with the same button.
  */
 export async function publishThemeStudioProject(
   actor: ThemeStudioActor,
   input: {
     projectId: string;
     expectedRevision: number;
-    confirmThemeId: string;
   },
   deps: PublicationDeps = defaultDeps,
 ): Promise<PublicationResult> {
@@ -867,7 +631,6 @@ export async function publishThemeStudioProject(
   const attempt = await beginAttempt(actor, {
     projectId: input.projectId,
     expectedRevision: Number(input.expectedRevision),
-    confirmThemeId: String(input.confirmThemeId ?? ""),
   });
   try {
     const release = await storeRelease(actor, deps, input.projectId, attempt);
@@ -1030,20 +793,6 @@ export async function changeThemeStudioCatalog(
 
 // --------------------------------------------------------------- read model
 
-export interface ThemeStudioReviewView {
-  id: string;
-  role: ReviewerRole;
-  verdict: "approve" | "reject";
-  reviewerEmail: string;
-  reviewerIsAuthor: boolean;
-  scores: Scores;
-  average: number;
-  rejections: string[];
-  notes: string;
-  createdAt: string;
-  current: boolean;
-}
-
 export interface ThemeStudioPublicationView {
   id: string;
   status: "publishing" | "published" | "failed";
@@ -1072,9 +821,6 @@ export interface ThemeStudioReleaseState {
     | { ok: false; reason: string };
   packageDigest: string | null;
   versionNumber: number | null;
-  reviews: ThemeStudioReviewView[];
-  readiness: { ok: boolean; reasons: string[] };
-  authors: string[];
   blockers: string[];
   publications: ThemeStudioPublicationView[];
   catalog: {
@@ -1114,32 +860,6 @@ export async function getThemeStudioReleaseState(
       project.status === "published"
         ? await latestPassedRun(db, project.currentVersionId)
         : evidence;
-    const reviewRows = await db
-      .select()
-      .from(themeStudioReviews)
-      .where(eq(themeStudioReviews.projectId, project.id))
-      .orderBy(desc(themeStudioReviews.createdAt));
-    const currentRunId = shownEvidence.ok ? shownEvidence.runId : null;
-    const reviews = reviewRows.map((row) => ({
-      id: row.id,
-      role: row.reviewerRole as ReviewerRole,
-      verdict: row.verdict as "approve" | "reject",
-      reviewerEmail: row.createdByEmail,
-      reviewerIsAuthor: row.reviewerIsAuthor,
-      scores: scoresOf(row),
-      average:
-        SCORECARD_DIMENSIONS.reduce((s, d) => s + scoresOf(row)[d.key], 0) /
-        SCORECARD_DIMENSIONS.length,
-      rejections: row.rejections,
-      notes: row.notes,
-      createdAt: row.createdAt,
-      current: row.acceptanceRunId === currentRunId,
-    }));
-    const readiness = approvalReadiness(
-      reviewFacts(
-        reviewRows.filter((row) => row.acceptanceRunId === currentRunId),
-      ),
-    );
     const parsed = version ? validateThemePackageV2(version.packageJson) : null;
     const publicationRows = await db
       .select()
@@ -1179,13 +899,6 @@ export async function getThemeStudioReleaseState(
       evidence: shownEvidence,
       packageDigest: version?.packageDigest ?? null,
       versionNumber: version?.versionNumber ?? null,
-      reviews,
-      readiness: readiness.ok
-        ? { ok: true, reasons: [] }
-        : { ok: false, reasons: readiness.reasons },
-      authors: [
-        ...(await authorEmails(db, project.id, project.createdByEmail)),
-      ],
       blockers: parsed?.ok ? publicationBlockers(parsed.value) : [],
       publications: publicationRows.map((row) => ({
         id: row.id,

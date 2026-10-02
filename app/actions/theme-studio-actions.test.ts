@@ -22,8 +22,6 @@ const repo = vi.hoisted(() => ({
   removeThemeStudioReference: vi.fn(async () => undefined),
   archiveThemeStudioProject: vi.fn(async () => undefined),
   // Phase 6 (lib/theme-studio/publication), mocked below.
-  submitThemeStudioReview: vi.fn(async () => ({ reviewId: "rv1" })),
-  approveThemeStudioCandidate: vi.fn(async () => undefined),
   publishThemeStudioProject: vi.fn(async () => ({
     ok: true as const,
     publicationId: "pub1",
@@ -46,8 +44,6 @@ vi.mock("@/lib/theme-studio/repository", async (importOriginal) => {
   return { ...actual, ...repo };
 });
 vi.mock("@/lib/theme-studio/publication", () => ({
-  submitThemeStudioReview: repo.submitThemeStudioReview,
-  approveThemeStudioCandidate: repo.approveThemeStudioCandidate,
   publishThemeStudioProject: repo.publishThemeStudioProject,
   changeThemeStudioCatalog: repo.changeThemeStudioCatalog,
 }));
@@ -141,32 +137,11 @@ const calls: [
     "archiveThemeStudioProject",
   ],
   [
-    "submit review",
-    () =>
-      actions.submitThemeStudioReviewAction({
-        projectId,
-        versionId: runId,
-        expectedPackageDigest: "d".repeat(64),
-        scorecard: {},
-      }),
-    "submitThemeStudioReview",
-  ],
-  [
-    "approve",
-    () =>
-      actions.approveThemeStudioCandidateAction({
-        projectId,
-        expectedRevision: 0,
-      }),
-    "approveThemeStudioCandidate",
-  ],
-  [
     "publish",
     () =>
       actions.publishThemeStudioProjectAction({
         projectId,
         expectedRevision: 0,
-        confirmThemeId: "clay-co",
       }),
     "publishThemeStudioProject",
   ],
@@ -175,7 +150,7 @@ const calls: [
     () =>
       actions.changeThemeStudioCatalogAction({
         projectId,
-        change: { action: "hide", reason: "Broken cart" },
+        change: { action: "hide" },
       }),
     "changeThemeStudioCatalog",
   ],
@@ -247,7 +222,6 @@ describe("Theme Studio actions", () => {
       actions.publishThemeStudioProjectAction({
         projectId,
         expectedRevision: 0,
-        confirmThemeId: "clay-co",
       }),
     ).resolves.toEqual({
       ok: false,

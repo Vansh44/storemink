@@ -4720,6 +4720,15 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     instead of opening a known 404. `createStore` repeats catalog visibility
     validation server-side, so posting a hidden/draft/unknown id around the
     signup UI cannot install it.
+    ★ **A DEMO CARRIES THE THEME'S OWN NAME** (2026-10-03). Every seeder —
+    `seedDemoStore`, Theme Studio publication's `seedDemo` and
+    `scripts/seed-demo-store.ts` — writes the row through ONE helper,
+    `upsertDemoStoreRow` (`lib/themes/demo-store.ts`). They used to each
+    write `${theme.name} Demo`, which the header rendered, so the live
+    preview read "Luxe Demo". A reseed also rewrites the name, and migration
+    `20261003_0152_demo_store_theme_names` renamed the existing rows. It
+    refuses (`NotADemoStoreError`) a `demo-*` row without `settings.demo`,
+    since resetting that would wipe a real store.
     **Public theme catalog (Phase 4, in progress)**:
     `themes.{ROOT_DOMAIN}` is a reserved platform host (`isThemesHost`) rewritten
     by `proxy.ts` to `app/themes/`, never resolved as merchant tenancy. The
@@ -5072,23 +5081,32 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     nullable with an `origin`/`edit_detail` CHECK, adds the `image` purpose and
     two events. Record: `docs/mink-ai-theme-studio-slot-images.md`.
     Operator-only: no Help Centre migration.
-    **Mink AI Theme Studio Phase 6 (2026-09-25; approval, publication and
-    rollback):** `…/studio/[projectId]/release` holds the review, approval,
-    publish and catalog controls. - **Reviews.** Two superadmins score the candidate on the
-    theme-acceptance §5 scorecard (`lib/theme-studio/scorecard.ts` — change
-    it with that doc), one per chair (design, commerce). ★ The eight scores
-    are COLUMNS of `theme_studio_reviews`, so an approving verdict below the
-    bar (every row ≥ 4, total ≥ 34, no rejection condition) cannot be stored.
-    A trigger binds each review to a PASSED run over the version's exact
-    package digest, and reviews are immutable. - **Approval** (`candidate → approved`) needs both chairs approving the
-    latest passing run and no rejection. ★ At least one approving reviewer
-    must not be an author, derived server-side from the project's events
-    (creator, runs, answers, revisions, image edits). It also needs
-    `publicationBlockers` clear: no placeholder, and every production
-    validator rule passing. The replaced project guard enforces the review
-    rule on entering `approved`, freezes an approved project's version, and
-    refuses `published` without a published publication. - **Publication** (`publishThemeStudioProject`, plan §8) needs the typed
-    theme id. It writes a `theme_studio_publications` attempt (semver 1.0.0,
+    **Mink AI Theme Studio Phase 6 (2026-09-25; publication and rollback —
+    SIMPLIFIED TO ONE STEP 2026-10-03):** `…/studio/[projectId]/release`
+    holds one **Publish theme** button and, once live, one-click **Hide /
+    Show / Restore**. - **★★ NO HUMAN SCORECARD AND NO SEPARATE APPROVAL.**
+    The original design had two superadmins score the candidate (a design and
+    a commerce chair, one not an author) and a third step to approve it, then
+    a typed theme id to publish. The owner found it too complex, and it was
+    redundant: a candidate has already passed every required automated
+    acceptance gate AND the automated visual QA scorecard (the same eight
+    `scorecard.ts` rows), so a second human round re-asked a question the
+    pipeline had answered. `publishThemeStudioProject` now takes a candidate
+    directly; inside `beginAttempt`'s transaction it re-verifies evidence
+    from the CURRENT build and `publicationBlockers`, moves `candidate →
+approved` (event `project_approved`, `automatic: true`) and writes the
+    attempt. `approved` survives only as the state a failed publication waits
+    in, so the same button retries with the evidence it started on. ★ The
+    database still guards it: migration `20261003_0151` replaces the project
+    guard so entering `approved` needs a PASSED acceptance run over the
+    current version's exact digest (instead of two reviews), and `published`
+    still needs a published publication. `theme_studio_reviews` is kept
+    (expand/contract) and no longer written; `submitThemeStudioReview`,
+    `approveThemeStudioCandidate`, `validateScorecard` and
+    `approvalReadiness` were removed. Catalog changes take an OPTIONAL reason
+    — a blank one records a plain sentence — and the publish confirmation is
+    a native confirm, not a typed id. Status badges read **Ready to publish**
+    (candidate) and **Publishing** (approved). - **Publication** (`publishThemeStudioProject`, plan §8). It writes a `theme_studio_publications` attempt (semver 1.0.0,
     then the next minor; a failed attempt's stored release is RESUMED,
     because the row is immutable and its digest includes the release date).
     It copies each slot image, re-hashed, to
@@ -6632,9 +6650,23 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
       `getCheckoutConfig` returns `demo` so the screen explains instead of
       rendering a button that always fails (§23's rule). Tested in both
       directions, including that a normal store is unaffected.
-      ⚠ Still possible on a demo store, deliberately unfixed because none of it
-      creates a false expectation of delivery: customer signup, enquiries,
-      reviews, blog submissions and newsletter sign-ups.
+      ★★ AND EVERY OTHER PUBLIC WRITE IS REFUSED TOO (2026-10-03,
+      `lib/store/demo-guard.ts` → `demoStoreRefusal()`, host-derived). A demo
+      is opened from themes.storemink.com as a live theme preview; nobody
+      reads its inbox and it is reset on demand, so an enquiry, a newsletter
+      consent, a review, a blog post or comment, or a customer ACCOUNT stored
+      there is either lost or mistaken for real. `submitEnquiry`,
+      `subscribeNewsletter`, `submitReview`, `submitBlogComment`,
+      `toggleBlogReaction`, the three customer-blog actions and
+      `updateCustomerProfile` (the account-creation write) all return
+      `DEMO_STORE_MESSAGE` (`lib/store/demo-copy.ts`, client-safe). ★ The UI
+      says so BEFORE anything is typed: `AuthModalLoader demoStore` renders
+      `DemoAccountNotice` instead of the phone sign-in (so no real OTP text is
+      sent for an account that cannot exist, and Firebase is never loaded),
+      and the enquiry form shows the notice and refuses to send its
+      verification code. Browsing, search, the cart and the checkout PAGE
+      still work — they are what a preview is for. Studio preview stores carry
+      `settings.demo` too, so they get the same rules.
     - **Auth**: `getServerUser()` (the identity seam — verifies the Firebase
       session cookie) — anonymous is rejected. **Rate limit**:
       `rateLimit("checkout:{userId}")` (Postgres, cross-instance, fails open)
@@ -14487,6 +14519,16 @@ Sharma / +919877542162` beside `Customer / 9877542162`);
       worst thing it could do after a 500.
     - **The list's History drawer was REMOVED**, not left beside the detail
       page. Two paths to the same data is the mess this was undoing.
+    - **★ THEME DEMO STORES ARE NOT MERCHANTS** (2026-10-03). The Stores list
+      and every overview count use ONE predicate,
+      `lib/platform/merchant-stores.ts` (`merchantStoreCondition` /
+      `MERCHANT_STORES_CTE`), which excludes Studio previews AND
+      `settings.demo` showcases — before it, "8 stores on the platform"
+      counted four demos, and a showcase sat one click from suspend and plan
+      controls. Demos are managed from Themes, which reads
+      `listDemoStoreSlugs()` instead of the store list (it used the list to
+      decide Seed vs Reseed, and would otherwise have offered Seed for a demo
+      that already exists).
     - **★ PEOPLE UNIONS TWO TABLES FOR ONE QUESTION** (`lib/platform/people.ts`,
       `/dashboard/people`). `admins` and `pos_staff` were each reachable only
       from inside the store that owned them, so "which stores is this person

@@ -1,5 +1,19 @@
 # Mink AI Theme Studio — Phase 6 approval, publication and rollback
 
+> **★ SIMPLIFIED 2026-10-03 — read this first.** Publication is now ONE
+> superadmin step. The two-chair human scorecard (§2) and the separate
+> approval (§3) are gone: a candidate has already passed every automated
+> acceptance gate and the automated visual QA scorecard, so the release
+> screen shows a single **Publish theme** button, and **Hide / Show /
+> Restore** are single buttons with an optional reason (a blank one records a
+> plain sentence). The typed theme-id confirmation became a native confirm.
+> `approved` survives only as the state a failed publication waits in, so the
+> same button retries it. Migration `20261003_0151_theme_studio_single_step_publish`
+> replaces the project guard: entering `approved` needs passing acceptance
+> evidence instead of two reviews; `published` still needs a publication.
+> `theme_studio_reviews` is kept (expand/contract) and is no longer written.
+> Sections 1–3 below describe the original two-reviewer design.
+
 Phase 6 turns a candidate into a theme merchants can install:
 
 1. two people review it against the release scorecard;

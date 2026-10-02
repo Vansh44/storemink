@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { emitEvent } from "@/lib/notifications/record";
 import { getServerUser } from "@/lib/auth/server-user";
 import { getCurrentStoreId } from "@/lib/store/resolve";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
 import { withUser } from "@/lib/db/client";
 import { productReviews, users } from "@/drizzle/schema";
 
@@ -26,6 +27,8 @@ export interface ActionResult {
 export async function submitReview(
   form: ReviewFormData,
 ): Promise<ActionResult> {
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const user = await getServerUser();
   if (!user) {
     return { error: "Please sign in to write a review." };

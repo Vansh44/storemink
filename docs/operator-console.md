@@ -25,14 +25,14 @@ single scroll, under a metric row. Three consequences, all of them real:
 | Group              | Entry          | Path                       | What it answers                         |
 | ------------------ | -------------- | -------------------------- | --------------------------------------- |
 | **OPERATIONS**     | Overview       | `/dashboard`               | What needs someone right now?           |
-|                    | Stores         | `/dashboard/stores`        | The merchant estate                     |
+|                    | Stores         | `/dashboard/stores`        | The merchant estate (no demos/previews) |
 |                    | ↳ store detail | `/dashboard/stores/[id]`   | Everything about ONE merchant           |
 |                    | People         | `/dashboard/people`        | Who can sign in to which store          |
 |                    | Announcements  | `/dashboard/announcements` | Tell merchants something _(phase 4)_    |
 |                    | Logs           | `/dashboard/logs`          | What happened, what broke _(phase 3)_   |
 |                    | Mink AI        | `/dashboard/mink`          | Are agent runs reliable and affordable? |
 | **ADMINISTRATION** | Help Centre    | `/dashboard/help`          | Platform docs                           |
-|                    | Themes         | `/dashboard/themes`        | The catalog + demo stores               |
+|                    | Themes         | `/dashboard/themes`        | The catalog + its live demo stores      |
 |                    | ↳ Theme Studio | `/dashboard/themes/studio` | Draft new themes _(superadmin only)_    |
 |                    | Pricing        | `/dashboard/pricing`       | What StoreMink charges                  |
 |                    | Analytics      | `/dashboard/analytics`     | Platform Analytics availability         |
@@ -240,20 +240,19 @@ slot's shape and compressed to storefront limits), says whether it is theirs
 or licensed, and saves the staged images as one new version. Revisions keep
 those images. Record: `docs/mink-ai-theme-studio-slot-images.md`.
 
-A candidate has **Review and release** (Phase 6). Two superadmins score it on
-the theme-acceptance scorecard — one for design, one for commerce — and at
-least one of them must not have worked on the theme. Once both approve, a
-superadmin approves it for publication and publishes it by typing its id.
-Publishing:
+A candidate (every automated check and the visual QA scorecard passed) has
+**Publish it**, which opens a single **Publish theme** button for a
+superadmin. There is no separate human scorecard or approval step
+(simplified 2026-10-03). Publishing:
 
 1. copies its images to permanent public storage;
 2. stores an immutable release;
 3. seeds and renders its demo store;
 4. only then adds it to the public catalog and signup.
 
-A failed publication stays hidden and can be retried. Afterwards the same
-screen hides it from new stores, shows it again, or restores an earlier
-release. Each change is written to an audit, and a store that already
+A failed publication stays hidden and the same button retries it. Afterwards
+the same screen hides it from new stores, shows it again, or restores an
+earlier release, each with one click. Each change is written to an audit, and a store that already
 installed the theme keeps its exact version. Record:
 `docs/mink-ai-theme-studio-phase6.md`.
 

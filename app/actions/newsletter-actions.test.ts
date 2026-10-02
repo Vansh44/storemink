@@ -54,6 +54,19 @@ describe("subscribeNewsletter", () => {
     } as any);
   });
 
+  it("stores no consent on a theme demo store", async () => {
+    vi.mocked(getCurrentStoreOrNull).mockResolvedValue({
+      id: "a0000000-0000-4000-8000-000000000001",
+      settings: { demo: true },
+    } as any);
+    expect(await subscribeNewsletter(initial, form())).toEqual({
+      status: "error",
+      message:
+        "This is a theme preview, so orders, accounts and forms are turned off.",
+    });
+    expect(dbHolder.current.calls.insert).toHaveLength(0);
+  });
+
   it("rejects malformed email and missing consent before persistence", async () => {
     expect(
       await subscribeNewsletter(initial, form({ email: "bad" })),

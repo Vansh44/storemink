@@ -6,6 +6,7 @@ import { emitEvent } from "@/lib/notifications/record";
 import { withService, withUser, type Db } from "@/lib/db/client";
 import { blogComments, blogLikes, users } from "@/drizzle/schema";
 import { getCurrentStoreId } from "@/lib/store/resolve";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
 import { revalidatePath } from "next/cache";
 import {
   BLOG_REACTIONS,
@@ -57,6 +58,8 @@ export async function toggleBlogReaction(
   if (!BLOG_REACTIONS.includes(reaction)) {
     return { counts: emptyCounts(), error: "Unknown reaction." };
   }
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { counts: emptyCounts(), error: demoRefusal };
 
   const storeId = active ? await getCurrentStoreId() : "";
   try {
@@ -115,6 +118,8 @@ export async function submitBlogComment(form: {
   slug: string;
   body: string;
 }): Promise<ActionResult> {
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const body = form.body.trim();
   if (!body) return { error: "Write something first." };
   if (body.length > 2000) {

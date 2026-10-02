@@ -15,9 +15,9 @@ import { ReleaseWorkspace } from "./release-workspace";
 
 export const metadata = { title: "Theme release — StoreMink Admin" };
 
-// Phase 6: the human review, approval, publication and catalog controls for
-// one project. Every rule shown here is re-checked by the server and, for
-// approval and publication, by the database (migration 0134).
+// Publish a theme in one step once its checks pass, then hide, show or
+// restore it. Every rule shown here is re-checked by the server and, for
+// publication, by the database (migration 0151).
 export default async function ThemeStudioReleasePage({
   params,
 }: {
@@ -54,7 +54,7 @@ export default async function ThemeStudioReleasePage({
       <header className="space-y-1">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-semibold tracking-tight text-slate-950">
-            {project.name} · review and release
+            {project.name} · publish
           </h1>
           <StudioStatusBadge
             status={project.status}
@@ -62,24 +62,20 @@ export default async function ThemeStudioReleasePage({
           />
         </div>
         <p className="max-w-3xl text-sm text-slate-500">
-          Two people review the candidate against the release scorecard — one
-          for design, one for commerce — and at least one of them must not have
-          worked on this theme. Once approved, publishing stores an immutable
-          release, seeds and checks its demo store, and only then adds it to the
-          public catalog and signup. Hiding or restoring later changes what new
-          stores can pick; stores that already use it keep their exact version.
+          When every check passes, publish the theme in one click. It goes live
+          in the theme catalog and signup with a live demo store.
         </p>
       </header>
       <ReleaseWorkspace
         project={{
           id: project.id,
+          name: project.name,
           themeId: project.themeId,
           status: project.status,
           revision: project.revision,
           currentVersionId: project.currentVersionId,
         }}
         state={state}
-        actorEmail={actor.email}
         demoOrigin={subdomainOrigin(`demo-${project.themeId}`)}
       />
     </div>

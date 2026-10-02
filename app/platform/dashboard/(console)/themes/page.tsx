@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Sparkles } from "lucide-react";
-import { listAllStores } from "@/app/actions/platform";
+import { listDemoStoreSlugs } from "@/app/actions/platform";
 import { getThemeCatalog } from "@/lib/themes/runtime-registry";
 import { ThemesPanel } from "../themes-panel";
 import { canManage, requireOperator } from "../require-operator";
@@ -20,17 +20,15 @@ export default async function ThemesPage() {
   const viewer = await requireOperator();
   if (!canManage(viewer)) redirect("/dashboard");
 
-  // Which theme demos actually exist right now. `listAllStores` is the one
-  // read that already knows, so the panel can show "seed" vs "reseed" honestly
-  // rather than offering a Preview link to a 404.
-  const [stores, themes] = await Promise.all([
-    listAllStores(),
+  // Which theme demos actually exist right now, so the panel can show "seed"
+  // vs "reseed" honestly rather than offering a Preview link to a 404. Demo
+  // stores are not merchants, so the Stores list no longer carries them.
+  const [liveSlugs, themes] = await Promise.all([
+    listDemoStoreSlugs(),
     getThemeCatalog(),
   ]);
   const demoSlugs = new Set(themes.map((t) => t.demo.slug));
-  const demoSlugsLive = stores
-    .filter((s) => demoSlugs.has(s.slug))
-    .map((s) => s.slug);
+  const demoSlugsLive = liveSlugs.filter((slug) => demoSlugs.has(slug));
 
   return (
     <div className="w-full max-w-6xl space-y-6">

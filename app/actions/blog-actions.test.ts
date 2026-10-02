@@ -109,6 +109,15 @@ function settingsWith(
 }
 import { deleteStorageUrls } from "@/lib/storage/cleanup";
 import { emitEvent } from "@/lib/notifications/record";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
+
+const DEMO =
+  "This is a theme preview, so orders, accounts and forms are turned off.";
+// Demo stores refuse every public write (lib/store/demo-guard.ts); a real
+// store is the default here.
+vi.mock("@/lib/store/demo-guard", () => ({
+  demoStoreRefusal: vi.fn(async () => null),
+}));
 
 /** True when an emitEvent call for `type` was made. Approval/rejection mail is
  *  delivered by the notification system now, not a bespoke sender. */
@@ -639,6 +648,13 @@ describe("blog-actions", () => {
         returning: [{ id: "b1" }],
         selectQueue: [[ada], []],
       });
+    });
+
+    it("refuses on a theme demo store before reading anything", async () => {
+      vi.mocked(demoStoreRefusal).mockResolvedValueOnce(DEMO);
+      const result = await submitCustomerBlog(customerForm);
+      expect(result.error).toBe(DEMO);
+      expect(getServerUser).not.toHaveBeenCalled();
     });
 
     // Anonymous visitors are blocked from this action.

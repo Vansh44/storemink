@@ -461,17 +461,16 @@ export function ProjectWorkspace({
                 >
                   acceptance checks
                 </Link>{" "}
-                on the current version to make it a candidate for review.
+                on the current version. Once they pass you can publish it.
               </>
             ) : (
               <>
-                The current version passed its acceptance checks and is a
-                candidate.{" "}
+                The current version passed its checks and is ready to publish.{" "}
                 <Link
                   href={`/dashboard/themes/studio/${project.id}/release`}
                   className="font-medium text-slate-700 underline underline-offset-2"
                 >
-                  Review and release
+                  Publish it
                 </Link>
                 .
               </>
@@ -481,15 +480,15 @@ export function ProjectWorkspace({
         {project.status === "approved" || project.status === "published" ? (
           <p className="mt-1 text-xs text-slate-500">
             {project.status === "approved"
-              ? "The current version is approved for publication. "
+              ? "Publishing didn't finish. "
               : "This theme is published. "}
             <Link
               href={`/dashboard/themes/studio/${project.id}/release`}
               className="font-medium text-slate-700 underline underline-offset-2"
             >
               {project.status === "approved"
-                ? "Publish it"
-                : "Catalog and rollback"}
+                ? "Retry publishing"
+                : "Manage the live theme"}
             </Link>
           </p>
         ) : null}

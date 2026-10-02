@@ -5,6 +5,8 @@ import { newsletterSubscribers } from "@/drizzle/schema";
 import { withService } from "@/lib/db/client";
 import { clientIp, rateLimit } from "@/lib/rate-limit";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
+import { isDemoStore } from "@/lib/store/launch";
+import { DEMO_STORE_MESSAGE } from "@/lib/store/demo-guard";
 
 export interface NewsletterActionState {
   status: "idle" | "success" | "error";
@@ -46,6 +48,10 @@ export async function subscribeNewsletter(
   const store = await getCurrentStoreOrNull();
   if (!store) {
     return { status: "error", message: "This store isn't available." };
+  }
+  // A theme preview has nobody to honour the consent; store none.
+  if (isDemoStore(store)) {
+    return { status: "error", message: DEMO_STORE_MESSAGE };
   }
   const storeId = store.id;
   const ip = clientIp(await headers());

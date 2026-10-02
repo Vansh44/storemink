@@ -6096,6 +6096,42 @@
           }
         ]
       }
+    },
+    {
+      "id": "20261003_0151_theme_studio_single_step_publish",
+      "description": "Publish a Theme Studio candidate in one superadmin step; approval needs passing acceptance evidence, not human scorecards",
+      "file": "sql/20261003_0151_theme_studio_single_step_publish.sql",
+      "transaction": true,
+      "requires": ["20261002_0150_theme_studio_recovery_safety"],
+      "verify": {
+        "functions": ["theme_studio_project_guard()"]
+      },
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "approval no longer demands two scorecards",
+            "sql": "select (position('two qualifying reviews' in prosrc) = 0 and position('needs passing acceptance evidence' in prosrc) > 0)::text from pg_proc where oid = 'public.theme_studio_project_guard()'::regprocedure",
+            "equals": "true"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20261003_0152_demo_store_theme_names",
+      "description": "Theme demo stores show the theme's own name rather than '<Theme> Demo'",
+      "file": "sql/20261003_0152_demo_store_theme_names.sql",
+      "transaction": true,
+      "requires": ["20261003_0151_theme_studio_single_step_publish"],
+      "verify": {},
+      "applyVerify": {
+        "queries": [
+          {
+            "name": "no theme demo store is named '<Theme> Demo'",
+            "sql": "select count(*)::text from public.stores where (settings -> 'demo') = 'true'::jsonb and not (settings ? 'studioPreview') and slug like 'demo-%' and name like '% Demo'",
+            "equals": "0"
+          }
+        ]
+      }
     }
   ]
 }

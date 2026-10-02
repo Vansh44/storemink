@@ -18,6 +18,7 @@ import "react-phone-number-input/style.css";
 import { customPhoneLabels } from "@/lib/phone-labels";
 import { CountrySelect } from "@/components/ui/phone-country-select";
 import { useOtpThrottle } from "@/lib/use-otp-throttle";
+import { DEMO_STORE_MESSAGE as DEMO_FORM_MESSAGE } from "@/lib/store/demo-copy";
 
 // Preset enquiry topics. "Other" reveals a free-text field.
 const SUBJECT_OPTIONS = [
@@ -40,7 +41,12 @@ function formatPhone(p?: string | null): string {
   return p.startsWith("+") ? p : `+${p}`;
 }
 
-export default function EnquiriesForm() {
+export default function EnquiriesForm({
+  demoStore = false,
+}: {
+  /** Theme preview: show the form, send nothing. */
+  demoStore?: boolean;
+} = {}) {
   const { user, customer } = useAuth();
 
   const [submitted, setSubmitted] = useState(false);
@@ -129,6 +135,10 @@ export default function EnquiriesForm() {
 
   // ---- Phone: send the OTP ----
   const sendOtp = async () => {
+    if (demoStore) {
+      setError(DEMO_FORM_MESSAGE);
+      return;
+    }
     if (!phone || phone.trim().length < 10) {
       setError("Please enter a valid 10-digit phone number.");
       return;
@@ -347,6 +357,14 @@ export default function EnquiriesForm() {
         </header>
 
         <div className={styles.card}>
+          {demoStore ? (
+            <p
+              className={`${styles.statusMessage} ${styles.error}`}
+              role="status"
+            >
+              {DEMO_FORM_MESSAGE}
+            </p>
+          ) : null}
           <form
             className={styles.form}
             onSubmit={(e) => {

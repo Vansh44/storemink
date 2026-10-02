@@ -46,6 +46,15 @@ import { getManagerUserId } from "@/app/dashboard/lib/access";
 import { sendEnquiryAcknowledgementEmail } from "@/lib/email/enquiry-notifications";
 import { revalidatePath } from "next/cache";
 import { rateLimit } from "@/lib/rate-limit";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
+
+const DEMO =
+  "This is a theme preview, so orders, accounts and forms are turned off.";
+// Demo stores refuse every public write (lib/store/demo-guard.ts); a real
+// store is the default here.
+vi.mock("@/lib/store/demo-guard", () => ({
+  demoStoreRefusal: vi.fn(async () => null),
+}));
 
 const validInput = {
   name: "  Ada Lovelace  ",
@@ -70,6 +79,13 @@ describe("enquiry-actions", () => {
   });
 
   describe("submitEnquiry", () => {
+    it("refuses on a theme demo store", async () => {
+      vi.mocked(demoStoreRefusal).mockResolvedValueOnce(DEMO);
+      const result = await submitEnquiry(validInput);
+      expect(result.error).toBe(DEMO);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
+    });
+
     // Name is mandatory — whitespace-only is treated as empty.
     it("rejects empty name", async () => {
       const result = await submitEnquiry({ ...validInput, name: "   " });
