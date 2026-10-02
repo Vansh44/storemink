@@ -7,6 +7,7 @@ import {
   themeStudioCaptures,
 } from "@/drizzle/schema";
 import { gate, GATE_LABELS, type GateId } from "./acceptance-gates";
+import { operatorImagePackage } from "./_test-helpers";
 
 const { service, generate, verify } = vi.hoisted(() => ({
   service: vi.fn(),
@@ -90,7 +91,7 @@ function fixture({
     [],
     [qa],
     [{ name: "Crave", modelKey: "gemini-3.8-flash", status: claimStatus }],
-    [{ packageJson: {} }],
+    [{ packageJson: operatorImagePackage() }],
     [],
     lostLease ? [] : [qa],
     [{ status: settleStatus }],

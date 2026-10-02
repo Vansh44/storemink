@@ -2109,13 +2109,13 @@
   margin-inline: auto;
 }
 .sm-pdp-editorial .pdp-grid {
-  grid-template-columns: minmax(0, 1.35fr) minmax(320px, 0.65fr);
-  gap: clamp(36px, 7vw, 110px);
+  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr);
+  gap: clamp(28px, 4vw, 64px);
   align-items: start;
 }
 .sm-pdp-editorial .pdp-main-img {
   min-height: 0;
-  aspect-ratio: 4 / 3;
+  aspect-ratio: 4 / 5;
   border-radius: 0;
   background: var(--sm-cream-deep);
 }
@@ -2125,10 +2125,15 @@
   padding-top: clamp(24px, 5vw, 70px);
 }
 .sm-pdp-editorial .pdp-name {
-  font-size: calc(clamp(2.3rem, 5vw, 4.7rem) * var(--sm-hs, 1));
+  /* A commerce title must fit ordinary product words in its side column,
+     including large uppercase theme headings. Emergency wrapping remains
+     available for an exceptionally long merchant-supplied word. */
+  font-size: calc(clamp(1.6rem, 2.3vw, 2.4rem) * var(--sm-hs, 1));
+  word-break: normal;
+  overflow-wrap: break-word;
   font-weight: 600;
-  letter-spacing: -0.045em;
-  line-height: 0.98;
+  letter-spacing: -0.025em;
+  line-height: 1.1;
 }
 .sm-pdp-editorial .pdp-actions {
   flex-direction: column;
@@ -2150,7 +2155,7 @@
   }
   .sm-pdp-editorial .pdp-main-img {
     min-height: 0;
-    aspect-ratio: 4 / 3;
+    aspect-ratio: 4 / 5;
   }
   .sm-pdp-editorial .pdp-info {
     position: static;

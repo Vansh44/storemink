@@ -40,6 +40,8 @@ const ERROR_TEXT: Record<string, string> = {
   model_refused: "The model declined this request for safety reasons.",
   model_declined: "The model declined to build this theme.",
   output_truncated: "The model ran out of output space before finishing.",
+  repair_not_supported:
+    "Automatic repair stopped because the remaining findings require changes beyond the theme’s supported settings. Review the QA findings before retrying.",
   rate_limited:
     "The model provider still refused this request after automatic retries. Your existing version is unchanged. Retry this run when provider capacity is available.",
   provider_auth: "StoreMink couldn't authenticate with the model provider.",
@@ -424,6 +426,10 @@ export function ProjectWorkspace({
 
       <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-sm font-semibold text-slate-900">Versions</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Versions are saved snapshots. Image updates and catalogue captures
+          also create snapshots; they are not additional design revisions.
+        </p>
         {project.currentVersionId &&
         (project.status === "ready" || project.status === "candidate") ? (
           <p className="mt-1 text-xs text-slate-500">
@@ -488,7 +494,9 @@ export function ProjectWorkspace({
                         {v.origin === "asset_edit"
                           ? `images replaced (${v.editedSlots.length}) on version`
                           : "revised from version"}{" "}
-                        {versionNumber.get(v.parentVersionId) ?? "?"}
+                        {v.parentVersionNumber ??
+                          versionNumber.get(v.parentVersionId) ??
+                          "?"}
                       </span>
                     ) : null}
                     {previewFor.get(v.id)?.status === "ready" ? (
@@ -601,6 +609,16 @@ export function ProjectWorkspace({
                     </div>
                   ) : null}
                 </div>
+                {v.qaStatus === "failed" && v.qaFindings?.length ? (
+                  <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
+                    <p className="font-medium">Visual review needs attention</p>
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
+                      {v.qaFindings.map((finding, i) => (
+                        <li key={i}>{finding}</li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
                 <p className="mt-1 text-sm text-slate-700">{v.summary}</p>
                 {v.packageSummary ? (
                   <div className="mt-2 space-y-1 text-xs text-slate-600">

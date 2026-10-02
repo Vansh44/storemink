@@ -41,6 +41,7 @@ import {
 import { SESSION_COOKIE } from "@/lib/auth/constants";
 import { STOREMINK_ICONS } from "@/lib/brand-assets";
 import { buttonRootClasses } from "@/lib/themes/buttons";
+import { withThemeNewsletter } from "@/lib/themes/footer";
 import { pageRootClasses } from "@/lib/themes/page";
 import { motionRootClasses, revealsOnScroll } from "@/lib/themes/motion";
 import { ScrollReveal } from "@/app/(storefront)/components/scroll-reveal";
@@ -123,7 +124,6 @@ export default async function StorefrontLayout({
       previewing ? getDraftChromeForPreview(store.id) : Promise.resolve(null),
       getPlatformAnalyticsFeatures(),
     ]);
-  const chrome = draftChrome ?? publishedChrome;
 
   // Merchant pixels are independently gated by platform rollout, the store's
   // effective plan (including expiry), its saved enable switch, and finally the
@@ -155,9 +155,9 @@ export default async function StorefrontLayout({
   // only --brand-primary — the globals.css defaults ARE the WholeSip look, so
   // it stays exactly as today.
   const themeSelection = readThemeSelection(store.settings);
-  const design =
-    (await resolveInstalledThemeDefinition(themeSelection))?.preset.design ??
-    null;
+  const theme = await resolveInstalledThemeDefinition(themeSelection);
+  const design = theme?.preset.design ?? null;
+  const chrome = withThemeNewsletter(draftChrome ?? publishedChrome, theme);
   // ★★ THE PRESET'S OWN MAP, KEPT SEPARATE FROM THE MERGED ONE. The inline
   // style below wants the merchant's overrides ON TOP; ChromeProvider wants
   // the map WITHOUT them, because its job when an override is CLEARED in the

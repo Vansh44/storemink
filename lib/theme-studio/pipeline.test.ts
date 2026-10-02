@@ -63,6 +63,152 @@ const run = (brief?: string, client?: ThemeStudioModelClient) =>
   );
 
 describe("theme generation pipeline", () => {
+  it("repairs automatic QA with one settings call, preserving intent identity and all images", async () => {
+    const original = await run();
+    if (original.kind !== "version") throw new Error("fixture failed");
+    const requests: StructuredRequest[] = [];
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate(request) {
+        requests.push(request);
+        return {
+          kind: "ok",
+          value: {
+            edits: [
+              {
+                path: "/definition/preset/design/layout/cart",
+                valueJson: '"compact"',
+              },
+            ],
+            unrepairable: [],
+          },
+          usage: ZERO_USAGE,
+        };
+      },
+    };
+    const outcome = await runThemeGeneration(
+      client,
+      {
+        ...input(),
+        compile: { ...input().compile, versionNumber: 2 },
+        automaticRepair: true,
+        revision: {
+          baseIntent: original.intent,
+          basePackage: original.package,
+        },
+        messages: [
+          { kind: "brief", body: "Give the cart a more compact composition." },
+        ],
+      },
+      new AbortController().signal,
+    );
+    expect(outcome.kind).toBe("version");
+    expect(requests.map((r) => r.stage)).toEqual(["draft"]);
+    expect(requests[0].content.every((b) => b.type === "text")).toBe(true);
+    expect(outcome.telemetry.repairs).toEqual({ intent: 0, draft: 0 });
+    if (outcome.kind !== "version") return;
+    expect(outcome.placeholders.size).toBe(0);
+    expect(outcome.package.assets).toEqual(original.package.assets);
+    expect(outcome.package.definition.preset.sampleData).toEqual(
+      original.package.definition.preset.sampleData,
+    );
+    expect(outcome.package.definition.release.version).toBe("0.0.2");
+    expect(validateThemePackageV2(outcome.package).ok).toBe(true);
+    expect(outcome.intent.assumptions[0]).toContain("Updated setting");
+  });
+  it("stops an unsupported automatic repair without a full regeneration fallback", async () => {
+    const original = await run();
+    if (original.kind !== "version") throw new Error("fixture failed");
+    let calls = 0;
+    const client: ThemeStudioModelClient = {
+      provider: "fake",
+      async generate() {
+        calls++;
+        return {
+          kind: "ok",
+          value: { edits: [], unrepairable: ["Requires renderer CSS"] },
+          usage: ZERO_USAGE,
+        };
+      },
+    };
+    const outcome = await runThemeGeneration(
+      client,
+      {
+        ...input(),
+        automaticRepair: true,
+        revision: {
+          baseIntent: original.intent,
+          basePackage: original.package,
+        },
+      },
+      new AbortController().signal,
+    );
+    expect(outcome).toMatchObject({
+      kind: "failed",
+      errorCode: "repair_not_supported",
+      detail: { findings: ["Requires renderer CSS"] },
+    });
+    expect(calls).toBe(1);
+  });
+  it("replays a paid patch validation response after a capacity deferral without repeating it", async () => {
+    const original = await run();
+    if (original.kind !== "version") throw new Error("fixture failed");
+    let calls = 0;
+    const provider: ThemeStudioModelClient = {
+      provider: "vertex-gemini",
+      async generate(request) {
+        expect(request.stage).toBe("draft");
+        calls++;
+        if (calls === 2)
+          return { kind: "error", code: "rate_limited", usage: ZERO_USAGE };
+        return {
+          kind: "ok",
+          value: {
+            edits: [
+              {
+                path: "/definition/preset/design/layout/cart",
+                valueJson: JSON.stringify(calls === 1 ? "invented" : "compact"),
+              },
+            ],
+            unrepairable: [],
+          },
+          usage: { ...ZERO_USAGE, inputTokens: 100 },
+        };
+      },
+    };
+    const saved = new Map<string, SavedModelResponse>();
+    const store = {
+      async read(key: string) {
+        return structuredClone(saved.get(key) ?? null);
+      },
+      async write(key: string, value: SavedModelResponse) {
+        saved.set(key, structuredClone(value));
+      },
+    };
+    const source = {
+      ...input(),
+      automaticRepair: true,
+      revision: { baseIntent: original.intent, basePackage: original.package },
+    };
+    const execute = () =>
+      runThemeGeneration(
+        resumableGenerationClient(provider, store),
+        source,
+        new AbortController().signal,
+      );
+    expect(await execute()).toMatchObject({
+      kind: "failed",
+      errorCode: "rate_limited",
+    });
+    expect(await execute()).toMatchObject({
+      kind: "version",
+      telemetry: {
+        repairs: { intent: 0, draft: 1 },
+        totals: { inputTokens: 200 },
+      },
+    });
+    expect(calls).toBe(3);
+  });
   it("resumes a rate-limited draft without repeating successful intent or its repair", async () => {
     const fake = createFakeModelClient(base);
     const paidCalls: string[] = [];

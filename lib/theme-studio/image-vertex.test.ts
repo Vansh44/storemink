@@ -197,6 +197,43 @@ describe("the Vertex client", () => {
       expect(send).toHaveBeenCalledTimes(1);
     }
   });
+  it("releases request permits during 429 cooldowns so another theme can progress", async () => {
+    const release: (() => void)[] = [];
+    const retried = new Set<string>();
+    const client = createVertexImageClient(
+      { ...CONFIG, projectId: "cooldown-fairness" },
+      {
+        random: () => 0,
+        send: async (request) => {
+          if (request.briefId !== "healthy" && !retried.has(request.briefId)) {
+            retried.add(request.briefId);
+            throw status(429);
+          }
+          return okResponse;
+        },
+        sleep: () =>
+          new Promise<boolean>((resolve) => release.push(() => resolve(true))),
+      },
+    );
+    const waiting = [0, 1, 2].map((i) =>
+      client.generateImage({ ...REQUEST, briefId: `waiting-${i}` }, signal()),
+    );
+    try {
+      await vi.waitFor(() => expect(release).toHaveLength(3));
+      let healthyDone = false;
+      const healthy = client
+        .generateImage({ ...REQUEST, briefId: "healthy" }, signal())
+        .then((result) => {
+          healthyDone = result.kind === "ok";
+          return result;
+        });
+      await vi.waitFor(() => expect(healthyDone).toBe(true));
+      await healthy;
+    } finally {
+      release.forEach((resolve) => resolve());
+      await Promise.all(waiting);
+    }
+  });
 
   it("reports a cancelled run as cancelled", async () => {
     const controller = new AbortController();

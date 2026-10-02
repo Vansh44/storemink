@@ -25,7 +25,7 @@ import { industryPlaybookPrompt } from "./industry-playbooks";
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v18";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v19";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,
@@ -66,7 +66,7 @@ function configExamples(): string {
   ).join("\n");
 }
 
-export function stageBSystemPrompt(): string {
+export function stageBSystemPrompt(nativeFraming = false): string {
   const reserved = [...RESERVED_PAGE_SLUGS].sort().join(", ");
   return `You are the theme-synthesis stage of StoreMink Theme Studio. You turn an approved design intent into a complete theme draft: design tokens, pages built from registered sections, navigation, and a sample catalogue that shows the design off.
 
@@ -91,7 +91,7 @@ Pages
 - The homepage has at least five sections using at least four different section types.
 - Each section has a type from the schema and configJson: a JSON object, encoded as a string, with exactly the fields of that type's example below. Keep id-based fields (product_ids, category_ids, blog_ids) as empty arrays; featured_products must use source "featured" and shop_by_category must use source "all".
 - The examples below show each type's field names and value types with EMPTY defaults. Fill them: a gallery needs at least two images, testimonials and FAQs at least one item, a promo banner an image or heading, a tile grid at least one tile, and rich text real HTML paragraphs.
-- hero and hero_carousel (and each carousel slide) also accept these OPTIONAL fields, which you may add to that config only: height ("auto", "small", "medium", "large" or "screen" — use "large" or "screen" for an image-led homepage, never on a text-only hero), mobile_image_url (a separate portrait image slot for phones, when the desktop banner is wide and its subject would be cropped away), focal_x and focal_y (integers 0–100, the subject's position in the image, so phones crop around it), overlay_opacity (integer 0–80, a veil behind the copy; use 20–45 when light text sits over a busy photo) and content_position ("top", "middle" or "bottom"). Leave any of them out to keep the default.
+- hero and hero_carousel (and each carousel slide) also accept these OPTIONAL fields, which you may add to that config only: height ("auto", "small", "medium", "large" or "screen" — ${nativeFraming ? 'match height to the image shape at phone, tablet and desktop widths; use "medium" for a landscape banner and reserve "large"/"screen" for framing that can keep at least 35% of the source image visible. Prefer split composition for portrait-led artwork. Never force a wide landscape photograph into a tall screen-height tablet frame' : 'use "large" or "screen" for an image-led homepage, never on a text-only hero'}), mobile_image_url (a separate portrait image slot for phones, when the desktop banner is wide and its subject would be cropped away), focal_x and focal_y (integers 0–100, the subject's position in the image, so phones crop around it), overlay_opacity (integer 0–80, a veil behind the copy; use 20–45 when light text sits over a busy photo) and content_position ("top", "middle" or "bottom"). Leave any of them out to keep the default.
 - Image fields (keys ending in _url) are either "" or "theme-asset://<asset-brief-id>" using an id from the intent's asset briefs. video_url must always be "". Never write an external URL. Links (keys ending in _href) are either "" or a site path starting with "/", such as "/shop" or "/about". Every link must reach something the store will have: one of your own page slugs, /shop, /collections/<a category slug you seed>, /shop/<a product slug you seed>, or a policy page such as /privacy-policy. The examples' own links (such as /our-story) are placeholders — replace them.
 - Each section has a style. Use it to give the homepage rhythm the way a premium theme does: put two or three sections in a scheme — for example the trust bar or ticker in accent or inverse, one story or media-and-text section in soft or tint, the newsletter in inverse — and leave the rest null so bands alternate with the page. Never give neighbouring sections the same scheme. hero_carousel and promo_banner sit on their own photo and take no scheme. padding ("sm", "md" or "lg") adds space inside the band — a banded section without it gets "md". width "full" runs the band edge to edge; use it for banded sections.
 - Write original copy in the store's voice. No lorem ipsum, no placeholder brand names such as "Brand Name".
