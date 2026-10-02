@@ -76,6 +76,16 @@ async function drawn(): Promise<ThemePackageV2> {
 }
 
 describe("what a capture photographs", () => {
+  it("allows placeholder frames only in layout preflight and keeps final capture blocked", async () => {
+    const pkg = await fixture();
+    expect(captureBlockers(pkg).join(" ")).toContain("placeholder");
+    expect(captureBlockers(pkg, "layout")).toEqual([]);
+    pkg.definition.preset.sampleData!.products[0].image_url =
+      pkg.definition.catalog.previewImage;
+    expect(captureBlockers(pkg, "layout").join(" ")).toContain(
+      "catalog screenshot slot",
+    );
+  });
   it("refuses catalog slots reused as storefront art so capture cannot invalidate browser evidence", async () => {
     const pkg = await drawn();
     pkg.definition.preset.sampleData!.products[0].image_url =

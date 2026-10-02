@@ -171,6 +171,36 @@ describe("reading a response", () => {
 });
 
 describe("the Vertex client", () => {
+  it("retains local cooldown and 429 retries when the database pause fails", async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(status(429))
+      .mockResolvedValueOnce(okResponse);
+    const sleep = vi.fn(async () => true);
+    const client = createVertexImageClient(
+      { ...CONFIG, projectId: "failed-db-pause" },
+      {
+        send,
+        sleep,
+        random: () => 0,
+        capacity: {
+          run: (operation, signal) =>
+            operation({
+              signal,
+              succeeded() {},
+              async rateLimited() {
+                throw new Error("DB timeout");
+              },
+            }),
+        },
+      },
+    );
+    expect(await client.generateImage(REQUEST, signal())).toMatchObject({
+      kind: "ok",
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
   it("waits out a rate limit, which bills nothing, then returns the image", async () => {
     const send = vi
       .fn()
@@ -197,7 +227,7 @@ describe("the Vertex client", () => {
       expect(send).toHaveBeenCalledTimes(1);
     }
   });
-  it("releases request permits during 429 cooldowns so another theme can progress", async () => {
+  it("coordinates provider cooldowns across themes instead of sending new slots into a 429 storm", async () => {
     const release: (() => void)[] = [];
     const retried = new Set<string>();
     const client = createVertexImageClient(
@@ -227,6 +257,9 @@ describe("the Vertex client", () => {
           healthyDone = result.kind === "ok";
           return result;
         });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(healthyDone).toBe(false);
+      release.forEach((resolve) => resolve());
       await vi.waitFor(() => expect(healthyDone).toBe(true));
       await healthy;
     } finally {

@@ -66,6 +66,26 @@ describe("automatic completion policy", () => {
       "attention",
     );
   });
+  it("requires all browser gates for preflight while final still requires full acceptance", () => {
+    const layout = passing().filter((g) => g.id.startsWith("browser."));
+    expect(automaticQaDecision(layout, true, 0, "layout")).toBe("pass");
+    expect(automaticQaDecision(layout, true, 0, "final")).toBe("attention");
+    expect(automaticQaDecision(layout.slice(1), true, 0, "layout")).toBe(
+      "attention",
+    );
+    expect(
+      automaticQaDecision(
+        layout.map((g) =>
+          g.id === "browser.image_crops"
+            ? gate(g.id, [{ code: "extreme_crop", message: "24% retained" }])
+            : g,
+        ),
+        true,
+        3,
+        "layout",
+      ),
+    ).toBe("attention");
+  });
   it("keeps performance advisory", () => {
     const gates = passing().map((g) =>
       g.id === "browser.performance"

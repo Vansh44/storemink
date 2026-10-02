@@ -5,6 +5,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import nextEnv from "@next/env";
 import pg from "pg";
+import { guardLegacyImageRetries } from "./db-migration-guards.mjs";
 import {
   MIGRATION_LOCK_NAME,
   activeVerifyQuerySupersessions,
@@ -603,6 +604,7 @@ async function main() {
           // Bounded integer from lockTimeoutMs(), never the raw env string:
           // SET takes no bind parameters.
           await client.query(`set local lock_timeout = ${lockTimeoutMs()}`);
+          await guardLegacyImageRetries(client, migration.id);
           await client.query(migration.sql);
           await verifyMigration(
             client,

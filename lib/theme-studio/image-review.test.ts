@@ -149,6 +149,12 @@ describe("reading the reviewer's answer", () => {
     expect(parseThemeImageReview({ note: "x" }, input())).toBeNull();
     expect(parseThemeImageReview("pass", input())).toBeNull();
     expect(parseThemeImageReview([], input())).toBeNull();
+    expect(
+      parseThemeImageReview({ problems: ["unknown"], note: "ok" }, input()),
+    ).toBeNull();
+    expect(
+      parseThemeImageReview({ problems: [false], note: "ok" }, input()),
+    ).toBeNull();
   });
 });
 

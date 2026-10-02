@@ -74,6 +74,8 @@ export interface RetentionPolicy {
   table: string;
   /** How long a row lives. */
   days: number;
+  /** Heavy rows use smaller batches to bound WAL and transaction size. */
+  batchSize?: number;
   /** Why this window. Kept beside the number so the two cannot drift. */
   reason: string;
   /** Deletes up to `limit` rows older than `floorIso`; returns how many went. */
@@ -112,7 +114,7 @@ export async function sweepPolicy(
 ): Promise<SweepResult> {
   const {
     now = new Date(),
-    batchSize = BATCH_SIZE,
+    batchSize = policy.batchSize ?? BATCH_SIZE,
     maxRows = MAX_ROWS_PER_TABLE,
     clock = Date.now,
     deadline = clock() + TIME_BUDGET_MS,
@@ -248,6 +250,20 @@ function searchMetricBatchDeleter(
  * another. See docs/cron-jobs.md.
  */
 export const RETENTION_POLICIES: RetentionPolicy[] = [
+  {
+    table: "theme_studio_image_checkpoints",
+    days: 30,
+    batchSize: 50,
+    reason:
+      "Original artwork is recoverable for 30 days after settlement; active retry ancestry is protected and run accounting remains durable.",
+    deleteBatch: (floor, limit) =>
+      withService(async (db) => {
+        const result = await db.execute<{ deleted: number }>(
+          sql`select public.theme_studio_prune_image_checkpoints(${floor}::timestamptz,${limit}::integer) as deleted`,
+        );
+        return result.rows[0]?.deleted ?? 0;
+      }),
+  },
   {
     table: "storefront_order_attribution",
     days: 14,

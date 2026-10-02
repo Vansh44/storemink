@@ -5983,6 +5983,119 @@
           }
         ]
       }
+    },
+    {
+      "id": "20261002_0147_theme_studio_image_checkpoints",
+      "description": "Checkpoint paid Theme Studio artwork immediately and resume independent image reviews",
+      "file": "sql/20261002_0147_theme_studio_image_checkpoints.sql",
+      "transaction": true,
+      "requires": ["20261002_0146_theme_studio_rate_limit_recovery"],
+      "verify": {
+        "tables": ["theme_studio_image_checkpoints"],
+        "columns": ["theme_studio_runs.image_review_deferrals"],
+        "constraints": [
+          "theme_studio_runs_image_review_deferrals_check",
+          "theme_studio_image_checkpoints_pkey",
+          "theme_studio_image_checkpoints_shape_check"
+        ],
+        "rlsTables": ["theme_studio_image_checkpoints"],
+        "queries": [
+          {
+            "name": "image checkpoints remain service-only and immutable",
+            "sql": "select (not has_table_privilege('app_user','public.theme_studio_image_checkpoints','SELECT') and has_table_privilege('app_service','public.theme_studio_image_checkpoints','SELECT,INSERT') and not has_table_privilege('app_service','public.theme_studio_image_checkpoints','UPDATE,DELETE'))::text",
+            "equals": "true"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20261002_0148_theme_studio_layout_preflight",
+      "description": "Check native theme layouts before artwork and diagnose stalled automatic QA",
+      "file": "sql/20261002_0148_theme_studio_layout_preflight.sql",
+      "transaction": true,
+      "requires": ["20261002_0147_theme_studio_image_checkpoints"],
+      "verify": {
+        "columns": ["theme_studio_captures.phase"],
+        "functions": ["theme_studio_capture_phase_guard()"],
+        "queries": [
+          {
+            "name": "capture phase remains immutable",
+            "sql": "select exists (select 1 from pg_trigger where tgrelid='public.theme_studio_captures'::regclass and tgname='theme_studio_capture_phase_guard' and not tgisinternal)::text",
+            "equals": "true"
+          }
+        ],
+        "constraints": [
+          "theme_studio_captures_phase_check",
+          "theme_studio_visual_qa_shape_check"
+        ]
+      }
+    },
+    {
+      "id": "20261002_0149_theme_studio_provider_capacity",
+      "description": "Coordinate Theme Studio provider admission and cooldowns across worker instances",
+      "file": "sql/20261002_0149_theme_studio_provider_capacity.sql",
+      "transaction": true,
+      "requires": ["20261002_0148_theme_studio_layout_preflight"],
+      "verify": {
+        "tables": [
+          "theme_studio_provider_capacity",
+          "theme_studio_provider_leases"
+        ],
+        "functions": ["theme_studio_capacity_lock(text)"],
+        "indexes": ["theme_studio_provider_leases_scope_expiry_idx"],
+        "rlsTables": [
+          "theme_studio_provider_capacity",
+          "theme_studio_provider_leases"
+        ],
+        "queries": [
+          {
+            "name": "provider capacity remains service-only",
+            "sql": "select (not has_table_privilege('app_user','public.theme_studio_provider_capacity','SELECT') and not has_table_privilege('app_user','public.theme_studio_provider_leases','SELECT') and not has_function_privilege('app_user','public.theme_studio_capacity_lock(text)','EXECUTE') and has_table_privilege('app_service','public.theme_studio_provider_leases','SELECT,INSERT,UPDATE,DELETE') and has_function_privilege('app_service','public.theme_studio_capacity_lock(text)','EXECUTE'))::text",
+            "equals": "true"
+          }
+        ]
+      }
+    },
+    {
+      "id": "20261002_0150_theme_studio_recovery_safety",
+      "description": "Fence legacy image claims, bound checkpoint retention and verify every required service privilege",
+      "file": "sql/20261002_0150_theme_studio_recovery_safety.sql",
+      "transaction": true,
+      "requires": ["20261002_0149_theme_studio_provider_capacity"],
+      "supersedesVerifyQueries": [
+        {
+          "migrationId": "20261002_0147_theme_studio_image_checkpoints",
+          "queryName": "image checkpoints remain service-only and immutable"
+        },
+        {
+          "migrationId": "20261002_0149_theme_studio_provider_capacity",
+          "queryName": "provider capacity remains service-only"
+        }
+      ],
+      "verify": {
+        "functions": [
+          "theme_studio_image_claim_guard()",
+          "theme_studio_prune_image_checkpoints(timestamptz,integer)"
+        ],
+        "indexes": ["theme_studio_image_checkpoints_retention_idx"],
+        "queries": [
+          {
+            "name": "every image checkpoint privilege is correct",
+            "sql": "select (not has_table_privilege('app_user','public.theme_studio_image_checkpoints','SELECT,INSERT,UPDATE,DELETE') and has_table_privilege('app_service','public.theme_studio_image_checkpoints','SELECT') and has_table_privilege('app_service','public.theme_studio_image_checkpoints','INSERT') and not has_table_privilege('app_service','public.theme_studio_image_checkpoints','UPDATE,DELETE') and has_function_privilege('app_service','public.theme_studio_prune_image_checkpoints(timestamptz,integer)','EXECUTE') and not has_function_privilege('app_user','public.theme_studio_prune_image_checkpoints(timestamptz,integer)','EXECUTE'))::text",
+            "equals": "true"
+          },
+          {
+            "name": "every provider capacity privilege is correct",
+            "sql": "select (not exists (select 1 from unnest(array['public.theme_studio_provider_capacity','public.theme_studio_provider_leases']) t cross join unnest(array['SELECT','INSERT','UPDATE','DELETE']) p where not has_table_privilege('app_service',t,p)) and not has_table_privilege('app_user','public.theme_studio_provider_capacity','SELECT,INSERT,UPDATE,DELETE') and not has_table_privilege('app_user','public.theme_studio_provider_leases','SELECT,INSERT,UPDATE,DELETE') and has_function_privilege('app_service','public.theme_studio_capacity_lock(text)','EXECUTE') and not has_function_privilege('app_user','public.theme_studio_capacity_lock(text)','EXECUTE'))::text",
+            "equals": "true"
+          },
+          {
+            "name": "retryable image claims require checkpoint protocol",
+            "sql": "select exists (select 1 from pg_trigger where tgrelid='public.theme_studio_runs'::regclass and tgname='theme_studio_image_claim_guard' and tgenabled='O' and not tgisinternal)::text",
+            "equals": "true"
+          }
+        ]
+      }
     }
   ]
 }

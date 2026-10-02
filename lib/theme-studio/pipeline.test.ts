@@ -63,6 +63,85 @@ const run = (brief?: string, client?: ThemeStudioModelClient) =>
   );
 
 describe("theme generation pipeline", () => {
+  it.each(["classic", "editorial", "grocery"])(
+    "compiles the compact %s composition with native defaults, working menus and complete variants",
+    async (composition) => {
+      const fake = createFakeModelClient(base);
+      const requests: StructuredRequest[] = [];
+      const outcome = await runThemeGeneration(
+        {
+          provider: "fake",
+          async generate(request, signal) {
+            requests.push(request);
+            const response = await fake.generate(request, signal);
+            if (request.stage === "draft" && response.kind === "ok") {
+              const draft = response.value as {
+                composition: string;
+                design: {
+                  layoutOverridesJson: string;
+                  palette: { inkSoft: string };
+                };
+                pages: { sections: { type: string; configJson: string }[] }[];
+              };
+              draft.design.layoutOverridesJson = "{}";
+              draft.composition = composition;
+              // The home fixture's muted ink passes on cream but fails on
+              // grocery butter cards. A native composition still requires a
+              // valid palette; the compiler must keep enforcing that check.
+              if (composition === "grocery")
+                draft.design.palette.inkSoft = "#49463f";
+              for (const page of draft.pages)
+                for (const section of page.sections) {
+                  const config = JSON.parse(section.configJson);
+                  if (
+                    section.type === "featured_products" ||
+                    section.type === "shop_by_category"
+                  )
+                    delete config.source;
+                  section.configJson = JSON.stringify(config);
+                }
+            }
+            return response;
+          },
+        },
+        { ...input(), promptVersion: "theme-studio-v20" },
+        new AbortController().signal,
+      );
+      expect(
+        outcome.kind,
+        outcome.kind === "failed"
+          ? JSON.stringify({ code: outcome.errorCode, detail: outcome.detail })
+          : undefined,
+      ).toBe("version");
+      expect(outcome.telemetry.repairs).toEqual({ intent: 0, draft: 0 });
+      expect(requests.map((r) => r.stage)).toEqual(["intent", "draft"]);
+      expect(requests[0].system).toContain("predictive product search");
+      expect(requests[1].schema.properties).not.toHaveProperty("menus");
+      expect(requests[1].schema.properties).not.toHaveProperty("features");
+      expect(requests[1].content[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("<operator_brief>"),
+      });
+      expect(requests[1].system).toContain(
+        "Use the original operator brief to bound capability gaps",
+      );
+      if (outcome.kind !== "version") return;
+      expect(validateThemePackageV2(outcome.package).ok).toBe(true);
+      const preset = outcome.package.definition.preset;
+      expect(preset.design?.layout?.productDetail).toBe(composition);
+      expect(preset.menus?.header?.[0].children?.[0].href).toMatch(
+        /^\/collections\//,
+      );
+      expect(
+        preset.sampleData?.products.find((p) => p.options?.length)?.variants,
+      ).toHaveLength(4);
+      expect(
+        preset.sampleData?.products.every(
+          (p) => !p.variants?.length || p.variants.every((v) => v.stock > 0),
+        ),
+      ).toBe(true);
+    },
+  );
   it("repairs automatic QA with one settings call, preserving intent identity and all images", async () => {
     const original = await run();
     if (original.kind !== "version") throw new Error("fixture failed");
@@ -913,6 +992,21 @@ describe("theme generation pipeline", () => {
       .content.map((b) => (b.type === "text" ? b.text : ""))
       .join("");
     expect(repairText).toMatch(/Seed at least 4 categories \(has 3\)/);
+    expect(outcome.telemetry.repairReasons).toEqual([
+      {
+        stage: "draft",
+        attempt: 1,
+        issues: expect.arrayContaining([
+          expect.stringMatching(/Seed at least 4 categories \(has 3\)/),
+        ]),
+      },
+    ]);
+    expect(outcome.telemetry.calls).toHaveLength(3);
+    expect(
+      outcome.telemetry.calls.every(
+        (call) => Number.isInteger(call.durationMs) && call.durationMs! >= 0,
+      ),
+    ).toBe(true);
   });
 
   it("maps a refusal and a provider error to safe codes without retrying", async () => {
@@ -975,6 +1069,11 @@ describe("theme generation pipeline", () => {
       await import("./prompts");
     expect(stageASystemPrompt()).toBe(stageASystemPrompt());
     expect(stageBSystemPrompt()).toBe(stageBSystemPrompt());
+    expect(stageASystemPrompt()).not.toContain("Native commerce capabilities");
+    expect(stageASystemPrompt(true)).toContain(
+      "do not invent a stepper requirement",
+    );
+    expect(stageASystemPrompt(true)).toBe(stageASystemPrompt(true));
   });
 
   it("revises from the base version: its intent in Stage A, its theme in Stage B", async () => {

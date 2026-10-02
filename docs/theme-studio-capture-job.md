@@ -15,8 +15,8 @@ photographs its home page at the card, desktop and phone sizes, and posts the
 pictures back to the web app, which saves them as a new version.
 
 An operator can start a capture from a version's **Images** page ("Capture
-catalog pictures"). Track 5 also queues the same job automatically after its
-hidden image-generation step. In either case, this job does the browser work.
+catalog pictures"). Automatic QA first uses this job for a layout preflight
+before image generation, then returns for final acceptance after artwork.
 
 The button and server action remain fail-closed until the web service has
 `THEME_STUDIO_CAPTURE_ENABLED=true`. Deploy the job and scheduler first, then
@@ -54,6 +54,11 @@ operator ── queue ──▶ web app (theme_studio_captures, project → gene
 - The web app owns every decision: which capture runs next, the preview store,
   the shots and sizes, and whether the pictures are usable. The job knows only
   a capture id, a lease token, an origin, a cookie and the shots to take.
+  Automatic claims also provide the package digest, build and complete QA plan.
+  The job records navigation/probe/screenshot timings and returns bounded initial
+  server HTML from that same claim, allowing acceptance to check markup and links
+  without fetching the measured routes twice. Redirected/oversized responses and
+  older jobs keep the fresh server-fetch path. There is no cache between captures.
 - The capture cookie (`sm_studio_capture`) is signed like the preview grant
   and accepted by the preview gate only while its capture is `running` with an
   unexpired lease, for exactly that version (`lib/theme-studio/preview-access.ts`).
@@ -117,7 +122,11 @@ Dev uses its own job name and origin.
 For an automatic claim the same execution also visits every available home,
 shop, product, cart, content and not-found surface at 360, 390, 768, 1024 and
 1440 px. It returns raw layout/accessibility/performance measurements and a
-compressed full-page screenshot for each pair. The web app validates and
+compressed full-page screenshot for each pair in final mode. Layout preflight
+(`qa.phase=layout`) measures the same pairs but returns empty `images` and
+`screenshots` arrays. It creates no catalog snapshot, acceptance row or visual
+model call, and cannot make a candidate. Planned placeholder ratios permit crop
+checks before artwork. The web app validates and
 stores that evidence; the browser job never decides pass or fail. Two isolated
 viewport contexts run concurrently, preserving the original page/sample order.
 The finish endpoint uses the still-valid capture cookie to run shared server
@@ -125,7 +134,7 @@ acceptance checks, then binds all gates and evidence to the final version after
 its catalog images are saved. Expected coverage comes from the package, not the
 submitted samples. Its saved report appears under **Checks** automatically.
 Only a complete acceptance pass plus visual approval reveals a successful
-candidate. Theme failures enter the bounded two-repair loop; runtime failures
+candidate. Theme failures enter the bounded three-repair loop; runtime failures
 stop with recovery information, and transient route fetch failures retry capture.
 
 The expected response is 200 except for the deliberate `not_found` surface,
@@ -157,9 +166,26 @@ timed-out browsers are closed before a subsequent capture. A 409 finish (the
 lease was lost) is recorded and the job continues; any other rejected finish
 fails the execution for monitoring, and lease expiry/retry recovers it.
 
+**Layout-preflight rollout (migration 0148):** rebuild and deploy this job
+with the web service. Its new claim field `qa.phase` defaults older queued
+captures to final behavior. An older job that returns screenshots for a layout
+claim is rejected; it cannot create publication evidence. Retry failed automatic
+QA after both components have been updated. Existing failed drafts retain their
+artwork; only unfinished slots are generated after preflight passes.
+
 **Deploy the capture image separately from the web service.** Web-only deploys
 do not update this job's 404/readiness/timeout behavior. Regression evidence and
 the Crave/Luxe incident are in `docs/theme-studio-reliability.md`.
+
+**Capture profiling rollout:** rebuild this job with the web service to record
+browser/catalogue/QA and per-page navigation/probe/screenshot timings in QA
+reports. The new job also echoes the claim's package digest and returns bounded
+initial HTML from the first viewport. The web service validates the exact build,
+package and lease before reusing it for route/markup checks. Body-read failures,
+redirects, oversized pages and older jobs use fresh server fetches. Browser
+measurements and screenshot requirements remain mandatory. No response HTML is
+stored or reused between captures. Full-theme benchmark instructions and limits
+are in `docs/theme-studio-performance.md`.
 
 ## Run it locally
 

@@ -7,10 +7,54 @@ import { abortable } from "./abortable";
 export class ImageRequestPool {
   private active = 0;
   private waiting: (() => void)[] = [];
+  private cooldowns = new Set<Promise<unknown>>();
+  private capacityEpoch = 0;
+  private recoveringLimit: number;
+  private successes = 0;
 
-  constructor(private readonly limit = 3) {}
+  constructor(private readonly limit = 3) {
+    this.recoveringLimit = limit;
+  }
 
-  async run<T>(operation: () => Promise<T>, signal: AbortSignal): Promise<T> {
+  /** Pause queued requests together after a provider 429. The wait belongs to
+   * its caller's abort signal and consumes no active request permit. */
+  coolDown(wait: Promise<unknown>): void {
+    this.capacityEpoch++;
+    this.recoveringLimit = 1;
+    this.successes = 0;
+    this.cooldowns.add(wait);
+    const resume = () => {
+      this.cooldowns.delete(wait);
+      this.pump();
+    };
+    void wait.then(resume, resume);
+  }
+
+  /** Three successful probes restore one permit. Responses already in flight
+   * when the rate limit happened cannot prematurely declare recovery. */
+  recovered(epoch: number): void {
+    if (epoch !== this.capacityEpoch || this.recoveringLimit >= this.limit)
+      return;
+    if (++this.successes >= 3) {
+      this.successes = 0;
+      this.recoveringLimit++;
+    }
+  }
+
+  private pump(): void {
+    while (
+      !this.cooldowns.size &&
+      this.active < this.recoveringLimit &&
+      this.waiting.length
+    ) {
+      this.waiting.shift()!();
+    }
+  }
+
+  async run<T>(
+    operation: (epoch: number) => Promise<T>,
+    signal: AbortSignal,
+  ): Promise<T> {
     signal.throwIfAborted();
     await new Promise<void>((resolve, reject) => {
       const abort = () => {
@@ -22,17 +66,16 @@ export class ImageRequestPool {
         this.active++;
         resolve();
       };
-      if (this.active < this.limit) enter();
-      else {
-        this.waiting.push(enter);
-        signal.addEventListener("abort", abort, { once: true });
-      }
+      this.waiting.push(enter);
+      signal.addEventListener("abort", abort, { once: true });
+      this.pump();
     });
     try {
-      return await abortable(operation, signal);
+      const epoch = this.capacityEpoch;
+      return await abortable(() => operation(epoch), signal);
     } finally {
       this.active--;
-      this.waiting.shift()?.();
+      this.pump();
     }
   }
 }

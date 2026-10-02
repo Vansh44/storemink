@@ -1032,9 +1032,14 @@
     flex-direction: column;
     gap: 0;
   }
-  .home-hero-media {
-    flex-basis: auto;
-    min-height: 220px;
+  .home-hero.variant-banner .home-hero-media,
+  .home-hero.variant-split .home-hero-media {
+    /* A shallow fixed-height strip crops portrait editorial images at tablet
+       widths. The media owns its frame when stacked; hero height controls
+       the whole section, including copy, rather than stretching this frame. */
+    flex: none;
+    min-height: 0;
+    aspect-ratio: 4 / 3;
     order: -1;
   }
   .home-hero.variant-banner .home-hero-media {
@@ -1163,21 +1168,35 @@
   gap: 8px;
 }
 .home-carousel-dot {
-  width: 9px;
-  height: 9px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   border: none;
   padding: 0;
   cursor: pointer;
+  background: transparent;
+}
+.home-carousel-dot::before {
+  content: "";
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
   background: rgba(255, 255, 255, 0.55);
   box-shadow: 0 1px 4px rgba(var(--sm-shadow-rgb, 16, 24, 40), 0.35);
   transition:
     background 0.15s ease,
     transform 0.15s ease;
 }
-.home-carousel-dot.is-active {
+.home-carousel-dot.is-active::before {
   background: #fff;
   transform: scale(1.25);
+}
+.home-carousel-dot:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 2px;
 }
 @media (max-width: 640px) {
   .home-carousel {

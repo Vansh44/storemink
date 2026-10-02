@@ -20,8 +20,8 @@ export interface StructuredRequest {
   /** Omit to use the provider model's output allowance. Compact review tasks
    * set an explicit ceiling; full theme generation deliberately does not. */
   maxTokens?: number;
-  /** Maps to the provider's thinking level. Full generation and visual QA use
-   * high; the bounded per-image reviewer deliberately uses low. */
+  /** Maps to the provider's thinking level. Generation, image review and visual
+   * QA use high; focused settings repair uses low. */
   effort: "low" | "high";
 }
 

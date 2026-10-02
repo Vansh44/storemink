@@ -3329,13 +3329,25 @@ wholesip/
 │   │                          # (deterministic, versioned, untrusted input fenced),
 │   │                          # compiler.ts (draft → ThemePackageV2; the server owns id,
 │   │                          # engine, release, assets; URLs/hrefs/sources refused),
+│   │                          # initial-draft.ts (v20 native compositions, section defaults,
+│   │                          # catalogue-derived navigation and option combinations),
 │   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
 │   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
 │   │                          # rate-limit-backoff.ts (the 429 wait: bounded, jittered,
 │   │                          # abortable; SDK keeps the fast 5xx retry),
 │   │                          # abortable.ts (whole-call deadlines, including SDK auth/retries),
 │   │                          # image-request-pool.ts (three image calls shared by concurrent
-│   │                          # worker lanes per provider project/location/model, process-local),
+│   │                          # worker lanes per provider project/location/model, shared 429
+│   │                          # pause and gradual recovery, process-local),
+│   │                          # provider-capacity.ts / provider-capacity-store.ts (shared
+│   │                          # service-only PostgreSQL admission, fenced expiring permits
+│   │                          # and cross-instance cooldown/recovery; migration 0149),
+│   │                          # capture-profile.ts (bounded timings and same-claim HTML
+│   │                          # reuse), benchmark.ts (complete persisted pipeline metrics),
+│   │                          # image-recovery.ts (exact paid-response replay and
+│   │                          # independent image-review recovery), image-checkpoint-store.ts
+│   │                          # (private byte/evidence checkpoints, live-lease fencing and
+│   │                          # incremental spend; migration 0147),
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
@@ -3352,7 +3364,10 @@ wholesip/
 │   │                          # Track 4/5: industry-playbooks.ts supplies exhaustive
 │   │                          # page/section/palette/imagery starts; visual-qa.ts
 │   │                          # leases five-width screenshot evidence, applies the
-│   │                          # eight-row scorecard and queues ≤2 hidden revisions.
+│   │                          # eight-row scorecard and queues ≤3 hidden repairs.
+│   │                          # automatic-work.ts queues artwork/final capture after layout
+│   │                          # preflight; qa-diagnosis.ts routes renderer/settings/image
+│   │                          # failures and detects stalled or recurring QA patterns.
 │   │                          # automatic-qa-policy.ts requires all acceptance gates, classifies
 │   │                          # repairable failures and enforces the database iteration bound.
 │   │                          # slot-images-core.ts (pure: describe slots, apply
@@ -4010,7 +4025,11 @@ wholesip/
 │   │                          # any package safety violation.
 │   ├── theme-studio-image-check.ts # ★ Track 3 image client end to end, no DB:
 │   │                          # anchor → product → product. Offline (fake) by
-│   │                          # default; --live needs --yes (three paid calls).
+│   │                          # default; --live needs --yes (three paid draws), --review
+│   │                          # adds quality checks; --apparel and --retake-from test staging;
+│   │                          # --review-from rechecks a saved synthetic tank without redrawing.
+│   ├── theme-studio-renderer-check.mjs # ★ Offline Chromium fixture using production
+│   │                          # CSS: carousel targets/focus and hero crops at five QA widths.
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
 │   │                          # the two Theme Studio Gemini models. --dry-run makes no
 │   │                          # request; a live probe sends one FREE countTokens call per
@@ -5484,7 +5503,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `THEME_STUDIO_CAPTURE_ENABLED=true` and
     `THEME_STUDIO_AUTO_QA_ENABLED=true`), a successful generation/revision is
     inserted as `visibility=internal, qa_status=pending`; `worker.ts`
-    automatically queues its image run and then an automatic capture. The
+    automatically queues a layout-only browser preflight before artwork.
+    After it passes, `automatic-work.ts` queues unfinished artwork and final
+    automatic capture (or final capture directly when no artwork is missing). The
     existing Chromium job receives the preview's six available surfaces plus
     the fixed 360/390/768/1024/1440 viewports, invokes the same private
     `__smThemeStudioMeasure` probe used by acceptance, and returns raw
@@ -5511,8 +5532,47 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `automatic-qa-policy.ts` queues targeted exact-package revisions for theme
     failures, up to THREE repairs (iterations 0→1→2→3, the ceiling migration
     0145 allows; `MAX_AUTOMATIC_QA_REPAIRS`).
+    **Early layout QA and progress routing (2026-10-02):** migration 0148
+    adds immutable capture `phase=layout|final`, defaulting older captures to
+    final. Layout claims still measure all five widths and all package-derived
+    preview surfaces with the same hydrated probe, raw-evidence parser, 24px
+    target/35% crop thresholds and axe gates. Placeholder artwork is allowed
+    only for layout; source dimensions remain the planned asset ratios.
+    The job returns no catalog pictures or QA screenshots for this phase.
+    Settlement saves measured, digest/build-bound layout QA on the SAME
+    immutable version: no new snapshot, acceptance row, vision call, visibility
+    change or candidate transition. Missing/malformed coverage fails. Full
+    final acceptance and vision still follow artwork; preflight alone never
+    qualifies for publication. Deploy the capture image and web service together.
+    `qa-diagnosis.ts` compares required failure identities, counts/severity and
+    visual score deficits against same-build, same-phase revision ancestors;
+    numeric/wording noise does not establish progress. One unchanged/regressed
+    repair or a recurring failure stops as `qa_no_progress`; the three-repair
+    ceiling remains shared across phases. Build changes recapture without
+    comparing old-renderer evidence, and unrelated branches cannot end a run.
+    Visual prompt v3 supplies closed repair routes: native settings paths,
+    exact generated artwork slot IDs, or platform renderer work. Small click
+    areas and non-contrast axe defects stop as `renderer_fix_required` before
+    paying for settings calls or artwork. Unsupported targets and owner uploads
+    cannot be redrawn. Valid image repairs carry bounded slot-specific reviewer
+    corrections through the existing durable image/review pipeline, preserving
+    stored anchor/SET and every unrelated image. Mixed findings stabilize settings
+    first; the next final review routes remaining artwork defects. Crop/frame
+    failures route to settings, not artwork. The operator workspace displays
+    diagnosis, repair targets and deterministic findings alongside visual findings.
+    The offline Chrome regression covers native hero/carousel, gallery, tile,
+    media-text, newsletter, testimonial, FAQ and rich-text fixtures across five
+    widths, allowed ratios/columns/alignments and representative scheme/spacing/
+    full-width settings, with deliberately broken measurement controls. It uses
+    production CSS and axe contrast rules, not a duplicate storefront or full-theme
+    benchmark. The independent CI renderer job runs it with Chromium. The Images
+    retry action permits layout QA while artwork is incomplete; manual catalog
+    capture still requires finished artwork. Layout captures display a check
+    result rather than claiming a catalog snapshot was saved. This
+    is an operator/internal pipeline change; no merchant workflow change or Help
+    Centre update.
     **Automatic repair performance (2026-10-02):** automatic `revise` runs
-    recorded with prompt version `theme-studio-v19` use `targeted-repair.ts`,
+    recorded with prompt version `theme-studio-v19` or later use `targeted-repair.ts`,
     skipping Stage A and full Stage B regeneration. Older queued runs retain
     their original request sequence and paid checkpoints. New initial drafts
     choose hero height from source framing rather than demanding screen height.
@@ -5524,8 +5584,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     capabilities and engine metadata cannot be edited. A no-op or unsupported
     renderer request stops with `repair_not_supported`; there is no full-design
     fallback. Manual creative revisions retain the full Stage A/B pipeline.
-    Every successful repair repeats capture/acceptance/vision; image generation
-    runs only if unfinished slots remain. Partial artwork fills reuse the
+    Every successful settings repair repeats the layout preflight before
+    artwork/final capture/acceptance/vision. Image generation runs only if
+    unfinished slots remain or visual QA names exact generated slots to redraw. Partial artwork fills reuse the
     ancestry's anchor and product-set reference even without explicit redraw
     IDs. Image 429 cooldowns release the shared request permit while sleeping.
     QA screenshots preserve the measured layout without CSS zoom. Vision gets
@@ -5539,6 +5600,174 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     into default commerce footers while preserving merchant-authored copy and
     toggles. No merchant action changes and no Help Centre update.
     Diagnosis and verification: `docs/theme-studio-performance.md`.
+    **Compact initial drafts, shared capacity and capture profiling (2026-10-02):**
+    new initial `theme-studio-v20` and later drafts use the compact schema. The model
+    chooses a classic/editorial/grocery native composition and writes original
+    copy, design tokens, pages, asset references and product options.
+    Planning describes actual native predictive search, variant-safe quick add,
+    filtering and commerce variants so optional inventions do not become false
+    capability gaps. Initial synthesis receives the fenced original brief as well
+    as the intent, so educational routines do not invent a required interactive
+    builder. Rich-text configurations require authored `html` and repair feedback
+    names that field explicitly. Older prompt versions keep their original text.
+    The compiler fills omitted mechanical section fields (never sample story copy, offers or
+    item lists), derives navigation from actual
+    categories/pages, and expands at most three option axes/100 combinations to
+    stocked variants at the product's prices. `layoutOverridesJson` permits only
+    supported keys and passes ordinary design validation. Existing queued paid
+    responses and manual creative revisions retain their full schemas and prompts;
+    automatic repairs retain the focused settings path. Initial generation remains
+    HIGH effort with the model's full output allowance. Existing package, security,
+    contrast, content-floor, preflight and final quality thresholds remain required.
+    `theme_studio_provider_capacity` and `theme_studio_provider_leases` are
+    service-only, RLS-enabled tables introduced by migration 0149. A short row lock
+    admits at most three active requests per hashed provider project/location/model
+    across workers. Admission/expiry use the database wall clock after lock waits,
+    avoiding a false initial pause from PostgreSQL's transaction-start `now()`.
+    A 429 pauses every instance, releases active capacity while
+    sleeping, and resumes at one request; three successes from the current epoch
+    restore one permit. Duplicate/stale responses cannot restore capacity.
+    Permits expire after two minutes and renew every thirty seconds. A transient
+    renewal exception retries after five seconds while the existing lease remains
+    valid. A confirmed loss or an independent expiry timer cancels transport at
+    least five seconds before the conservatively tracked expiry. Crashed workers'
+    new permits therefore block shared capacity for at most two minutes. Known
+    database cooldowns return their remaining duration; waiters sleep through them
+    without row-lock polling, while ordinary occupied capacity backs off to five
+    seconds. A failed shared pause cannot mask the original 429: local cooldown
+    and bounded provider retries still run, and the database failure is logged.
+    Admission failures make no paid call; cleanup failures preserve paid responses
+    and log an error while expiry safely reclaims capacity. Standalone DB-free
+    evaluation clients retain local behavior and are not a shared-quota guarantee.
+    Automatic capture claims additionally bind reusable route HTML to the exact
+    package digest. Final QA returns original response HTML from the first measured
+    viewport only for the same URL, capped at 1 MiB per page; unknown, duplicate,
+    redirected, malformed or oversized routes use fresh server fetches. The server
+    re-runs markup/theming/noindex/link gates under the current build and live lease.
+    Unmeasured navigation links are still fetched. This reuse lasts for one claim;
+    mutable preview stores and older captures never supply cached acceptance.
+    Browser, catalogue, QA, per-page navigation/probe/screenshot and server-finish
+    timings are bounded and saved in QA browser reports, independently of verdicts.
+    `scripts/theme-studio-benchmark.ts` (`npm run theme-studio:benchmark`) defaults
+    to read-only reports over explicitly supplied project UUIDs. Explicit
+    `--create --actor-id=<superadmin UUID> --yes --wait-minutes=60` queues isolated
+    unpublished apparel, food, beauty and home themes through the real deployed
+    pipeline, one at a time, using ordinary intake and capacity gates. It persists
+    IDs before queueing and saves reports while waiting; timeout stops further
+    theme creation and IDs permit read-only resumption. Reports distinguish total
+    snapshots from design revisions, first final QA from generation success and
+    initial first-pass quality (a preflight repair fails the latter),
+    stage/capture waits, redraw/failure events, provider deferrals, run spend and
+    visual usage; visual verdicts retain the actual provider/model. Fake/mixed
+    runs and unattributed visual scores never receive a live quality grade.
+    Generation telemetry records per-invocation elapsed time (including admission,
+    retries or checkpoint replay) and bounded validator reasons for each repair,
+    without storing prompts or raw responses in diagnostics. The text/compiler
+    evaluator saves completed-case reports atomically after every case, including
+    repair reasons, usage and timings; a later interruption cannot erase earlier
+    completed paid checks. These results do not replace full storefront QA. This is
+    operator/internal work: no merchant-visible change, no Help Centre update.
+    **Image execution optimisation (2026-10-02):** image draws and HIGH-effort
+    reviews have separate per-run pools capped at three, with a bounded six
+    in-flight slot tasks so slow reviews do not occupy drawing capacity. The
+    shared provider pool pauses queued requests together after 429s, probes
+    with one request, then restores one permit per three successful responses;
+    pre-cooldown responses cannot restore capacity. Cooldowns consume no active
+    permit. Local smoothing is backed by shared PostgreSQL admission for all
+    deployed Studio generation, image, image-review and visual-QA clients.
+    Paid errors remain single-attempt; free 429 retries retain existing bounds.
+    Retakes keep the candidate with the fewest applicable nonblocking findings
+    rather than blindly replacing it with the last image. Reviewed runs select
+    a passed product as SET; resumed fills/redraws require a passed review of
+    that exact generated asset hash in the version ancestry. Operator-owned
+    or curated product references remain eligible. Product framing uses
+    readable, unfolded garments and plain initial staging; validated SET staging
+    overrides anchor props and conflicting briefs. Prompt versions are
+    `theme-studio-image-v2` and `theme-studio-image-review-v5`. Unknown-only
+    review answers are invalid evidence, not a passed review. Telemetry records
+    draw/review/run duration, capacity wait, provider attempts, review failure
+    codes and reference roles without prompts or image data. `theme-studio-image-check.ts` with
+    `--review --apparel` produces a timed synthetic check; `--retake-from=<check-dir>`
+    validates one staging retake using its test references. `--review-from`
+    retries validation of a saved synthetic tank without another image draw;
+    both saved-image modes require passed anchor/product reviews. No database writes.
+    Model, 2K output, safety values, HIGH review effort and ULTRA_HIGH media
+    resolution remain unchanged. No merchant action changes, no Help Centre
+    update; no migration is required.
+    **Durable image recovery (2026-10-02; migration 0147):** service-only
+    `theme_studio_image_checkpoints` saves original provider bytes before crop
+    or review, along with each draw/refusal/error and per-image review's safe
+    telemetry. Checkpoint writes commit spend on the run immediately; final
+    settlement retains this ledger, counting every paid call once across
+    reclaims and review retries. Keys bind exact requests/reference bytes,
+    provider/model/prompt and slot-local draw ordinals; successful review
+    evidence also binds the stored crop, anchor, SET, brief and review version.
+    No checkpoint has a public asset URL. Reads and writes require the current,
+    unexpired image-run lease; cancellation stops new calls but retains completed
+    calls and their spend, with no version created. All lanes drain before
+    releasing a lease after a checkpoint failure.
+    Image runs allow three crash claims, replaying saved original images and
+    successful reviews. Unavailable reviews pause the same run under
+    `image_review_deferrals` with two separate delayed retries (60/120 seconds);
+    these waits do not consume crash attempts. A pending product leader's
+    followers wait for its reviewed SET so resumption keeps request bindings
+    stable. The worker writes one immutable version after review settles; after
+    exhaustion it reports `image_review_unavailable`, retaining the base.
+    Run summaries distinguish saved images awaiting review from failed draws.
+    Operator Retry recovers completed draws and successful evidence from up to
+    fifty retry ancestors of the same project and immutable base; unavailable
+    evidence receives a new review budget. Original spend belongs to its
+    original run, and imported checkpoints contribute zero additional cost.
+    New prompts/models/reference bytes miss the cache. A crash between provider
+    completion and the checkpoint commit can still repeat that call, and a
+    provider timeout may omit billed usage; this is not provider exactly-once
+    execution. Historical runs without checkpoints cannot recover lost memory.
+    **Recovery review corrections (2026-10-02; migration 0150):** run-deadline
+    aborts during image review keep paid, prepared candidates explicitly
+    `unreviewed` for partial version settlement, without consuming reviewer-outage
+    deferrals. Explicit cancellation still saves no version; final automatic QA
+    and human publication gates remain required. Known zero-usage 429s and
+    admission failures before transport are not replayed as durable failures.
+    Legacy free-error rows remain immutable; a deterministic replacement key
+    stores later paid output once and is recoverable through explicit retry ancestry.
+    Unknown-usage timeouts/cancellations after transport remain journalled because
+    they may have been billed. `prompt-features.ts` centralizes capability thresholds
+    (targeted repair/native framing from v19; compact/native commerce from v20),
+    preserving old requests and carrying features into future prompt revisions.
+    The migration runner's `scripts/db-migration-guards.mjs` locks the run table
+    and refuses initial 0147 application while unfinished legacy image work exists,
+    preventing that historical retry upgrade from buying duplicate artwork.
+    Migration 0150 keeps uncheckpointed legacy rows single-attempt and guards
+    retryable image claims with the transaction-local checkpoint protocol; compatible
+    workers declare it and promote image retry capacity in their claim transaction.
+    Older workers can finish existing work and claim single-attempt rows, but cannot
+    claim/reclaim retryable image work without checkpoint support.
+    The 0150 preflight refuses unfinished uncheckpointed legacy rows with multiple
+    claims until they drain/cancel, so lowering retry capacity cannot violate the
+    existing attempts constraint or discard active paid work.
+    It also retires the flawed 0147/0149 privilege queries without changing applied
+    entries and independently verifies every required grant. The daily retention
+    sweep prunes original image checkpoints in batches of fifty after thirty days
+    from terminal settlement, protecting queued/running retry ancestry (fifty links).
+    Run usage and settled WebP assets remain durable. The bounded, service-only
+    `theme_studio_prune_image_checkpoints` function supplies deletion; direct
+    checkpoint UPDATE/DELETE stays revoked. No merchant-visible change, no Help
+    Centre update.
+    Model quality, safety and acceptance gates remain unchanged. Verification:
+    `image-recovery.test.ts`, image pipeline tests and the opt-in local PostgreSQL
+    worker regression exercise saved bytes, interrupted leases, review timeouts,
+    retry exhaustion, explicit retry, cancellation, usage and private grants.
+    Operator-only: no merchant-visible change, no Help Centre update.
+    **Aurelle renderer corrections (2026-10-02):** carousel pagination buttons
+    have separate 32px click areas and 9px visual dots, with keyboard focus
+    indicators and current-slide semantics. Banner/split heroes stack their
+    media in a stable 4:3 frame below 860px rather than a fixed 220px strip;
+    section height presets no longer distort that stacked frame. These shared
+    renderer fixes address failures that scalar theme repairs cannot change.
+    `scripts/theme-studio-renderer-check.mjs` checks production CSS offline in
+    Chromium across five QA widths, portrait/landscape sources, stacked height
+    presets and eight carousel controls. It is a fixture, not full storefront
+    or provider validation. No merchant action changes, no Help Centre update.
     Security failures block; runtime/coverage/asset-integrity
     failures and the final unsuccessful repair reveal `operator/failed` for
     recovery, with **Needs attention** on the workspace's current failed result.
@@ -5615,10 +5844,11 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     previously ran only if generation finished within the 5-second claim
     budget, which could starve it behind a populated run queue.
     `image-request-pool.ts` shares three image permits across both lanes for
-    each provider project/location/model, including 429 backoff; cancelled
-    waiters leave the queue. This bound is process-local, not distributed
-    quota enforcement. Separate concurrent worker invocations can still meet
-    provider rate limits; bounded backoff and missing-slot fill runs remain.
+    each provider project/location/model; 429s pause admission while releasing
+    active permits and then probe with reduced concurrency. Cancelled
+    waiters leave the queue. The local bound is additionally coordinated across
+    worker invocations by migration 0149; actual provider quota remains external,
+    so bounded backoff and missing-slot fill runs remain.
     `abortable.ts` fences late SDK results across authentication, retries and
     body decoding. Image reviews retain HIGH effort and uncapped output but
     have a 180-second whole-call deadline; other structured requests have ten

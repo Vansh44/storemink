@@ -71,8 +71,8 @@ describe("finishing a capture", () => {
         )
       ).status,
     ).toBe(400);
-    // Past the ceiling: three maximum pictures plus 64 KiB of headroom.
-    const huge = "a".repeat(200 * 1024);
+    // Past the ceiling: catalog/QA images, six bounded HTML pages and headroom.
+    const huge = "a".repeat(6 * 1024 * 1024 + 200 * 1024);
     expect(
       (
         await finishRoute(
@@ -82,6 +82,31 @@ describe("finishing a capture", () => {
       ).status,
     ).toBe(400);
     expect(finish).not.toHaveBeenCalled();
+  });
+
+  it("passes same-claim route responses, digest and timing to leased server validation", async () => {
+    finish.mockResolvedValueOnce({ status: "succeeded", versionId: "v" });
+    const qa = {
+      buildId: "build",
+      packageDigest: "a".repeat(64),
+      routes: [
+        {
+          path: "/",
+          surface: "home",
+          status: 200,
+          html: "<main>Theme</main>",
+          robots: "noindex",
+        },
+      ],
+      timing: { browserMs: 100, catalogMs: 10, qaMs: 90, samples: [] },
+      evidence: { samples: [] },
+      screenshots: [],
+    };
+    expect(
+      (await finishRoute(post({ leaseToken: "l", images: [], qa }), params))
+        .status,
+    ).toBe(200);
+    expect(finish).toHaveBeenCalledWith(expect.objectContaining({ qa }));
   });
 
   it("decodes the pictures and passes them on with the lease", async () => {
@@ -106,6 +131,31 @@ describe("finishing a capture", () => {
     });
   });
 
+  it("accepts layout evidence without catalog or QA image uploads and leaves phase decisions to the leased server row", async () => {
+    finish.mockResolvedValueOnce({
+      status: "succeeded",
+      versionId: "same-version",
+    });
+    const evidence = {
+      userAgent: "Chrome",
+      samples: [{ viewport: "phone360", surface: "home" }],
+    };
+    const response = await finishRoute(
+      post({
+        leaseToken: "l",
+        images: [],
+        qa: { buildId: "build", evidence, screenshots: [] },
+      }),
+      params,
+    );
+    expect(response.status).toBe(200);
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        images: [],
+        qa: { buildId: "build", evidence, screenshots: [] },
+      }),
+    );
+  });
   it("passes on a reported error, and says 409 to a job that lost its lease", async () => {
     finish.mockResolvedValueOnce({ status: "lost" });
     const response = await finishRoute(

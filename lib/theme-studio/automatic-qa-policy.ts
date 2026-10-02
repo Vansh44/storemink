@@ -10,8 +10,22 @@ export function automaticQaDecision(
   gates: readonly GateResult[],
   modelPassed: boolean,
   iteration: number,
+  phase: "layout" | "final" = "final",
 ) {
-  if (Object.keys(GATE_LABELS).some((id) => !gates.some((g) => g.id === id)))
+  const requiredIds =
+    phase === "layout"
+      ? [
+          "browser.coverage",
+          "browser.overflow",
+          "browser.clipped_text",
+          "browser.tap_targets",
+          "browser.image_crops",
+          "browser.accessibility",
+          "browser.media",
+          "browser.performance",
+        ]
+      : Object.keys(GATE_LABELS);
+  if (requiredIds.some((id) => !gates.some((g) => g.id === id)))
     return "attention" as const;
   const failed = gates.filter((g) => g.required && g.status !== "pass");
   if (failed.some((g) => g.id === "package.security"))

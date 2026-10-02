@@ -19,7 +19,7 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
-# ★★ FOUR PARALLEL JOBS, NOT ONE SEQUENTIAL ONE. Measured on run 34834617499,
+# ★★ INDEPENDENT PARALLEL JOBS. Measured on run 34834617499,
 # the single job took 26.7 minutes and the two test invocations were 79% of it
 # (669s + 591s of 1603s). Nothing here depends on anything else here — lint does
 # not need the build, the build does not need the tests — so running them in
@@ -99,6 +99,29 @@ jobs:
 
       - name: Run Tests
         run: npm run test
+
+  renderer:
+    name: Native theme layout regression
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            jobs/theme-studio-capture/package-lock.json
+      - name: Install dependencies
+        run: |
+          npm ci
+          npm ci --prefix jobs/theme-studio-capture
+      - name: Install Chromium
+        run: node jobs/theme-studio-capture/node_modules/playwright-core/cli.js install --with-deps --no-shell chromium
+      - name: Check native theme layouts
+        run: node scripts/theme-studio-renderer-check.mjs
 
   shuffle:
     name: Test order independence

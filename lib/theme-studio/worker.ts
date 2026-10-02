@@ -1,10 +1,9 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, inArray, lte, max, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, lte, max, sql } from "drizzle-orm";
 import {
   themeStudioAssets,
-  themeStudioCaptures,
   themeStudioGenerationResponses,
   themeStudioMessages,
   themeStudioProjects,
@@ -20,6 +19,8 @@ import type {
   ThemeIndustry,
 } from "@/lib/themes/meta";
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
+import { sharedProviderCapacity } from "./provider-capacity-store";
+import { themePromptFeatures } from "./prompt-features";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
 import {
   THEME_STUDIO_LIMITS,
@@ -37,11 +38,9 @@ import { THEME_IMAGE_REVIEW_MODEL_KEY } from "./image-review";
 import {
   applyGeneratedImages,
   generatableSlots,
+  productSetReferenceSha,
 } from "./image-generation-core";
-import {
-  AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
-  captureBlockers,
-} from "./capture-core";
+import { captureBlockers } from "./capture-core";
 import {
   runThemeImageGeneration,
   type ThemeImageReviewer,
@@ -53,10 +52,6 @@ import {
 } from "./image-models";
 import { describeSlots } from "./slot-images-core";
 import type { ThemeStudioImageClient } from "./image-provider";
-import {
-  THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
-  THEME_STUDIO_IMAGE_PROMPT_VERSION,
-} from "./image-provider";
 import { createVertexImageClient } from "./image-vertex";
 import {
   THEME_STUDIO_MODELS,
@@ -72,6 +67,18 @@ import {
 } from "./generation-recovery";
 import { digestThemeStudioJson, recordThemeStudioEvent } from "./repository";
 import { runThemeStudioVisualQaWorker } from "./visual-qa";
+import {
+  automaticImageProvider,
+  queueAutomaticCapture,
+} from "./automatic-work";
+import { createImageCheckpointStore } from "./image-checkpoint-store";
+import {
+  IMAGE_CRASH_ATTEMPTS,
+  ImageCheckpointError,
+  imageReviewRecoveryDelayMs,
+  resumableImageClient,
+  resumableImageReview,
+} from "./image-recovery";
 
 // ---------------------------------------------------------------------------
 // The Theme Studio run worker.
@@ -121,6 +128,7 @@ type ClaimedRun = {
   attemptCount: number;
   maxAttempts: number;
   rateLimitDeferrals: number;
+  imageReviewDeferrals: number;
   automatic: boolean;
   qaIteration: number;
   createdBy: string | null;
@@ -186,9 +194,13 @@ async function claimRun(
     providers.map((p) => sql`${p}`),
     sql`, `,
   );
+  // Older workers cannot reclaim retryable image runs without durable replay.
+  // Migration 0150 gates claims on this transaction-local protocol declaration.
   const rows = await db.execute(sql`
-    WITH candidate AS (
-      SELECT id FROM theme_studio_runs
+    WITH protocol AS MATERIALIZED (
+      SELECT set_config('app.theme_studio_image_recovery','v1',true)
+    ), candidate AS (
+      SELECT id FROM theme_studio_runs CROSS JOIN protocol
       WHERE provider IN (${providerList})
         AND ((status = 'queued' AND cancel_requested_at IS NULL
               AND (retry_not_before IS NULL OR retry_not_before <= now()))
@@ -196,10 +208,11 @@ async function claimRun(
              AND attempt_count < max_attempts AND cancel_requested_at IS NULL))
       ORDER BY created_at
       LIMIT 1
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF theme_studio_runs SKIP LOCKED
     )
     UPDATE theme_studio_runs r
     SET status = 'running',
+        max_attempts = CASE WHEN r.kind='images' THEN ${IMAGE_CRASH_ATTEMPTS} ELSE r.max_attempts END,
         lease_owner = ${workerId}::uuid,
         lease_expires_at = now() + (${LEASE_SECONDS}::int * interval '1 second'),
         attempt_count = r.attempt_count + CASE WHEN r.retry_not_before IS NULL THEN 1 ELSE 0 END,
@@ -216,116 +229,12 @@ async function claimRun(
               r.provider_model AS "providerModel", r.prompt_version AS "promptVersion",
               r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts",
               r.rate_limit_deferrals AS "rateLimitDeferrals",
+              r.image_review_deferrals AS "imageReviewDeferrals",
               r.automatic AS "automatic", r.qa_iteration AS "qaIteration",
               r.created_by AS "createdBy"
   `);
   const row = rows.rows[0] as ClaimedRun | undefined;
   return row ?? null;
-}
-
-function automaticImageProvider(run: ClaimedRun) {
-  if (run.provider === "fake") {
-    return {
-      providerModel: "fake",
-      promptVersion: THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
-    };
-  }
-  const image = getThemeStudioImageConfig();
-  return image
-    ? {
-        providerModel: image.providerModel,
-        promptVersion: THEME_STUDIO_IMAGE_PROMPT_VERSION,
-      }
-    : null;
-}
-
-async function queueAutomaticCapture(
-  db: Db,
-  run: ClaimedRun,
-  version: { id: string },
-  packageDigest: string,
-) {
-  const [capture] = await db
-    .insert(themeStudioCaptures)
-    .values({
-      projectId: run.projectId,
-      versionId: version.id,
-      packageDigest,
-      previousStatus: "generating",
-      idempotencyKey: `auto_capture_${run.id}`,
-      automatic: true,
-      qaIteration: run.qaIteration,
-      maxAttempts: AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
-      createdBy: run.createdBy,
-    })
-    .returning({ id: themeStudioCaptures.id });
-  await recordThemeStudioEvent(db, {
-    projectId: run.projectId,
-    runId: run.id,
-    actor: "worker",
-    eventType: "capture_requested",
-    detail: {
-      captureId: capture.id,
-      versionId: version.id,
-      automatic: true,
-      qaIteration: run.qaIteration,
-    },
-  });
-}
-
-async function queueAutomaticImages(
-  db: Db,
-  run: ClaimedRun,
-  version: { id: string },
-  packageDigest: string,
-  slots: number,
-): Promise<boolean> {
-  const resolved = automaticImageProvider(run);
-  if (!resolved) return false;
-  const [message] = await db
-    .insert(themeStudioMessages)
-    .values({
-      projectId: run.projectId,
-      kind: "images",
-      body: `Automatically generate images for ${slots} slot${slots === 1 ? "" : "s"} before visual QA.`,
-      referenceAssetIds: [],
-      createdBy: run.createdBy,
-    })
-    .returning({ id: themeStudioMessages.id });
-  const [imageRun] = await db
-    .insert(themeStudioRuns)
-    .values({
-      projectId: run.projectId,
-      messageId: message.id,
-      kind: "images",
-      baseVersionId: version.id,
-      basePackageDigest: packageDigest,
-      contextMessageIds: [],
-      provider: run.provider,
-      modelKey: run.modelKey,
-      providerModel: resolved.providerModel,
-      promptVersion: resolved.promptVersion,
-      idempotencyKey: `auto_images_${run.id}`,
-      maxAttempts: 1,
-      imageSlotIds: [],
-      automatic: true,
-      qaIteration: run.qaIteration,
-      createdBy: run.createdBy,
-    })
-    .returning({ id: themeStudioRuns.id });
-  await recordThemeStudioEvent(db, {
-    projectId: run.projectId,
-    runId: imageRun.id,
-    actor: "worker",
-    eventType: "images_requested",
-    detail: {
-      versionId: version.id,
-      slots,
-      automatic: true,
-      qaIteration: run.qaIteration,
-    },
-  });
-  return true;
 }
 
 /**
@@ -390,7 +299,7 @@ async function queueFillImages(
       providerModel: resolved.providerModel,
       promptVersion: resolved.promptVersion,
       idempotencyKey: `images_fill_${next.root}_${next.round}`,
-      maxAttempts: 1,
+      maxAttempts: IMAGE_CRASH_ATTEMPTS,
       imageSlotIds: [...slotIds],
       automatic: run.automatic,
       qaIteration: run.qaIteration,
@@ -676,7 +585,12 @@ function clientFor(
   }
   if (provider === "vertex-gemini") {
     const vertex = getVertexConfig();
-    return vertex ? createVertexModelClient(vertex) : null;
+    return vertex
+      ? createVertexModelClient(vertex, {
+          capacity: (model) =>
+            sharedProviderCapacity(vertex.projectId, vertex.region, model),
+        })
+      : null;
   }
   return null;
 }
@@ -695,6 +609,7 @@ async function cancelRequested(runId: string): Promise<boolean> {
 // ── Image runs (Track 3.2) ────────────────────────────────────────────────
 
 type ImageRunInput = {
+  corrections: Record<string, string>;
   intent: ThemeIntent;
   package: ThemePackageV2;
   versionNumber: number;
@@ -710,6 +625,9 @@ async function loadImageRunInput(
     }
     const [base] = await db
       .select({
+        correctionBody: sql<
+          string | null
+        >`(SELECT m.body FROM theme_studio_messages m WHERE m.id=${run.messageId}::uuid AND m.project_id=${run.projectId}::uuid AND EXISTS (SELECT 1 FROM theme_studio_runs r WHERE r.message_id=m.id AND r.automatic))`,
         intentJson: themeStudioVersions.intentJson,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
@@ -738,7 +656,19 @@ async function loadImageRunInput(
       .select({ latest: max(themeStudioVersions.versionNumber) })
       .from(themeStudioVersions)
       .where(eq(themeStudioVersions.projectId, run.projectId));
+    const corrections: Record<string, string> = {};
+    if (run.automatic && run.imageSlotIds.length && base.correctionBody) {
+      try {
+        const parsed = JSON.parse(base.correctionBody)?.qaImageCorrections;
+        for (const id of run.imageSlotIds)
+          if (typeof parsed?.[id] === "string" && parsed[id].length <= 800)
+            corrections[id] = parsed[id];
+      } catch {
+        /* Older automatic image messages contain plain text. */
+      }
+    }
     return {
+      corrections,
       intent: intent.value,
       package: pkg.value,
       versionNumber: (latest ?? 0) + 1,
@@ -782,7 +712,20 @@ async function loadImageSeed(
           JOIN chain c ON v.id = c.parent
          WHERE c.depth < 50 AND v.project_id = ${run.projectId}::uuid
       )
-      SELECT a.id AS "id", a.bytes AS "bytes"
+      SELECT a.id AS "id", a.bytes AS "bytes",
+        ARRAY(
+          SELECT DISTINCT asset ->> 'sha256'
+            FROM chain history
+            JOIN theme_studio_versions v ON v.id = history.id
+            JOIN theme_studio_runs image_run ON image_run.id = history.run_id
+             AND image_run.project_id = ${run.projectId}::uuid AND image_run.kind = 'images'
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(image_run.outcome_detail -> 'outcomes', '[]'::jsonb)) outcome
+            CROSS JOIN LATERAL jsonb_array_elements(v.package_json -> 'assets') asset
+           WHERE outcome ->> 'status' = 'generated'
+             AND outcome ->> 'review' = 'passed'
+             AND asset ->> 'id' = outcome ->> 'slotId'
+             AND asset ->> 'kind' = 'product'
+        ) AS "passedProducts"
         FROM chain c
         JOIN theme_studio_runs r ON r.id = c.run_id AND r.kind = 'images'
         JOIN theme_studio_assets a
@@ -793,20 +736,16 @@ async function loadImageSeed(
        ORDER BY c.depth
        LIMIT 1
     `);
-    const anchor = anchors.rows[0] as { id: string; bytes: Buffer } | undefined;
+    const anchor = anchors.rows[0] as
+      | { id: string; bytes: Buffer; passedProducts: string[] }
+      | undefined;
     if (!anchor) return null;
 
-    const redrawn = new Set(run.imageSlotIds);
-    const setSlot = describeSlots(pkg).find(
-      (slot) =>
-        slot.kind === "product" &&
-        !slot.placeholder &&
-        !redrawn.has(slot.id) &&
-        pkg.assets.find((a) => a.id === slot.id)?.sha256,
+    const sha = productSetReferenceSha(
+      pkg,
+      run.imageSlotIds,
+      anchor.passedProducts,
     );
-    const sha = setSlot
-      ? pkg.assets.find((a) => a.id === setSlot.id)?.sha256
-      : null;
     let set: { bytes: Uint8Array; mediaType: "image/webp" } | null = null;
     if (sha) {
       const [row] = await db
@@ -841,7 +780,15 @@ function imageClientFor(provider: string): ThemeStudioImageClient | null {
   if (provider === "fake") return createFakeImageClient();
   if (provider === "vertex-gemini") {
     const config = getThemeStudioImageConfig();
-    return config ? createVertexImageClient(config) : null;
+    return config
+      ? createVertexImageClient(config, {
+          capacity: sharedProviderCapacity(
+            config.projectId,
+            config.location,
+            config.providerModel,
+          ),
+        })
+      : null;
   }
   return null;
 }
@@ -863,13 +810,19 @@ function imageReviewerFor(provider: string): ThemeImageReviewer | null {
   const vertex = getVertexConfig();
   if (!vertex) return null;
   return {
-    client: createVertexModelClient(vertex),
+    client: createVertexModelClient(vertex, {
+      capacity: (model) =>
+        sharedProviderCapacity(vertex.projectId, vertex.region, model),
+    }),
     providerModel: resolveThemeStudioModel(THEME_IMAGE_REVIEW_MODEL_KEY)
       .providerModel,
   };
 }
 
-async function executeImages(run: ClaimedRun): Promise<Outcome> {
+async function executeImages(
+  run: ClaimedRun,
+  workerId: string,
+): Promise<Outcome> {
   if (!getThemeStudioConfig().generationEnabled) {
     return { kind: "failed", errorCode: "generation_disabled" };
   }
@@ -906,8 +859,13 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
     // An abort stops drawing new images but keeps those already drawn: a
     // timeout's images are paid for and good, and a cancel is settled by
     // finish(), which sees cancel_requested_at and writes no version.
+    const store = createImageCheckpointStore({
+      id: run.id,
+      projectId: run.projectId,
+      workerId,
+    });
     const result = await runThemeImageGeneration(
-      client,
+      resumableImageClient(client, run.providerModel, run.promptVersion, store),
       {
         pkg: input.package,
         intent: input.intent,
@@ -916,6 +874,11 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
         seed: reuse?.seed ?? null,
       },
       controller.signal,
+      {
+        review: resumableImageReview(store, run.imageReviewDeferrals),
+        deferUnavailableReviews: true,
+        corrections: input.corrections,
+      },
     );
     return {
       kind: "images",
@@ -932,7 +895,7 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
 }
 
 async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
-  if (run.kind === "images") return executeImages(run);
+  if (run.kind === "images") return executeImages(run, workerId);
   const config = getThemeStudioConfig();
   // Re-checked at execution, not only at queue time: the emergency stop and a
   // disabled model must also stop work that was already waiting.
@@ -1060,7 +1023,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
         automaticRepair:
           run.automatic &&
           run.kind === "revise" &&
-          run.promptVersion === "theme-studio-v19",
+          themePromptFeatures(run.promptVersion).targetedRepair,
       },
       controller.signal,
     );
@@ -1117,6 +1080,9 @@ async function finish(
           eq(themeStudioRuns.id, run.id),
           eq(themeStudioRuns.status, "running"),
           eq(themeStudioRuns.leaseOwner, workerId),
+          ...(run.kind === "images"
+            ? [gt(themeStudioRuns.leaseExpiresAt, sql`now()`)]
+            : []),
         ),
       )
       .for("update")
@@ -1137,6 +1103,10 @@ async function finish(
         ? (locked.usage as Record<string, unknown>)
         : {}),
       ...usageRecord(run, outcome),
+      // Checkpoints own image spend, including calls from earlier claims.
+      ...(run.kind === "images"
+        ? (locked.usage as Record<string, unknown>)
+        : {}),
     };
     const terminal = {
       leaseOwner: null,
@@ -1189,6 +1159,7 @@ async function finish(
           status: "queued",
           leaseOwner: null,
           leaseExpiresAt: null,
+          usage,
           updatedAt: sql`now()`,
         })
         .where(eq(themeStudioRuns.id, run.id));
@@ -1368,21 +1339,9 @@ async function finish(
         versionId: version.id,
         qaIteration: run.qaIteration,
       });
-      if (automaticSlots > 0) {
-        if (
-          !(await queueAutomaticImages(
-            db,
-            run,
-            version,
-            packageDigest,
-            automaticSlots,
-          ))
-        ) {
-          return failRun("image_provider_unavailable");
-        }
-      } else {
-        await queueAutomaticCapture(db, run, version, packageDigest);
-      }
+      // Measure the native layout with its planned image ratios before paying
+      // for artwork. Passing this stage cannot create acceptance evidence.
+      await queueAutomaticCapture(db, run, version, packageDigest, "layout");
     }
     return "succeeded";
   });
@@ -1406,7 +1365,7 @@ async function finishImages(
       detail?: Record<string, unknown>,
     ) => Promise<"failed">;
   },
-): Promise<"succeeded" | "failed"> {
+): Promise<"succeeded" | "failed" | "requeued"> {
   const { run, project, outcome, terminal, event, failRun } = ctx;
   const result = outcome.result;
   const detail = {
@@ -1417,6 +1376,37 @@ async function finishImages(
       ? { category: result.anchorFailure.reason ?? "IMAGE_SAFETY" }
       : {}),
   };
+  const pending = result.outcomes.filter(
+    (o) => o.status === "failed" && o.code === "image_review_pending",
+  );
+  if (
+    (result.anchorFailure?.kind === "failed" &&
+      result.anchorFailure.code === "image_review_pending") ||
+    pending.length
+  ) {
+    const delay = imageReviewRecoveryDelayMs(run.imageReviewDeferrals);
+    if (delay === null) return failRun("image_review_unavailable", detail);
+    const retryNotBefore = new Date(Date.now() + delay).toISOString();
+    await db
+      .update(themeStudioRuns)
+      .set({
+        status: "queued",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        retryNotBefore,
+        imageReviewDeferrals: run.imageReviewDeferrals + 1,
+        usage: terminal.usage,
+        outcomeDetail: { ...detail, kind: "image_review_wait" },
+        updatedAt: sql`now()`,
+      })
+      .where(eq(themeStudioRuns.id, run.id));
+    await event("run_queued", {
+      reason: "image_review_unavailable",
+      retryNotBefore,
+      recovery: run.imageReviewDeferrals + 1,
+    });
+    return "requeued";
+  }
   if (result.anchorFailure) {
     const failure = result.anchorFailure;
     return failRun(
@@ -1667,7 +1657,13 @@ export async function runThemeStudioWorker(
       outcome =
         run.attemptCount < run.maxAttempts
           ? { kind: "retry", errorCode: "worker_error" }
-          : { kind: "failed", errorCode: "worker_error" };
+          : {
+              kind: "failed",
+              errorCode:
+                error instanceof ImageCheckpointError
+                  ? "image_checkpoint_unavailable"
+                  : "worker_error",
+            };
     }
     const settled = await finish(workerId, run, outcome);
     if (settled !== "lost") result[settled] += 1;

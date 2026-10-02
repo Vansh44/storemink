@@ -169,10 +169,13 @@ to questions continue the same request and can include fresh screenshots.
 Only selected screenshots are sent with each message. While work is running,
 the composer shows progress and waits for it to finish; cancellation, retry
 and detailed run information remain under **Runs**.
-Internal drafts remain hidden while Mink draws missing images, captures the
-storefront and runs the full acceptance checks. Theme failures automatically
-produce a targeted revision and another complete check, with up to three repair
-rounds. Visual review runs after deterministic checks pass. A successful result
+Internal drafts remain hidden while layout checks run before artwork, then
+Mink draws missing images, captures the storefront and runs full acceptance.
+Settings defects receive focused repairs; image defects redraw only the named
+generated slots. Mixed findings repair settings first. Renderer defects stop
+with a platform diagnosis. A repair that repeats or worsens the same findings
+stops early; up to three improving repair rounds are allowed. The workspace
+shows the diagnosis and exact repair targets. Visual review runs after deterministic checks pass. A successful result
 is already a **Candidate** with saved acceptance evidence; it still needs human
 review and publication. Runtime faults or exhausted repairs preserve the draft
 with **Needs attention**, a failed QA badge and recovery actions. They are not
@@ -183,7 +186,9 @@ pictures: when only catalog pictures remain, use **Images → Capture catalog
 pictures** instead of redrawing the artwork. Capture failure reasons are shown
 on the Images page. For a failed automatic result, **Images → Retry automatic
 QA** captures fresh screenshots and reruns browser checks and AI visual review
-when automatic QA is enabled. The current version must have all artwork first.
+when automatic QA is enabled. If artwork is unfinished, retry starts with
+layout checks, then draws missing images only after those checks pass. Manual
+catalog capture still requires finished artwork.
 If the summary says a category has no image slot, revise that version to add
 its category imagery; drawing existing slots cannot fill an undeclared slot.
 The Images page shows the capture status for the selected version. Full

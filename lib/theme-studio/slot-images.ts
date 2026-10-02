@@ -497,6 +497,8 @@ export async function listThemeStudioSlots(
   anchorReusable: boolean;
   /** Why the catalog pictures cannot be captured yet (Track 3.6). */
   captureBlockers: string[];
+  /** Blockers for retrying layout QA before artwork is complete. */
+  layoutCaptureBlockers: string[];
   slots: ThemeStudioSlotView[];
 } | null> {
   const version = await loadVersion(projectId, versionId);
@@ -531,6 +533,7 @@ export async function listThemeStudioSlots(
       : 0,
     anchorReusable: hasReusableAnchor(runs),
     captureBlockers: captureBlockers(version.pkg),
+    layoutCaptureBlockers: captureBlockers(version.pkg, "layout"),
     slots: slots.map((slot) => ({
       ...slot,
       url: urls.get(slot.id) ?? null,

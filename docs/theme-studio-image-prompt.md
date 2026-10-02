@@ -40,6 +40,7 @@ SET RULES
 3. Photograph real-looking physical objects with believable scale, contact shadows, reflections and material texture. It must look shot, not rendered or pasted.
 4. Keep the whole subject inside the crop-safe area described in the composition, with breathing room on every edge, and extend the background naturally so a responsive crop never cuts the subject.
 5. When a style anchor is supplied, its lighting, background palette, surfaces and camera treatment take precedence over conflicting styling details in THIS IMAGE. Keep this image's subject and product identity, but adapt its setting to the anchor. Do not substitute warm limestone or a dark wooden table for a bright white/concrete anchor merely because the asset brief mentions those surfaces.
+6. Catalogue pack shots use a different composition from the style anchor: the first product establishes a plain, uninterrupted backdrop without copying anchor props, plinths or room staging. When SET is supplied, that validated product photograph takes precedence over ANCHOR and conflicting brief details for backdrop, camera, light, framing and subject scale. Keep that same setup and replace the product, adapting its pose to show its full shape. ANCHOR supplies complementary palette and mood; it must not introduce a different platform, border, backdrop or scene.
 
 OUTPUT RULES
 - One photograph only: not a collage, grid, contact sheet, split panel, mockup frame or design board.

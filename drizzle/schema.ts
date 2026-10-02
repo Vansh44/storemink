@@ -2366,6 +2366,7 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
     mode: "string",
   }),
   rateLimitDeferrals: integer("rate_limit_deferrals").default(0).notNull(),
+  imageReviewDeferrals: integer("image_review_deferrals").default(0).notNull(),
   leaseOwner: uuid("lease_owner"),
   leaseExpiresAt: timestamp("lease_expires_at", {
     withTimezone: true,
@@ -2415,6 +2416,28 @@ export const themeStudioGenerationResponses = pgTable(
   (table) => [primaryKey({ columns: [table.runId, table.requestDigest] })],
 );
 
+export const themeStudioImageCheckpoints = pgTable(
+  "theme_studio_image_checkpoints",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => themeStudioRuns.id, { onDelete: "cascade" }),
+    requestDigest: text("request_digest").notNull(),
+    responseJson: jsonb("response_json").notNull(),
+    imageBytes: bytea("image_bytes"),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.runId, table.requestDigest] }),
+    index("theme_studio_image_checkpoints_retention_idx").on(
+      table.createdAt,
+      table.runId,
+    ),
+  ],
+);
+
 export const themeStudioVersions = pgTable("theme_studio_versions", {
   id: uuid().defaultRandom().primaryKey().notNull(),
   projectId: uuid("project_id").notNull(),
@@ -2439,6 +2462,39 @@ export const themeStudioVersions = pgTable("theme_studio_versions", {
     .notNull(),
 });
 
+/** Service-only provider admission shared across worker instances. */
+export const themeStudioProviderCapacity = pgTable(
+  "theme_studio_provider_capacity",
+  {
+    scopeKey: text("scope_key").primaryKey().notNull(),
+    capacity: integer().default(3).notNull(),
+    epoch: integer().default(0).notNull(),
+    successes: integer().default(0).notNull(),
+    pauseUntil: timestamp("pause_until", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+);
+export const themeStudioProviderLeases = pgTable(
+  "theme_studio_provider_leases",
+  {
+    id: uuid().primaryKey().notNull(),
+    scopeKey: text("scope_key")
+      .notNull()
+      .references(() => themeStudioProviderCapacity.scopeKey, {
+        onDelete: "cascade",
+      }),
+    epoch: integer().notNull(),
+    expiresAt: timestamp("expires_at", {
+      withTimezone: true,
+      mode: "string",
+    }).notNull(),
+  },
+);
+
 /** Track 3.6: catalog pictures rendered from a version's preview store by the
  *  headless-Chromium capture job. Service-only; a finished row is final. */
 export const themeStudioCaptures = pgTable("theme_studio_captures", {
@@ -2458,6 +2514,8 @@ export const themeStudioCaptures = pgTable("theme_studio_captures", {
   maxAttempts: integer("max_attempts").default(2).notNull(),
   errorCode: text("error_code"),
   resultVersionId: uuid("result_version_id"),
+  /** Layout preflight has no catalog images or publication evidence. */
+  phase: text().default("final").notNull(),
   automatic: boolean().default(false).notNull(),
   qaIteration: integer("qa_iteration").default(0).notNull(),
   createdBy: uuid("created_by"),

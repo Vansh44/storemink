@@ -201,9 +201,9 @@ describe("Theme Studio catalog capture deployment gate", () => {
     vi.stubEnv("THEME_STUDIO_CAPTURE_ENABLED", "true");
     vi.stubEnv("THEME_STUDIO_AUTO_QA_ENABLED", "true");
     const writes = queueDb();
-    vi.mocked(captureBlockers).mockReturnValueOnce([
-      "Missing category imagery",
-    ]);
+    vi.mocked(captureBlockers)
+      .mockReturnValueOnce(["Missing category imagery"])
+      .mockReturnValueOnce(["Missing category imagery"]);
     await expect(queueThemeStudioCapture(actor, input)).rejects.toThrow(
       "Missing category imagery",
     );

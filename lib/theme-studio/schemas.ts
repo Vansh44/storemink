@@ -383,3 +383,25 @@ export const STAGE_B_DRAFT_SCHEMA: Schema = obj({
 });
 
 export { PALETTE_KEYS };
+
+/** Initial v20 drafts omit repeated navigation and variant combinations. The
+ * compiler derives those from authored pages/categories/options. Revisions
+ * retain the full schema so existing creative choices remain expressible. */
+export const STAGE_B_INITIAL_DRAFT_SCHEMA: Schema = (() => {
+  const schema = structuredClone(STAGE_B_DRAFT_SCHEMA);
+  const properties = schema.properties as Record<string, Schema>;
+  delete properties.menus;
+  delete properties.features;
+  properties.composition = enumOf(["classic", "editorial", "grocery"]);
+  properties.navigation = enumOf(["simple", "collections"]);
+  const design = properties.design;
+  const designProperties = design.properties as Record<string, Schema>;
+  delete designProperties.layout;
+  designProperties.layoutOverridesJson = str;
+  design.required = Object.keys(designProperties);
+  const product = properties.products.items as Schema;
+  delete (product.properties as Record<string, Schema>).variants;
+  product.required = Object.keys(product.properties as object);
+  schema.required = Object.keys(properties);
+  return schema;
+})();

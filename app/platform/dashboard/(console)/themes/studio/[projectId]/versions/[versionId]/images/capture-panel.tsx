@@ -73,6 +73,7 @@ export function CapturePanel({
   captureEnabled,
   retryAutomaticQa = false,
   blockers,
+  layoutBlockers,
   latest,
   resultVersionNumber,
   slots,
@@ -90,6 +91,7 @@ export function CapturePanel({
   /** A failed automatic result re-enters browser checks and visual QA. */
   retryAutomaticQa?: boolean;
   blockers: string[];
+  layoutBlockers?: string[];
   /** The project's most recent capture, if any. */
   latest: ThemeStudioCaptureView | null;
   resultVersionNumber: number | null;
@@ -107,7 +109,8 @@ export function CapturePanel({
         ? null
         : !canEdit
           ? "Pictures can be captured only while the project is ready or a candidate."
-          : (blockers[0] ?? null);
+          : ((retryAutomaticQa ? (layoutBlockers ?? blockers) : blockers)[0] ??
+            null);
 
   const capture = () =>
     startTransition(async () => {
@@ -122,7 +125,7 @@ export function CapturePanel({
         toast.error(result.error ?? "The capture couldn't be queued.");
         return;
       }
-      toast.success("Queued. The capture job takes the pictures shortly.");
+      toast.success("Queued. The browser job runs shortly.");
       router.refresh();
     });
 
@@ -141,9 +144,10 @@ export function CapturePanel({
           </p>
           {retryAutomaticQa ? (
             <p className="text-sm text-slate-600">
-              Retry automatic QA to capture fresh screenshots and rerun browser
-              checks and visual review. Visual review uses the configured AI
-              model.
+              Retry automatic QA to rerun browser checks and visual review. When
+              artwork is unfinished, layout checks run first, then missing
+              images are drawn before final review. Visual review uses the
+              configured AI model.
             </p>
           ) : null}
           {latest ? (
@@ -162,10 +166,14 @@ export function CapturePanel({
                   ? "Capturing now."
                   : latest.status === "failed"
                     ? `Last capture failed: ${captureErrorText(latest.errorCode)}`
-                    : latest.resultVersionId
-                      ? null
-                      : "Captured."}
-              {latest.status === "succeeded" && latest.resultVersionId ? (
+                    : latest.phase === "layout"
+                      ? "Layout checks complete. Artwork and final review follow when checks pass."
+                      : latest.resultVersionId
+                        ? null
+                        : "Captured."}
+              {latest.status === "succeeded" &&
+              latest.phase !== "layout" &&
+              latest.resultVersionId ? (
                 <>
                   Captured into{" "}
                   <Link

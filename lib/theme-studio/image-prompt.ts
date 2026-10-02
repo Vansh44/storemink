@@ -245,7 +245,7 @@ export function compositionFor(
         ? "A wide establishing scene for the top of the homepage. Place the subject in the left or right third and keep the other side calm, open and uncluttered so a headline can sit over it. Keep the subject within the middle 70% of the height: phones crop this image taller, so nothing important may sit near the top or bottom edge."
         : "A homepage feature scene. Keep the subject clearly placed with calm, open space beside it for a headline, and keep it within the middle 70% of the frame so crops on phones keep it whole.";
     case "product":
-      return "A catalogue pack shot of exactly one product: the whole product, centred, filling about 60 to 70% of the frame height, in a front three-quarter view at eye level, on a seamless backdrop in the theme's surface colour, with soft even studio light and one natural contact shadow. Every product in this theme is shot with the same camera height, lens, light and backdrop, so keep the staging plain and repeatable, with no props.";
+      return "A catalogue pack shot of exactly one product: the whole product, centred, filling about 60 to 70% of the frame height, with soft even studio light and one natural contact shadow. Clothing must show the whole garment unfolded at readable scale, laid flat or on an invisible hanger, never folded into a tiny stack at the bottom of an empty frame. Physical goods use a front three-quarter view at eye level. Without a SET reference, establish a plain, uninterrupted seamless backdrop in the theme's surface colour: do not copy the ANCHOR's props, plinths, slabs, platforms, borders or room composition. When SET is supplied, it is authoritative for the backdrop, camera, light, framing and subject scale, taking precedence over the ANCHOR and conflicting staging in the brief. Replace the product in that staging with this product; adapt its pose only as needed to show its whole shape. Do not copy a folded pose that hides a different garment. Keep the staging repeatable and add no props.";
     case "category":
       return "One representative product, or a small arrangement of two or three, that reads at a glance as this category. Centre it with generous space all around: category images are cropped to squares and circles.";
     case "content":
@@ -265,7 +265,7 @@ function referenceText(references: readonly ThemeImageReference[]): string {
   }
   if (references.some((r) => r.role === "set")) {
     lines.push(
-      "The image labelled SET is an earlier product shot from this theme. Match its camera height, lens, framing, backdrop, light and scale exactly, and show a different product.",
+      "The image labelled SET is a validated earlier product shot from this theme. It takes precedence over ANCHOR and conflicting brief details for camera height, lens, framing, backdrop, light and subject scale. Keep that same photographic setup and replace its product with this one, showing the whole new product. Do not introduce a different platform, border or backdrop; ANCHOR supplies only the complementary palette and mood.",
     );
   }
   lines.push(

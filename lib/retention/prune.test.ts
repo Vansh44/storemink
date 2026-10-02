@@ -68,6 +68,14 @@ describe("retentionFloor", () => {
 });
 
 describe("sweepPolicy", () => {
+  it("drains heavy rows using the policy's smaller batches", async () => {
+    const policy = { ...policyReturning([50, 50, 3]), batchSize: 50 };
+    expect(await sweepPolicy(policy)).toMatchObject({
+      deleted: 103,
+      stop: "drained",
+    });
+    expect(policy.calls).toEqual([50, 50, 50]);
+  });
   it("stops as soon as a batch comes back short", async () => {
     const policy = policyReturning([10]);
     const result = await sweepPolicy(policy, { batchSize: 1000 });

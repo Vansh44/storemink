@@ -41,6 +41,7 @@ import {
   THEME_STUDIO_QA_VIEWPORTS,
 } from "./acceptance-gates";
 import { fetchInternalPageWithRetry } from "./acceptance-http";
+import type { CapturedRoute } from "./capture-profile";
 import { validateThemePackageV2, type ThemePackageV2 } from "./contracts";
 import { openThemeStudioPreview, type PreviewPage } from "./preview";
 import {
@@ -255,6 +256,9 @@ export async function renderedPreviewGates(input: {
   /** Total time for every page and link. Per-request timeouts shrink to fit,
    * so the caller's own deadline (a route's maxDuration) holds. */
   budgetMs?: number;
+  /** Authenticated automatic captures only: freshly fetched on this lease,
+   * validated against the exact package/build before this function is called. */
+  capturedRoutes?: readonly CapturedRoute[];
 }): Promise<GateResult[]> {
   const host = new URL(input.origin).host;
   const cookies = input.cookies;
@@ -287,11 +291,21 @@ export async function renderedPreviewGates(input: {
   const bodies: { path: string; html: string }[] = [];
   const crawlSources: string[] = [];
   const readPage = async (page: PreviewPage, index: number) => {
-    const response = await fetchWithin(
-      page.path,
-      input.timeoutMs ??
-        (index === 0 ? FIRST_PAGE_TIMEOUT_MS : PAGE_TIMEOUT_MS),
+    const captured = input.capturedRoutes?.find(
+      (r) => r.path === page.path && r.surface === page.surface,
     );
+    const response = captured
+      ? {
+          status: captured.status,
+          body: captured.html,
+          headers: { "x-robots-tag": captured.robots },
+          error: null,
+        }
+      : await fetchWithin(
+          page.path,
+          input.timeoutMs ??
+            (index === 0 ? FIRST_PAGE_TIMEOUT_MS : PAGE_TIMEOUT_MS),
+        );
     const robotsHeader = String(response.headers["x-robots-tag"] ?? "");
     routes.push({
       surface: page.surface as AcceptanceSurface,

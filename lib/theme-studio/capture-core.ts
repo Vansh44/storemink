@@ -84,7 +84,10 @@ export function captureShots(pkg: ThemePackageV2): CaptureShot[] {
 }
 
 /** Why a capture of this version would be pointless, in operator words. */
-export function captureBlockers(pkg: ThemePackageV2): string[] {
+export function captureBlockers(
+  pkg: ThemePackageV2,
+  phase: "layout" | "final" = "final",
+): string[] {
   const blockers: string[] = [];
   // Automatic acceptance measures the storefront before replacing its catalog
   // pictures. Those replacements must never change a shopper-facing image.
@@ -116,12 +119,12 @@ export function captureBlockers(pkg: ThemePackageV2): string[] {
       !slot.catalogScreenshot &&
       slot.licenseNote === PLACEHOLDER_LICENSE_NOTE,
   );
-  if (art.length > 0) {
+  if (phase === "final" && art.length > 0) {
     blockers.push(
       `${art.length} image${art.length === 1 ? " is" : "s are"} still a placeholder. Draw or upload ${art.length === 1 ? "it" : "them"} first: the catalog pictures show the storefront as it is.`,
     );
   }
-  if (captureShots(pkg).length === 0) {
+  if (phase === "final" && captureShots(pkg).length === 0) {
     blockers.push("This version has no catalog card or screenshot to capture.");
   }
   return blockers;

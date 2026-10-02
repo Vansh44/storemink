@@ -32,6 +32,7 @@ import {
   generatableSlots,
   imageRunEstimate,
   nearestImageRatio,
+  productSetReferenceSha,
   redrawableSlotIds,
   type GeneratableSlot,
 } from "./image-generation-core";
@@ -43,11 +44,75 @@ import {
 } from "./image-provider";
 import { runThemeGeneration } from "./pipeline";
 import { describeSlots } from "./slot-images-core";
+import {
+  resumableImageClient,
+  resumableImageReview,
+  type ImageCheckpoint,
+  type ImageCheckpointStore,
+} from "./image-recovery";
 
 /** Every image run here pushes a dozen real images through sharp, which on a
  *  loaded parallel suite runs past the default 5s (slot-images.test.ts sets
  *  the same ceiling for the same reason). */
 const IMAGE_RUN_TIMEOUT_MS = 20_000;
+
+it(
+  "preserves a paid slot as unreviewed when the run deadline interrupts review",
+  async () => {
+    const { pkg, intent } = await fixture();
+    const slot = generatableSlots(pkg, intent).find(
+      (s) => s.purpose !== "product",
+    )!;
+    const controller = new AbortController();
+    const result = await runThemeImageGeneration(
+      createFakeImageClient(),
+      {
+        pkg,
+        intent,
+        only: [slot.slotId],
+        reviewer: {
+          client: createFakeImageReviewClient(),
+          providerModel: "fake",
+        },
+      },
+      controller.signal,
+      {
+        deferUnavailableReviews: true,
+        async review(_, input) {
+          if (input.purpose !== "anchor") {
+            controller.abort();
+            return {
+              kind: "unavailable",
+              code: "cancelled",
+              usage: ZERO_USAGE,
+              estimatedCostMicroUsd: 0,
+            };
+          }
+          return {
+            kind: "reviewed",
+            problems: [],
+            note: "",
+            usage: ZERO_USAGE,
+            estimatedCostMicroUsd: 0,
+          };
+        },
+      },
+    );
+    expect(result.images).toHaveLength(1);
+    expect(result.outcomes).toContainEqual({
+      slotId: slot.slotId,
+      status: "generated",
+      attempts: 1,
+      review: "unreviewed",
+    });
+    expect(
+      result.outcomes.some(
+        (o) => o.status === "failed" && o.code === "image_review_pending",
+      ),
+    ).toBe(false);
+  },
+  IMAGE_RUN_TIMEOUT_MS,
+);
 
 let built: Promise<{ pkg: ThemePackageV2; intent: ThemeIntent }> | null = null;
 
@@ -278,6 +343,35 @@ describe("choosing what to draw", () => {
 });
 
 describe("product photographs", () => {
+  it("reuses only reviewed exact-byte product references, preserving uploaded artwork and redraw exclusions", async () => {
+    const { pkg, intent } = await fixture();
+    const products = generatableSlots(pkg, intent).filter(
+      (s) => s.purpose === "product",
+    );
+    const hashes = products.map((_, i) => String(i + 1).repeat(64));
+    const applied = applyGeneratedImages(
+      pkg,
+      products.map((slot, i) => ({
+        slotId: slot.slotId,
+        sha256: hashes[i],
+        width: slot.target.width,
+        height: slot.target.height,
+      })),
+      2,
+      "fake",
+    );
+    if (!applied.ok) throw new Error(applied.error);
+    expect(productSetReferenceSha(applied.value, [], [])).toBeNull();
+    expect(productSetReferenceSha(applied.value, [], [hashes[1]])).toBe(
+      hashes[1],
+    );
+    expect(
+      productSetReferenceSha(applied.value, [products[1].slotId], [hashes[1]]),
+    ).toBeNull();
+    applied.value.assets.find((a) => a.id === products[0].slotId)!.source =
+      "operator-owned";
+    expect(productSetReferenceSha(applied.value, [], [])).toBe(hashes[0]);
+  });
   it("gives every product its own slot, made from the range's photography brief", async () => {
     const { pkg } = await fixture();
     const products = pkg.definition.preset.sampleData!.products;
@@ -833,6 +927,118 @@ async function cropOf(request: ThemeImageRequest, slot: GeneratableSlot) {
 }
 
 describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
+  it("continues drawing while reviews are pending without exceeding either concurrency limit", async () => {
+    const { pkg, intent } = await richFixture();
+    const fake = createFakeImageClient();
+    const draws: string[] = [];
+    let activeDraws = 0;
+    let peakDraws = 0;
+    let activeReviews = 0;
+    let peakReviews = 0;
+    const releases: (() => void)[] = [];
+    const controller = new AbortController();
+    const work = runThemeImageGeneration(
+      {
+        provider: "fake",
+        async generateImage(request, signal) {
+          draws.push(request.briefId);
+          peakDraws = Math.max(peakDraws, ++activeDraws);
+          try {
+            return await fake.generateImage(request, signal);
+          } finally {
+            activeDraws--;
+          }
+        },
+      },
+      {
+        pkg,
+        intent,
+        reviewer: {
+          providerModel: "fake",
+          client: {
+            provider: "fake",
+            async generate(request) {
+              const text = (request.content[0] as { text: string }).text;
+              if (!text.includes(ANCHOR)) {
+                peakReviews = Math.max(peakReviews, ++activeReviews);
+                await new Promise<void>((resolve) => {
+                  releases.push(resolve);
+                });
+                activeReviews--;
+              }
+              return {
+                kind: "ok",
+                value: { problems: [], note: "" },
+                usage: ZERO_USAGE,
+              };
+            },
+          },
+        },
+      },
+      controller.signal,
+      { concurrency: 2, reviewConcurrency: 2 },
+    );
+    try {
+      // Previously two reviews held both image lanes, leaving only three
+      // draws (anchor + two slots). Separate stages allow four slot draws.
+      await vi.waitFor(
+        () => {
+          expect(draws.length).toBeGreaterThanOrEqual(5);
+          expect(peakReviews).toBe(2);
+        },
+        {
+          timeout: 5000,
+        },
+      );
+      expect(peakDraws).toBeLessThanOrEqual(2);
+      expect(peakReviews).toBe(2);
+    } finally {
+      controller.abort();
+      releases.forEach((resolve) => resolve());
+      await work;
+    }
+  });
+
+  it("keeps a less flawed earlier candidate and never makes a flagged product the set reference", async () => {
+    const { pkg, intent } = await fixture();
+    const slots = generatableSlots(pkg, intent);
+    const products = slots.filter((s) => s.purpose === "product");
+    const seen: ThemeImageRequest[] = [];
+    const result = await runThemeImageGeneration(
+      scripted({}, seen),
+      {
+        pkg,
+        intent,
+        reviewer: scriptedReviewer((text, attempt) => {
+          if (text.includes(`Subject: ${products[0].brief.subject}`))
+            return ["poor_crop"];
+          if (text.includes(HERO))
+            return attempt === 1 ? ["off_style"] : ["off_style", "poor_crop"];
+          return [];
+        }),
+      },
+      new AbortController().signal,
+    );
+    const hero = slots.find((s) => s.slotId === "home-hero")!;
+    const first = seen.find((r) => r.briefId === hero.slotId)!;
+    expect(
+      result.images.find((i) => i.slotId === hero.slotId)?.image.sha256,
+    ).toBe((await cropOf(first, hero)).sha256);
+    expect(result.outcomes.find((o) => o.slotId === hero.slotId)).toMatchObject(
+      { review: "flagged", problems: ["off_style"] },
+    );
+    expect(
+      seen
+        .find((r) => r.briefId === products[1].slotId)
+        ?.references.map((r) => r.role),
+    ).toEqual(["anchor"]);
+    expect(
+      seen
+        .find((r) => r.briefId === products[2].slotId)
+        ?.references.map((r) => r.role),
+    ).toEqual(["anchor", "set"]);
+  });
+
   it("reviews every kept image once, and counts the reviews in the run's cost", async () => {
     const { pkg, intent } = await fixture();
     const slots = generatableSlots(pkg, intent);
@@ -861,7 +1067,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       imageCost + result.telemetry.reviewCostMicroUsd,
     );
     expect(result.telemetry.reviewPromptVersion).toBe(
-      "theme-studio-image-review-v4",
+      "theme-studio-image-review-v5",
     );
   });
 
@@ -942,7 +1148,8 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       problems: ["poor_crop"],
       note: "Seen: poor_crop.",
     });
-    const redraw = seen.filter((r) => r.briefId === "home-hero")[1];
+    // Equal reported problems keep the earlier paid candidate.
+    const redraw = seen.filter((r) => r.briefId === "home-hero")[0];
     const kept = result.images.find((i) => i.slotId === "home-hero")!.image;
     expect(kept.sha256).toBe((await cropOf(redraw, slot)).sha256);
   });
@@ -1055,7 +1262,9 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       ),
     ).toBe(true);
     expect(
-      result.telemetry.reviews.every((r) => r.outcome === "unavailable"),
+      result.telemetry.reviews.every(
+        (r) => r.outcome === "unavailable" && r.errorCode === "rate_limited",
+      ),
     ).toBe(true);
   });
 
@@ -1305,7 +1514,31 @@ describe("redrawing chosen slots", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         },
       },
       new AbortController().signal,
+      {
+        corrections: {
+          "home-hero": "Keep the mug handle intact and visible.",
+          nope: "Ignore me",
+        },
+      },
     );
+    expect(seen.find((r) => r.briefId === "home-hero")!.prompt).toContain(
+      "Keep the mug handle intact and visible.",
+    );
+    expect(
+      seen
+        .filter((r) => r.briefId !== "home-hero")
+        .every((r) => !r.prompt.includes("Keep the mug handle")),
+    ).toBe(true);
+    expect(
+      reviews.some((r) =>
+        r.content.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("Keep the mug handle intact and visible."),
+        ),
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(pkg)).not.toContain("QA correction for this slot");
     // No new anchor: three images for three slots.
     expect(seen.map((r) => r.briefId).sort()).toEqual(
       [productIds[1], productIds[2], "home-hero"].sort(),
@@ -1399,6 +1632,85 @@ it(
       result.outcomes.find((slot) => slot.slotId === failed),
     ).toMatchObject({ status: "failed", code: "provider_unavailable" });
     expect(result.anchor).not.toBeNull();
+  },
+  IMAGE_RUN_TIMEOUT_MS,
+);
+
+it(
+  "resumes a timed-out product leader's saved image before drawing its followers",
+  async () => {
+    const { pkg, intent } = await fixture();
+    const slots = generatableSlots(pkg, intent);
+    const products = slots.filter((s) => s.purpose === "product").slice(0, 2);
+    const other = slots.find((s) => s.purpose !== "product")!;
+    const only = [...products, other].map((s) => s.slotId);
+    const records = new Map<string, ImageCheckpoint>();
+    const store: ImageCheckpointStore = {
+      read: async (key) => records.get(key) ?? null,
+      write: async (key, value) => {
+        records.set(key, value);
+      },
+    };
+    const fake = createFakeImageClient();
+    const generateImage = vi.fn(fake.generateImage);
+    const client = { ...fake, generateImage };
+    const reviewer = createFakeImageReviewClient();
+    let productReviews = 0;
+    const generate = vi.fn(
+      async (request: StructuredRequest, signal: AbortSignal) => {
+        if (
+          request.content.some(
+            (b) => b.type === "text" && b.text.includes("catalogue pack shot"),
+          ) &&
+          productReviews++ === 0
+        )
+          return {
+            kind: "error" as const,
+            code: "provider_timeout" as const,
+            usage: ZERO_USAGE,
+          };
+        return reviewer.generate(request, signal);
+      },
+    );
+    const input = {
+      pkg,
+      intent,
+      only,
+      reviewer: { client: { ...reviewer, generate }, providerModel: "fake" },
+    };
+    const initial = await runThemeImageGeneration(
+      resumableImageClient(client, "fake", "v1", store),
+      input,
+      new AbortController().signal,
+      { review: resumableImageReview(store, 0), deferUnavailableReviews: true },
+    );
+    expect(initial.outcomes).toContainEqual({
+      slotId: products[0].slotId,
+      status: "failed",
+      attempts: 1,
+      code: "image_review_pending",
+    });
+    expect(initial.outcomes).toContainEqual({
+      slotId: products[1].slotId,
+      status: "skipped",
+    });
+    const resumed = await runThemeImageGeneration(
+      resumableImageClient(client, "fake", "v1", store),
+      input,
+      new AbortController().signal,
+      { review: resumableImageReview(store, 1), deferUnavailableReviews: true },
+    );
+    expect(resumed.images).toHaveLength(3);
+    expect(
+      resumed.outcomes.every(
+        (o) => o.status === "generated" && o.review === "passed",
+      ),
+    ).toBe(true);
+    expect(generateImage).toHaveBeenCalledTimes(4); // one anchor, three slots
+    const follower = generateImage.mock.calls.find(
+      ([r]) => r.briefId === products[1].slotId,
+    )![0];
+    expect(follower.references.map((r) => r.role)).toEqual(["anchor", "set"]);
   },
   IMAGE_RUN_TIMEOUT_MS,
 );
