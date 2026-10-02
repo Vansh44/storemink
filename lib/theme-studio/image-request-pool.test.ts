@@ -49,3 +49,79 @@ it("removes aborted waiters and releases a permit even when the SDK never settle
   await Promise.all([checkA, checkB]);
   await expect(c).resolves.toBe("survived");
 });
+
+it("pauses queued work during a shared cooldown, probes with one request, then restores capacity gradually", async () => {
+  const pool = new ImageRequestPool(3);
+  let resume!: () => void;
+  pool.coolDown(
+    new Promise<void>((resolve) => {
+      resume = resolve;
+    }),
+  );
+  const starts: number[] = [];
+  const release: (() => void)[] = [];
+  const runs = Array.from({ length: 9 }, (_, i) =>
+    pool.run(async (epoch) => {
+      starts.push(i);
+      await new Promise<void>((resolve) => {
+        release[i] = resolve;
+      });
+      pool.recovered(epoch);
+    }, new AbortController().signal),
+  );
+  await Promise.resolve();
+  expect(starts).toEqual([]);
+  resume();
+  const tick = async () => {
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+  };
+  await tick();
+  expect(starts).toEqual([0]);
+  for (let i = 0; i < 3; i++) {
+    release[i]();
+    await runs[i];
+    await tick();
+  }
+  expect(starts).toEqual([0, 1, 2, 3, 4]);
+  for (let i = 3; i < 6; i++) {
+    release[i]();
+    await runs[i];
+    await tick();
+  }
+  expect(starts).toEqual([0, 1, 2, 3, 4, 5, 6, 7, 8]);
+  release.slice(6).forEach((resolve) => resolve());
+  await Promise.all(runs);
+});
+
+it("does not let stale successes or a cancelled waiter bypass overlapping cooldowns", async () => {
+  const pool = new ImageRequestPool(3);
+  let a!: () => void;
+  let b!: () => void;
+  pool.coolDown(
+    new Promise<void>((resolve) => {
+      a = resolve;
+    }),
+  );
+  pool.coolDown(
+    new Promise<void>((resolve) => {
+      b = resolve;
+    }),
+  );
+  for (let i = 0; i < 6; i++) pool.recovered(0);
+  const cancelled = new AbortController();
+  const skipped = pool.run(async () => "bad", cancelled.signal);
+  const assertion = expect(skipped).rejects.toThrow("cancelled");
+  cancelled.abort(new Error("cancelled"));
+  await assertion;
+  let started = false;
+  const good = pool.run(async () => {
+    started = true;
+    return "ok";
+  }, new AbortController().signal);
+  a();
+  await Promise.resolve();
+  await Promise.resolve();
+  expect(started).toBe(false);
+  b();
+  await expect(good).resolves.toBe("ok");
+});

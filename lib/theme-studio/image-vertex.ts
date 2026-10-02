@@ -171,6 +171,7 @@ export interface ImageClientOptions {
   /** Test seams; production uses real timers and Math.random. */
   sleep?: (ms: number, signal?: AbortSignal) => Promise<boolean>;
   random?: () => number;
+  pool?: ReturnType<typeof imageRequestPool>;
   /** Test seam for the SDK call. */
   send?: (
     request: ThemeImageRequest,
@@ -184,11 +185,9 @@ export function createVertexImageClient(
 ): ThemeStudioImageClient {
   const sleep = options.sleep ?? sleepUnlessAborted;
   const random = options.random ?? Math.random;
-  const pool = imageRequestPool(
-    config.projectId,
-    config.location,
-    config.providerModel,
-  );
+  const pool =
+    options.pool ??
+    imageRequestPool(config.projectId, config.location, config.providerModel);
   let ai: GoogleGenAI | null = null;
   const send =
     options.send ??
@@ -232,22 +231,62 @@ export function createVertexImageClient(
     outer: AbortSignal,
   ): Promise<ThemeImageResult> {
     let waitedMs = 0;
+    const started = Date.now();
+    let capacityWaitMs = 0;
+    let providerAttempts = 0;
+    const timed = (result: ThemeImageResult): ThemeImageResult => ({
+      ...result,
+      timing: {
+        durationMs: Date.now() - started,
+        capacityWaitMs,
+        providerAttempts,
+      },
+    });
     for (let retry = 0; ; retry++) {
       let signal = outer;
+      let pendingWait: Promise<boolean> | null = null;
+      let retryDelay: number | null = null;
+      const queuedAt = Date.now();
       try {
-        return await pool.run(async () => {
-          // The attempt clock starts when a permit is acquired. Waiting behind
-          // another theme is bounded by the run signal, not provider latency.
-          signal = AbortSignal.any([
-            outer,
-            AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
-          ]);
-          // A provider cooldown must not occupy a permit while no request is
-          // running; other themes can still use available provider capacity.
-          return parseThemeImageResponse(
-            await abortable(() => send(request, signal), signal),
-          );
-        }, outer);
+        return timed(
+          await pool.run(async (epoch) => {
+            capacityWaitMs += Date.now() - queuedAt;
+            // The attempt clock starts when a permit is acquired. Waiting behind
+            // another theme is bounded by the run signal, not provider latency.
+            signal = AbortSignal.any([
+              outer,
+              AbortSignal.timeout(IMAGE_REQUEST_TIMEOUT_MS),
+            ]);
+            // Cooldowns consume no active permit; admission waits until the
+            // shared pause settles, then resumes at the reduced probe limit.
+            providerAttempts++;
+            try {
+              const result = parseThemeImageResponse(
+                await abortable(() => send(request, signal), signal),
+              );
+              pool.recovered(epoch);
+              return result;
+            } catch (error) {
+              // Register the shared pause BEFORE releasing this permit, so
+              // queued slots cannot surge into the same exhausted capacity.
+              if (
+                !signal.aborted &&
+                classifyProviderError(error) === "rate_limited"
+              ) {
+                const delay = rateLimitDelayMs(retry, random);
+                if (
+                  retry < RATE_LIMIT_BACKOFF.retries &&
+                  waitedMs + delay <= RATE_LIMIT_BACKOFF.totalMs
+                ) {
+                  retryDelay = delay;
+                  pendingWait = sleep(delay, outer);
+                }
+                pool.coolDown(pendingWait ?? Promise.resolve());
+              }
+              throw error;
+            }
+          }, outer),
+        );
       } catch (error) {
         const code = outer.aborted
           ? "cancelled"
@@ -256,10 +295,10 @@ export function createVertexImageClient(
             : classifyProviderError(error);
         const delay =
           code === "rate_limited" && retry < RATE_LIMIT_BACKOFF.retries
-            ? rateLimitDelayMs(retry, random)
+            ? retryDelay
             : null;
         if (delay === null || waitedMs + delay > RATE_LIMIT_BACKOFF.totalMs) {
-          return { kind: "error", code, usage: ZERO_IMAGE_USAGE };
+          return timed({ kind: "error", code, usage: ZERO_IMAGE_USAGE });
         }
         // Purpose and brief id only: never the prompt or the references.
         logWarn("theme_studio.image_rate_limited_retry", {
@@ -268,13 +307,16 @@ export function createVertexImageClient(
           retry: retry + 1,
           waitMs: delay,
         });
-        if (!(await sleep(delay, outer))) {
-          return {
+        const waitStarted = Date.now();
+        if (!(await pendingWait)) {
+          capacityWaitMs += Date.now() - waitStarted;
+          return timed({
             kind: "error",
             code: "cancelled",
             usage: ZERO_IMAGE_USAGE,
-          };
+          });
         }
+        capacityWaitMs += Date.now() - waitStarted;
         waitedMs += delay;
       }
     }

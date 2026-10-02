@@ -3335,7 +3335,8 @@ wholesip/
 │   │                          # abortable; SDK keeps the fast 5xx retry),
 │   │                          # abortable.ts (whole-call deadlines, including SDK auth/retries),
 │   │                          # image-request-pool.ts (three image calls shared by concurrent
-│   │                          # worker lanes per provider project/location/model, process-local),
+│   │                          # worker lanes per provider project/location/model, shared 429
+│   │                          # pause and gradual recovery, process-local),
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
@@ -4010,7 +4011,11 @@ wholesip/
 │   │                          # any package safety violation.
 │   ├── theme-studio-image-check.ts # ★ Track 3 image client end to end, no DB:
 │   │                          # anchor → product → product. Offline (fake) by
-│   │                          # default; --live needs --yes (three paid calls).
+│   │                          # default; --live needs --yes (three paid draws), --review
+│   │                          # adds quality checks; --apparel and --retake-from test staging;
+│   │                          # --review-from rechecks a saved synthetic tank without redrawing.
+│   ├── theme-studio-renderer-check.mjs # ★ Offline Chromium fixture using production
+│   │                          # CSS: carousel targets/focus and hero crops at five QA widths.
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
 │   │                          # the two Theme Studio Gemini models. --dry-run makes no
 │   │                          # request; a live probe sends one FREE countTokens call per
@@ -5539,6 +5544,42 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     into default commerce footers while preserving merchant-authored copy and
     toggles. No merchant action changes and no Help Centre update.
     Diagnosis and verification: `docs/theme-studio-performance.md`.
+    **Image execution optimisation (2026-10-02):** image draws and HIGH-effort
+    reviews have separate per-run pools capped at three, with a bounded six
+    in-flight slot tasks so slow reviews do not occupy drawing capacity. The
+    shared provider pool pauses queued requests together after 429s, probes
+    with one request, then restores one permit per three successful responses;
+    pre-cooldown responses cannot restore capacity. Cooldowns consume no active
+    permit. This is process-local smoothing, not a provider quota guarantee.
+    Paid errors remain single-attempt; free 429 retries retain existing bounds.
+    Retakes keep the candidate with the fewest applicable nonblocking findings
+    rather than blindly replacing it with the last image. Reviewed runs select
+    a passed product as SET; resumed fills/redraws require a passed review of
+    that exact generated asset hash in the version ancestry. Operator-owned
+    or curated product references remain eligible. Product framing uses
+    readable, unfolded garments and plain initial staging; validated SET staging
+    overrides anchor props and conflicting briefs. Prompt versions are
+    `theme-studio-image-v2` and `theme-studio-image-review-v5`. Unknown-only
+    review answers are invalid evidence, not a passed review. Telemetry records
+    draw/review/run duration, capacity wait, provider attempts, review failure
+    codes and reference roles without prompts or image data. `theme-studio-image-check.ts` with
+    `--review --apparel` produces a timed synthetic check; `--retake-from=<check-dir>`
+    validates one staging retake using its test references. `--review-from`
+    retries validation of a saved synthetic tank without another image draw;
+    both saved-image modes require passed anchor/product reviews. No database writes.
+    Model, 2K output, safety values, HIGH review effort and ULTRA_HIGH media
+    resolution remain unchanged. No merchant action changes, no Help Centre
+    update; no migration is required.
+    **Aurelle renderer corrections (2026-10-02):** carousel pagination buttons
+    have separate 32px click areas and 9px visual dots, with keyboard focus
+    indicators and current-slide semantics. Banner/split heroes stack their
+    media in a stable 4:3 frame below 860px rather than a fixed 220px strip;
+    section height presets no longer distort that stacked frame. These shared
+    renderer fixes address failures that scalar theme repairs cannot change.
+    `scripts/theme-studio-renderer-check.mjs` checks production CSS offline in
+    Chromium across five QA widths, portrait/landscape sources, stacked height
+    presets and eight carousel controls. It is a fixture, not full storefront
+    or provider validation. No merchant action changes, no Help Centre update.
     Security failures block; runtime/coverage/asset-integrity
     failures and the final unsuccessful repair reveal `operator/failed` for
     recovery, with **Needs attention** on the workspace's current failed result.
@@ -5615,7 +5656,8 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     previously ran only if generation finished within the 5-second claim
     budget, which could starve it behind a populated run queue.
     `image-request-pool.ts` shares three image permits across both lanes for
-    each provider project/location/model, including 429 backoff; cancelled
+    each provider project/location/model; 429s pause admission while releasing
+    active permits and then probe with reduced concurrency. Cancelled
     waiters leave the queue. This bound is process-local, not distributed
     quota enforcement. Separate concurrent worker invocations can still meet
     provider rate limits; bounded backoff and missing-slot fill runs remain.

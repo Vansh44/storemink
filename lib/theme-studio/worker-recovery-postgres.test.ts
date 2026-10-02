@@ -186,6 +186,63 @@ it.skipIf(process.env.THEME_STUDIO_RECOVERY_DB_TEST !== "1")(
           )
         ).rows[0],
       ).toEqual({ read: false, write: true, update: false, delete: false });
+      // Exercise actual image settlement and the recursive exact-byte review
+      // lookup on a redraw. Both runs use offline providers and roll back.
+      let anchorId: string | null = null;
+      for (let round = 0; round < 2; round++) {
+        const [base] = (
+          await pg.query(
+            "SELECT id, package_digest, package_json FROM theme_studio_versions WHERE project_id=$1 ORDER BY version_number DESC LIMIT 1",
+            [id],
+          )
+        ).rows;
+        const slot = base.package_json.assets.find(
+          (a: { kind: string }) => a.kind === "product",
+        ).id;
+        const imageMessage = randomUUID();
+        const imageRun = randomUUID();
+        await pg.query(
+          "UPDATE theme_studio_projects SET status='generating' WHERE id=$1",
+          [id],
+        );
+        await pg.query(
+          "INSERT INTO theme_studio_messages (id,project_id,kind,body) VALUES ($1,$2,'images','Offline image verification')",
+          [imageMessage, id],
+        );
+        await pg.query(
+          `INSERT INTO theme_studio_runs (id,project_id,message_id,kind,provider,model_key,provider_model,prompt_version,idempotency_key,base_version_id,base_package_digest,image_slot_ids,max_attempts,created_at)
+          VALUES ($1,$2,$3,'images','fake','gemini-3.8-flash','fake','test',$4,$5,$6,$7,1,'1900-01-01')`,
+          [
+            imageRun,
+            id,
+            imageMessage,
+            `images_${imageRun}`,
+            base.id,
+            base.package_digest,
+            round ? [slot] : [],
+          ],
+        );
+        expect(
+          await runThemeStudioWorker({ ...options, providers: ["fake"] }),
+        ).toMatchObject({ claimed: 1, succeeded: 1 });
+        const [finished] = (
+          await pg.query(
+            "SELECT status,usage,outcome_detail FROM theme_studio_runs WHERE id=$1",
+            [imageRun],
+          )
+        ).rows;
+        expect(finished.status).toBe("succeeded");
+        expect(finished.usage.durationMs).toBeGreaterThanOrEqual(0);
+        if (!round) anchorId = finished.outcome_detail.anchorAssetId;
+        else {
+          expect(finished.outcome_detail.anchorAssetId).toBe(anchorId);
+          expect(finished.usage.calls).toHaveLength(1);
+          expect(finished.usage.calls[0].referenceRoles).toEqual([
+            "anchor",
+            "set",
+          ]);
+        }
+      }
       // Invalid checkpoint kinds (including JSON null) and a fifth recovery
       // must fail at the database boundary, not merely in application code.
       for (const statement of [

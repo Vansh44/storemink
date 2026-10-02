@@ -23,6 +23,7 @@ import {
   type ThemeImagePurpose,
   type ThemeImageReference,
   type ThemeImageRequest,
+  type ThemeImageResult,
   type ThemeStudioImageClient,
 } from "./image-provider";
 import {
@@ -36,10 +37,10 @@ import {
   reviewThemeImage,
   type ThemeImageProblem,
 } from "./image-review";
-import type { ThemeStudioModelClient } from "./provider";
+import { ZERO_USAGE, type ThemeStudioModelClient } from "./provider";
 import { THEME_IMAGE_RULES } from "@/lib/themes/validation";
 import { prepareSlotImage, type PreparedSlotImage } from "./slot-images";
-import { abortable } from "./abortable";
+import { ImageRequestPool } from "./image-request-pool";
 
 // ---------------------------------------------------------------------------
 // One image run: the anchor, then every placeholder slot matched to it, each
@@ -63,11 +64,11 @@ import { abortable } from "./abortable";
 // spent, not only what was kept. The reviewer's calls are counted too.
 //
 // ★ ONE STAGING ACROSS PRODUCTS (Track 3.3). The anchor sets the theme's look;
-// it does not set a camera. So the first product shot that comes back becomes
+// it does not set a camera. So the first product shot that passes review becomes
 // a second reference, SET, and every later product is matched to both: same
 // backdrop, camera height, framing and scale, a different product. Products
 // are drawn one at a time until that first one lands (a refused, unusable or
-// rejected leader is not a reference), while the other slots, which need no
+// flagged or unreviewed leader is not a reference), while the other slots, which need no
 // set shot, start at once alongside it.
 //
 // ★ EVERY IMAGE IS REVIEWED, AND A REJECTED ONE IS REDRAWN (Track 3.4,
@@ -124,6 +125,10 @@ export interface ImageCall {
   inputTokens: number;
   outputTokens: number;
   estimatedCostMicroUsd: number;
+  durationMs?: number;
+  capacityWaitMs?: number;
+  providerAttempts?: number;
+  referenceRoles?: ThemeImageReference["role"][];
 }
 
 export interface ReviewCall {
@@ -135,6 +140,8 @@ export interface ReviewCall {
   outputTokens: number;
   thinkingTokens: number;
   estimatedCostMicroUsd: number;
+  durationMs?: number;
+  errorCode?: string;
 }
 
 export interface ThemeImageRunResult {
@@ -159,6 +166,7 @@ export interface ThemeImageRunResult {
     reviewPricingVersion: string;
     reviewPromptVersion: string;
     reviewModelKey: string;
+    durationMs?: number;
   };
 }
 
@@ -176,6 +184,7 @@ export interface ThemeImageReviewer {
 
 export interface ImageRunOptions {
   concurrency?: number;
+  reviewConcurrency?: number;
   /** Test seam; production crops with sharp. */
   prepare?: typeof prepareSlotImage;
 }
@@ -233,15 +242,39 @@ export async function runThemeImageGeneration(
   const prepare = options.prepare ?? prepareSlotImage;
   const slots = generatableSlots(input.pkg, input.intent, input.only);
   const direction = directionFromPackage(input.pkg, input.intent);
+  const started = Date.now();
+  const drawConcurrency = Math.max(
+    1,
+    Math.min(IMAGE_CONCURRENCY, options.concurrency ?? IMAGE_CONCURRENCY),
+  );
+  const reviewConcurrency = Math.max(
+    1,
+    Math.min(IMAGE_CONCURRENCY, options.reviewConcurrency ?? IMAGE_CONCURRENCY),
+  );
+  const drawPool = new ImageRequestPool(drawConcurrency);
+  const reviewPool = new ImageRequestPool(reviewConcurrency);
   const calls: ImageCall[] = [];
   const reviews: ReviewCall[] = [];
-  const record = (request: ThemeImageRequest, usage: ImageUsage) => {
+  const record = (
+    request: ThemeImageRequest,
+    usage: ImageUsage,
+    durationMs: number,
+    timing?: ThemeImageResult["timing"],
+  ) => {
     calls.push({
       purpose: request.purpose,
       briefId: request.briefId,
       inputTokens: usage.inputTokens,
       outputTokens: usage.outputTokens,
       estimatedCostMicroUsd: estimateImageCostMicroUsd(usage),
+      referenceRoles: request.references.map((r) => r.role),
+      durationMs,
+      ...(timing
+        ? {
+            capacityWaitMs: timing.capacityWaitMs,
+            providerAttempts: timing.providerAttempts,
+          }
+        : {}),
     });
   };
   const finish = (
@@ -268,6 +301,7 @@ export async function runThemeImageGeneration(
         reviewPricingVersion: THEME_STUDIO_PRICING_VERSION,
         reviewPromptVersion: THEME_IMAGE_REVIEW_PROMPT_VERSION,
         reviewModelKey: THEME_IMAGE_REVIEW_MODEL_KEY,
+        durationMs: Date.now() - started,
       },
     };
   };
@@ -313,9 +347,10 @@ export async function runThemeImageGeneration(
     for (let attempt = 1; ; attempt++) {
       if (signal.aborted) return settle(attempt - 1, { status: "skipped" });
       const request = args.request(retake);
+      const drawStarted = Date.now();
       let result;
       try {
-        result = await abortable(
+        result = await drawPool.run(
           () => client.generateImage(request, signal),
           signal,
         );
@@ -328,7 +363,7 @@ export async function runThemeImageGeneration(
           code: signal.aborted ? "cancelled" : "provider_unavailable",
         });
       }
-      record(request, result.usage);
+      record(request, result.usage, Date.now() - drawStarted, result.timing);
       if (result.kind === "refused") {
         // A refusal is not billed, so it is redrawn with the reason it was
         // blocked rather than abandoned.
@@ -384,21 +419,35 @@ export async function runThemeImageGeneration(
         problems,
         note,
       });
-      if (!input.reviewer || !drawn.prepared) return kept("unreviewed");
+      const reviewer = input.reviewer;
+      const candidate = drawn.prepared;
+      if (!reviewer || !candidate) return kept("unreviewed");
 
-      const review = await reviewThemeImage(
-        input.reviewer.client,
-        input.reviewer.providerModel,
-        {
-          purpose: args.purpose,
-          brief: args.brief,
-          candidate: base64(drawn.prepared.bytes),
-          anchor: args.reviewAnchor,
-          set: args.reviewSet,
-          attempt,
-        },
-        signal,
-      );
+      const reviewStarted = Date.now();
+      const review = await reviewPool
+        .run(
+          () =>
+            reviewThemeImage(
+              reviewer.client,
+              reviewer.providerModel,
+              {
+                purpose: args.purpose,
+                brief: args.brief,
+                candidate: base64(candidate.bytes),
+                anchor: args.reviewAnchor,
+                set: args.reviewSet,
+                attempt,
+              },
+              signal,
+            ),
+          signal,
+        )
+        .catch(() => ({
+          kind: "unavailable" as const,
+          code: signal.aborted ? "cancelled" : "provider_unavailable",
+          usage: ZERO_USAGE,
+          estimatedCostMicroUsd: 0,
+        }));
       reviews.push({
         briefId: args.briefId,
         attempt,
@@ -413,6 +462,8 @@ export async function runThemeImageGeneration(
         outputTokens: review.usage.outputTokens,
         thinkingTokens: review.usage.thinkingTokens,
         estimatedCostMicroUsd: review.estimatedCostMicroUsd,
+        durationMs: Date.now() - reviewStarted,
+        ...(review.kind === "unavailable" ? { errorCode: review.code } : {}),
       });
       // A reviewer outage keeps the image: this is a quality check, and the
       // image model's own safety filters have already run.
@@ -422,7 +473,10 @@ export async function runThemeImageGeneration(
       if (isBlocking(review.problems, args.purpose)) {
         lastRejection = { problems: review.problems, note: review.note };
       } else {
-        fallback = kept("flagged", review.problems, review.note);
+        // Keep the least flawed paid candidate. A later redraw with more
+        // problems must not overwrite a better earlier photograph.
+        if (!fallback || review.problems.length < fallback.problems.length)
+          fallback = kept("flagged", review.problems, review.note);
       }
       if (attempt > redraws) {
         return settle(attempt, {
@@ -596,7 +650,7 @@ export async function runThemeImageGeneration(
   const others = slots.filter((s) => s.purpose !== "product");
   const queue: (() => Promise<unknown>)[] = [];
   // A reused product photo is the set shot from the start, so every product
-  // is drawn at once; otherwise the first product that lands becomes it.
+  // is drawn at once; otherwise the first product that passes review becomes it.
   let setRef: ThemeImageReference | null = seed?.set
     ? {
         role: "set",
@@ -620,8 +674,14 @@ export async function runThemeImageGeneration(
       const waiting = [...products];
       try {
         while (!setRef && waiting.length > 0 && !signal.aborted) {
-          const kept = await drawOne(waiting.shift()!, [anchorRef], null);
-          if (kept) {
+          const slot = waiting.shift()!;
+          const kept = await drawOne(slot, [anchorRef], null);
+          const leader = outcomes.get(slot.slotId);
+          if (
+            kept &&
+            (input.reviewer === null ||
+              (leader?.status === "generated" && leader.review === "passed"))
+          ) {
             setRef = {
               role: "set",
               mediaType: kept.mediaType,
@@ -661,7 +721,12 @@ export async function runThemeImageGeneration(
       {
         length: Math.max(
           1,
-          Math.min(options.concurrency ?? IMAGE_CONCURRENCY, slots.length),
+          Math.min(
+            input.reviewer
+              ? drawConcurrency + reviewConcurrency
+              : drawConcurrency,
+            slots.length,
+          ),
         ),
       },
       worker,

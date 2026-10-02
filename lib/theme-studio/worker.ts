@@ -37,6 +37,7 @@ import { THEME_IMAGE_REVIEW_MODEL_KEY } from "./image-review";
 import {
   applyGeneratedImages,
   generatableSlots,
+  productSetReferenceSha,
 } from "./image-generation-core";
 import {
   AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
@@ -782,7 +783,20 @@ async function loadImageSeed(
           JOIN chain c ON v.id = c.parent
          WHERE c.depth < 50 AND v.project_id = ${run.projectId}::uuid
       )
-      SELECT a.id AS "id", a.bytes AS "bytes"
+      SELECT a.id AS "id", a.bytes AS "bytes",
+        ARRAY(
+          SELECT DISTINCT asset ->> 'sha256'
+            FROM chain history
+            JOIN theme_studio_versions v ON v.id = history.id
+            JOIN theme_studio_runs image_run ON image_run.id = history.run_id
+             AND image_run.project_id = ${run.projectId}::uuid AND image_run.kind = 'images'
+            CROSS JOIN LATERAL jsonb_array_elements(COALESCE(image_run.outcome_detail -> 'outcomes', '[]'::jsonb)) outcome
+            CROSS JOIN LATERAL jsonb_array_elements(v.package_json -> 'assets') asset
+           WHERE outcome ->> 'status' = 'generated'
+             AND outcome ->> 'review' = 'passed'
+             AND asset ->> 'id' = outcome ->> 'slotId'
+             AND asset ->> 'kind' = 'product'
+        ) AS "passedProducts"
         FROM chain c
         JOIN theme_studio_runs r ON r.id = c.run_id AND r.kind = 'images'
         JOIN theme_studio_assets a
@@ -793,20 +807,16 @@ async function loadImageSeed(
        ORDER BY c.depth
        LIMIT 1
     `);
-    const anchor = anchors.rows[0] as { id: string; bytes: Buffer } | undefined;
+    const anchor = anchors.rows[0] as
+      | { id: string; bytes: Buffer; passedProducts: string[] }
+      | undefined;
     if (!anchor) return null;
 
-    const redrawn = new Set(run.imageSlotIds);
-    const setSlot = describeSlots(pkg).find(
-      (slot) =>
-        slot.kind === "product" &&
-        !slot.placeholder &&
-        !redrawn.has(slot.id) &&
-        pkg.assets.find((a) => a.id === slot.id)?.sha256,
+    const sha = productSetReferenceSha(
+      pkg,
+      run.imageSlotIds,
+      anchor.passedProducts,
     );
-    const sha = setSlot
-      ? pkg.assets.find((a) => a.id === setSlot.id)?.sha256
-      : null;
     let set: { bytes: Uint8Array; mediaType: "image/webp" } | null = null;
     if (sha) {
       const [row] = await db

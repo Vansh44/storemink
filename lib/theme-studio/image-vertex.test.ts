@@ -197,7 +197,7 @@ describe("the Vertex client", () => {
       expect(send).toHaveBeenCalledTimes(1);
     }
   });
-  it("releases request permits during 429 cooldowns so another theme can progress", async () => {
+  it("coordinates provider cooldowns across themes instead of sending new slots into a 429 storm", async () => {
     const release: (() => void)[] = [];
     const retried = new Set<string>();
     const client = createVertexImageClient(
@@ -227,6 +227,9 @@ describe("the Vertex client", () => {
           healthyDone = result.kind === "ok";
           return result;
         });
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      expect(healthyDone).toBe(false);
+      release.forEach((resolve) => resolve());
       await vi.waitFor(() => expect(healthyDone).toBe(true));
       await healthy;
     } finally {

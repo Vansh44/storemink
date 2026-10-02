@@ -133,6 +133,7 @@ export function HeroCarouselSection({
                   className={`home-carousel-dot ${i === index ? "is-active" : ""}`}
                   onClick={() => setIndex(i)}
                   aria-label={`Go to slide ${i + 1}`}
+                  aria-current={i === index ? "true" : undefined}
                 />
               ))}
             </div>

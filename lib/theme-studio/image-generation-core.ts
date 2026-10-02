@@ -53,6 +53,28 @@ const GENERATABLE_KINDS: ReadonlySet<SlotDescriptor["kind"]> = new Set([
 export const GENERATED_LICENSE_NOTE =
   "Generated for this theme by StoreMink Theme Studio with an AI image model.";
 
+/** A generated staging reference must have passed review for these exact
+ * bytes. Operator/curated artwork retains its owner's choice. */
+export function productSetReferenceSha(
+  pkg: ThemePackageV2,
+  excluded: readonly string[],
+  passedHashes: readonly string[],
+): string | null {
+  const skip = new Set(excluded);
+  const passed = new Set(passedHashes);
+  for (const slot of describeSlots(pkg)) {
+    if (slot.kind !== "product" || slot.placeholder || skip.has(slot.id))
+      continue;
+    const asset = pkg.assets.find((a) => a.id === slot.id);
+    if (
+      asset?.sha256 &&
+      (asset.source !== "generated" || passed.has(asset.sha256))
+    )
+      return asset.sha256;
+  }
+  return null;
+}
+
 export interface GeneratableSlot {
   slotId: string;
   purpose: Exclude<ThemeImagePurpose, "anchor">;

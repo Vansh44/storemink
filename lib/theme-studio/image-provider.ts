@@ -11,7 +11,7 @@ import type { ProviderErrorCode } from "./provider";
 /** Names the prompt document and request builder an image run used, recorded
  *  on the run like a text run's prompt version. Bump it with any change to
  *  docs/theme-studio-image-prompt.md or image-prompt.ts. */
-export const THEME_STUDIO_IMAGE_PROMPT_VERSION = "theme-studio-image-v1";
+export const THEME_STUDIO_IMAGE_PROMPT_VERSION = "theme-studio-image-v2";
 export const THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION =
   "theme-studio-image-fake-v1";
 
@@ -79,7 +79,7 @@ export interface ImageUsage {
 
 export const ZERO_IMAGE_USAGE: ImageUsage = { inputTokens: 0, outputTokens: 0 };
 
-export type ThemeImageResult =
+export type ThemeImageResult = (
   | {
       kind: "ok";
       bytes: Uint8Array;
@@ -88,7 +88,15 @@ export type ThemeImageResult =
     }
   /** The provider withheld the image on policy grounds: a normal outcome. */
   | { kind: "refused"; reason: string | null; usage: ImageUsage }
-  | { kind: "error"; code: ProviderErrorCode; usage: ImageUsage };
+  | { kind: "error"; code: ProviderErrorCode; usage: ImageUsage }
+) & {
+  /** Operational timing only; no prompt, reference or provider error text. */
+  timing?: {
+    durationMs: number;
+    capacityWaitMs: number;
+    providerAttempts: number;
+  };
+};
 
 export interface ThemeStudioImageClient {
   readonly provider: "fake" | "vertex-gemini";
