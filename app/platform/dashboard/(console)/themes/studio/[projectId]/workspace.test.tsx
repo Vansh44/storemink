@@ -125,44 +125,53 @@ it("refreshes immediately when an unfinished theme tab becomes visible again", (
   expect(refresh).toHaveBeenCalledTimes(1);
 });
 
-it("shows a capacity cooldown with recovery count and cancellation, without offering another retry", () => {
-  render(
-    <ProjectWorkspace
-      {...props}
-      project={{
-        ...project,
-        runs: [
-          {
-            id: "run",
-            kind: "revise",
-            status: "queued",
-            provider: "vertex-gemini",
-            modelKey: "gemini-3.8-flash",
-            attemptCount: 1,
-            maxAttempts: 3,
-            retryNotBefore: "2026-10-02T05:30:00Z",
-            rateLimitDeferrals: 2,
-            errorCode: null,
-            cancelRequested: false,
-            retryOfRunId: null,
-            baseVersionId: null,
-            createdAt: "2026-10-02T05:00:00Z",
-            startedAt: "2026-10-02T05:00:00Z",
-            finishedAt: null,
-            usage: null,
-            images: null,
-            imageSlotIds: [],
-            questions: [],
-            declineReason: null,
-            refusalCategory: null,
-          },
-        ],
-      }}
-    />,
-  );
-  expect(
-    screen.getByText(/Waiting for model provider capacity/).textContent,
-  ).toContain("Automatic recovery 2/4");
-  expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
-});
+it.each(["revise", "images"] as const)(
+  "shows the correct %s cooldown with cancellation, without offering another retry",
+  (kind) => {
+    render(
+      <ProjectWorkspace
+        {...props}
+        project={{
+          ...project,
+          runs: [
+            {
+              id: "run",
+              kind,
+              status: "queued",
+              provider: "vertex-gemini",
+              modelKey: "gemini-3.8-flash",
+              attemptCount: 1,
+              maxAttempts: 3,
+              retryNotBefore: "2026-10-02T05:30:00Z",
+              rateLimitDeferrals: 2,
+              imageReviewDeferrals: 1,
+              errorCode: null,
+              cancelRequested: false,
+              retryOfRunId: null,
+              baseVersionId: null,
+              createdAt: "2026-10-02T05:00:00Z",
+              startedAt: "2026-10-02T05:00:00Z",
+              finishedAt: null,
+              usage: null,
+              images: null,
+              imageSlotIds: [],
+              questions: [],
+              declineReason: null,
+              refusalCategory: null,
+            },
+          ],
+        }}
+      />,
+    );
+    if (kind === "images")
+      expect(screen.getByText(/Artwork is saved/).textContent).toContain(
+        "Image review retry 1/2",
+      );
+    else
+      expect(
+        screen.getByText(/Waiting for model provider capacity/).textContent,
+      ).toContain("Automatic recovery 2/4");
+    expect(screen.getByRole("button", { name: "Cancel" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
+  },
+);

@@ -36,7 +36,10 @@ import {
   refusalRetakeText,
   reviewThemeImage,
   type ThemeImageProblem,
+  type ThemeImageReview,
+  type ThemeImageReviewInput,
 } from "./image-review";
+import { ImageCheckpointError } from "./image-recovery";
 import { ZERO_USAGE, type ThemeStudioModelClient } from "./provider";
 import { THEME_IMAGE_RULES } from "@/lib/themes/validation";
 import { prepareSlotImage, type PreparedSlotImage } from "./slot-images";
@@ -44,8 +47,8 @@ import { ImageRequestPool } from "./image-request-pool";
 
 // ---------------------------------------------------------------------------
 // One image run: the anchor, then every placeholder slot matched to it, each
-// cropped and compressed to its slot. No database: the worker stores the
-// results and writes the version.
+// cropped and compressed to its slot. The worker's injected clients checkpoint
+// original draws and reviews immediately; final settlement writes one version.
 //
 // ★ THE ANCHOR GATES THE RUN. Every later image is asked to match it, so if it
 // is refused, fails or is rejected by the reviewer, nothing else is attempted
@@ -187,6 +190,15 @@ export interface ImageRunOptions {
   reviewConcurrency?: number;
   /** Test seam; production crops with sharp. */
   prepare?: typeof prepareSlotImage;
+  /** Production journals review evidence separately from paid draws. */
+  review?: (
+    reviewer: ThemeImageReviewer,
+    input: ThemeImageReviewInput,
+    signal: AbortSignal,
+    briefId: string,
+  ) => Promise<ThemeImageReview>;
+  /** Pause the run on reviewer outages; never let them trigger paid redraws. */
+  deferUnavailableReviews?: boolean;
 }
 
 interface Drawn {
@@ -253,6 +265,7 @@ export async function runThemeImageGeneration(
   );
   const drawPool = new ImageRequestPool(drawConcurrency);
   const reviewPool = new ImageRequestPool(reviewConcurrency);
+  let laneFailed = false;
   const calls: ImageCall[] = [];
   const reviews: ReviewCall[] = [];
   const record = (
@@ -345,7 +358,8 @@ export async function runThemeImageGeneration(
     };
     let retake: ThemeImageRetake | undefined;
     for (let attempt = 1; ; attempt++) {
-      if (signal.aborted) return settle(attempt - 1, { status: "skipped" });
+      if (signal.aborted || laneFailed)
+        return settle(attempt - 1, { status: "skipped" });
       const request = args.request(retake);
       const drawStarted = Date.now();
       let result;
@@ -354,7 +368,8 @@ export async function runThemeImageGeneration(
           () => client.generateImage(request, signal),
           signal,
         );
-      } catch {
+      } catch (error) {
+        if (error instanceof ImageCheckpointError) throw error;
         // One unexpected SDK failure must not reject Promise.all and discard
         // all paid images from the other lanes. Fill runs retry just this slot.
         return settle(attempt, {
@@ -427,9 +442,17 @@ export async function runThemeImageGeneration(
       const review = await reviewPool
         .run(
           () =>
-            reviewThemeImage(
-              reviewer.client,
-              reviewer.providerModel,
+            (
+              options.review ??
+              ((reviewer, input, signal) =>
+                reviewThemeImage(
+                  reviewer.client,
+                  reviewer.providerModel,
+                  input,
+                  signal,
+                ))
+            )(
+              reviewer,
               {
                 purpose: args.purpose,
                 brief: args.brief,
@@ -439,15 +462,19 @@ export async function runThemeImageGeneration(
                 attempt,
               },
               signal,
+              args.briefId,
             ),
           signal,
         )
-        .catch(() => ({
-          kind: "unavailable" as const,
-          code: signal.aborted ? "cancelled" : "provider_unavailable",
-          usage: ZERO_USAGE,
-          estimatedCostMicroUsd: 0,
-        }));
+        .catch((error) => {
+          if (error instanceof ImageCheckpointError) throw error;
+          return {
+            kind: "unavailable" as const,
+            code: signal.aborted ? "cancelled" : "provider_unavailable",
+            usage: ZERO_USAGE,
+            estimatedCostMicroUsd: 0,
+          };
+        });
       reviews.push({
         briefId: args.briefId,
         attempt,
@@ -467,7 +494,15 @@ export async function runThemeImageGeneration(
       });
       // A reviewer outage keeps the image: this is a quality check, and the
       // image model's own safety filters have already run.
-      if (review.kind === "unavailable") return kept("unreviewed");
+      if (review.kind === "unavailable") {
+        if (options.deferUnavailableReviews)
+          return {
+            status: "failed",
+            attempts: attempt,
+            code: "image_review_pending",
+          };
+        return kept("unreviewed");
+      }
       if (review.problems.length === 0) return kept("passed");
 
       if (isBlocking(review.problems, args.purpose)) {
@@ -673,10 +708,22 @@ export async function runThemeImageGeneration(
     queue.push(async () => {
       const waiting = [...products];
       try {
-        while (!setRef && waiting.length > 0 && !signal.aborted) {
+        while (
+          !setRef &&
+          waiting.length > 0 &&
+          !signal.aborted &&
+          !laneFailed
+        ) {
           const slot = waiting.shift()!;
           const kept = await drawOne(slot, [anchorRef], null);
           const leader = outcomes.get(slot.slotId);
+          // Establish SET only after the leader's saved photograph is reviewed.
+          // Drawing followers now would change their requests on recovery.
+          if (
+            leader?.status === "failed" &&
+            leader.code === "image_review_pending"
+          )
+            break;
           if (
             kept &&
             (input.reviewer === null ||
@@ -690,11 +737,24 @@ export async function runThemeImageGeneration(
             setForReview = kept.prepared ? base64(kept.prepared.bytes) : null;
           }
         }
+      } catch (error) {
+        laneFailed = true;
+        throw error;
       } finally {
         const refs = setRef ? [anchorRef, setRef] : [anchorRef];
-        for (const slot of waiting) {
-          queue.push(() => drawOne(slot, refs, setForReview));
-        }
+        if (
+          !laneFailed &&
+          !products.some((s) => {
+            const outcome = outcomes.get(s.slotId);
+            return (
+              outcome?.status === "failed" &&
+              outcome.code === "image_review_pending"
+            );
+          })
+        )
+          for (const slot of waiting) {
+            queue.push(() => drawOne(slot, refs, setForReview));
+          }
         leaderSettled = true;
         releaseLeader();
       }
@@ -706,9 +766,15 @@ export async function runThemeImageGeneration(
 
   const worker = async () => {
     for (;;) {
+      if (laneFailed) return;
       const task = queue.shift();
       if (task) {
-        await task();
+        try {
+          await task();
+        } catch (error) {
+          laneFailed = true;
+          throw error;
+        }
       } else if (!leaderSettled) {
         await leaderDone;
       } else {
@@ -716,7 +782,7 @@ export async function runThemeImageGeneration(
       }
     }
   };
-  await Promise.all(
+  const settled = await Promise.allSettled(
     Array.from(
       {
         length: Math.max(
@@ -732,6 +798,9 @@ export async function runThemeImageGeneration(
       worker,
     ),
   );
+  // Drain all lanes before releasing the lease, even when storage fails.
+  const rejected = settled.find((r) => r.status === "rejected");
+  if (rejected?.status === "rejected") throw rejected.reason;
 
   // Package order, not completion order: the version's release note and the
   // stored asset order stay stable run to run.

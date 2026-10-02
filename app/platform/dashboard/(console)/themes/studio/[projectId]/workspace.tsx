@@ -56,6 +56,10 @@ const ERROR_TEXT: Record<string, string> = {
   lease_expired: "The run stopped responding and ran out of attempts.",
   input_missing: "The run's brief could not be found.",
   worker_error: "The worker failed while running this request.",
+  image_checkpoint_unavailable:
+    "Image recovery storage was unavailable. Retry this run to resume saved artwork.",
+  image_review_unavailable:
+    "Image review could not finish after automatic retries. Artwork is saved; retry this run to review it again.",
   project_state_changed: "The project changed while the run was working.",
   base_missing: "The version being revised could not be found.",
   base_changed:
@@ -84,7 +88,10 @@ function errorText(code: string): string {
 /** One line about an image run: what came back and what it cost. */
 function imageRunLine(images: NonNullable<ThemeStudioRunView["images"]>) {
   const parts = [
-    `${images.generated} drawn`,
+    `${images.generated + (images.pendingReview ?? 0)} drawn`,
+    images.pendingReview
+      ? `${images.pendingReview} saved, awaiting review`
+      : null,
     images.rejected > 0
       ? `${images.rejected} failed the check and kept the placeholder`
       : null,
@@ -313,10 +320,22 @@ export function ProjectWorkspace({
                     </p>
                     {r.status === "queued" && r.retryNotBefore ? (
                       <p className="text-xs text-amber-700">
-                        Waiting for model provider capacity. Automatic recovery{" "}
-                        {r.rateLimitDeferrals}/4 is scheduled after{" "}
-                        {studioDate(r.retryNotBefore)}. Completed model stages
-                        are saved; you can leave this page open or return later.
+                        {r.kind === "images" ? (
+                          <>
+                            Artwork is saved. Image review retry{" "}
+                            {r.imageReviewDeferrals}/2 is scheduled after{" "}
+                            {studioDate(r.retryNotBefore)}; completed images
+                            will be reused.
+                          </>
+                        ) : (
+                          <>
+                            Waiting for model provider capacity. Automatic
+                            recovery {r.rateLimitDeferrals}/4 is scheduled after{" "}
+                            {studioDate(r.retryNotBefore)}. Completed model
+                            stages are saved; you can leave this page open or
+                            return later.
+                          </>
+                        )}
                       </p>
                     ) : null}
                     {r.kind === "images" ? (

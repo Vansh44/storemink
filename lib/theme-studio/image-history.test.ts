@@ -129,6 +129,24 @@ describe("how each slot's image came to be", () => {
 });
 
 describe("an image run in the run list", () => {
+  it("distinguishes saved artwork awaiting review from a failed image draw", () => {
+    expect(
+      imageRunSummary(
+        run({
+          outcomeDetail: {
+            outcomes: [
+              {
+                slotId: "a",
+                status: "failed",
+                code: "image_review_pending",
+                attempts: 1,
+              },
+            ],
+          },
+        }),
+      ),
+    ).toMatchObject({ failed: 0, pendingReview: 1 });
+  });
   it("counts what came back and splits the cost", () => {
     const summary = imageRunSummary(
       run({

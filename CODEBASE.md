@@ -3337,6 +3337,10 @@ wholesip/
 │   │                          # image-request-pool.ts (three image calls shared by concurrent
 │   │                          # worker lanes per provider project/location/model, shared 429
 │   │                          # pause and gradual recovery, process-local),
+│   │                          # image-recovery.ts (exact paid-response replay and
+│   │                          # independent image-review recovery), image-checkpoint-store.ts
+│   │                          # (private byte/evidence checkpoints, live-lease fencing and
+│   │                          # incremental spend; migration 0147),
 │   │                          # cost.ts (versioned ESTIMATE, priced per call because
 │   │                          # Pro's tier follows each prompt's size), evaluation.ts (golden-set
 │   │                          # grading + independent package safety checks).
@@ -5570,6 +5574,39 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     Model, 2K output, safety values, HIGH review effort and ULTRA_HIGH media
     resolution remain unchanged. No merchant action changes, no Help Centre
     update; no migration is required.
+    **Durable image recovery (2026-10-02; migration 0147):** service-only
+    `theme_studio_image_checkpoints` saves original provider bytes before crop
+    or review, along with each draw/refusal/error and per-image review's safe
+    telemetry. Checkpoint writes commit spend on the run immediately; final
+    settlement retains this ledger, counting every paid call once across
+    reclaims and review retries. Keys bind exact requests/reference bytes,
+    provider/model/prompt and slot-local draw ordinals; successful review
+    evidence also binds the stored crop, anchor, SET, brief and review version.
+    No checkpoint has a public asset URL. Reads and writes require the current,
+    unexpired image-run lease; cancellation stops new calls but retains completed
+    calls and their spend, with no version created. All lanes drain before
+    releasing a lease after a checkpoint failure.
+    Image runs allow three crash claims, replaying saved original images and
+    successful reviews. Unavailable reviews pause the same run under
+    `image_review_deferrals` with two separate delayed retries (60/120 seconds);
+    these waits do not consume crash attempts. A pending product leader's
+    followers wait for its reviewed SET so resumption keeps request bindings
+    stable. The worker writes one immutable version after review settles; after
+    exhaustion it reports `image_review_unavailable`, retaining the base.
+    Run summaries distinguish saved images awaiting review from failed draws.
+    Operator Retry recovers completed draws and successful evidence from up to
+    fifty retry ancestors of the same project and immutable base; unavailable
+    evidence receives a new review budget. Original spend belongs to its
+    original run, and imported checkpoints contribute zero additional cost.
+    New prompts/models/reference bytes miss the cache. A crash between provider
+    completion and the checkpoint commit can still repeat that call, and a
+    provider timeout may omit billed usage; this is not provider exactly-once
+    execution. Historical runs without checkpoints cannot recover lost memory.
+    Model quality, safety and acceptance gates remain unchanged. Verification:
+    `image-recovery.test.ts`, image pipeline tests and the opt-in local PostgreSQL
+    worker regression exercise saved bytes, interrupted leases, review timeouts,
+    retry exhaustion, explicit retry, cancellation, usage and private grants.
+    Operator-only: no merchant-visible change, no Help Centre update.
     **Aurelle renderer corrections (2026-10-02):** carousel pagination buttons
     have separate 32px click areas and 9px visual dots, with keyboard focus
     indicators and current-slide semantics. Banner/split heroes stack their

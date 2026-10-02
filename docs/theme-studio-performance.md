@@ -163,3 +163,34 @@ synthetic images therefore have passed review evidence, but the original
 timeout remains recorded and the uninterrupted three-image check remains
 incomplete. Provider review timeouts remain a material limit.
 These small staging checks do not establish full-theme production throughput.
+
+## Durable artwork and independent review recovery
+
+Migration `20261002_0147_theme_studio_image_checkpoints` adds private, service-only
+checkpoints for original image responses and per-image quality evidence. The
+worker commits original bytes before cropping or review, and commits each
+call's known spend alongside its checkpoint. Reclaims replay exact requests
+using slot-local ordinals, including original anchor and SET bytes; parallel
+completion order does not change their keys. Final storage still creates one
+immutable version per run. No original checkpoint is publicly served.
+
+An unavailable review pauses the same run, then retries review after 60 and
+120 seconds. Draws and successful evidence are reused. A pending product leader
+must finish review before its followers are drawn against SET. These two review
+recoveries are separate from the three crash claims and do not create additional
+versions. Exhaustion reports `image_review_unavailable`; operator Retry can
+reuse saved artwork from the same project's retry ancestry and immutable base.
+The prior run retains the original generation cost, and the retry pays only for
+new calls. Cancellation retains completed work and spend without writing a
+version. Checkpoint reads/writes and final settlement require a live worker
+lease, and failed storage stops further slot admission while active lanes drain.
+
+Offline regressions and a real local PostgreSQL rollback test simulate lease
+loss after a paid draw, delayed review retries, exhaustion, explicit retry,
+cancellation, one-version settlement, exact evidence invalidation and service-only
+grants. These tests exercise production orchestration with controlled providers;
+they do not establish live-provider latency. Original responses lost before
+their checkpoint commit cannot be recovered, and timeouts may omit billed usage.
+Historical runs created before checkpoint support have no saved raw responses.
+Deploy the migration and worker code before testing a fresh complete run.
+No merchant-visible change, no Help Centre update.

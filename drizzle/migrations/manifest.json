@@ -5983,6 +5983,30 @@
           }
         ]
       }
+    },
+    {
+      "id": "20261002_0147_theme_studio_image_checkpoints",
+      "description": "Checkpoint paid Theme Studio artwork immediately and resume independent image reviews",
+      "file": "sql/20261002_0147_theme_studio_image_checkpoints.sql",
+      "transaction": true,
+      "requires": ["20261002_0146_theme_studio_rate_limit_recovery"],
+      "verify": {
+        "tables": ["theme_studio_image_checkpoints"],
+        "columns": ["theme_studio_runs.image_review_deferrals"],
+        "constraints": [
+          "theme_studio_runs_image_review_deferrals_check",
+          "theme_studio_image_checkpoints_pkey",
+          "theme_studio_image_checkpoints_shape_check"
+        ],
+        "rlsTables": ["theme_studio_image_checkpoints"],
+        "queries": [
+          {
+            "name": "image checkpoints remain service-only and immutable",
+            "sql": "select (not has_table_privilege('app_user','public.theme_studio_image_checkpoints','SELECT') and has_table_privilege('app_service','public.theme_studio_image_checkpoints','SELECT,INSERT') and not has_table_privilege('app_service','public.theme_studio_image_checkpoints','UPDATE,DELETE'))::text",
+            "equals": "true"
+          }
+        ]
+      }
     }
   ]
 }

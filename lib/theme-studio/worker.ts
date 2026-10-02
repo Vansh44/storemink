@@ -1,7 +1,7 @@
 import "server-only";
 
 import { randomUUID } from "node:crypto";
-import { and, asc, count, eq, inArray, lte, max, sql } from "drizzle-orm";
+import { and, asc, count, eq, gt, inArray, lte, max, sql } from "drizzle-orm";
 import {
   themeStudioAssets,
   themeStudioCaptures,
@@ -73,6 +73,14 @@ import {
 } from "./generation-recovery";
 import { digestThemeStudioJson, recordThemeStudioEvent } from "./repository";
 import { runThemeStudioVisualQaWorker } from "./visual-qa";
+import { createImageCheckpointStore } from "./image-checkpoint-store";
+import {
+  IMAGE_CRASH_ATTEMPTS,
+  ImageCheckpointError,
+  imageReviewRecoveryDelayMs,
+  resumableImageClient,
+  resumableImageReview,
+} from "./image-recovery";
 
 // ---------------------------------------------------------------------------
 // The Theme Studio run worker.
@@ -122,6 +130,7 @@ type ClaimedRun = {
   attemptCount: number;
   maxAttempts: number;
   rateLimitDeferrals: number;
+  imageReviewDeferrals: number;
   automatic: boolean;
   qaIteration: number;
   createdBy: string | null;
@@ -217,6 +226,7 @@ async function claimRun(
               r.provider_model AS "providerModel", r.prompt_version AS "promptVersion",
               r.attempt_count AS "attemptCount", r.max_attempts AS "maxAttempts",
               r.rate_limit_deferrals AS "rateLimitDeferrals",
+              r.image_review_deferrals AS "imageReviewDeferrals",
               r.automatic AS "automatic", r.qa_iteration AS "qaIteration",
               r.created_by AS "createdBy"
   `);
@@ -307,7 +317,7 @@ async function queueAutomaticImages(
       providerModel: resolved.providerModel,
       promptVersion: resolved.promptVersion,
       idempotencyKey: `auto_images_${run.id}`,
-      maxAttempts: 1,
+      maxAttempts: IMAGE_CRASH_ATTEMPTS,
       imageSlotIds: [],
       automatic: true,
       qaIteration: run.qaIteration,
@@ -391,7 +401,7 @@ async function queueFillImages(
       providerModel: resolved.providerModel,
       promptVersion: resolved.promptVersion,
       idempotencyKey: `images_fill_${next.root}_${next.round}`,
-      maxAttempts: 1,
+      maxAttempts: IMAGE_CRASH_ATTEMPTS,
       imageSlotIds: [...slotIds],
       automatic: run.automatic,
       qaIteration: run.qaIteration,
@@ -879,7 +889,10 @@ function imageReviewerFor(provider: string): ThemeImageReviewer | null {
   };
 }
 
-async function executeImages(run: ClaimedRun): Promise<Outcome> {
+async function executeImages(
+  run: ClaimedRun,
+  workerId: string,
+): Promise<Outcome> {
   if (!getThemeStudioConfig().generationEnabled) {
     return { kind: "failed", errorCode: "generation_disabled" };
   }
@@ -916,8 +929,13 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
     // An abort stops drawing new images but keeps those already drawn: a
     // timeout's images are paid for and good, and a cancel is settled by
     // finish(), which sees cancel_requested_at and writes no version.
+    const store = createImageCheckpointStore({
+      id: run.id,
+      projectId: run.projectId,
+      workerId,
+    });
     const result = await runThemeImageGeneration(
-      client,
+      resumableImageClient(client, run.providerModel, run.promptVersion, store),
       {
         pkg: input.package,
         intent: input.intent,
@@ -926,6 +944,10 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
         seed: reuse?.seed ?? null,
       },
       controller.signal,
+      {
+        review: resumableImageReview(store, run.imageReviewDeferrals),
+        deferUnavailableReviews: true,
+      },
     );
     return {
       kind: "images",
@@ -942,7 +964,7 @@ async function executeImages(run: ClaimedRun): Promise<Outcome> {
 }
 
 async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
-  if (run.kind === "images") return executeImages(run);
+  if (run.kind === "images") return executeImages(run, workerId);
   const config = getThemeStudioConfig();
   // Re-checked at execution, not only at queue time: the emergency stop and a
   // disabled model must also stop work that was already waiting.
@@ -1127,6 +1149,9 @@ async function finish(
           eq(themeStudioRuns.id, run.id),
           eq(themeStudioRuns.status, "running"),
           eq(themeStudioRuns.leaseOwner, workerId),
+          ...(run.kind === "images"
+            ? [gt(themeStudioRuns.leaseExpiresAt, sql`now()`)]
+            : []),
         ),
       )
       .for("update")
@@ -1147,6 +1172,10 @@ async function finish(
         ? (locked.usage as Record<string, unknown>)
         : {}),
       ...usageRecord(run, outcome),
+      // Checkpoints own image spend, including calls from earlier claims.
+      ...(run.kind === "images"
+        ? (locked.usage as Record<string, unknown>)
+        : {}),
     };
     const terminal = {
       leaseOwner: null,
@@ -1199,6 +1228,7 @@ async function finish(
           status: "queued",
           leaseOwner: null,
           leaseExpiresAt: null,
+          usage,
           updatedAt: sql`now()`,
         })
         .where(eq(themeStudioRuns.id, run.id));
@@ -1416,7 +1446,7 @@ async function finishImages(
       detail?: Record<string, unknown>,
     ) => Promise<"failed">;
   },
-): Promise<"succeeded" | "failed"> {
+): Promise<"succeeded" | "failed" | "requeued"> {
   const { run, project, outcome, terminal, event, failRun } = ctx;
   const result = outcome.result;
   const detail = {
@@ -1427,6 +1457,37 @@ async function finishImages(
       ? { category: result.anchorFailure.reason ?? "IMAGE_SAFETY" }
       : {}),
   };
+  const pending = result.outcomes.filter(
+    (o) => o.status === "failed" && o.code === "image_review_pending",
+  );
+  if (
+    (result.anchorFailure?.kind === "failed" &&
+      result.anchorFailure.code === "image_review_pending") ||
+    pending.length
+  ) {
+    const delay = imageReviewRecoveryDelayMs(run.imageReviewDeferrals);
+    if (delay === null) return failRun("image_review_unavailable", detail);
+    const retryNotBefore = new Date(Date.now() + delay).toISOString();
+    await db
+      .update(themeStudioRuns)
+      .set({
+        status: "queued",
+        leaseOwner: null,
+        leaseExpiresAt: null,
+        retryNotBefore,
+        imageReviewDeferrals: run.imageReviewDeferrals + 1,
+        usage: terminal.usage,
+        outcomeDetail: { ...detail, kind: "image_review_wait" },
+        updatedAt: sql`now()`,
+      })
+      .where(eq(themeStudioRuns.id, run.id));
+    await event("run_queued", {
+      reason: "image_review_unavailable",
+      retryNotBefore,
+      recovery: run.imageReviewDeferrals + 1,
+    });
+    return "requeued";
+  }
   if (result.anchorFailure) {
     const failure = result.anchorFailure;
     return failRun(
@@ -1677,7 +1738,13 @@ export async function runThemeStudioWorker(
       outcome =
         run.attemptCount < run.maxAttempts
           ? { kind: "retry", errorCode: "worker_error" }
-          : { kind: "failed", errorCode: "worker_error" };
+          : {
+              kind: "failed",
+              errorCode:
+                error instanceof ImageCheckpointError
+                  ? "image_checkpoint_unavailable"
+                  : "worker_error",
+            };
     }
     const settled = await finish(workerId, run, outcome);
     if (settled !== "lost") result[settled] += 1;

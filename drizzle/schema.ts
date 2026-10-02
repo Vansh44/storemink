@@ -2366,6 +2366,7 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
     mode: "string",
   }),
   rateLimitDeferrals: integer("rate_limit_deferrals").default(0).notNull(),
+  imageReviewDeferrals: integer("image_review_deferrals").default(0).notNull(),
   leaseOwner: uuid("lease_owner"),
   leaseExpiresAt: timestamp("lease_expires_at", {
     withTimezone: true,
@@ -2408,6 +2409,22 @@ export const themeStudioGenerationResponses = pgTable(
       .references(() => themeStudioRuns.id, { onDelete: "cascade" }),
     requestDigest: text("request_digest").notNull(),
     responseJson: jsonb("response_json").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => [primaryKey({ columns: [table.runId, table.requestDigest] })],
+);
+
+export const themeStudioImageCheckpoints = pgTable(
+  "theme_studio_image_checkpoints",
+  {
+    runId: uuid("run_id")
+      .notNull()
+      .references(() => themeStudioRuns.id, { onDelete: "cascade" }),
+    requestDigest: text("request_digest").notNull(),
+    responseJson: jsonb("response_json").notNull(),
+    imageBytes: bytea("image_bytes"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "string" })
       .defaultNow()
       .notNull(),

@@ -49,6 +49,8 @@ export interface ImageRunSummary {
   rejected: number;
   /** Refused, failed or unusable: kept its placeholder. */
   failed: number;
+  /** Artwork is saved while independent review retries are pending. */
+  pendingReview?: number;
   skipped: number;
   /** Slots drawn twice. */
   redrawn: number;
@@ -177,12 +179,20 @@ export function imageRunSummary(run: StoredImageRun): ImageRunSummary | null {
   if (outcomes.length === 0 && calls.length === 0) return null;
   const count = (test: (o: (typeof outcomes)[number]) => boolean) =>
     outcomes.filter(test).length;
+  const pendingReview = count(
+    (o) => o.status === "failed" && o.reason === "image_review_pending",
+  );
   return {
     redraw: run.imageSlotIds.length > 0,
     slots: outcomes.length,
     generated: count((o) => o.status === "generated"),
     rejected: count((o) => o.status === "rejected"),
-    failed: count((o) => ["refused", "failed", "unusable"].includes(o.status)),
+    failed: count(
+      (o) =>
+        ["refused", "failed", "unusable"].includes(o.status) &&
+        o.reason !== "image_review_pending",
+    ),
+    ...(pendingReview ? { pendingReview } : {}),
     skipped: count((o) => o.status === "skipped"),
     redrawn: count((o) => o.attempts > 1),
     flagged: count((o) => o.review === "flagged"),

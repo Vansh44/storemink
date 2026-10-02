@@ -1,4 +1,5 @@
 import "server-only";
+import { IMAGE_CRASH_ATTEMPTS } from "./image-recovery";
 
 import { createHash } from "node:crypto";
 import { and, asc, count, desc, eq, inArray, sql, sum } from "drizzle-orm";
@@ -144,6 +145,7 @@ export interface ThemeStudioRunView {
   /** Delayed provider recovery, distinct from crash/lease attempts. */
   retryNotBefore?: string | null;
   rateLimitDeferrals?: number;
+  imageReviewDeferrals?: number;
   errorCode: string | null;
   cancelRequested: boolean;
   retryOfRunId: string | null;
@@ -593,6 +595,7 @@ export async function getThemeStudioProject(
         maxAttempts: r.maxAttempts,
         retryNotBefore: r.retryNotBefore,
         rateLimitDeferrals: r.rateLimitDeferrals,
+        imageReviewDeferrals: r.imageReviewDeferrals,
         errorCode: r.errorCode,
         cancelRequested: r.cancelRequestedAt !== null,
         retryOfRunId: r.retryOfRunId,
@@ -1601,8 +1604,10 @@ export async function retryThemeStudioRun(
         providerModel: resolved.providerModel,
         promptVersion: resolved.promptVersion,
         idempotencyKey: input.idempotencyKey,
-        // An image run is never retried automatically: every image is paid.
-        maxAttempts: images ? 1 : 1 + THEME_STUDIO_LIMITS.modelRetries,
+        // Image reclaims replay saved paid responses instead of drawing again.
+        maxAttempts: images
+          ? IMAGE_CRASH_ATTEMPTS
+          : 1 + THEME_STUDIO_LIMITS.modelRetries,
         retryOfRunId: run.id,
         // A retried revision revises the same version with the same messages.
         baseVersionId: run.baseVersionId,
@@ -2097,7 +2102,7 @@ export async function queueThemeStudioImages(
         providerModel: resolved.providerModel,
         promptVersion: resolved.promptVersion,
         idempotencyKey: input.idempotencyKey,
-        maxAttempts: 1,
+        maxAttempts: IMAGE_CRASH_ATTEMPTS,
         imageSlotIds: slotIds ? drawn.map((d) => d.slotId) : [],
         createdBy: actor.id,
       })

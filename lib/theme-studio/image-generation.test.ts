@@ -44,6 +44,12 @@ import {
 } from "./image-provider";
 import { runThemeGeneration } from "./pipeline";
 import { describeSlots } from "./slot-images-core";
+import {
+  resumableImageClient,
+  resumableImageReview,
+  type ImageCheckpoint,
+  type ImageCheckpointStore,
+} from "./image-recovery";
 
 /** Every image run here pushes a dozen real images through sharp, which on a
  *  loaded parallel suite runs past the default 5s (slot-images.test.ts sets
@@ -1544,6 +1550,85 @@ it(
       result.outcomes.find((slot) => slot.slotId === failed),
     ).toMatchObject({ status: "failed", code: "provider_unavailable" });
     expect(result.anchor).not.toBeNull();
+  },
+  IMAGE_RUN_TIMEOUT_MS,
+);
+
+it(
+  "resumes a timed-out product leader's saved image before drawing its followers",
+  async () => {
+    const { pkg, intent } = await fixture();
+    const slots = generatableSlots(pkg, intent);
+    const products = slots.filter((s) => s.purpose === "product").slice(0, 2);
+    const other = slots.find((s) => s.purpose !== "product")!;
+    const only = [...products, other].map((s) => s.slotId);
+    const records = new Map<string, ImageCheckpoint>();
+    const store: ImageCheckpointStore = {
+      read: async (key) => records.get(key) ?? null,
+      write: async (key, value) => {
+        records.set(key, value);
+      },
+    };
+    const fake = createFakeImageClient();
+    const generateImage = vi.fn(fake.generateImage);
+    const client = { ...fake, generateImage };
+    const reviewer = createFakeImageReviewClient();
+    let productReviews = 0;
+    const generate = vi.fn(
+      async (request: StructuredRequest, signal: AbortSignal) => {
+        if (
+          request.content.some(
+            (b) => b.type === "text" && b.text.includes("catalogue pack shot"),
+          ) &&
+          productReviews++ === 0
+        )
+          return {
+            kind: "error" as const,
+            code: "provider_timeout" as const,
+            usage: ZERO_USAGE,
+          };
+        return reviewer.generate(request, signal);
+      },
+    );
+    const input = {
+      pkg,
+      intent,
+      only,
+      reviewer: { client: { ...reviewer, generate }, providerModel: "fake" },
+    };
+    const initial = await runThemeImageGeneration(
+      resumableImageClient(client, "fake", "v1", store),
+      input,
+      new AbortController().signal,
+      { review: resumableImageReview(store, 0), deferUnavailableReviews: true },
+    );
+    expect(initial.outcomes).toContainEqual({
+      slotId: products[0].slotId,
+      status: "failed",
+      attempts: 1,
+      code: "image_review_pending",
+    });
+    expect(initial.outcomes).toContainEqual({
+      slotId: products[1].slotId,
+      status: "skipped",
+    });
+    const resumed = await runThemeImageGeneration(
+      resumableImageClient(client, "fake", "v1", store),
+      input,
+      new AbortController().signal,
+      { review: resumableImageReview(store, 1), deferUnavailableReviews: true },
+    );
+    expect(resumed.images).toHaveLength(3);
+    expect(
+      resumed.outcomes.every(
+        (o) => o.status === "generated" && o.review === "passed",
+      ),
+    ).toBe(true);
+    expect(generateImage).toHaveBeenCalledTimes(4); // one anchor, three slots
+    const follower = generateImage.mock.calls.find(
+      ([r]) => r.briefId === products[1].slotId,
+    )![0];
+    expect(follower.references.map((r) => r.role)).toEqual(["anchor", "set"]);
   },
   IMAGE_RUN_TIMEOUT_MS,
 );
