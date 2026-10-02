@@ -185,6 +185,12 @@ export interface ThemeStudioVersionView {
   qaStatus: "not_required" | "passed" | "failed";
   qaIteration: number;
   qaFindings?: string[];
+  qaDiagnosis?: string | null;
+  qaRepairs?: {
+    kind: "settings" | "image" | "renderer";
+    target: string | null;
+    reason: string;
+  }[];
   /** The latest catalog capture for this version, when one exists. */
   captureStatus?: "queued" | "running" | "succeeded" | "failed" | null;
   captureErrorCode?: string | null;
@@ -609,7 +615,12 @@ export async function getThemeStudioProject(
         const assumptions = intentField(v.intentJson, "assumptions");
         const capture = latestCaptureByVersion.get(v.id);
         const qa = latestQaByVersion.get(v.id) as
-          | { findings?: unknown[] }
+          | {
+              findings?: unknown[];
+              acceptanceFailures?: unknown[];
+              diagnosis?: unknown;
+              repairs?: unknown[];
+            }
           | undefined;
         return {
           packageSummary: packageSummary(v.packageJson),
@@ -631,12 +642,46 @@ export async function getThemeStudioProject(
           hasPackage: v.packageDigest !== null,
           qaStatus: v.qaStatus as ThemeStudioVersionView["qaStatus"],
           qaIteration: v.qaIteration,
-          qaFindings: Array.isArray(qa?.findings)
-            ? qa.findings
-                .filter((f): f is string => typeof f === "string")
-                .slice(0, 5)
-                .map((f) => f.slice(0, 600))
-            : [],
+          qaDiagnosis:
+            typeof qa?.diagnosis === "string"
+              ? qa.diagnosis.slice(0, 1200)
+              : null,
+          qaRepairs: (Array.isArray(qa?.repairs) ? qa.repairs : [])
+            .flatMap((raw) => {
+              const r = raw as {
+                kind?: unknown;
+                target?: unknown;
+                reason?: unknown;
+              } | null;
+              return r &&
+                ["settings", "image", "renderer"].includes(String(r.kind)) &&
+                typeof r.reason === "string" &&
+                (r.target === null || typeof r.target === "string")
+                ? [
+                    {
+                      kind: r.kind as "settings" | "image" | "renderer",
+                      target:
+                        typeof r.target === "string"
+                          ? r.target.slice(0, 300)
+                          : null,
+                      reason: r.reason.slice(0, 800),
+                    },
+                  ]
+                : [];
+            })
+            .slice(0, 20),
+          qaFindings:
+            Array.isArray(qa?.findings) || Array.isArray(qa?.acceptanceFailures)
+              ? [
+                  ...(Array.isArray(qa?.findings) ? qa.findings : []),
+                  ...(Array.isArray(qa?.acceptanceFailures)
+                    ? qa.acceptanceFailures
+                    : []),
+                ]
+                  .filter((f): f is string => typeof f === "string")
+                  .slice(0, 5)
+                  .map((f) => f.slice(0, 600))
+              : [],
           captureStatus:
             (capture?.status as ThemeStudioVersionView["captureStatus"]) ??
             null,

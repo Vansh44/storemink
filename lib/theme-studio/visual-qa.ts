@@ -37,7 +37,26 @@ import {
 } from "./automatic-qa-policy";
 import { AUTOMATIC_CAPTURE_MAX_ATTEMPTS } from "./capture-core";
 import { repairTargets } from "./targeted-repair";
-import type { ThemePackageV2 } from "./contracts";
+import {
+  validateThemeIntent,
+  validateThemePackageV2,
+  type ThemePackageV2,
+} from "./contracts";
+import {
+  automaticImageProvider,
+  queueAutomaticImages,
+  queueAutomaticCapture,
+} from "./automatic-work";
+import { generatableSlots } from "./image-generation-core";
+import { describeSlots } from "./slot-images-core";
+import {
+  deterministicRepairs,
+  qaProgress,
+  qaImproved,
+  parseQaRepairs,
+  type QaRepair,
+  type QaProgress,
+} from "./qa-diagnosis";
 import {
   REJECTION_CONDITIONS,
   SCORECARD_DIMENSIONS,
@@ -53,7 +72,7 @@ const QA_LEASE_SECONDS = 5 * 60;
 export const MAX_BUILD_RECAPTURES = 2;
 const QA_TIMEOUT_MS = 4 * 60_000;
 
-export const VISUAL_QA_PROMPT_VERSION = "theme-studio-visual-qa-v2";
+export const VISUAL_QA_PROMPT_VERSION = "theme-studio-visual-qa-v3";
 
 /** Complete semantic JSON, rather than a prefix of a large package/report.
  * Avoids paying to inspect raw image manifests and repeated successful probes. */
@@ -86,6 +105,9 @@ export function visualQaContext(packageJson: unknown, browserReport: unknown) {
       slug: p.slug,
     })),
     capabilityGaps: pkg.capabilityGaps,
+    imageSlots: describeSlots(pkg)
+      .filter((s) => !s.catalogPreview && !s.catalogScreenshot)
+      .map(({ id, usage, source }) => ({ id, usage, source })),
     gates: report?.gates.map((g) => ({
       id: g.id,
       required: g.required,
@@ -108,12 +130,20 @@ export interface VisualQaReport {
   rejections: RejectionCondition[];
   findings: string[];
   revisionBrief: string | null;
+  repairs?: QaRepair[];
 }
 
 export const VISUAL_QA_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ["verdict", "scores", "rejections", "findings", "revisionBrief"],
+  required: [
+    "verdict",
+    "scores",
+    "rejections",
+    "findings",
+    "revisionBrief",
+    "repairs",
+  ],
   properties: {
     verdict: { type: "string", enum: ["pass", "revise"] },
     scores: {
@@ -140,6 +170,20 @@ export const VISUAL_QA_SCHEMA = {
       type: "array",
       maxItems: 20,
       items: { type: "string" },
+    },
+    repairs: {
+      type: "array",
+      maxItems: 20,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["kind", "target", "reason"],
+        properties: {
+          kind: { type: "string", enum: ["settings", "image", "renderer"] },
+          target: { anyOf: [{ type: "string" }, { type: "null" }] },
+          reason: { type: "string" },
+        },
+      },
     },
     revisionBrief: {
       anyOf: [{ type: "string" }, { type: "null" }],
@@ -198,7 +242,11 @@ export function parseVisualQaReport(raw: unknown): VisualQaReport | null {
   ) {
     return null;
   }
+  const repairs =
+    input.repairs === undefined ? undefined : parseQaRepairs(input.repairs);
+  if (repairs === null) return null;
   return {
+    ...(repairs ? { repairs } : {}),
     verdict: input.verdict,
     scores,
     rejections: [...new Set(rejections)],
@@ -476,6 +524,7 @@ async function evaluateQa(
           "Approval requires every score >=4, total >=34, no rejection condition, and finished non-generic commerce surfaces.",
           "Return revise with a concrete implementation brief whenever the bar is not met.",
           "Specify changes using the supplied supported setting paths and choices. The theme can change composition, copy, palette and native layout variants; it cannot author CSS, JavaScript, srcset, preload hints or new platform capabilities. Identify renderer defects explicitly rather than claiming a theme revision can fix them. Declared capability gaps are unavailable features, not unfulfilled repair instructions.",
+          "For every required change return a repairs entry: settings targets an exact supplied setting path, image targets an exact generated image slot ID for an artwork defect, renderer has null target for platform code. A framing/crop problem is a layout setting or renderer issue, never a reason to redraw artwork. Uploaded/licensed art is the owner's choice and cannot be redrawn automatically. An unresolvable gap goes to renderer. A passing verdict has no repairs.",
           "Performance findings marked advisory are diagnostic only. Do not request theme revisions solely to clear advisory timing measurements. Keep all required quality and rejection thresholds unchanged.",
           ...SCORECARD_DIMENSIONS.map(
             (dimension) => `${dimension.key}: ${dimension.question}`,
@@ -540,20 +589,35 @@ async function settleQa(
     const binding = qa.browserReport as {
       acceptanceRunId?: string;
       buildId?: string;
+      phase?: "layout" | "final";
+      gates?: GateResult[];
     };
-    const [acceptance] = binding.acceptanceRunId
-      ? await db
-          .select()
-          .from(themeStudioAcceptanceRuns)
-          .where(
-            and(
-              eq(themeStudioAcceptanceRuns.id, binding.acceptanceRunId),
-              eq(themeStudioAcceptanceRuns.projectId, qa.projectId),
-              eq(themeStudioAcceptanceRuns.versionId, qa.versionId),
-            ),
-          )
-          .limit(1)
-      : [];
+    const phase = binding.phase === "layout" ? "layout" : "final";
+    const [acceptance] =
+      phase === "layout"
+        ? [
+            {
+              id: null,
+              packageDigest: qa.packageDigest,
+              buildId: binding.buildId,
+              status: "layout",
+              serverReport: { gates: binding.gates ?? [] },
+              browserReport: { gates: [] },
+            },
+          ]
+        : binding.acceptanceRunId
+          ? await db
+              .select()
+              .from(themeStudioAcceptanceRuns)
+              .where(
+                and(
+                  eq(themeStudioAcceptanceRuns.id, binding.acceptanceRunId),
+                  eq(themeStudioAcceptanceRuns.projectId, qa.projectId),
+                  eq(themeStudioAcceptanceRuns.versionId, qa.versionId),
+                ),
+              )
+              .limit(1)
+          : [];
     if (!acceptance || acceptance.packageDigest !== qa.packageDigest) {
       await revealFailed(db, qa, "automatic_acceptance_missing");
       return "failed" as const;
@@ -580,6 +644,7 @@ async function settleQa(
         packageDigest: qa.packageDigest,
         previousStatus: "generating",
         automatic: true,
+        phase,
         qaIteration: qa.qaIteration,
         maxAttempts: AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
         idempotencyKey: `auto_recapture_${qa.id}`,
@@ -610,15 +675,96 @@ async function settleQa(
     const failures = automaticAcceptanceFailures(gates);
     const modelPass =
       evaluated.report?.verdict === "pass" &&
+      !evaluated.report.repairs?.length &&
       scorecardClearsBar(evaluated.report.scores, evaluated.report.rejections);
     const report = {
+      phase,
+      progress: qaProgress(gates, evaluated.report),
       promptVersion: VISUAL_QA_PROMPT_VERSION,
       usage: evaluated.usage,
       ...evaluated.report,
+      repairs: [
+        ...deterministicRepairs(gates),
+        ...(evaluated.report?.repairs ?? []),
+      ],
       acceptanceFailures: failures,
       acceptanceRunId: acceptance.id,
     };
-    const decision = automaticQaDecision(gates, modelPass, qa.qaIteration);
+    const decision = automaticQaDecision(
+      gates,
+      phase === "layout" || modelPass,
+      qa.qaIteration,
+      phase,
+    );
+    if (decision === "pass" && phase === "layout") {
+      const pkg = validateThemePackageV2(qa.packageJson);
+      const [version] = await db
+        .select({
+          intentJson: themeStudioVersions.intentJson,
+          packageDigest: themeStudioVersions.packageDigest,
+        })
+        .from(themeStudioVersions)
+        .where(
+          and(
+            eq(themeStudioVersions.id, qa.versionId),
+            eq(themeStudioVersions.projectId, qa.projectId),
+          ),
+        )
+        .limit(1);
+      const intent = validateThemeIntent(version?.intentJson);
+      const config = getThemeStudioConfig();
+      if (
+        !pkg.ok ||
+        !intent.ok ||
+        version?.packageDigest !== qa.packageDigest ||
+        !config.provider
+      ) {
+        await revealFailed(db, qa, "qa_input_missing", report);
+        return "failed" as const;
+      }
+      const work = {
+        id: qa.id,
+        projectId: qa.projectId,
+        provider: config.provider,
+        modelKey: qa.modelKey,
+        qaIteration: qa.qaIteration,
+        createdBy: qa.createdBy,
+      };
+      const slots = generatableSlots(pkg.value, intent.value).length;
+      // Queue the next stage and close this QA row in the same transaction.
+      if (slots > 0) {
+        if (
+          !(await queueAutomaticImages(
+            db,
+            work,
+            { id: qa.versionId },
+            qa.packageDigest,
+            slots,
+          ))
+        ) {
+          await revealFailed(db, qa, "image_provider_unavailable", report);
+          return "failed" as const;
+        }
+      } else
+        await queueAutomaticCapture(
+          db,
+          work,
+          { id: qa.versionId },
+          qa.packageDigest,
+        );
+      await db
+        .update(themeStudioVisualQaRuns)
+        .set({
+          status: "passed",
+          visionReport: report,
+          finishedAt: sql`now()`,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        })
+        .where(eq(themeStudioVisualQaRuns.id, qa.id));
+      // Deliberately keep the version internal/pending and project generating.
+      return "layout_passed" as const;
+    }
     if (decision === "pass" && acceptance.status !== "passed") {
       // The stored outcome and the re-read gates disagree. Paying for a
       // revision of a theme whose every gate passed would be wrong, and so
@@ -688,7 +834,15 @@ async function settleQa(
         decision === "blocked"
           ? "acceptance_security_failed"
           : "quality_bar_not_met",
-        report,
+        {
+          ...report,
+          diagnosis:
+            decision === "blocked"
+              ? "Required security checks failed. Resolve the listed security findings before retrying."
+              : qa.qaIteration >= 3
+                ? "Automatic QA reached its three-repair limit. Review the remaining findings before retrying."
+                : "Required evidence is incomplete or a runtime fault prevents automatic repair. Review the listed findings before retrying.",
+        },
       );
       if (decision === "blocked")
         await db
@@ -702,28 +856,187 @@ async function settleQa(
       await revealFailed(db, qa, "auto_qa_disabled", report);
       return "failed" as const;
     }
-    const model = resolveThemeStudioModel(qa.modelKey);
-    const brief = [
-      "Revise this theme to clear automatic pre-review QA.",
-      ...failures.map((finding) => `Acceptance: ${finding}`),
-      ...(evaluated.report
-        ? [
-            `Visual scores: ${JSON.stringify(evaluated.report.scores)}. Raise every row to at least 4 and the total to at least 34.`,
-            ...evaluated.report.rejections.map(
-              (reason) => `Visual rejection: ${reason}`,
-            ),
-          ]
-        : []),
-      ...(evaluated.report?.findings ?? []).map(
-        (finding) => `Visual: ${finding}`,
+    const pkg = validateThemePackageV2(qa.packageJson);
+    if (!pkg.ok) {
+      await revealFailed(db, qa, "qa_input_missing", report);
+      return "failed" as const;
+    }
+    const repairs = report.repairs;
+    const settings = new Set(repairTargets(pkg.value).map((t) => t.path));
+    const imageSlots = new Set(
+      describeSlots(pkg.value)
+        .filter(
+          (s) =>
+            s.source === "generated" &&
+            !s.catalogPreview &&
+            !s.catalogScreenshot,
+        )
+        .map((s) => s.id),
+    );
+    const invalidTarget = repairs.some(
+      (r) =>
+        (r.kind === "settings" &&
+          r.target !== null &&
+          !settings.has(r.target)) ||
+        (r.kind === "image" && (!r.target || !imageSlots.has(r.target))),
+    );
+    const renderer =
+      repairs.some((r) => r.kind === "renderer") ||
+      evaluated.report?.rejections.includes("needs_custom_code");
+    // Legacy visual evidence cannot silently route explicit platform work to a
+    // settings repair merely because it predates structured repairs.
+    const legacyRenderer =
+      !evaluated.report?.repairs &&
+      /(?:renderer|custom code|\bCSS\b|JavaScript|preload|srcset)/i.test(
+        evaluated.report?.revisionBrief ?? "",
+      );
+    if (renderer || legacyRenderer || invalidTarget) {
+      await revealFailed(
+        db,
+        qa,
+        invalidTarget ? "repair_not_supported" : "renderer_fix_required",
+        {
+          ...report,
+          repairs,
+          diagnosis: invalidTarget
+            ? "The required repair has no supported setting or generated image slot. Review the platform implementation."
+            : "These findings require a platform renderer fix. Further theme revisions cannot resolve them.",
+        },
+      );
+      return "failed" as const;
+    }
+    if (qa.qaIteration > 0) {
+      // Follow only this immutable version's ancestry. Unrelated branches,
+      // explicit retries and older builds must not stop a fresh attempt.
+      const previous = await db
+        .select({ visionReport: themeStudioVisualQaRuns.visionReport })
+        .from(themeStudioVisualQaRuns)
+        .where(
+          and(
+            eq(themeStudioVisualQaRuns.projectId, qa.projectId),
+            eq(themeStudioVisualQaRuns.status, "revision_queued"),
+            sql`coalesce(${themeStudioVisualQaRuns.browserReport}->>'phase','final') = ${phase}`,
+            sql`${themeStudioVisualQaRuns.browserReport}->>'buildId' = ${acceptance.buildId}`,
+            sql`${themeStudioVisualQaRuns.versionId} IN (WITH RECURSIVE ancestry AS (
+            SELECT id,parent_version_id,0 AS depth FROM theme_studio_versions WHERE id=${qa.versionId}::uuid AND project_id=${qa.projectId}::uuid
+            UNION ALL SELECT v.id,v.parent_version_id,a.depth+1 FROM theme_studio_versions v JOIN ancestry a ON v.id=a.parent_version_id
+            WHERE v.project_id=${qa.projectId}::uuid AND a.depth<50) SELECT id FROM ancestry WHERE depth>0)`,
+          ),
+        )
+        .orderBy(sql`${themeStudioVisualQaRuns.createdAt} DESC`)
+        .limit(12);
+      const history = previous
+        .map((p) => (p.visionReport as { progress?: QaProgress })?.progress)
+        .filter((p): p is QaProgress =>
+          Boolean(p && Array.isArray(p.patterns)),
+        );
+      const current = report.progress;
+      if (
+        history.length &&
+        (!qaImproved(current, history[0]) ||
+          history.some((p) => JSON.stringify(p) === JSON.stringify(current)))
+      ) {
+        await revealFailed(db, qa, "qa_no_progress", {
+          ...report,
+          repairs,
+          diagnosis:
+            "Automatic QA stopped because the same findings did not improve after a repair, or a previous failure pattern returned. Review the listed defects before retrying.",
+        });
+        return "failed" as const;
+      }
+    }
+    const redrawIds = [
+      ...new Set(
+        repairs.filter((r) => r.kind === "image").map((r) => r.target!),
       ),
-      evaluated.report?.revisionBrief
-        ? `Required changes: ${evaluated.report.revisionBrief}`
-        : "Fix every reported acceptance finding using the theme's supported settings. Preserve existing artwork; do not hide content or disable checks.",
-      "Preserve the product identity and any strong choices that already work. Do not ask questions; use stated assumptions.",
-    ]
-      .join("\n")
-      .slice(0, 12_000);
+    ];
+    const settingRepairs = repairs.filter((r) => r.kind === "settings");
+    // Stabilize layout first when both settings and artwork need changes. The
+    // next final review will route any remaining artwork defect to its slot.
+    if (redrawIds.length && !settingRepairs.length) {
+      if (
+        !automaticImageProvider({
+          provider: config.provider,
+          modelKey: qa.modelKey,
+          id: qa.id,
+          projectId: qa.projectId,
+          qaIteration: qa.qaIteration,
+          createdBy: qa.createdBy,
+        })
+      ) {
+        await revealFailed(db, qa, "image_provider_unavailable", report);
+        return "failed" as const;
+      }
+      const imageRunId = await queueAutomaticImages(
+        db,
+        {
+          id: qa.id,
+          projectId: qa.projectId,
+          provider: config.provider,
+          modelKey: qa.modelKey,
+          qaIteration: qa.qaIteration + 1,
+          createdBy: qa.createdBy,
+        },
+        { id: qa.versionId },
+        qa.packageDigest,
+        redrawIds.length,
+        redrawIds,
+        Object.fromEntries(
+          repairs
+            .filter((r) => r.kind === "image")
+            .map((r) => [r.target!, r.reason]),
+        ),
+      );
+      if (!imageRunId) {
+        await revealFailed(db, qa, "image_provider_unavailable", report);
+        return "failed" as const;
+      }
+      await db
+        .update(themeStudioVisualQaRuns)
+        .set({
+          status: "revision_queued",
+          revisionRunId: imageRunId,
+          visionReport: { ...report, repairs },
+          finishedAt: sql`now()`,
+          leaseOwner: null,
+          leaseExpiresAt: null,
+        })
+        .where(eq(themeStudioVisualQaRuns.id, qa.id));
+      return "revision_queued" as const;
+    }
+    const model = resolveThemeStudioModel(qa.modelKey);
+    const brief = redrawIds.length
+      ? [
+          "Revise only the following supported theme settings. Artwork changes are deferred until these settings are stable.",
+          ...settingRepairs.map(
+            (r) =>
+              `Setting ${r.target ?? "(choose a supported path)"}: ${r.reason}`,
+          ),
+          "Preserve all artwork, content, product identity and other settings. Do not hide content or disable checks.",
+        ]
+          .join("\n")
+          .slice(0, 12_000)
+      : [
+          "Revise this theme to clear automatic pre-review QA.",
+          ...failures.map((finding) => `Acceptance: ${finding}`),
+          ...(evaluated.report
+            ? [
+                `Visual scores: ${JSON.stringify(evaluated.report.scores)}. Raise every row to at least 4 and the total to at least 34.`,
+                ...evaluated.report.rejections.map(
+                  (reason) => `Visual rejection: ${reason}`,
+                ),
+              ]
+            : []),
+          ...(evaluated.report?.findings ?? []).map(
+            (finding) => `Visual: ${finding}`,
+          ),
+          evaluated.report?.revisionBrief
+            ? `Required changes: ${evaluated.report.revisionBrief}`
+            : "Fix every reported acceptance finding using the theme's supported settings. Preserve existing artwork; do not hide content or disable checks.",
+          "Preserve the product identity and any strong choices that already work. Do not ask questions; use stated assumptions.",
+        ]
+          .join("\n")
+          .slice(0, 12_000);
     const [message] = await db
       .insert(themeStudioMessages)
       .values({
@@ -762,7 +1075,7 @@ async function settleQa(
       .update(themeStudioVisualQaRuns)
       .set({
         status: "revision_queued",
-        visionReport: report,
+        visionReport: { ...report, repairs },
         revisionRunId: revision.id,
         leaseOwner: null,
         leaseExpiresAt: null,
@@ -795,6 +1108,7 @@ export interface VisualQaWorkerResult {
   /** Same version re-measured after a deploy; no design revision. */
   recaptureQueued: number;
   failed: number;
+  layoutPassed: number;
 }
 
 /** Drain at most one expensive visual verdict per invocation. */
@@ -806,6 +1120,7 @@ export async function runThemeStudioVisualQaWorker(options: {
     passed: 0,
     revisionQueued: 0,
     recaptureQueued: 0,
+    layoutPassed: 0,
     failed: 0,
   };
   const config = getThemeStudioConfig();
@@ -836,6 +1151,7 @@ export async function runThemeStudioVisualQaWorker(options: {
       : { report: null, usage: null };
     const settled = await settleQa(workerId, qa, evaluated);
     if (settled === "passed") result.passed = 1;
+    if (settled === "layout_passed") result.layoutPassed = 1;
     if (settled === "revision_queued") result.revisionQueued = 1;
     if (settled === "recapture_queued") result.recaptureQueued = 1;
     if (settled === "failed") result.failed = 1;

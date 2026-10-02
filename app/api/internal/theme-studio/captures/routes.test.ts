@@ -106,6 +106,31 @@ describe("finishing a capture", () => {
     });
   });
 
+  it("accepts layout evidence without catalog or QA image uploads and leaves phase decisions to the leased server row", async () => {
+    finish.mockResolvedValueOnce({
+      status: "succeeded",
+      versionId: "same-version",
+    });
+    const evidence = {
+      userAgent: "Chrome",
+      samples: [{ viewport: "phone360", surface: "home" }],
+    };
+    const response = await finishRoute(
+      post({
+        leaseToken: "l",
+        images: [],
+        qa: { buildId: "build", evidence, screenshots: [] },
+      }),
+      params,
+    );
+    expect(response.status).toBe(200);
+    expect(finish).toHaveBeenCalledWith(
+      expect.objectContaining({
+        images: [],
+        qa: { buildId: "build", evidence, screenshots: [] },
+      }),
+    );
+  });
   it("passes on a reported error, and says 409 to a job that lost its lease", async () => {
     finish.mockResolvedValueOnce({ status: "lost" });
     const response = await finishRoute(

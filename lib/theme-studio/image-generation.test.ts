@@ -1456,7 +1456,31 @@ describe("redrawing chosen slots", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         },
       },
       new AbortController().signal,
+      {
+        corrections: {
+          "home-hero": "Keep the mug handle intact and visible.",
+          nope: "Ignore me",
+        },
+      },
     );
+    expect(seen.find((r) => r.briefId === "home-hero")!.prompt).toContain(
+      "Keep the mug handle intact and visible.",
+    );
+    expect(
+      seen
+        .filter((r) => r.briefId !== "home-hero")
+        .every((r) => !r.prompt.includes("Keep the mug handle")),
+    ).toBe(true);
+    expect(
+      reviews.some((r) =>
+        r.content.some(
+          (b) =>
+            b.type === "text" &&
+            b.text.includes("Keep the mug handle intact and visible."),
+        ),
+      ),
+    ).toBe(true);
+    expect(JSON.stringify(pkg)).not.toContain("QA correction for this slot");
     // No new anchor: three images for three slots.
     expect(seen.map((r) => r.briefId).sort()).toEqual(
       [productIds[1], productIds[2], "home-hero"].sort(),

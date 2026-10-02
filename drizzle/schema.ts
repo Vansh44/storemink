@@ -2475,6 +2475,8 @@ export const themeStudioCaptures = pgTable("theme_studio_captures", {
   maxAttempts: integer("max_attempts").default(2).notNull(),
   errorCode: text("error_code"),
   resultVersionId: uuid("result_version_id"),
+  /** Layout preflight has no catalog images or publication evidence. */
+  phase: text().default("final").notNull(),
   automatic: boolean().default(false).notNull(),
   qaIteration: integer("qa_iteration").default(0).notNull(),
   createdBy: uuid("created_by"),

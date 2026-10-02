@@ -628,11 +628,30 @@ export function ProjectWorkspace({
                     </div>
                   ) : null}
                 </div>
-                {v.qaStatus === "failed" && v.qaFindings?.length ? (
+                {v.qaStatus === "failed" &&
+                (v.qaFindings?.length ||
+                  v.qaDiagnosis ||
+                  v.qaRepairs?.length) ? (
                   <div className="mt-3 rounded-lg bg-amber-50 p-3 text-sm text-amber-900">
-                    <p className="font-medium">Visual review needs attention</p>
+                    <p className="font-medium">Automatic QA needs attention</p>
+                    {v.qaDiagnosis ? (
+                      <p className="mt-1">{v.qaDiagnosis}</p>
+                    ) : null}
                     <ul className="mt-1 list-disc space-y-1 pl-5">
-                      {v.qaFindings.map((finding, i) => (
+                      {v.qaRepairs?.map((repair, i) => (
+                        <li key={`repair-${i}`}>
+                          <strong>
+                            {repair.kind === "renderer"
+                              ? "Platform fix"
+                              : repair.kind === "image"
+                                ? "Image slot"
+                                : "Theme settings"}
+                            {repair.target ? ` · ${repair.target}` : ""}:
+                          </strong>{" "}
+                          {repair.reason}
+                        </li>
+                      ))}
+                      {(v.qaFindings ?? []).map((finding, i) => (
                         <li key={i}>{finding}</li>
                       ))}
                     </ul>

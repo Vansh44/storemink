@@ -65,6 +65,68 @@ describe("the catalog pictures panel", () => {
     );
   });
 
+  it("permits failed QA to retry layout before artwork while keeping structural blockers and manual capture requirements", () => {
+    const unfinished = [
+      "1 image is still a placeholder. Draw or upload it first.",
+    ];
+    render(
+      <CapturePanel
+        {...props}
+        blockers={unfinished}
+        layoutBlockers={[]}
+        retryAutomaticQa
+      />,
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Retry automatic QA",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(false);
+    expect(screen.getByText(/layout checks run first/)).toBeTruthy();
+    cleanup();
+    render(
+      <CapturePanel {...props} blockers={unfinished} layoutBlockers={[]} />,
+    );
+    expect(button().disabled).toBe(true);
+    cleanup();
+    render(
+      <CapturePanel
+        {...props}
+        blockers={unfinished}
+        layoutBlockers={["Category has no image slot"]}
+        retryAutomaticQa
+      />,
+    );
+    expect(
+      (
+        screen.getByRole("button", {
+          name: "Retry automatic QA",
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+  });
+  it("describes a layout-only result without claiming catalog pictures or a new version", () => {
+    render(
+      <CapturePanel
+        {...props}
+        latest={{
+          id: "c",
+          phase: "layout",
+          versionId: "v",
+          status: "succeeded",
+          errorCode: null,
+          resultVersionId: "v",
+          attemptCount: 1,
+          createdAt: "",
+          finishedAt: "",
+        }}
+      />,
+    );
+    expect(screen.getByText(/Layout checks complete/)).toBeTruthy();
+    expect(screen.queryByText(/Captured into/)).toBeNull();
+  });
   it("queues a capture of the version on screen", async () => {
     queue.mockResolvedValue({ ok: true, id: "c" });
     render(<CapturePanel {...props} />);

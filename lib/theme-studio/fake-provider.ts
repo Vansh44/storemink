@@ -426,6 +426,7 @@ export function createFakeModelClient(
             rejections: [],
             findings: [],
             revisionBrief: null,
+            repairs: [],
           },
         };
       }

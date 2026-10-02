@@ -3357,7 +3357,10 @@ wholesip/
 │   │                          # Track 4/5: industry-playbooks.ts supplies exhaustive
 │   │                          # page/section/palette/imagery starts; visual-qa.ts
 │   │                          # leases five-width screenshot evidence, applies the
-│   │                          # eight-row scorecard and queues ≤2 hidden revisions.
+│   │                          # eight-row scorecard and queues ≤3 hidden repairs.
+│   │                          # automatic-work.ts queues artwork/final capture after layout
+│   │                          # preflight; qa-diagnosis.ts routes renderer/settings/image
+│   │                          # failures and detects stalled or recurring QA patterns.
 │   │                          # automatic-qa-policy.ts requires all acceptance gates, classifies
 │   │                          # repairable failures and enforces the database iteration bound.
 │   │                          # slot-images-core.ts (pure: describe slots, apply
@@ -5493,7 +5496,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `THEME_STUDIO_CAPTURE_ENABLED=true` and
     `THEME_STUDIO_AUTO_QA_ENABLED=true`), a successful generation/revision is
     inserted as `visibility=internal, qa_status=pending`; `worker.ts`
-    automatically queues its image run and then an automatic capture. The
+    automatically queues a layout-only browser preflight before artwork.
+    After it passes, `automatic-work.ts` queues unfinished artwork and final
+    automatic capture (or final capture directly when no artwork is missing). The
     existing Chromium job receives the preview's six available surfaces plus
     the fixed 360/390/768/1024/1440 viewports, invokes the same private
     `__smThemeStudioMeasure` probe used by acceptance, and returns raw
@@ -5520,6 +5525,45 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     `automatic-qa-policy.ts` queues targeted exact-package revisions for theme
     failures, up to THREE repairs (iterations 0→1→2→3, the ceiling migration
     0145 allows; `MAX_AUTOMATIC_QA_REPAIRS`).
+    **Early layout QA and progress routing (2026-10-02):** migration 0148
+    adds immutable capture `phase=layout|final`, defaulting older captures to
+    final. Layout claims still measure all five widths and all package-derived
+    preview surfaces with the same hydrated probe, raw-evidence parser, 24px
+    target/35% crop thresholds and axe gates. Placeholder artwork is allowed
+    only for layout; source dimensions remain the planned asset ratios.
+    The job returns no catalog pictures or QA screenshots for this phase.
+    Settlement saves measured, digest/build-bound layout QA on the SAME
+    immutable version: no new snapshot, acceptance row, vision call, visibility
+    change or candidate transition. Missing/malformed coverage fails. Full
+    final acceptance and vision still follow artwork; preflight alone never
+    qualifies for publication. Deploy the capture image and web service together.
+    `qa-diagnosis.ts` compares required failure identities, counts/severity and
+    visual score deficits against same-build, same-phase revision ancestors;
+    numeric/wording noise does not establish progress. One unchanged/regressed
+    repair or a recurring failure stops as `qa_no_progress`; the three-repair
+    ceiling remains shared across phases. Build changes recapture without
+    comparing old-renderer evidence, and unrelated branches cannot end a run.
+    Visual prompt v3 supplies closed repair routes: native settings paths,
+    exact generated artwork slot IDs, or platform renderer work. Small click
+    areas and non-contrast axe defects stop as `renderer_fix_required` before
+    paying for settings calls or artwork. Unsupported targets and owner uploads
+    cannot be redrawn. Valid image repairs carry bounded slot-specific reviewer
+    corrections through the existing durable image/review pipeline, preserving
+    stored anchor/SET and every unrelated image. Mixed findings stabilize settings
+    first; the next final review routes remaining artwork defects. Crop/frame
+    failures route to settings, not artwork. The operator workspace displays
+    diagnosis, repair targets and deterministic findings alongside visual findings.
+    The offline Chrome regression covers native hero/carousel, gallery, tile,
+    media-text, newsletter, testimonial, FAQ and rich-text fixtures across five
+    widths, allowed ratios/columns/alignments and representative scheme/spacing/
+    full-width settings, with deliberately broken measurement controls. It uses
+    production CSS and axe contrast rules, not a duplicate storefront or full-theme
+    benchmark. The independent CI renderer job runs it with Chromium. The Images
+    retry action permits layout QA while artwork is incomplete; manual catalog
+    capture still requires finished artwork. Layout captures display a check
+    result rather than claiming a catalog snapshot was saved. This
+    is an operator/internal pipeline change; no merchant workflow change or Help
+    Centre update.
     **Automatic repair performance (2026-10-02):** automatic `revise` runs
     recorded with prompt version `theme-studio-v19` use `targeted-repair.ts`,
     skipping Stage A and full Stage B regeneration. Older queued runs retain
@@ -5533,8 +5577,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     capabilities and engine metadata cannot be edited. A no-op or unsupported
     renderer request stops with `repair_not_supported`; there is no full-design
     fallback. Manual creative revisions retain the full Stage A/B pipeline.
-    Every successful repair repeats capture/acceptance/vision; image generation
-    runs only if unfinished slots remain. Partial artwork fills reuse the
+    Every successful settings repair repeats the layout preflight before
+    artwork/final capture/acceptance/vision. Image generation runs only if
+    unfinished slots remain or visual QA names exact generated slots to redraw. Partial artwork fills reuse the
     ancestry's anchor and product-set reference even without explicit redraw
     IDs. Image 429 cooldowns release the shared request permit while sleeping.
     QA screenshots preserve the measured layout without CSS zoom. Vision gets

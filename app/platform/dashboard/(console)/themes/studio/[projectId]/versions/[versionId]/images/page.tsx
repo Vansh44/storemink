@@ -75,6 +75,10 @@ export default async function ThemeStudioSlotImagesPage({
   const canEdit = project.status === "ready" || project.status === "candidate";
   const placeholders = listing.slots.filter((slot) => slot.placeholder).length;
   const studioConfig = getThemeStudioConfig();
+  const retryAutomaticQa =
+    studioConfig.autoQaEnabled &&
+    project.versions.find((version) => version.id === versionId)?.qaStatus ===
+      "failed";
 
   return (
     <div className="w-full space-y-5">
@@ -114,12 +118,9 @@ export default async function ThemeStudioSlotImagesPage({
         isCurrent={isCurrent}
         canEdit={canEdit}
         captureEnabled={studioConfig.captureEnabled}
-        retryAutomaticQa={
-          studioConfig.autoQaEnabled &&
-          project.versions.find((version) => version.id === versionId)
-            ?.qaStatus === "failed"
-        }
+        retryAutomaticQa={retryAutomaticQa}
         blockers={listing.captureBlockers}
+        layoutBlockers={listing.layoutCaptureBlockers}
         latest={latestCapture}
         resultVersionNumber={
           project.versions.find((v) => v.id === latestCapture?.resultVersionId)

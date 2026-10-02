@@ -78,13 +78,25 @@ it("shows visual findings beside passing browser checks and resolves a hidden pa
             qaStatus: "failed",
             qaIteration: 3,
             qaFindings: ["Product titles split mid-word at laptop widths."],
+            qaDiagnosis: "These findings require a platform renderer fix.",
+            qaRepairs: [
+              {
+                kind: "renderer",
+                target: null,
+                reason: "Product title wrapping",
+              },
+            ],
             createdAt: project.createdAt,
           },
         ],
       }}
     />,
   );
-  expect(screen.getByText("Visual review needs attention")).toBeTruthy();
+  expect(screen.getByText("Automatic QA needs attention")).toBeTruthy();
+  expect(
+    screen.getByText("These findings require a platform renderer fix."),
+  ).toBeTruthy();
+  expect(screen.getByText(/Product title wrapping/)).toBeTruthy();
   expect(
     screen.getByText("Product titles split mid-word at laptop widths."),
   ).toBeTruthy();

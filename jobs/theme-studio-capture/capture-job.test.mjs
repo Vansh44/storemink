@@ -110,6 +110,32 @@ function response(status, body) {
 }
 
 describe("taking the shots", () => {
+  it("measures preflight at every requested width without catalog or QA screenshots", async () => {
+    const { browser, contexts } = fakeBrowser();
+    const layout = {
+      ...claim,
+      shots: [],
+      qa: {
+        phase: "layout",
+        buildId: "build",
+        pages: [
+          { surface: "home", path: "/" },
+          { surface: "shop", path: "/shop" },
+        ],
+        viewports: {
+          phone360: { width: 360, height: 800 },
+          tablet768: { width: 768, height: 1024 },
+        },
+      },
+    };
+    expect(await takeShots(browser, layout)).toEqual([]);
+    const result = await takeQaScreenshots(browser, layout);
+    expect(result.evidence.samples).toHaveLength(4);
+    expect(result.screenshots).toEqual([]);
+    expect(contexts.every((c) => c.screenshot === undefined && c.closed)).toBe(
+      true,
+    );
+  });
   it("bounds parallel browser work, preserves order and drains in-flight work on failure", async () => {
     let active = 0,
       peak = 0;

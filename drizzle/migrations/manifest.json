@@ -6007,6 +6007,28 @@
           }
         ]
       }
+    },
+    {
+      "id": "20261002_0148_theme_studio_layout_preflight",
+      "description": "Check native theme layouts before artwork and diagnose stalled automatic QA",
+      "file": "sql/20261002_0148_theme_studio_layout_preflight.sql",
+      "transaction": true,
+      "requires": ["20261002_0147_theme_studio_image_checkpoints"],
+      "verify": {
+        "columns": ["theme_studio_captures.phase"],
+        "functions": ["theme_studio_capture_phase_guard()"],
+        "queries": [
+          {
+            "name": "capture phase remains immutable",
+            "sql": "select exists (select 1 from pg_trigger where tgrelid='public.theme_studio_captures'::regclass and tgname='theme_studio_capture_phase_guard' and not tgisinternal)::text",
+            "equals": "true"
+          }
+        ],
+        "constraints": [
+          "theme_studio_captures_phase_check",
+          "theme_studio_visual_qa_shape_check"
+        ]
+      }
     }
   ]
 }

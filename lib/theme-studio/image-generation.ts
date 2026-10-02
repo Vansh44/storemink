@@ -199,6 +199,7 @@ export interface ImageRunOptions {
   ) => Promise<ThemeImageReview>;
   /** Pause the run on reviewer outages; never let them trigger paid redraws. */
   deferUnavailableReviews?: boolean;
+  corrections?: Readonly<Record<string, string>>;
 }
 
 interface Drawn {
@@ -252,7 +253,20 @@ export async function runThemeImageGeneration(
   options: ImageRunOptions = {},
 ): Promise<ThemeImageRunResult> {
   const prepare = options.prepare ?? prepareSlotImage;
-  const slots = generatableSlots(input.pkg, input.intent, input.only);
+  const slots = generatableSlots(input.pkg, input.intent, input.only).map(
+    (slot) => {
+      const correction = options.corrections?.[slot.slotId];
+      return correction
+        ? {
+            ...slot,
+            brief: {
+              ...slot.brief,
+              artDirection: `${slot.brief.artDirection}\nQA correction for this slot: ${correction.slice(0, 800)}`,
+            },
+          }
+        : slot;
+    },
+  );
   const direction = directionFromPackage(input.pkg, input.intent);
   const started = Date.now();
   const drawConcurrency = Math.max(

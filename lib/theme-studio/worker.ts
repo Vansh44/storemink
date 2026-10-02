@@ -4,7 +4,6 @@ import { randomUUID } from "node:crypto";
 import { and, asc, count, eq, gt, inArray, lte, max, sql } from "drizzle-orm";
 import {
   themeStudioAssets,
-  themeStudioCaptures,
   themeStudioGenerationResponses,
   themeStudioMessages,
   themeStudioProjects,
@@ -39,10 +38,7 @@ import {
   generatableSlots,
   productSetReferenceSha,
 } from "./image-generation-core";
-import {
-  AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
-  captureBlockers,
-} from "./capture-core";
+import { captureBlockers } from "./capture-core";
 import {
   runThemeImageGeneration,
   type ThemeImageReviewer,
@@ -54,10 +50,6 @@ import {
 } from "./image-models";
 import { describeSlots } from "./slot-images-core";
 import type { ThemeStudioImageClient } from "./image-provider";
-import {
-  THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
-  THEME_STUDIO_IMAGE_PROMPT_VERSION,
-} from "./image-provider";
 import { createVertexImageClient } from "./image-vertex";
 import {
   THEME_STUDIO_MODELS,
@@ -73,6 +65,10 @@ import {
 } from "./generation-recovery";
 import { digestThemeStudioJson, recordThemeStudioEvent } from "./repository";
 import { runThemeStudioVisualQaWorker } from "./visual-qa";
+import {
+  automaticImageProvider,
+  queueAutomaticCapture,
+} from "./automatic-work";
 import { createImageCheckpointStore } from "./image-checkpoint-store";
 import {
   IMAGE_CRASH_ATTEMPTS,
@@ -232,111 +228,6 @@ async function claimRun(
   `);
   const row = rows.rows[0] as ClaimedRun | undefined;
   return row ?? null;
-}
-
-function automaticImageProvider(run: ClaimedRun) {
-  if (run.provider === "fake") {
-    return {
-      providerModel: "fake",
-      promptVersion: THEME_STUDIO_IMAGE_FAKE_PROMPT_VERSION,
-    };
-  }
-  const image = getThemeStudioImageConfig();
-  return image
-    ? {
-        providerModel: image.providerModel,
-        promptVersion: THEME_STUDIO_IMAGE_PROMPT_VERSION,
-      }
-    : null;
-}
-
-async function queueAutomaticCapture(
-  db: Db,
-  run: ClaimedRun,
-  version: { id: string },
-  packageDigest: string,
-) {
-  const [capture] = await db
-    .insert(themeStudioCaptures)
-    .values({
-      projectId: run.projectId,
-      versionId: version.id,
-      packageDigest,
-      previousStatus: "generating",
-      idempotencyKey: `auto_capture_${run.id}`,
-      automatic: true,
-      qaIteration: run.qaIteration,
-      maxAttempts: AUTOMATIC_CAPTURE_MAX_ATTEMPTS,
-      createdBy: run.createdBy,
-    })
-    .returning({ id: themeStudioCaptures.id });
-  await recordThemeStudioEvent(db, {
-    projectId: run.projectId,
-    runId: run.id,
-    actor: "worker",
-    eventType: "capture_requested",
-    detail: {
-      captureId: capture.id,
-      versionId: version.id,
-      automatic: true,
-      qaIteration: run.qaIteration,
-    },
-  });
-}
-
-async function queueAutomaticImages(
-  db: Db,
-  run: ClaimedRun,
-  version: { id: string },
-  packageDigest: string,
-  slots: number,
-): Promise<boolean> {
-  const resolved = automaticImageProvider(run);
-  if (!resolved) return false;
-  const [message] = await db
-    .insert(themeStudioMessages)
-    .values({
-      projectId: run.projectId,
-      kind: "images",
-      body: `Automatically generate images for ${slots} slot${slots === 1 ? "" : "s"} before visual QA.`,
-      referenceAssetIds: [],
-      createdBy: run.createdBy,
-    })
-    .returning({ id: themeStudioMessages.id });
-  const [imageRun] = await db
-    .insert(themeStudioRuns)
-    .values({
-      projectId: run.projectId,
-      messageId: message.id,
-      kind: "images",
-      baseVersionId: version.id,
-      basePackageDigest: packageDigest,
-      contextMessageIds: [],
-      provider: run.provider,
-      modelKey: run.modelKey,
-      providerModel: resolved.providerModel,
-      promptVersion: resolved.promptVersion,
-      idempotencyKey: `auto_images_${run.id}`,
-      maxAttempts: IMAGE_CRASH_ATTEMPTS,
-      imageSlotIds: [],
-      automatic: true,
-      qaIteration: run.qaIteration,
-      createdBy: run.createdBy,
-    })
-    .returning({ id: themeStudioRuns.id });
-  await recordThemeStudioEvent(db, {
-    projectId: run.projectId,
-    runId: imageRun.id,
-    actor: "worker",
-    eventType: "images_requested",
-    detail: {
-      versionId: version.id,
-      slots,
-      automatic: true,
-      qaIteration: run.qaIteration,
-    },
-  });
-  return true;
 }
 
 /**
@@ -706,6 +597,7 @@ async function cancelRequested(runId: string): Promise<boolean> {
 // ── Image runs (Track 3.2) ────────────────────────────────────────────────
 
 type ImageRunInput = {
+  corrections: Record<string, string>;
   intent: ThemeIntent;
   package: ThemePackageV2;
   versionNumber: number;
@@ -721,6 +613,9 @@ async function loadImageRunInput(
     }
     const [base] = await db
       .select({
+        correctionBody: sql<
+          string | null
+        >`(SELECT m.body FROM theme_studio_messages m WHERE m.id=${run.messageId}::uuid AND m.project_id=${run.projectId}::uuid AND EXISTS (SELECT 1 FROM theme_studio_runs r WHERE r.message_id=m.id AND r.automatic))`,
         intentJson: themeStudioVersions.intentJson,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
@@ -749,7 +644,19 @@ async function loadImageRunInput(
       .select({ latest: max(themeStudioVersions.versionNumber) })
       .from(themeStudioVersions)
       .where(eq(themeStudioVersions.projectId, run.projectId));
+    const corrections: Record<string, string> = {};
+    if (run.automatic && run.imageSlotIds.length && base.correctionBody) {
+      try {
+        const parsed = JSON.parse(base.correctionBody)?.qaImageCorrections;
+        for (const id of run.imageSlotIds)
+          if (typeof parsed?.[id] === "string" && parsed[id].length <= 800)
+            corrections[id] = parsed[id];
+      } catch {
+        /* Older automatic image messages contain plain text. */
+      }
+    }
     return {
+      corrections,
       intent: intent.value,
       package: pkg.value,
       versionNumber: (latest ?? 0) + 1,
@@ -947,6 +854,7 @@ async function executeImages(
       {
         review: resumableImageReview(store, run.imageReviewDeferrals),
         deferUnavailableReviews: true,
+        corrections: input.corrections,
       },
     );
     return {
@@ -1408,21 +1316,9 @@ async function finish(
         versionId: version.id,
         qaIteration: run.qaIteration,
       });
-      if (automaticSlots > 0) {
-        if (
-          !(await queueAutomaticImages(
-            db,
-            run,
-            version,
-            packageDigest,
-            automaticSlots,
-          ))
-        ) {
-          return failRun("image_provider_unavailable");
-        }
-      } else {
-        await queueAutomaticCapture(db, run, version, packageDigest);
-      }
+      // Measure the native layout with its planned image ratios before paying
+      // for artwork. Passing this stage cannot create acceptance evidence.
+      await queueAutomaticCapture(db, run, version, packageDigest, "layout");
     }
     return "succeeded";
   });

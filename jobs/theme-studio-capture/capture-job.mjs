@@ -205,23 +205,25 @@ export async function takeQaScreenshots(
             }
           });
           samples.push({ ...result, viewport, surface: preview.surface });
-          // Capture the measured layout unchanged. CSS zoom reflows the page
-          // and made vision review a different composition from the probe.
-          const bytes = await page.screenshot({
-            type: "jpeg",
-            quality: 55,
-            fullPage: true,
-          });
-          if (bytes.byteLength > 512 * 1024) {
-            throw new CaptureError("qa_screenshot_too_large");
+          if (claim.qa.phase !== "layout") {
+            // Capture the measured layout unchanged. CSS zoom reflows the page
+            // and made vision review a different composition from the probe.
+            const bytes = await page.screenshot({
+              type: "jpeg",
+              quality: 55,
+              fullPage: true,
+            });
+            if (bytes.byteLength > 512 * 1024) {
+              throw new CaptureError("qa_screenshot_too_large");
+            }
+            screenshots.push({
+              key: `${viewport}:${preview.surface}`,
+              viewport,
+              surface: preview.surface,
+              path: preview.path,
+              base64: bytes.toString("base64"),
+            });
           }
-          screenshots.push({
-            key: `${viewport}:${preview.surface}`,
-            viewport,
-            surface: preview.surface,
-            path: preview.path,
-            base64: bytes.toString("base64"),
-          });
           await page.close?.();
         }
       } finally {

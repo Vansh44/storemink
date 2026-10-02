@@ -194,3 +194,46 @@ their checkpoint commit cannot be recovered, and timeouts may omit billed usage.
 Historical runs created before checkpoint support have no saved raw responses.
 Deploy the migration and worker code before testing a fresh complete run.
 No merchant-visible change, no Help Centre update.
+
+## Layout preflight and stalled-QA diagnosis
+
+Automatic drafts and settings repairs now run the real storefront probe at all
+five acceptance widths before buying artwork. The planned placeholder ratios
+are retained so overflow, wrapping, small controls, contrast and extreme image
+frames can be checked early. These checks use existing acceptance thresholds.
+There is no early vision call, screenshot upload, catalogue snapshot or passing
+publication evidence. Once layout passes, artwork and full final acceptance and
+visual review proceed normally. This adds an early browser stage to healthy
+runs but avoids buying artwork for layouts that already fail required checks.
+
+QA records normalized required defects and severity plus visual score deficits.
+The next repair must reduce failures or materially improve severity (over 10%),
+without introducing a new required failure pattern. Visual-only repairs must
+improve scores, remove rejection conditions or resolve named repair targets,
+without introducing new rejections or targets. An unchanged/regressed repair or a
+return to a recorded failure stops with `qa_no_progress`; three repairs remain
+the ceiling. Comparison follows only revision ancestors from the same renderer
+build and phase. Explicit retries start a fresh attempt.
+
+Structured visual verdicts route each repair to a supported setting path,
+exact generated image slot or platform renderer fix. Small click areas and
+non-contrast axe defects stop immediately with platform diagnostics. Owner
+uploads and invented targets are refused. Artwork repairs redraw only named
+slots and carry the reviewer correction while reusing the established anchor
+and SET. Mixed settings/artwork findings repair settings first. Crop defects
+change framing settings rather than redrawing images. The workspace shows
+these diagnoses and targets, including deterministic preflight findings.
+
+Migration `20261002_0148_theme_studio_layout_preflight` is additive; older
+captures default to final. Deploy the app and rebuilt capture job together.
+The offline renderer check extends beyond hero/carousel to gallery, tiles,
+media-text, newsletter, testimonials, FAQ and rich text across five widths,
+ratios, columns, alignment, schemes, spacing and full-width settings. It checks
+production CSS and axe contrast rules with synthetic local content and negative
+controls. An independent CI job runs the check in Chromium. Failed preflights
+can be retried before artwork exists; manual catalog capture keeps its blockers.
+PostgreSQL rollback tests exercise queue order, no early candidate/publication evidence,
+phase immutability, and ancestry-based stopping. These are regression fixtures,
+not a measured full production theme or provider throughput guarantee.
+
+No merchant-visible workflow change, no Help Centre update.
