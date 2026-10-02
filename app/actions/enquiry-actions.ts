@@ -8,6 +8,7 @@ import { withService } from "@/lib/db/client";
 import { enquiries } from "@/drizzle/schema";
 import { getManagerUserId, getActingStoreId } from "@/app/dashboard/lib/access";
 import { getCurrentStoreId } from "@/lib/store/resolve";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
 import { getStoreBrand } from "@/lib/store/brand";
 import { sendEnquiryAcknowledgementEmail } from "@/lib/email/enquiry-notifications";
 import { rateLimit, clientIp } from "@/lib/rate-limit";
@@ -45,6 +46,8 @@ const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 export async function submitEnquiry(
   input: EnquiryInput,
 ): Promise<ActionResult> {
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const name = input.name?.trim();
   const email = input.email?.trim();
   const phone = input.phone?.trim();

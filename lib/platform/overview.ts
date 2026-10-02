@@ -3,6 +3,7 @@ import "server-only";
 import { sql } from "drizzle-orm";
 import { withService } from "@/lib/db/client";
 import { logError } from "@/lib/observability/logger";
+import { MERCHANT_STORES_CTE } from "./merchant-stores";
 import type { Plan } from "@/lib/plans";
 
 // ---------------------------------------------------------------------------
@@ -105,13 +106,11 @@ function num(value: unknown): number {
  * The operator home snapshot. Never throws — an unreadable database renders
  * `ok: false` and the page says the figures are unavailable.
  */
-// Theme Studio preview stores are platform plumbing, not merchants: they are
-// created and removed by operators reviewing a theme, so counting them would
-// report signups nobody made. Every query below reads this CTE, never
-// `stores` directly.
-const MERCHANT_STORES = sql.raw(
-  "with merchant_stores as (select * from stores where not (settings ? 'studioPreview'))",
-);
+// Theme Studio preview stores and theme demo stores are platform plumbing,
+// not merchants, so counting them would report signups nobody made. Every
+// query below reads this CTE, never `stores` directly; the rule itself lives
+// in lib/platform/merchant-stores.ts so the store list agrees with it.
+const MERCHANT_STORES = MERCHANT_STORES_CTE;
 
 export async function getPlatformInsights(): Promise<PlatformInsights> {
   try {

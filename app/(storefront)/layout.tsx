@@ -15,7 +15,7 @@ import { getStoreBrand } from "@/lib/store/brand";
 import { getStoreChrome, getDraftChromeForPreview } from "@/lib/chrome/queries";
 import { resolveStorefrontAppearance } from "@/lib/chrome/types";
 import { getCurrentStoreOrNull } from "@/lib/store/resolve";
-import { isStoreSearchIndexable } from "@/lib/store/launch";
+import { isDemoStore, isStoreSearchIndexable } from "@/lib/store/launch";
 import { getStoreUrl } from "@/lib/site";
 import { resolveInstalledThemeDefinition } from "@/lib/themes/runtime-registry";
 import { readThemeSelection } from "@/lib/themes/meta";
@@ -268,7 +268,7 @@ export default async function StorefrontLayout({
                 ) : null}
               </ChromeProvider>
             </BrandProvider>
-            <AuthModalLoader />
+            <AuthModalLoader demoStore={isDemoStore(store)} />
             <CartDrawer />
             <Toaster richColors />
           </CartProvider>

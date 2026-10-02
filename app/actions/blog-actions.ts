@@ -16,6 +16,7 @@ import {
   getActingStoreId,
 } from "@/app/dashboard/lib/access";
 import { getCurrentStoreId } from "@/lib/store/resolve";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
 import {
   deleteStorageUrls,
   extractMediaUrlsFromHtml,
@@ -892,6 +893,8 @@ async function getCustomerProfile(
 export async function submitCustomerBlog(
   formData: CustomerBlogFormData,
 ): Promise<ActionResult> {
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const user = await getServerUser();
 
   if (!user) {
@@ -1046,6 +1049,8 @@ export async function saveCustomerBlogDraft(
   formData: CustomerBlogFormData,
   id?: string,
 ): Promise<ActionResult> {
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const user = await getServerUser();
 
   if (!user) {
@@ -1166,6 +1171,8 @@ export async function updateCustomerBlog(
   id: string,
   formData: CustomerBlogFormData,
 ): Promise<ActionResult> {
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const user = await getServerUser();
 
   if (!user) {

@@ -28,6 +28,15 @@ import {
 } from "./blog-social";
 import { getServerUser } from "@/lib/auth/server-user";
 import { revalidatePath } from "next/cache";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
+
+const DEMO =
+  "This is a theme preview, so orders, accounts and forms are turned off.";
+// Demo stores refuse every public write (lib/store/demo-guard.ts); a real
+// store is the default here.
+vi.mock("@/lib/store/demo-guard", () => ({
+  demoStoreRefusal: vi.fn(async () => null),
+}));
 
 const serverUser = {
   id: "user-1",
@@ -137,6 +146,13 @@ describe("blog-social", () => {
       dbHolder.current = makeDbMock({
         selectQueue: [[{ firstName: "Ada", lastName: "Lovelace" }]],
       });
+    });
+
+    it("refuses on a theme demo store", async () => {
+      vi.mocked(demoStoreRefusal).mockResolvedValueOnce(DEMO);
+      const result = await submitBlogComment(commentForm);
+      expect(result.error).toBe(DEMO);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
     });
 
     it("rejects an empty body", async () => {

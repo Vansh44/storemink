@@ -27,12 +27,18 @@ export function StudioStatusBadge({
   status: ThemeStudioProjectState;
   qaFailed?: boolean;
 }) {
+  // `candidate` and `approved` are internal names: to an operator they mean
+  // "checks passed, publish it" and "publishing didn't finish, retry it".
   const label =
     status === "ready"
       ? qaFailed
         ? "Needs attention"
         : "Needs checks"
-      : status;
+      : status === "candidate"
+        ? "Ready to publish"
+        : status === "approved"
+          ? "Publishing"
+          : status;
   return (
     <span
       className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${STATUS_TONE[status]}`}

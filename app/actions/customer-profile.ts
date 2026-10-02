@@ -7,6 +7,7 @@ import { withUser } from "@/lib/db/client";
 import { emitEvent } from "@/lib/notifications/record";
 import { users } from "@/drizzle/schema";
 import { getCurrentStoreId } from "@/lib/store/resolve";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
 import { recordStorePolicyConsent } from "@/lib/legal/store-consent";
 import { claimPosCustomer } from "@/lib/pos/claim-customer";
 import { parseStoredPhone } from "@/lib/phone";
@@ -81,6 +82,9 @@ export async function getMyCustomer(): Promise<MyCustomer | null> {
 }
 
 export async function updateCustomerProfile(formData: FormData) {
+  // A theme preview keeps no customer accounts (lib/store/demo-guard.ts).
+  const demoRefusal = await demoStoreRefusal();
+  if (demoRefusal) return { error: demoRefusal };
   const firstName = formData.get("firstName") as string;
   const lastName = (formData.get("lastName") as string) || null;
   const email = (formData.get("email") as string) || null;

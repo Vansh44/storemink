@@ -52,8 +52,7 @@ async function main() {
     await import("@/lib/themes/runtime-registry");
   const { applyTheme } = await import("@/lib/themes/apply");
   const { withService } = await import("@/lib/db/client");
-  const { stores } = await import("@/drizzle/schema");
-  const { eq } = await import("drizzle-orm");
+  const { upsertDemoStoreRow } = await import("@/lib/themes/demo-store");
 
   const theme = await resolveThemeDefinition(themeId);
   if (theme.id !== themeId) {
@@ -72,30 +71,9 @@ async function main() {
       `Database ${dbName}${isProd ? "  ← PRODUCTION" : "  (staging)"}\n`,
   );
 
-  const { storeId, created } = await withService(async (db) => {
-    const existing = await db
-      .select({ id: stores.id })
-      .from(stores)
-      .where(eq(stores.slug, slug))
-      .limit(1);
-    if (existing[0]) return { storeId: existing[0].id, created: false };
-
-    const [row] = await db
-      .insert(stores)
-      .values({
-        slug,
-        name: `${theme.name} Demo`,
-        status: "active",
-        plan: "free",
-        settings: {
-          demo: true,
-          template: theme.id,
-          brand: { name: `${theme.name} Demo` },
-        },
-      })
-      .returning({ id: stores.id });
-    return { storeId: row.id, created: true };
-  });
+  const { storeId, created } = await withService((db) =>
+    upsertDemoStoreRow(db, theme),
+  );
   console.log(`${created ? "Created" : "Found"} store ${storeId}`);
 
   const result = await applyTheme(storeId, theme.id, {

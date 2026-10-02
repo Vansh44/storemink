@@ -2,143 +2,12 @@ import { describe, expect, it } from "vitest";
 import { operatorImagePackage, placeholderPackage } from "./_test-helpers";
 import { validateThemePackageV2 } from "./contracts";
 import {
-  approvalReadiness,
   buildPublishedPackage,
   nextReleaseVersion,
   publicationBlockers,
   releaseDate,
   validateCatalogChange,
-  validateScorecard,
-  type ReviewFacts,
-  type Scores,
 } from "./publication-core";
-
-function scores(value: number, overrides: Partial<Scores> = {}): Scores {
-  return {
-    artDirection: value,
-    distinctness: value,
-    commerceClarity: value,
-    typography: value,
-    imagery: value,
-    responsiveComposition: value,
-    detailQuality: value,
-    brandAdaptability: value,
-    ...overrides,
-  };
-}
-
-const card = (overrides: Record<string, unknown> = {}) => ({
-  role: "design",
-  scores: scores(5),
-  rejections: [],
-  verdict: "approve",
-  notes: "",
-  ...overrides,
-});
-
-describe("the scorecard", () => {
-  it("accepts an approving review that clears the bar", () => {
-    const parsed = validateScorecard(card());
-    expect(parsed.ok && parsed.value.verdict).toBe("approve");
-  });
-
-  it("holds an approval to every row >= 4 and an average >= 4.2", () => {
-    // 4,4,4,4,4,4,4,5 averages 4.125: every row passes, the average does not.
-    const low = validateScorecard(
-      card({ scores: scores(4, { brandAdaptability: 5 }) }),
-    );
-    expect(!low.ok && low.error).toMatch(/average of at least 4.2/);
-    // 4,4,4,4,4,4,5,5 averages 4.25.
-    expect(
-      validateScorecard(
-        card({ scores: scores(4, { detailQuality: 5, brandAdaptability: 5 }) }),
-      ).ok,
-    ).toBe(true);
-    // A single 3 fails however high the rest are.
-    const row = validateScorecard(card({ scores: scores(5, { imagery: 3 }) }));
-    expect(row.ok).toBe(false);
-  });
-
-  it("makes approval impossible once a rejection condition is ticked", () => {
-    const parsed = validateScorecard(card({ rejections: ["copied"] }));
-    expect(!parsed.ok && parsed.error).toMatch(/cannot approve/);
-  });
-
-  it("requires a reason to reject, and accepts a rejection over high scores", () => {
-    expect(validateScorecard(card({ verdict: "reject" })).ok).toBe(false);
-    const parsed = validateScorecard(
-      card({ verdict: "reject", notes: "The cart is unreadable on mobile." }),
-    );
-    expect(parsed.ok).toBe(true);
-  });
-
-  it.each([
-    [{ role: "owner" }, /which review/],
-    [{ scores: scores(5, { imagery: 6 }) }, /Imagery/],
-    [{ scores: scores(5, { imagery: 4.5 }) }, /Imagery/],
-    [{ rejections: ["nope"] }, /Unknown rejection/],
-    [{ verdict: "maybe" }, /approve or reject/],
-    [{ notes: "x".repeat(2001) }, /under 2000/],
-  ])("refuses %j", (overrides, message) => {
-    const parsed = validateScorecard(card(overrides));
-    expect(!parsed.ok && parsed.error).toMatch(message);
-  });
-
-  it("deduplicates repeated rejection conditions", () => {
-    const parsed = validateScorecard(
-      card({
-        verdict: "reject",
-        notes: "Palette swap of Basket.",
-        rejections: ["palette_only", "palette_only"],
-      }),
-    );
-    expect(parsed.ok && parsed.value.rejections).toEqual(["palette_only"]);
-  });
-});
-
-describe("approval readiness", () => {
-  const review = (overrides: Partial<ReviewFacts>): ReviewFacts => ({
-    role: "design",
-    verdict: "approve",
-    reviewerIsAuthor: false,
-    reviewerEmail: "a@storemink.com",
-    ...overrides,
-  });
-
-  it("is ready with both chairs approving and one independent reviewer", () => {
-    expect(
-      approvalReadiness([
-        review({ reviewerIsAuthor: true }),
-        review({ role: "commerce", reviewerEmail: "b@storemink.com" }),
-      ]),
-    ).toEqual({ ok: true });
-  });
-
-  it("needs both chairs", () => {
-    const result = approvalReadiness([review({})]);
-    expect(!result.ok && result.reasons).toEqual([
-      "It needs an approving Commerce / QA review.",
-    ]);
-  });
-
-  it("refuses when every approving reviewer authored the theme", () => {
-    const result = approvalReadiness([
-      review({ reviewerIsAuthor: true }),
-      review({ role: "commerce", reviewerIsAuthor: true }),
-    ]);
-    expect(!result.ok && result.reasons.join(" ")).toMatch(
-      /must not have authored/,
-    );
-  });
-
-  it("refuses when any reviewer rejected", () => {
-    const result = approvalReadiness([
-      review({}),
-      review({ role: "commerce", verdict: "reject" }),
-    ]);
-    expect(!result.ok && result.reasons[0]).toMatch(/rejected/);
-  });
-});
 
 describe("release versions", () => {
   it.each([
@@ -269,10 +138,19 @@ describe("published image paths in the contract", () => {
 });
 
 describe("catalog changes", () => {
-  it("needs a reason", () => {
-    expect(validateCatalogChange({ action: "hide", reason: "" }).ok).toBe(
-      false,
-    );
+  it("needs no reason: a blank one gets a plain sentence for the audit", () => {
+    const hide = validateCatalogChange({ action: "hide" });
+    expect(hide).toEqual({
+      ok: true,
+      value: { action: "hide", reason: "Hidden from new stores." },
+    });
+    const show = validateCatalogChange({ action: "show", reason: "  " });
+    expect(show.ok && show.value.reason).toBe("Shown in the catalog again.");
+    const typed = validateCatalogChange({
+      action: "hide",
+      reason: "Broken PDP",
+    });
+    expect(typed.ok && typed.value.reason).toBe("Broken PDP");
   });
 
   it("accepts hide, show and a release selection", () => {

@@ -20,6 +20,15 @@ vi.mock("@/lib/db/client", () => ({
 
 import { submitReview, deleteReview } from "./review-actions";
 import { getServerUser } from "@/lib/auth/server-user";
+import { demoStoreRefusal } from "@/lib/store/demo-guard";
+
+const DEMO =
+  "This is a theme preview, so orders, accounts and forms are turned off.";
+// Demo stores refuse every public write (lib/store/demo-guard.ts); a real
+// store is the default here.
+vi.mock("@/lib/store/demo-guard", () => ({
+  demoStoreRefusal: vi.fn(async () => null),
+}));
 
 const validReview = {
   product_id: "p1",
@@ -49,6 +58,13 @@ describe("review-actions", () => {
   });
 
   describe("submitReview", () => {
+    it("refuses on a theme demo store", async () => {
+      vi.mocked(demoStoreRefusal).mockResolvedValueOnce(DEMO);
+      const result = await submitReview(validReview);
+      expect(result.error).toBe(DEMO);
+      expect(dbHolder.current.calls.insert).toHaveLength(0);
+    });
+
     // Anonymous visitors must sign in to leave a review.
     it("rejects unauthenticated callers", async () => {
       vi.mocked(getServerUser).mockResolvedValue(null);

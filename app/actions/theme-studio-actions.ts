@@ -47,10 +47,8 @@ import {
 import { runThemeStudioWorker } from "@/lib/theme-studio/worker";
 import { replaceThemeStudioSlotImages } from "@/lib/theme-studio/slot-images";
 import {
-  approveThemeStudioCandidate,
   changeThemeStudioCatalog,
   publishThemeStudioProject,
-  submitThemeStudioReview,
 } from "@/lib/theme-studio/publication";
 import {
   startThemeStudioAcceptance,
@@ -510,60 +508,14 @@ export async function replaceThemeStudioSlotImagesAction(input: {
 }
 
 /**
- * Submit one reviewer's scorecard for the current candidate. The reviewer is
- * the session; whether they authored the theme is decided by the server from
- * the project's history, never by the browser.
- */
-export async function submitThemeStudioReviewAction(input: {
-  projectId: string;
-  versionId: string;
-  expectedPackageDigest: string;
-  scorecard: unknown;
-}): Promise<ThemeStudioActionResult> {
-  const actor = await getThemeStudioActor();
-  if (!actor) return NOT_AUTHORIZED;
-  try {
-    const { reviewId } = await submitThemeStudioReview(actor, {
-      projectId: String(input.projectId),
-      versionId: String(input.versionId),
-      expectedPackageDigest: String(input.expectedPackageDigest),
-      scorecard: input.scorecard,
-    });
-    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
-    return { ok: true, id: reviewId };
-  } catch (error) {
-    return failure(error, "submit review");
-  }
-}
-
-/** Approve the candidate once two qualifying reviews exist. */
-export async function approveThemeStudioCandidateAction(input: {
-  projectId: string;
-  expectedRevision: number;
-}): Promise<ThemeStudioActionResult> {
-  const actor = await getThemeStudioActor();
-  if (!actor) return NOT_AUTHORIZED;
-  try {
-    await approveThemeStudioCandidate(actor, {
-      projectId: String(input.projectId),
-      expectedRevision: Number(input.expectedRevision),
-    });
-    revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
-    return { ok: true };
-  } catch (error) {
-    return failure(error, "approve candidate");
-  }
-}
-
-/**
- * Publish an approved project: store the release, seed and render its demo,
- * then expose it in the catalog. A failure after the attempt starts is
- * recorded and returned with its reasons; nothing becomes public.
+ * Publish a candidate in one step: store the release, seed and render its
+ * live demo, then expose it in the catalog and signup. A failure after the
+ * attempt starts is recorded and returned with its reasons; nothing becomes
+ * public, and the same button retries.
  */
 export async function publishThemeStudioProjectAction(input: {
   projectId: string;
   expectedRevision: number;
-  confirmThemeId: string;
 }): Promise<
   ThemeStudioActionResult & {
     releaseVersion?: string;
@@ -577,7 +529,6 @@ export async function publishThemeStudioProjectAction(input: {
     const result = await publishThemeStudioProject(actor, {
       projectId: String(input.projectId),
       expectedRevision: Number(input.expectedRevision),
-      confirmThemeId: String(input.confirmThemeId ?? ""),
     });
     revalidatePath(`${STUDIO_PATH}/${input.projectId}`, "layout");
     revalidatePath("/dashboard/themes");

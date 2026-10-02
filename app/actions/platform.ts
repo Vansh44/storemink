@@ -53,6 +53,14 @@ import { emitEvent } from "@/lib/notifications/record";
 import { resolveThemeDefinition } from "@/lib/themes/runtime-registry";
 import { applyTheme } from "@/lib/themes/apply";
 import {
+  NotADemoStoreError,
+  upsertDemoStoreRow,
+} from "@/lib/themes/demo-store";
+import {
+  MERCHANT_STORES_CTE,
+  merchantStoreCondition,
+} from "@/lib/platform/merchant-stores";
+import {
   countOpenReconciliationItems,
   listReconciliationItems,
   resolveReconciliationItem,
@@ -152,16 +160,18 @@ export async function getPlatformOverview(): Promise<PlatformOverview> {
 
   try {
     const result = await withService((db) =>
+      // Merchants only: previews and theme demos are not stores anybody runs.
       db.execute(sql`
+        ${MERCHANT_STORES_CTE}
         select
-          (select count(*)::int from stores) as total_stores,
-          (select count(*)::int from stores where status = 'active') as active_stores,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores) as total_stores,
+          (select count(*)::int from merchant_stores where status = 'active') as active_stores,
+          (select count(*)::int from merchant_stores
             where plan <> 'free'
               and (plan_expires_at is null or plan_expires_at > now())) as paid_stores,
-          (select count(*)::int from stores
+          (select count(*)::int from merchant_stores
             where created_at >= now() - interval '30 days') as new_stores_30d,
-          (select count(*)::int from stores where status = 'suspended') as suspended_stores,
+          (select count(*)::int from merchant_stores where status = 'suspended') as suspended_stores,
           (select count(*)::int from email_logs
             where status = 'failed'
               and created_at >= now() - interval '24 hours') as email_failures_24h
@@ -188,16 +198,39 @@ function sanitize(q: string): string {
   return q.trim().slice(0, 80);
 }
 
-// Every store on the platform (operator-only; service scope bypasses per-store RLS).
+/** Slugs of the theme demo stores that exist (operator-only). The store list
+ *  no longer includes demos, so the Themes panel asks this instead to know
+ *  whether to offer "Seed" or "Reseed" and a live Preview link. */
+export async function listDemoStoreSlugs(): Promise<string[]> {
+  if (!(await getPlatformViewer())) return [];
+  try {
+    const rows = await withService((db) =>
+      db
+        .select({ slug: stores.slug })
+        .from(stores)
+        .where(
+          sql`(${stores.settings} -> 'demo') = 'true'::jsonb and not (${stores.settings} ? 'studioPreview')`,
+        ),
+    );
+    return rows.map((r) => r.slug);
+  } catch (error) {
+    logError("listDemoStoreSlugs failed", error);
+    return [];
+  }
+}
+
+// Every merchant store on the platform (operator-only; service scope bypasses
+// per-store RLS). Theme demos and Studio previews are excluded.
 export async function listAllStores(q?: string): Promise<PlatformStoreRow[]> {
   if (!(await getPlatformViewer())) return [];
 
   const term = sanitize(q ?? "");
   try {
     return await withService(async (db) => {
-      // Theme Studio preview stores are operator plumbing, not merchants.
+      // Theme Studio previews and theme demo stores are platform plumbing,
+      // not merchants; demos are managed from Themes.
       const conds = [
-        sql`not (${stores.settings} ? 'studioPreview')`,
+        merchantStoreCondition,
         ...(term
           ? [
               or(
@@ -1011,34 +1044,13 @@ export async function seedDemoStore(themeId: string): Promise<SeedDemoResult> {
 
   const slug = theme.demo.slug;
 
-  // Create the store row if missing.
+  // Create the store row if missing, or bring its name up to date.
   let storeId: string | undefined;
   try {
-    storeId = await withService(async (db) => {
-      const existing = await db
-        .select({ id: stores.id })
-        .from(stores)
-        .where(eq(stores.slug, slug))
-        .limit(1);
-      if (existing[0]) return existing[0].id;
-
-      const [created] = await db
-        .insert(stores)
-        .values({
-          slug,
-          name: `${theme.name} Demo`,
-          status: "active",
-          plan: "free",
-          settings: {
-            demo: true,
-            template: theme.id,
-            brand: { name: `${theme.name} Demo` },
-          },
-        })
-        .returning({ id: stores.id });
-      return created.id;
-    });
+    storeId = (await withService((db) => upsertDemoStoreRow(db, theme)))
+      .storeId;
   } catch (err) {
+    if (err instanceof NotADemoStoreError) return { error: err.message };
     console.error("seedDemoStore (insert):", err);
     return { error: "Could not create the demo store." };
   }

@@ -1,16 +1,16 @@
 // ---------------------------------------------------------------------------
 // Mink AI Theme Studio — Phase 6 rules, with no I/O.
 //
-// Everything that decides whether a theme may be approved or published, and
-// what the published package looks like, lives here so it can be tested
-// without a database, and so the review screen and the server agree on the
-// rules by importing the same constants.
+// Everything that decides whether a theme may be published, and what the
+// published package looks like, lives here so it can be tested without a
+// database, and so the release screen and the server agree on the rules.
 //
-// The database repeats the load-bearing half (migration 0134): an approving
-// scorecard below the bar cannot be stored, a project cannot enter `approved`
-// without two qualifying reviews, nor `published` without a publication.
-// These functions exist to explain a refusal in a sentence before the
-// database refuses it with a constraint name.
+// Publication is ONE superadmin step (2026-10-03): a candidate has already
+// passed every automated acceptance gate and the visual QA scorecard, so the
+// two-chair human scorecard that used to follow was removed. The database
+// repeats the load-bearing half (migration 0151): a project cannot enter
+// `approved` without passing acceptance evidence, nor `published` without a
+// publication.
 // ---------------------------------------------------------------------------
 
 import {
@@ -22,157 +22,7 @@ import { THEME_ASSET_PREFIX } from "./compiler";
 import { isPlaceholderAsset } from "./acceptance-gates";
 import { validateThemeDefinition } from "@/lib/themes/validation";
 import type { ThemeDefinition } from "@/lib/themes/types";
-import {
-  MIN_ROW_SCORE,
-  REJECT_NOTE_MIN,
-  REJECTION_CONDITIONS,
-  REVIEWER_ROLES,
-  REVIEW_NOTE_MAX,
-  SCORECARD_DIMENSIONS,
-  scorecardClearsBar,
-  type Parsed,
-  type RejectionCondition,
-  type ReviewerRole,
-  type Scorecard,
-  type Scores,
-} from "./scorecard";
-
-export {
-  MIN_ROW_SCORE,
-  MIN_TOTAL_SCORE,
-  REJECT_NOTE_MIN,
-  REJECTION_CONDITIONS,
-  REVIEWER_ROLES,
-  REVIEW_NOTE_MAX,
-  SCORECARD_DIMENSIONS,
-  scorecardAverage,
-  scorecardClearsBar,
-} from "./scorecard";
-export type {
-  Parsed,
-  RejectionCondition,
-  ReviewerRole,
-  Scorecard,
-  ScorecardKey,
-  Scores,
-} from "./scorecard";
-
-/** Validate a submitted scorecard. Strict: an unknown role, a score outside
- * 1–5, an unknown rejection condition or an approving verdict below the bar
- * is refused rather than corrected. */
-export function validateScorecard(input: unknown): Parsed<Scorecard> {
-  const raw = (input && typeof input === "object" ? input : {}) as Record<
-    string,
-    unknown
-  >;
-  const role = REVIEWER_ROLES.find((r) => r.key === raw.role)?.key;
-  if (!role) return { ok: false, error: "Choose which review you are giving." };
-  const rawScores = (
-    raw.scores && typeof raw.scores === "object" ? raw.scores : {}
-  ) as Record<string, unknown>;
-  const scores = {} as Scores;
-  for (const dimension of SCORECARD_DIMENSIONS) {
-    const value = rawScores[dimension.key];
-    if (
-      typeof value !== "number" ||
-      !Number.isInteger(value) ||
-      value < 1 ||
-      value > 5
-    ) {
-      return {
-        ok: false,
-        error: `Score "${dimension.label}" from 1 to 5.`,
-      };
-    }
-    scores[dimension.key] = value;
-  }
-  const rawRejections = Array.isArray(raw.rejections) ? raw.rejections : [];
-  const rejections: RejectionCondition[] = [];
-  for (const entry of rawRejections) {
-    const condition = REJECTION_CONDITIONS.find((c) => c.key === entry)?.key;
-    if (!condition) {
-      return { ok: false, error: "Unknown rejection condition." };
-    }
-    if (!rejections.includes(condition)) rejections.push(condition);
-  }
-  const notes = typeof raw.notes === "string" ? raw.notes.trim() : "";
-  if (notes.length > REVIEW_NOTE_MAX) {
-    return {
-      ok: false,
-      error: `Keep the notes under ${REVIEW_NOTE_MAX} characters.`,
-    };
-  }
-  const verdict =
-    raw.verdict === "approve" || raw.verdict === "reject" ? raw.verdict : null;
-  if (!verdict) return { ok: false, error: "Choose approve or reject." };
-  if (verdict === "approve" && !scorecardClearsBar(scores, rejections)) {
-    return {
-      ok: false,
-      error:
-        rejections.length > 0
-          ? "An automatic-rejection condition is ticked, so this review cannot approve."
-          : `Approval needs every row at ${MIN_ROW_SCORE} or more and an average of at least 4.2.`,
-    };
-  }
-  if (verdict === "reject" && notes.length < REJECT_NOTE_MIN) {
-    return {
-      ok: false,
-      error: "Say what must change — the operator revising it needs to know.",
-    };
-  }
-  return { ok: true, value: { role, scores, rejections, verdict, notes } };
-}
-
-export interface ReviewFacts {
-  role: ReviewerRole;
-  verdict: "approve" | "reject";
-  reviewerIsAuthor: boolean;
-  reviewerEmail: string;
-}
-
-export type ApprovalReadiness = { ok: true } | { ok: false; reasons: string[] };
-
-/**
- * Two approving reviews — one from each chair, at least one by a reviewer
- * who did not author the theme — and no rejection, all on the SAME evidence.
- * The caller passes only the reviews bound to the current evidence.
- */
-export function approvalReadiness(
-  reviews: readonly ReviewFacts[],
-): ApprovalReadiness {
-  const reasons: string[] = [];
-  const rejected = reviews.filter((r) => r.verdict === "reject");
-  if (rejected.length > 0) {
-    reasons.push(
-      "A reviewer rejected this version. Revise it; the next version is reviewed afresh.",
-    );
-  }
-  const approving = reviews.filter((r) => r.verdict === "approve");
-  for (const role of REVIEWER_ROLES) {
-    if (!approving.some((r) => r.role === role.key)) {
-      reasons.push(`It needs an approving ${role.label} review.`);
-    }
-  }
-  if (approving.length > 0 && approving.every((r) => r.reviewerIsAuthor)) {
-    reasons.push(
-      "At least one approving reviewer must not have authored this theme.",
-    );
-  }
-  return reasons.length ? { ok: false, reasons } : { ok: true };
-}
-
-/**
- * The people who shaped a theme: whoever created the project, asked for a
- * revision, answered its questions or replaced its images. Reviewing your own
- * work is allowed — it is the second chair that must be independent.
- */
-export const AUTHORING_EVENTS = [
-  "project_created",
-  "run_queued",
-  "details_added",
-  "revision_requested",
-  "slot_images_replaced",
-] as const;
+import type { Parsed } from "./scorecard";
 
 // ------------------------------------------------------------------ release
 
@@ -351,10 +201,16 @@ export function validateCatalogChange(input: unknown): Parsed<CatalogChange> {
     string,
     unknown
   >;
-  const reason = typeof raw.reason === "string" ? raw.reason.trim() : "";
-  if (reason.length < 3) {
-    return { ok: false, error: "Give a short reason; it goes in the audit." };
-  }
+  // Optional: the audit always records who and what; a blank reason gets a
+  // plain sentence so one click is enough to hide or restore a theme.
+  const typed = typeof raw.reason === "string" ? raw.reason.trim() : "";
+  const reason =
+    typed ||
+    (raw.action === "hide"
+      ? "Hidden from new stores."
+      : raw.action === "show"
+        ? "Shown in the catalog again."
+        : "Restored an earlier release.");
   if (reason.length > CATALOG_REASON_MAX) {
     return {
       ok: false,
