@@ -171,6 +171,36 @@ describe("reading a response", () => {
 });
 
 describe("the Vertex client", () => {
+  it("retains local cooldown and 429 retries when the database pause fails", async () => {
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce(status(429))
+      .mockResolvedValueOnce(okResponse);
+    const sleep = vi.fn(async () => true);
+    const client = createVertexImageClient(
+      { ...CONFIG, projectId: "failed-db-pause" },
+      {
+        send,
+        sleep,
+        random: () => 0,
+        capacity: {
+          run: (operation, signal) =>
+            operation({
+              signal,
+              succeeded() {},
+              async rateLimited() {
+                throw new Error("DB timeout");
+              },
+            }),
+        },
+      },
+    );
+    expect(await client.generateImage(REQUEST, signal())).toMatchObject({
+      kind: "ok",
+    });
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
   it("waits out a rate limit, which bills nothing, then returns the image", async () => {
     const send = vi
       .fn()

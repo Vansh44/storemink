@@ -696,12 +696,13 @@ because there was nothing to list. The job reported green throughout.
 Three tables grew without bound because their retention policy was written down
 and never wired to anything:
 
-| Table                  | Window   | Why                                                                                                  |
-| ---------------------- | -------- | ---------------------------------------------------------------------------------------------------- |
-| `notifications`        | 90 days  | A read inbox row is history.                                                                         |
-| `activity_events`      | 365 days | The audit trail, so it gets the longest life.                                                        |
-| `email_logs`           | 90 days  | Holds rendered message BODIES, so it is much the heaviest of the three and gets the shortest window. |
-| `store_search_metrics` | 488 days | Matches the source product's roughly 16-month Search Console history window.                         |
+| Table                            | Window                   | Why                                                                                                       |
+| -------------------------------- | ------------------------ | --------------------------------------------------------------------------------------------------------- |
+| `notifications`                  | 90 days                  | A read inbox row is history.                                                                              |
+| `activity_events`                | 365 days                 | The audit trail, so it gets the longest life.                                                             |
+| `email_logs`                     | 90 days                  | Holds rendered message BODIES, so it is much the heaviest of the three and gets the shortest window.      |
+| `store_search_metrics`           | 488 days                 | Matches the source product's roughly 16-month Search Console history window.                              |
+| `theme_studio_image_checkpoints` | 30 days after settlement | Private raw originals; queued/running retry ancestors are protected. Run usage and settled assets remain. |
 
 `supabase/email_logs.sql` documented the 90-day intent and even carries an
 `email_logs_created_idx` built "for retention sweeps". `pruneNotifications` had
@@ -722,7 +723,7 @@ file, and the cron route is the gate (CODEBASE.md §30 applies the same rule to
 
 Behaviour worth knowing before you read a response:
 
-- **It deletes in batches of 1000, each its own transaction**, so it never holds
+- **It deletes in batches of 1000 (fifty for heavy image checkpoints), each its own transaction**, so it never holds
   one enormous lock and a run that dies half way is resumable — the committed
   batches stay deleted and the next night carries on.
 - **It stops itself** at 50,000 rows per table or 240 seconds, whichever comes

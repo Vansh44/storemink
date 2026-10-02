@@ -10,6 +10,13 @@ vi.mock("@/lib/db/client", () => ({ withService: scoped.run }));
 import { postgresCapacityStore } from "./provider-capacity-store";
 import { providerCapacityKey, type CapacityLease } from "./provider-capacity";
 
+function requireLease(
+  value: Awaited<ReturnType<typeof postgresCapacityStore.claim>>,
+): CapacityLease {
+  if (!value || !("id" in value)) throw new Error("Expected a provider permit");
+  return value;
+}
+
 it.skipIf(process.env.THEME_STUDIO_CAPACITY_DB_TEST !== "1")(
   "coordinates concurrent instances, cooldown recovery, expiry and service-only grants",
   async () => {
@@ -66,13 +73,15 @@ it.skipIf(process.env.THEME_STUDIO_CAPACITY_DB_TEST !== "1")(
       });
       const first = await postgresCapacityStore.claim(clockKey, randomUUID());
       expect(first).not.toBeNull();
-      await postgresCapacityStore.release(clockKey, first!, false);
+      await postgresCapacityStore.release(clockKey, requireLease(first), false);
       const claimed = await Promise.all(
         Array.from({ length: 8 }, () =>
           postgresCapacityStore.claim(key, randomUUID()),
         ),
       );
-      const leases = claimed.filter((v): v is CapacityLease => v !== null);
+      const leases = claimed.filter(
+        (v): v is CapacityLease => v !== null && "id" in v,
+      );
       expect(leases).toHaveLength(3);
       expect(
         (
@@ -86,7 +95,11 @@ it.skipIf(process.env.THEME_STUDIO_CAPACITY_DB_TEST !== "1")(
       await Promise.all(
         leases.map((lease) => postgresCapacityStore.release(key, lease, true)),
       );
-      expect(await postgresCapacityStore.claim(key, randomUUID())).toBeNull();
+      const paused = await postgresCapacityStore.claim(key, randomUUID());
+      expect(paused).toHaveProperty("retryAfterMs");
+      expect(
+        paused && "retryAfterMs" in paused && paused.retryAfterMs,
+      ).toBeGreaterThan(10_000);
       expect(
         (
           await pool.query(
@@ -103,9 +116,9 @@ it.skipIf(process.env.THEME_STUDIO_CAPACITY_DB_TEST !== "1")(
         const lease = await postgresCapacityStore.claim(key, randomUUID());
         expect(lease).not.toBeNull();
         expect(await postgresCapacityStore.claim(key, randomUUID())).toBeNull();
-        await postgresCapacityStore.release(key, lease!, true);
+        await postgresCapacityStore.release(key, requireLease(lease), true);
         // Duplicate or stale release cannot count another success.
-        await postgresCapacityStore.release(key, lease!, true);
+        await postgresCapacityStore.release(key, requireLease(lease), true);
       }
       expect(
         (
@@ -115,13 +128,25 @@ it.skipIf(process.env.THEME_STUDIO_CAPACITY_DB_TEST !== "1")(
           )
         ).rows[0],
       ).toEqual({ capacity: 2, successes: 0 });
-      const expired = (await postgresCapacityStore.claim(key, randomUUID()))!;
+      const expired = requireLease(
+        await postgresCapacityStore.claim(key, randomUUID()),
+      );
+      const ttl = (
+        await pool.query(
+          "select extract(epoch from (expires_at-clock_timestamp())) as seconds from theme_studio_provider_leases where id=$1",
+          [expired.id],
+        )
+      ).rows[0].seconds;
+      expect(Number(ttl)).toBeGreaterThan(110);
+      expect(Number(ttl)).toBeLessThanOrEqual(120);
       await pool.query(
         "update theme_studio_provider_leases set expires_at=now()-interval '1 second' where id=$1",
         [expired.id],
       );
       expect(await postgresCapacityStore.renew(key, expired)).toBe(false);
-      const replacement = await postgresCapacityStore.claim(key, randomUUID());
+      const replacement = requireLease(
+        await postgresCapacityStore.claim(key, randomUUID()),
+      );
       expect(replacement).not.toBeNull();
       await postgresCapacityStore.release(key, expired, true);
       expect(await postgresCapacityStore.renew(key, replacement!)).toBe(true);

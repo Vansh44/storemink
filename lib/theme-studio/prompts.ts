@@ -25,7 +25,7 @@ import { industryPlaybookPrompt } from "./industry-playbooks";
 // so they form a stable cacheable prefix across runs.
 // ---------------------------------------------------------------------------
 
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v20";
+export { THEME_STUDIO_PROMPT_VERSION } from "./prompt-features";
 
 const SECTION_LINES = THEME_STUDIO_SECTION_TYPES.map(
   (type) => `- ${type}: ${SECTION_TYPE_META[type].description}`,

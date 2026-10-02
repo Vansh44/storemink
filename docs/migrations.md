@@ -16,6 +16,17 @@ told.
 A migration is therefore allowed to run _ahead_ of the code that needs it, and
 must never _require_ that code to already be live.
 
+The historical Theme Studio checkpoint migration 0147 raised active image retry
+allowances before old workers had checkpoint replay. Its applied checksum is
+immutable. The runner now takes a run-table lock inside that migration's transaction
+and refuses application while unfinished image runs exist; drain or cancel those
+runs before retrying the upgrade. This guard does not run for already-applied 0147.
+Forward migration 0150 additionally fences retryable image claims on a transaction-local
+checkpoint protocol declared by compatible workers and leaves uncheckpointed legacy
+work single-attempt until a compatible worker claims it. Its preflight refuses
+unfinished uncheckpointed runs already claimed multiple times rather than violating
+their attempts constraint; drain or cancel them before retrying that upgrade.
+
 ## 2. Who applies migrations
 
 **Cloud Build does. Never a person.**

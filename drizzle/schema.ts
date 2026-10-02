@@ -2429,7 +2429,13 @@ export const themeStudioImageCheckpoints = pgTable(
       .defaultNow()
       .notNull(),
   },
-  (table) => [primaryKey({ columns: [table.runId, table.requestDigest] })],
+  (table) => [
+    primaryKey({ columns: [table.runId, table.requestDigest] }),
+    index("theme_studio_image_checkpoints_retention_idx").on(
+      table.createdAt,
+      table.runId,
+    ),
+  ],
 );
 
 export const themeStudioVersions = pgTable("theme_studio_versions", {

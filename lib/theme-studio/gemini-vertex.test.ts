@@ -340,6 +340,32 @@ describe("waiting out a rate limit", () => {
     expect(sleep.mock.calls.map((c) => c[0])).toEqual([15_000, 30_000]);
   });
 
+  it("preserves 429 backoff when shared cooldown persistence fails", async () => {
+    let calls = 0;
+    state.next = () =>
+      ++calls === 1 ? rateLimited() : Promise.resolve(response());
+    const sleep = vi.fn(async () => true);
+    const capacity: ProviderCapacity = {
+      run: (operation, signal) =>
+        operation({
+          signal,
+          succeeded() {},
+          async rateLimited() {
+            throw new Error("DB timeout");
+          },
+        }),
+    };
+    const client = createVertexModelClient(
+      { projectId: "p", region: "global" },
+      { capacity: () => capacity, sleep, random: () => 0 },
+    );
+    expect(await client.generate(request, signal())).toMatchObject({
+      kind: "ok",
+    });
+    expect(calls).toBe(2);
+    expect(sleep).toHaveBeenCalledOnce();
+  });
+
   it("registers the same jittered cooldown before shared release and acquires a new permit for the retry", async () => {
     const events: string[] = [];
     const pause = vi.fn(async (ms: number) => {

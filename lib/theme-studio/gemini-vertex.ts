@@ -240,7 +240,12 @@ export function createVertexModelClient(
                   classifyProviderError(error) === "rate_limited"
                 ) {
                   retryDelay = rateLimitDelayMs(retry, random);
-                  await permit.rateLimited(retryDelay);
+                  await permit.rateLimited(retryDelay).catch(() => {
+                    logWarn("theme_studio.shared_cooldown_failed", {
+                      stage: request.stage,
+                      model: request.modelKey,
+                    });
+                  });
                 }
                 throw error;
               }

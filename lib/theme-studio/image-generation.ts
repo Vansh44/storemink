@@ -509,6 +509,10 @@ export async function runThemeImageGeneration(
       // A reviewer outage keeps the image: this is a quality check, and the
       // image model's own safety filters have already run.
       if (review.kind === "unavailable") {
+        // The run clock is not a reviewer outage. Preserve the paid candidate
+        // as unreviewed for partial settlement; user cancellation still wins
+        // in the worker transaction and automatic drafts still require final QA.
+        if (signal.aborted) return fallback ?? kept("unreviewed");
         if (options.deferUnavailableReviews)
           return {
             status: "failed",

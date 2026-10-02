@@ -48,6 +48,7 @@ import {
   STAGE_B_INITIAL_DRAFT_SCHEMA,
 } from "./schemas";
 import { expandInitialDraft } from "./initial-draft";
+import { themePromptFeatures } from "./prompt-features";
 import {
   applyTargetedRepair,
   repairTargets,
@@ -364,7 +365,9 @@ export async function runThemeGeneration(
         stage: "intent",
         modelKey: input.compile.modelKey,
         providerModel: input.providerModel,
-        system: stageASystemPrompt(input.promptVersion === "theme-studio-v20"),
+        system: stageASystemPrompt(
+          themePromptFeatures(input.promptVersion).nativeCommerce,
+        ),
         content: [{ type: "text", text: userText }, ...images],
         schema: STAGE_A_ENVELOPE_SCHEMA,
         effort: "high",
@@ -451,7 +454,7 @@ export async function runThemeGeneration(
 
   // ------------------------------------------------------------- Stage B
   const compactInitial =
-    input.promptVersion === "theme-studio-v20" && !input.revision;
+    themePromptFeatures(input.promptVersion).compactInitial && !input.revision;
   const compileFacts: CompileFacts = {
     ...input.compile,
     promptVersion: input.promptVersion,
@@ -490,9 +493,7 @@ export async function runThemeGeneration(
         system: compactInitial
           ? stageBInitialSystemPrompt(intent)
           : stageBSystemPrompt(
-              ["theme-studio-v19", "theme-studio-v20"].includes(
-                input.promptVersion,
-              ),
+              themePromptFeatures(input.promptVersion).nativeFraming,
             ),
         content: [{ type: "text", text: userText }],
         schema: compactInitial

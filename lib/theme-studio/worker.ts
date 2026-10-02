@@ -20,6 +20,7 @@ import type {
 } from "@/lib/themes/meta";
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
 import { sharedProviderCapacity } from "./provider-capacity-store";
+import { themePromptFeatures } from "./prompt-features";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
 import {
   THEME_STUDIO_LIMITS,
@@ -193,9 +194,13 @@ async function claimRun(
     providers.map((p) => sql`${p}`),
     sql`, `,
   );
+  // Older workers cannot reclaim retryable image runs without durable replay.
+  // Migration 0150 gates claims on this transaction-local protocol declaration.
   const rows = await db.execute(sql`
-    WITH candidate AS (
-      SELECT id FROM theme_studio_runs
+    WITH protocol AS MATERIALIZED (
+      SELECT set_config('app.theme_studio_image_recovery','v1',true)
+    ), candidate AS (
+      SELECT id FROM theme_studio_runs CROSS JOIN protocol
       WHERE provider IN (${providerList})
         AND ((status = 'queued' AND cancel_requested_at IS NULL
               AND (retry_not_before IS NULL OR retry_not_before <= now()))
@@ -203,10 +208,11 @@ async function claimRun(
              AND attempt_count < max_attempts AND cancel_requested_at IS NULL))
       ORDER BY created_at
       LIMIT 1
-      FOR UPDATE SKIP LOCKED
+      FOR UPDATE OF theme_studio_runs SKIP LOCKED
     )
     UPDATE theme_studio_runs r
     SET status = 'running',
+        max_attempts = CASE WHEN r.kind='images' THEN ${IMAGE_CRASH_ATTEMPTS} ELSE r.max_attempts END,
         lease_owner = ${workerId}::uuid,
         lease_expires_at = now() + (${LEASE_SECONDS}::int * interval '1 second'),
         attempt_count = r.attempt_count + CASE WHEN r.retry_not_before IS NULL THEN 1 ELSE 0 END,
@@ -1017,7 +1023,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
         automaticRepair:
           run.automatic &&
           run.kind === "revise" &&
-          ["theme-studio-v19", "theme-studio-v20"].includes(run.promptVersion),
+          themePromptFeatures(run.promptVersion).targetedRepair,
       },
       controller.signal,
     );

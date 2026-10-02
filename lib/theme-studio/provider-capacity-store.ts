@@ -5,6 +5,7 @@ import { logError } from "@/lib/observability/logger";
 import {
   coordinatedProviderCapacity,
   providerCapacityKey,
+  PROVIDER_LEASE_MS,
   type CapacityStore,
 } from "./provider-capacity";
 
@@ -23,12 +24,17 @@ export const postgresCapacityStore: CapacityStore = {
       );
       const result = await db.execute<{ id: string; epoch: number }>(sql`
         insert into public.theme_studio_provider_leases(scope_key,id,epoch,expires_at)
-        select c.scope_key, ${id}::uuid, c.epoch, clock_timestamp()+interval '11 minutes'
+        select c.scope_key, ${id}::uuid, c.epoch, clock_timestamp()+${PROVIDER_LEASE_MS}*interval '1 millisecond'
         from public.theme_studio_provider_capacity c
         where c.scope_key=${key} and c.pause_until<=clock_timestamp()
           and (select count(*) from public.theme_studio_provider_leases l where l.scope_key=c.scope_key)<c.capacity
         returning id, epoch`);
-      return result.rows[0] ?? null;
+      if (result.rows[0]) return result.rows[0];
+      const waiting = await db.execute<{ delay: number }>(sql`
+        select ceil(extract(epoch from (pause_until-clock_timestamp()))*1000)::int as delay
+        from public.theme_studio_provider_capacity where scope_key=${key}`);
+      const delay = waiting.rows[0]?.delay ?? 0;
+      return delay > 0 ? { retryAfterMs: delay } : null;
     });
   },
   async renew(key, lease) {
@@ -36,7 +42,7 @@ export const postgresCapacityStore: CapacityStore = {
       await db.execute(sql`set local statement_timeout = '5s'`);
       const result =
         await db.execute(sql`update public.theme_studio_provider_leases
-        set expires_at=clock_timestamp()+interval '11 minutes'
+        set expires_at=clock_timestamp()+${PROVIDER_LEASE_MS}*interval '1 millisecond'
         where scope_key=${key} and id=${lease.id}::uuid and expires_at>clock_timestamp() returning id`);
       return result.rows.length === 1;
     });
@@ -81,6 +87,8 @@ export function sharedProviderCapacity(
     {
       onCleanupError: (error) =>
         logError("theme studio provider permit cleanup failed", error),
+      onRenewalError: (error) =>
+        logError("theme studio provider permit renewal delayed", error),
     },
   );
 }

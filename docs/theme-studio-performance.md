@@ -270,8 +270,11 @@ RLS-enabled admission tables. Text, draws, per-image reviews and visual QA share
 at most three active permits per provider project/location/model across instances
 using the same database. A 429 registers a shared pause before releasing its
 permit, then probes with one request. Three current-epoch successes restore one
-permit; duplicate or pre-pause responses cannot restore it. Eleven-minute leases
-renew every thirty seconds and abort transport on renewal loss. Failed admission
+permit; duplicate or pre-pause responses cannot restore it. Two-minute leases
+renew every thirty seconds. Temporary renewal exceptions retry after five seconds;
+confirmed lease loss or the independent expiry clock aborts transport before the
+conservatively tracked expiry. Known shared cooldowns are slept through without
+repeated row locks; ordinary occupied capacity polls with bounded backoff. Failed admission
 starts no provider call. Cleanup is bounded to six seconds and cannot discard a
 completed paid response; expiry reclaims a permit after a cleanup outage.
 Admission and expiry use the database wall clock after locking. A deterministic
@@ -351,3 +354,40 @@ with the previous app. Older capture jobs can omit HTML/profiling and keep fresh
 fetching. All worker instances must run the new code before shared admission is
 fully effective. Existing failed themes need an explicit QA retry after rollout.
 No merchant-visible change, no Help Centre update.
+
+## Recovery review corrections — 2026-10-02
+
+Run deadlines during image review preserve paid candidates as unreviewed in a
+partial version, without spending reviewer-outage deferrals. User cancellation
+still saves no version. Automatic versions still require final browser/visual QA
+and human publication approval; an unreviewed image is not a passed image review.
+Database pause failures preserve the original 429 classification and local retry
+behavior. A temporary lease-renewal exception does not discard an active provider
+response while its lease is valid; expiry remains independently enforced.
+
+Known free 429/admission failures are retried rather than replayed as permanent
+draw errors. Legacy free-error rows remain immutable and paid replacements are
+recoverable through both same-run reclaims and explicit retry ancestry. Unknown
+usage after transport starts remains journalled to avoid pretending it was free.
+Prompt capabilities are centralized by introduction version, so later prompt
+revisions inherit compact generation and focused repair while older queued runs
+retain their original request shape.
+
+Forward-only migration 0150 protects retryable image claims during rolling
+deployments, bounds raw-original retention to thirty days after terminal settlement
+(with active retry ancestors protected), and replaces the flawed any-of privilege
+checks with all-required-grant checks. Existing migration SQL/checksums remain
+unchanged. For an environment still before 0147, the migration runner refuses that
+upgrade while unfinished image runs exist under a run-table lock; drain or cancel
+them before retrying deployment. This blocks the old-worker double-spend window.
+Original bytes outside the recovery window may require regeneration on an explicit
+retry; accounting and settled assets remain durable.
+
+Validation: 599 automated tests passed across Theme Studio, capture, migration
+guards and retention. All four opt-in PostgreSQL regressions passed against the
+local database, including actual worker deadline settlement, legacy claim fencing,
+active retry ancestry, checkpoint pruning and revoked-grant detection. Typecheck
+and ESLint passed. Migration 0150 was applied and verified locally.
+
+No merchant-visible change, no Help Centre update. These are local validations;
+deployed full-theme benchmarks remain required for latency and quality claims.

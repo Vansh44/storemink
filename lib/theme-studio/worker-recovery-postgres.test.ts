@@ -444,6 +444,80 @@ it.skipIf(process.env.THEME_STUDIO_RECOVERY_DB_TEST !== "1")(
           ).rows[0].n,
         ).toBe(1);
       }
+      // A run deadline during review saves a partial image version even when
+      // reviewer deferrals are already exhausted; it is not a reviewer outage.
+      const timeoutBase = (
+        await pg.query(
+          "SELECT id,package_digest,package_json FROM theme_studio_versions WHERE project_id=$1 ORDER BY version_number DESC LIMIT 1",
+          [id],
+        )
+      ).rows[0];
+      const timeoutRun = randomUUID();
+      const timeoutMessage = randomUUID();
+      const timeoutSlot = timeoutBase.package_json.assets.find(
+        (a: { kind: string }) => a.kind === "product",
+      ).id;
+      await pg.query(
+        "INSERT INTO theme_studio_messages(id,project_id,kind,body) VALUES($1,$2,'images','Deadline verification')",
+        [timeoutMessage, id],
+      );
+      await pg.query(
+        "UPDATE theme_studio_projects SET status='generating' WHERE id=$1",
+        [id],
+      );
+      await pg.query(
+        "INSERT INTO theme_studio_runs(id,project_id,message_id,kind,provider,model_key,provider_model,prompt_version,idempotency_key,base_version_id,base_package_digest,image_slot_ids,max_attempts,image_review_deferrals,created_at) VALUES($1,$2,$3,'images','fake','gemini-3.8-flash','fake','test',$4,$5,$6,$7,3,2,'1900-01-01')",
+        [
+          timeoutRun,
+          id,
+          timeoutMessage,
+          `deadline_${timeoutRun}`,
+          timeoutBase.id,
+          timeoutBase.package_digest,
+          [timeoutSlot],
+        ],
+      );
+      let deadlineCallback: (() => void) | undefined;
+      const realTimeout = globalThis.setTimeout;
+      const clock = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+        handler: (...args: unknown[]) => void,
+        delay?: number,
+        ...args: unknown[]
+      ) => {
+        if (delay === 19 * 60 * 1000) deadlineCallback = () => handler(...args);
+        return realTimeout(handler, delay, ...args);
+      }) as typeof setTimeout);
+      review.mockImplementationOnce(async () => {
+        if (!deadlineCallback) throw new Error("No run deadline");
+        deadlineCallback();
+        return { kind: "error", code: "cancelled", usage: ZERO_USAGE };
+      });
+      try {
+        expect(
+          await runThemeStudioWorker({ ...options, providers: ["fake"] }),
+        ).toMatchObject({ claimed: 1, succeeded: 1, requeued: 0, failed: 0 });
+      } finally {
+        clock.mockRestore();
+      }
+      const timeoutResult = (
+        await pg.query(
+          "SELECT image_review_deferrals,outcome_detail,usage FROM theme_studio_runs WHERE id=$1",
+          [timeoutRun],
+        )
+      ).rows[0];
+      expect(timeoutResult.image_review_deferrals).toBe(2);
+      expect(timeoutResult.outcome_detail.outcomes[0].review).toBe(
+        "unreviewed",
+      );
+      expect(timeoutResult.usage.totals.inputTokens).toBe(11);
+      expect(
+        (
+          await pg.query(
+            "SELECT count(*)::int AS n FROM theme_studio_versions WHERE run_id=$1",
+            [timeoutRun],
+          )
+        ).rows[0].n,
+      ).toBe(1);
       // Cancel after a completed draw: bytes/spend survive, no version appears.
       const [cancelBase] = (
         await pg.query(

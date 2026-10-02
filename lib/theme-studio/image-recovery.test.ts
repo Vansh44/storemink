@@ -43,6 +43,102 @@ const input: ThemeImageReviewInput = {
 };
 
 describe("durable image recovery", () => {
+  it("retries known free draw failures across reclaims and then journals paid output once", async () => {
+    const { store, records } = memory();
+    let draws = 0;
+    const client: ThemeStudioImageClient = {
+      provider: "fake",
+      async generateImage() {
+        return ++draws === 1
+          ? { kind: "error", code: "rate_limited", usage: ZERO_IMAGE_USAGE }
+          : {
+              kind: "ok",
+              mediaType: "image/png",
+              bytes: new Uint8Array([1]),
+              usage: { inputTokens: 11, outputTokens: 7 },
+            };
+      },
+    };
+    await resumableImageClient(client, "model", "v1", store).generateImage(
+      request("a"),
+      signal(),
+    );
+    expect(records.size).toBe(0);
+    await resumableImageClient(client, "model", "v1", store).generateImage(
+      request("a"),
+      signal(),
+    );
+    await resumableImageClient(client, "model", "v1", store).generateImage(
+      request("a"),
+      signal(),
+    );
+    expect(draws).toBe(2);
+    expect(records.size).toBe(1);
+    expect(imageCheckpointUsage([...records.values()]).totals).toEqual({
+      inputTokens: 11,
+      outputTokens: 7,
+    });
+  });
+
+  it("recovers a legacy free-error checkpoint without overwriting its immutable row", async () => {
+    const { store, records } = memory();
+    let draws = 0;
+    const client: ThemeStudioImageClient = {
+      provider: "fake",
+      async generateImage() {
+        return ++draws === 1
+          ? { kind: "error", code: "provider_timeout", usage: ZERO_IMAGE_USAGE }
+          : {
+              kind: "ok",
+              mediaType: "image/png",
+              bytes: new Uint8Array([2]),
+              usage: { inputTokens: 4, outputTokens: 8 },
+            };
+      },
+    };
+    await resumableImageClient(client, "model", "v1", store).generateImage(
+      request("a"),
+      signal(),
+    );
+    const old = [...records.values()][0];
+    if (old.stage !== "draw" || old.response.kind !== "error")
+      throw new Error("fixture");
+    old.response.code = "rate_limited"; // An immutable record created by the earlier deployment.
+    await resumableImageClient(client, "model", "v1", store).generateImage(
+      request("a"),
+      signal(),
+    );
+    const replay = await resumableImageClient(
+      client,
+      "model",
+      "v1",
+      store,
+    ).generateImage(request("a"), signal());
+    expect(replay.kind).toBe("ok");
+    expect(draws).toBe(2);
+    expect(records.size).toBe(2);
+    expect(old.response.code).toBe("rate_limited");
+    expect(imageCheckpointUsage([...records.values()]).totals).toEqual({
+      inputTokens: 4,
+      outputTokens: 8,
+    });
+    const ancestry = {
+      ...store,
+      async read(key: string) {
+        const value = records.get(key);
+        return value?.stage === "draw" && value.response.kind === "error"
+          ? null
+          : (value ?? null);
+      },
+    };
+    expect(
+      await resumableImageClient(client, "model", "v1", ancestry).generateImage(
+        request("a"),
+        signal(),
+      ),
+    ).toMatchObject({ kind: "ok" });
+    expect(draws).toBe(2); // An explicit retry also reuses the legacy replacement.
+  });
   it("replays exact original bytes after interruption despite a different parallel slot order", async () => {
     const { store, records } = memory();
     let draws = 0;

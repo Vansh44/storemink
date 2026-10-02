@@ -5572,7 +5572,7 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     is an operator/internal pipeline change; no merchant workflow change or Help
     Centre update.
     **Automatic repair performance (2026-10-02):** automatic `revise` runs
-    recorded with prompt version `theme-studio-v19` or `theme-studio-v20` use `targeted-repair.ts`,
+    recorded with prompt version `theme-studio-v19` or later use `targeted-repair.ts`,
     skipping Stage A and full Stage B regeneration. Older queued runs retain
     their original request sequence and paid checkpoints. New initial drafts
     choose hero height from source framing rather than demanding screen height.
@@ -5601,7 +5601,7 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     toggles. No merchant action changes and no Help Centre update.
     Diagnosis and verification: `docs/theme-studio-performance.md`.
     **Compact initial drafts, shared capacity and capture profiling (2026-10-02):**
-    only new initial `theme-studio-v20` drafts use the compact schema. The model
+    new initial `theme-studio-v20` and later drafts use the compact schema. The model
     chooses a classic/editorial/grocery native composition and writes original
     copy, design tokens, pages, asset references and product options.
     Planning describes actual native predictive search, variant-safe quick add,
@@ -5627,8 +5627,15 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     A 429 pauses every instance, releases active capacity while
     sleeping, and resumes at one request; three successes from the current epoch
     restore one permit. Duplicate/stale responses cannot restore capacity.
-    Permits expire after eleven minutes (longer than the ten-minute provider
-    ceiling), renew every thirty seconds and cancel transport on heartbeat loss.
+    Permits expire after two minutes and renew every thirty seconds. A transient
+    renewal exception retries after five seconds while the existing lease remains
+    valid. A confirmed loss or an independent expiry timer cancels transport at
+    least five seconds before the conservatively tracked expiry. Crashed workers'
+    new permits therefore block shared capacity for at most two minutes. Known
+    database cooldowns return their remaining duration; waiters sleep through them
+    without row-lock polling, while ordinary occupied capacity backs off to five
+    seconds. A failed shared pause cannot mask the original 429: local cooldown
+    and bounded provider retries still run, and the database failure is logged.
     Admission failures make no paid call; cleanup failures preserve paid responses
     and log an error while expiry safely reclaims capacity. Standalone DB-free
     evaluation clients retain local behavior and are not a shared-quota guarantee.
@@ -5715,6 +5722,37 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     completion and the checkpoint commit can still repeat that call, and a
     provider timeout may omit billed usage; this is not provider exactly-once
     execution. Historical runs without checkpoints cannot recover lost memory.
+    **Recovery review corrections (2026-10-02; migration 0150):** run-deadline
+    aborts during image review keep paid, prepared candidates explicitly
+    `unreviewed` for partial version settlement, without consuming reviewer-outage
+    deferrals. Explicit cancellation still saves no version; final automatic QA
+    and human publication gates remain required. Known zero-usage 429s and
+    admission failures before transport are not replayed as durable failures.
+    Legacy free-error rows remain immutable; a deterministic replacement key
+    stores later paid output once and is recoverable through explicit retry ancestry.
+    Unknown-usage timeouts/cancellations after transport remain journalled because
+    they may have been billed. `prompt-features.ts` centralizes capability thresholds
+    (targeted repair/native framing from v19; compact/native commerce from v20),
+    preserving old requests and carrying features into future prompt revisions.
+    The migration runner's `scripts/db-migration-guards.mjs` locks the run table
+    and refuses initial 0147 application while unfinished legacy image work exists,
+    preventing that historical retry upgrade from buying duplicate artwork.
+    Migration 0150 keeps uncheckpointed legacy rows single-attempt and guards
+    retryable image claims with the transaction-local checkpoint protocol; compatible
+    workers declare it and promote image retry capacity in their claim transaction.
+    Older workers can finish existing work and claim single-attempt rows, but cannot
+    claim/reclaim retryable image work without checkpoint support.
+    The 0150 preflight refuses unfinished uncheckpointed legacy rows with multiple
+    claims until they drain/cancel, so lowering retry capacity cannot violate the
+    existing attempts constraint or discard active paid work.
+    It also retires the flawed 0147/0149 privilege queries without changing applied
+    entries and independently verifies every required grant. The daily retention
+    sweep prunes original image checkpoints in batches of fifty after thirty days
+    from terminal settlement, protecting queued/running retry ancestry (fifty links).
+    Run usage and settled WebP assets remain durable. The bounded, service-only
+    `theme_studio_prune_image_checkpoints` function supplies deletion; direct
+    checkpoint UPDATE/DELETE stays revoked. No merchant-visible change, no Help
+    Centre update.
     Model quality, safety and acceptance gates remain unchanged. Verification:
     `image-recovery.test.ts`, image pipeline tests and the opt-in local PostgreSQL
     worker regression exercise saved bytes, interrupted leases, review timeouts,

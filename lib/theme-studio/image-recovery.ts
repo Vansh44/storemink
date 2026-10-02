@@ -51,6 +51,17 @@ export class ImageCheckpointError extends Error {
 const digest = (value: unknown) =>
   createHash("sha256").update(canonicalJson(value)).digest("hex");
 
+/** Only known free admission failures may be retried. An unknown-usage timeout
+ * or cancellation after transport starts can still have incurred spend. */
+function retryableUnbilledDraw(response: ThemeImageResult): boolean {
+  return (
+    response.kind === "error" &&
+    response.usage.inputTokens + response.usage.outputTokens === 0 &&
+    (response.code === "rate_limited" ||
+      response.timing?.providerAttempts === 0)
+  );
+}
+
 /** Exact requests, including all reference bytes. Slot-local ordinals keep
  * parallel completion order from changing keys, and distinguish paid retakes. */
 export function resumableImageClient(
@@ -67,7 +78,7 @@ export function resumableImageClient(
       const slot = `${request.purpose}:${request.briefId}`;
       const ordinal = ordinals.get(slot) ?? 0;
       ordinals.set(slot, ordinal + 1);
-      const key = digest({
+      let key = digest({
         stage: "draw",
         provider: client.provider,
         providerModel,
@@ -75,11 +86,30 @@ export function resumableImageClient(
         ordinal,
         request,
       });
-      const saved = await store.read(key);
+      let saved = await store.read(key);
+      // Old deployments journalled free 429s. Preserve their immutable rows,
+      // but use a separate deterministic key for the first billable replacement.
+      if (
+        !saved ||
+        (saved.stage === "draw" && retryableUnbilledDraw(saved.response))
+      ) {
+        const replacementKey = digest({
+          retryOf: key,
+          unbilledAdmission: true,
+        });
+        const replacement = await store.read(replacementKey);
+        // Retry ancestry excludes free errors but may contain their paid
+        // replacement. Probe that key even when the original read is empty.
+        if (saved || replacement) {
+          key = replacementKey;
+          saved = replacement;
+        }
+      }
       signal.throwIfAborted();
       if (saved?.stage === "draw") return saved.response;
       const started = Date.now();
       const response = await client.generateImage(request, signal);
+      if (retryableUnbilledDraw(response)) return response;
       // Commit the original bytes BEFORE processing or review. Even a late
       // cancel retains incurred spend, while final settlement writes no version.
       await store.write(key, {

@@ -56,6 +56,64 @@ import {
  *  the same ceiling for the same reason). */
 const IMAGE_RUN_TIMEOUT_MS = 20_000;
 
+it(
+  "preserves a paid slot as unreviewed when the run deadline interrupts review",
+  async () => {
+    const { pkg, intent } = await fixture();
+    const slot = generatableSlots(pkg, intent).find(
+      (s) => s.purpose !== "product",
+    )!;
+    const controller = new AbortController();
+    const result = await runThemeImageGeneration(
+      createFakeImageClient(),
+      {
+        pkg,
+        intent,
+        only: [slot.slotId],
+        reviewer: {
+          client: createFakeImageReviewClient(),
+          providerModel: "fake",
+        },
+      },
+      controller.signal,
+      {
+        deferUnavailableReviews: true,
+        async review(_, input) {
+          if (input.purpose !== "anchor") {
+            controller.abort();
+            return {
+              kind: "unavailable",
+              code: "cancelled",
+              usage: ZERO_USAGE,
+              estimatedCostMicroUsd: 0,
+            };
+          }
+          return {
+            kind: "reviewed",
+            problems: [],
+            note: "",
+            usage: ZERO_USAGE,
+            estimatedCostMicroUsd: 0,
+          };
+        },
+      },
+    );
+    expect(result.images).toHaveLength(1);
+    expect(result.outcomes).toContainEqual({
+      slotId: slot.slotId,
+      status: "generated",
+      attempts: 1,
+      review: "unreviewed",
+    });
+    expect(
+      result.outcomes.some(
+        (o) => o.status === "failed" && o.code === "image_review_pending",
+      ),
+    ).toBe(false);
+  },
+  IMAGE_RUN_TIMEOUT_MS,
+);
+
 let built: Promise<{ pkg: ThemePackageV2; intent: ThemeIntent }> | null = null;
 
 /** The offline theme, built once; every test gets its own copy. */

@@ -6,6 +6,82 @@ import {
 } from "./provider-capacity";
 
 describe("shared provider capacity", () => {
+  it("sleeps through a known database cooldown without polling the row lock", async () => {
+    const claim = vi.fn(async (_, id: string) => ({ id, epoch: 0 }));
+    claim.mockResolvedValueOnce({ retryAfterMs: 120_000 } as never);
+    const sleep = vi.fn(async () => true);
+    const store: CapacityStore = {
+      claim,
+      async renew() {
+        return true;
+      },
+      async release() {},
+      async pause() {},
+    };
+    await expect(
+      coordinatedProviderCapacity(store, "key", { sleep }).run(
+        async () => "done",
+        new AbortController().signal,
+      ),
+    ).resolves.toBe("done");
+    expect(claim).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledOnce();
+    expect(sleep).toHaveBeenCalledWith(120_000, expect.anything());
+  });
+
+  it("retries a transient heartbeat failure while its existing lease remains valid", async () => {
+    const renew = vi
+      .fn(async () => true)
+      .mockRejectedValueOnce(new Error("Temporary timeout"));
+    const store: CapacityStore = {
+      async claim(_, id) {
+        return { id, epoch: 0 };
+      },
+      renew,
+      async release() {},
+      async pause() {},
+    };
+    const errors = vi.fn();
+    await expect(
+      coordinatedProviderCapacity(store, "key", {
+        heartbeatMs: 5,
+        onRenewalError: errors,
+      }).run(async (permit) => {
+        await new Promise((resolve) => setTimeout(resolve, 35));
+        expect(permit.signal.aborted).toBe(false);
+        return "paid bytes";
+      }, new AbortController().signal),
+    ).resolves.toBe("paid bytes");
+    expect(errors).toHaveBeenCalledOnce();
+    expect(renew.mock.calls.length).toBeGreaterThan(1);
+  });
+
+  it("fences transport before expiry when every renewal throws", async () => {
+    vi.useFakeTimers();
+    try {
+      const release = vi.fn(async () => {});
+      const store: CapacityStore = {
+        async claim(_, id) {
+          return { id, epoch: 0 };
+        },
+        async renew() {
+          throw new Error("DB down");
+        },
+        release,
+        async pause() {},
+      };
+      const pending = coordinatedProviderCapacity(store, "key", {
+        heartbeatMs: 10,
+        leaseMs: 100,
+      }).run(() => new Promise(() => {}), new AbortController().signal);
+      const rejected = expect(pending).rejects.toThrow("lease lost");
+      await vi.advanceTimersByTimeAsync(90);
+      await rejected;
+      expect(release).toHaveBeenCalledWith("key", expect.anything(), false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
   it("waits without starting paid work and releases the permit after registering a cooldown", async () => {
     const events: string[] = [];
     let claims = 0;

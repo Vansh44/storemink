@@ -285,7 +285,12 @@ export function createVertexImageClient(
                     classifyProviderError(error) === "rate_limited"
                   ) {
                     const delay = rateLimitDelayMs(retry, random);
-                    await permit.rateLimited(delay);
+                    await permit.rateLimited(delay).catch(() => {
+                      logWarn("theme_studio.image_shared_cooldown_failed", {
+                        purpose: request.purpose,
+                        brief: request.briefId,
+                      });
+                    });
                     if (
                       retry < RATE_LIMIT_BACKOFF.retries &&
                       waitedMs + delay <= RATE_LIMIT_BACKOFF.totalMs
