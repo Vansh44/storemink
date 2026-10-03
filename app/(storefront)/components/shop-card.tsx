@@ -126,31 +126,35 @@ export function ShopCard({
             {p.category && <span className="shop-card-cat">{p.category}</span>}
             <NameHeading className="shop-card-name">{p.name}</NameHeading>
           </div>
-          <div className="shrink-0 ml-2 flex flex-col items-end gap-1">
-            {/* ★ STOCK OUTRANKS THE OFFER, always. "20% off" beside "Sold
+          {(isOutOfStock || isLowStock || offerBadge) && (
+            <div className="shrink-0 ml-2 flex flex-col items-end gap-1">
+              {/* ★ STOCK OUTRANKS THE OFFER, always. "20% off" beside "Sold
                 Out" invites a shopper to try to buy something they cannot, and
                 the offer is the less urgent of the two facts. */}
-            {isOutOfStock ? (
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-zinc-200 text-zinc-600 px-1.5 py-0.5 rounded-sm">
-                Sold Out
-              </span>
-            ) : isLowStock ? (
-              <span className="text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-sm">
-                Only {lowStockAmount} left!
-              </span>
-            ) : offerBadge ? (
-              <span className="sm-offer-badge">{offerBadge.label}</span>
-            ) : null}
-          </div>
+              {isOutOfStock ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-zinc-200 text-zinc-600 px-1.5 py-0.5 rounded-sm">
+                  Sold Out
+                </span>
+              ) : isLowStock ? (
+                <span className="text-[10px] font-bold uppercase tracking-wider bg-orange-100 text-orange-700 px-1.5 py-0.5 rounded-sm">
+                  Only {lowStockAmount} left!
+                </span>
+              ) : offerBadge ? (
+                <span className="sm-offer-badge">{offerBadge.label}</span>
+              ) : null}
+            </div>
+          )}
         </div>
         <div className="shop-card-price">
-          {pr.hasVariants && <span className="shop-card-from">from </span>}
-          <span className="shop-card-sell">{formatPrice(pr.selling)}</span>
+          <span className="shop-card-current">
+            {pr.hasVariants && <span className="shop-card-from">from </span>}
+            <span className="shop-card-sell">{formatPrice(pr.selling)}</span>
+          </span>
           {pr.discount > 0 && (
-            <>
+            <span className="shop-card-deal">
               <span className="shop-card-base">{formatPrice(pr.base)}</span>
               <span className="shop-card-off">{pr.discount}% off</span>
-            </>
+            </span>
           )}
           {/* Hidden unless the theme opts into quick-add (.sm-card-quickadd). */}
           <QuickAddButton product={p} />

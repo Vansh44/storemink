@@ -4039,6 +4039,9 @@ wholesip/
 │   │                          # --review-from rechecks a saved synthetic tank without redrawing.
 │   ├── theme-studio-renderer-check.mjs # ★ Offline Chromium fixture using production
 │   │                          # CSS: carousel targets/focus and hero crops at five QA widths.
+│   ├── product-card-layout-check.mjs # Offline production-CSS card fixtures: five widths,
+│   │                          # five skins, home/shop, both CSS load orders, ordinary and
+│   │                          # long labels/prices. No DB, network or image generation.
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
 │   │                          # the two Theme Studio Gemini models. --dry-run makes no
 │   │                          # request; a live probe sends one FREE countTokens call per
@@ -6714,6 +6717,21 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
         builder section type now, §11.)
         All of this is GATED, so the WholeSip fallback and any classic theme keep
         today's shared layout untouched. (Basket is the first grocery theme.)
+        Shared `ShopCard` spacing is width-aware across these skins: the card
+        is an inline-size container, and non-overlay cards with ≤220px of
+        content width use compact body spacing and typography, with a full-width
+        40px-minimum quick-add target. Category pills have explicit 1.25 line
+        height, bounded width and a 6px title gap; long labels wrap without
+        clipping. Starting prices and each base-price/discount pair wrap as
+        groups, and absent stock/offer badges reserve no empty column. Homepage
+        carousel cards stretch to a common bottom edge. Overlay cards retain
+        their full-photo proportions. These shared styles apply to existing
+        themes on deployment without regenerating their packages or images.
+        `scripts/product-card-layout-check.mjs` checks 200 offline Chromium
+        fixtures across five viewport widths, five skins, home/shop surfaces,
+        both CSS load orders, and ordinary/long-label price cases; it checks
+        overflow, pill spacing, content height and quick-add target size. Its
+        optional screenshots are local fixtures, not evidence from a live theme.
         Design derives from the installed preset release at RENDER time. New
         installs are version-pinned in store settings; legacy stores without the
         pin resolve the catalog's current release. - **Newsletter capture**:

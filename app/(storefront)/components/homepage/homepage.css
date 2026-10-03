@@ -306,7 +306,7 @@
 
 .home-product-scroll {
   display: flex;
-  align-items: flex-start;
+  align-items: stretch;
   gap: var(--sm-grid-gap, 22px);
   overflow-x: auto;
   scroll-snap-type: x mandatory;
