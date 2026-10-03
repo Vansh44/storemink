@@ -260,7 +260,7 @@ function referenceText(references: readonly ThemeImageReference[]): string {
   const lines: string[] = [];
   if (references.some((r) => r.role === "anchor")) {
     lines.push(
-      "The image labelled ANCHOR is this theme's art-direction anchor. Match its light, palette, surfaces, materials, lens and colour grade so this image clearly belongs to the same set. Do not copy its composition or its objects unless this image's subject asks for them.",
+      "The image labelled ANCHOR is this theme's art-direction anchor. Match its light, lens, colour grade, surface materials and prop style so this image clearly belongs to the same set. When THIS IMAGE names its own background colour or gradient, use that instead of the anchor's backdrop; otherwise follow the anchor's backdrop palette. Do not copy its composition or its objects unless this image's subject asks for them.",
     );
   }
   if (references.some((r) => r.role === "set")) {
@@ -301,12 +301,13 @@ export function buildAnchorRequest(
   direction: ThemeImageDirection,
   template?: string,
   retake?: ThemeImageRetake,
+  lead?: AnchorLead | null,
 ): ThemeImageRequest {
   const brief: ThemeImageBrief = {
     id: "anchor",
     purpose: "",
-    subject: `A signature still life for ${list(direction.industries, 160) || "this store"}, in the theme's own look.`,
-    artDirection: "",
+    subject: anchorSubject(direction, lead),
+    artDirection: lead?.artDirection ?? "",
     aspectRatio: ANCHOR_ASPECT_RATIO,
   };
   const request: ThemeImageRequest = {
@@ -326,6 +327,28 @@ export function buildAnchorRequest(
   };
   assertThemeImageRequest(request);
   return request;
+}
+
+/** The homepage hero's brief, which the anchor takes its look from. */
+export interface AnchorLead {
+  subject: string;
+  artDirection: string;
+}
+
+/**
+ * What the anchor depicts. ★ It follows the homepage hero brief when there is
+ * one: every other image matches the anchor's light and grade, so an anchor
+ * invented from the industry alone ("a signature still life for food and
+ * drink") came out as a neutral white studio and pulled the whole set — the
+ * vivid gradient hero included — towards it (Bubble, 2026-10-03).
+ */
+export function anchorSubject(
+  direction: ThemeImageDirection,
+  lead?: AnchorLead | null,
+): string {
+  return lead?.subject
+    ? `A signature still life that sets the look for the whole store, in the spirit of its homepage hero: ${lead.subject}`
+    : `A signature still life for ${list(direction.industries, 160) || "this store"}, in the theme's own look.`;
 }
 
 /** A request for one asset brief, matched to the anchor (and, for a product,

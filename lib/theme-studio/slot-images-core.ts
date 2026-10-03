@@ -1,4 +1,8 @@
-import { PLACEHOLDER_LICENSE_NOTE, THEME_ASSET_PREFIX } from "./compiler";
+import {
+  PLACEHOLDER_LICENSE_NOTE,
+  THEME_ASSET_PREFIX,
+  productSlotBrief,
+} from "./compiler";
 import {
   THEME_STUDIO_LIMITS,
   validateThemePackageV2,
@@ -339,6 +343,15 @@ export function applySlotReplacements(
   return { ok: true, value: validated.value };
 }
 
+/** The fields of an asset brief that decide what its image depicts. */
+export interface CarryBrief {
+  id: string;
+  subject: string;
+  artDirection: string;
+  aspectRatio: string;
+  purpose?: string;
+}
+
 /**
  * Carry the operator's images into a REVISION. A revision recompiles the whole
  * package and every slot comes back as a fresh placeholder, so without this an
@@ -346,10 +359,21 @@ export function applySlotReplacements(
  * every image. A slot keeps its image when the revised package still declares
  * a slot with the same id AND the same shape — a slot the model reshaped gets
  * a placeholder, because the old image would be cropped wrong.
+ *
+ * ★★ AND WHEN ONLY THE NAME CHANGED (`briefs`). A revision often renames slots
+ * without changing what they depict: Bubble's version 6 renamed five
+ * (`promo-tile-summer-specials` → `promo-tile-seasonal`, …), four with a
+ * byte-identical brief, and every one came back as a placeholder — paid images
+ * discarded, more paid to redraw them. A slot whose brief is identical in
+ * subject, art direction, aspect and purpose to an unused base slot's brief
+ * takes that image; a product keeps its photo when the same product slug sits
+ * under an identical product brief. Any change to the brief means a new
+ * picture was asked for, so it is never carried by this fallback.
  */
 export function carryOverSlotImages(
   next: ThemePackageV2,
   base: ThemePackageV2,
+  briefs?: { next: readonly CarryBrief[]; base: readonly CarryBrief[] },
 ): { value: ThemePackageV2; carried: string[] } {
   const baseById = new Map(
     base.assets
@@ -366,13 +390,16 @@ export function carryOverSlotImages(
   if (baseById.size === 0) return { value: next, carried: [] };
   const out: ThemePackageV2 = structuredClone(next);
   const carried: string[] = [];
-  out.assets = out.assets.map((asset) => {
-    const previous = baseById.get(asset.id);
-    if (!previous || !asset.width || !asset.height) return asset;
+  const used = new Set<string>();
+  const sameShape = (asset: ThemePackageAsset, previous: ThemePackageAsset) => {
+    if (!asset.width || !asset.height) return false;
     const expected = asset.width / asset.height;
     const actual = previous.width! / previous.height!;
-    if (Math.abs(actual - expected) / expected > ASPECT_TOLERANCE) return asset;
+    return Math.abs(actual - expected) / expected <= ASPECT_TOLERANCE;
+  };
+  const take = (asset: ThemePackageAsset, previous: ThemePackageAsset) => {
     carried.push(asset.id);
+    used.add(previous.id);
     return {
       ...asset,
       sha256: previous.sha256,
@@ -382,7 +409,68 @@ export function carryOverSlotImages(
       source: previous.source,
       licenseNote: previous.licenseNote,
     };
+  };
+  // Pass 1: the same slot id (the original rule).
+  out.assets = out.assets.map((asset) => {
+    const previous = baseById.get(asset.id);
+    return previous && sameShape(asset, previous)
+      ? take(asset, previous)
+      : asset;
   });
+  // Pass 2: a renamed slot whose brief did not change.
+  if (briefs) {
+    const key = (b: CarryBrief | undefined) =>
+      b
+        ? [b.subject, b.artDirection, b.aspectRatio, b.purpose ?? ""]
+            .map((v) => v.trim().replace(/\s+/g, " ").toLowerCase())
+            .join("\u0000")
+        : null;
+    const nextBriefs = new Map(briefs.next.map((b) => [b.id, b]));
+    const baseBriefs = new Map(briefs.base.map((b) => [b.id, b]));
+    const slotOf = (url: string) =>
+      url.startsWith(THEME_ASSET_PREFIX)
+        ? url.slice(THEME_ASSET_PREFIX.length)
+        : null;
+    const baseProductSlot = new Map(
+      (base.definition.preset.sampleData?.products ?? []).map((p) => [
+        p.slug,
+        slotOf(p.image_url),
+      ]),
+    );
+    const productSlug = new Map(
+      (out.definition.preset.sampleData?.products ?? []).flatMap((p) => {
+        const slot = slotOf(p.image_url);
+        return slot ? [[slot, p.slug] as const] : [];
+      }),
+    );
+    const counterpart = (slotId: string): string | null => {
+      const direct = key(nextBriefs.get(slotId));
+      if (direct) {
+        const match = briefs.base.find(
+          (b) => b.id !== slotId && key(b) === direct,
+        );
+        return match?.id ?? null;
+      }
+      const slug = productSlug.get(slotId);
+      const baseSlot = slug ? baseProductSlot.get(slug) : null;
+      if (!baseSlot) return null;
+      const nextBrief = productSlotBrief(slotId, nextBriefs.keys());
+      const baseBrief = productSlotBrief(baseSlot, baseBriefs.keys());
+      return nextBrief &&
+        baseBrief &&
+        key(nextBriefs.get(nextBrief)) === key(baseBriefs.get(baseBrief))
+        ? baseSlot
+        : null;
+    };
+    out.assets = out.assets.map((asset) => {
+      if (carried.includes(asset.id)) return asset;
+      const from = counterpart(asset.id);
+      const previous = from ? baseById.get(from) : undefined;
+      return previous && !used.has(previous.id) && sameShape(asset, previous)
+        ? take(asset, previous)
+        : asset;
+    });
+  }
   const altBySrc = new Map(
     base.definition.catalog.screenshots.map((shot) => [shot.src, shot.alt]),
   );

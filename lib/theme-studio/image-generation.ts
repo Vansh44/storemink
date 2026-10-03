@@ -7,11 +7,14 @@ import {
   estimateImageCostMicroUsd,
 } from "./cost";
 import {
+  anchorLeadBrief,
   directionFromPackage,
   generatableSlots,
+  leaderFirst,
   type GeneratableSlot,
 } from "./image-generation-core";
 import {
+  anchorSubject,
   buildAnchorRequest,
   buildAssetRequest,
   type ThemeImageBrief,
@@ -555,8 +558,10 @@ export async function runThemeImageGeneration(
     });
   }
 
-  // 1. The anchor: reused when the caller has one (a redraw), else drawn.
+  // 1. The anchor: reused when the caller has one (a redraw), else drawn,
+  // taking its look from the homepage hero brief.
   const seed = input.seed ?? null;
+  const anchorLead = anchorLeadBrief(input.pkg, input.intent);
   const anchorResult: DrawResult = seed
     ? {
         status: "kept",
@@ -574,11 +579,12 @@ export async function runThemeImageGeneration(
         briefId: "anchor",
         purpose: "anchor",
         brief: {
-          subject: `A signature still life that sets the look for ${direction.themeName}.`,
-          artDirection: "",
+          subject: anchorSubject(direction, anchorLead),
+          artDirection: anchorLead?.artDirection ?? "",
           aspectRatio: "4:3",
         },
-        request: (retake) => buildAnchorRequest(direction, undefined, retake),
+        request: (retake) =>
+          buildAnchorRequest(direction, undefined, retake, anchorLead),
         target: ANCHOR_TARGET,
         byteLimit: THEME_IMAGE_RULES.maxBytes,
         reviewAnchor: null,
@@ -699,7 +705,9 @@ export async function runThemeImageGeneration(
     }
   };
 
-  const products = slots.filter((s) => s.purpose === "product");
+  // Single products first: the first to pass review becomes SET, and a
+  // multipack must never set the staging for the whole range.
+  const products = leaderFirst(slots.filter((s) => s.purpose === "product"));
   const others = slots.filter((s) => s.purpose !== "product");
   const queue: (() => Promise<unknown>)[] = [];
   // A reused product photo is the set shot from the start, so every product

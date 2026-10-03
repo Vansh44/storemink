@@ -80,6 +80,30 @@ steps:
           --build-arg "NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL}" \
           .
 
+  # 1b. Build the Theme Studio capture job image, alongside the web image.
+  #
+  # ★★ THE CAPTURE JOB USED TO BE DEPLOYED BY HAND, AND IT DRIFTED. Migration
+  # 0148 added a layout check the job has to understand; the web service
+  # shipped through this pipeline and the job did not, so production ran a
+  # 1 Oct job against 3 Oct code and every automatic QA run failed on its first
+  # step (Bubble, 2026-10-03). The two halves are now released together.
+  # Runs in parallel with build-push (waitFor '-'); it is small.
+  - id: capture-build
+    name: gcr.io/cloud-builders/docker
+    entrypoint: bash
+    waitFor: ["-"]
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        IMAGE="${_IMAGE}"
+        CAPTURE="$${IMAGE%/*}/theme-studio-capture:$${IMAGE##*:}"
+        docker build -t "$${CAPTURE}" jobs/theme-studio-capture
+        docker push "$${CAPTURE}"
+        # Deploy by DIGEST, so the job runs exactly what this build produced.
+        docker inspect --format='{{index .RepoDigests 0}}' "$${CAPTURE}" > /workspace/capture-image
+        echo "Capture image: $$(cat /workspace/capture-image)"
+
   # 2. Is this still the newest commit on the branch?
   #
   # ★★ THE ONE GUARD THAT MAKES CONCURRENT MERGES SAFE. Cloud Build does not
@@ -309,6 +333,39 @@ steps:
           --add-cloudsql-instances=${_DB_CONN} \
           --set-env-vars=DOMAIN_ENV=${_DOMAIN_ENV},DOMAIN_CERT_MAP=${_DOMAIN_CERT_MAP},DOMAIN_LB_IP=${_DOMAIN_LB_IP},GCP_PROJECT_ID=${_GCP_PROJECT_ID},GCP_LOCATION=global,GCS_BUCKET=${_GCS_BUCKET},DB_HOST=/cloudsql/${_DB_CONN},DB_USER=app,DB_NAME=${_DB_NAME},DB_POOL_MAX=${_DB_POOL_MAX},FIREBASE_PROJECT_ID=${_FIREBASE_PROJECT_ID},FIREBASE_SERVICE_ACCOUNT_ID=${_FIREBASE_SA_ID},FIREBASE_API_KEY=${_NEXT_PUBLIC_FIREBASE_API_KEY},GOOGLE_SEARCH_CONSOLE_PROPERTY=${_GOOGLE_SEARCH_CONSOLE_PROPERTY},NEXT_PUBLIC_ROOT_DOMAIN=${_NEXT_PUBLIC_ROOT_DOMAIN},NEXT_PUBLIC_APP_URL=${_NEXT_PUBLIC_APP_URL},MINK_AI_ENABLED=${_MINK_AI_ENABLED},MINK_CHARGE_CREDITS=${_MINK_CHARGE_CREDITS},MINK_VERTEX_MODEL=${_MINK_VERTEX_MODEL},MINK_VERTEX_LOCATION=${_MINK_VERTEX_LOCATION},MINK_CHIRP_LOCATION=${_MINK_CHIRP_LOCATION},SARVAM_API_KEY=${_SARVAM_API_KEY},MINK_MAX_STEPS_PER_RUN=${_MINK_MAX_STEPS_PER_RUN},MINK_MAX_TOOL_CALLS_PER_RUN=${_MINK_MAX_TOOL_CALLS_PER_RUN},MINK_MAX_PARALLEL_READ_TOOLS=${_MINK_MAX_PARALLEL_READ_TOOLS},MINK_MAX_OUTPUT_TOKENS=${_MINK_MAX_OUTPUT_TOKENS},MINK_MAX_MODEL_RETRIES=${_MINK_MAX_MODEL_RETRIES},MINK_RUN_TIMEOUT_SECONDS=${_MINK_RUN_TIMEOUT_SECONDS},THEME_STUDIO_PROVIDER=${_THEME_STUDIO_PROVIDER},THEME_STUDIO_GENERATION_ENABLED=${_THEME_STUDIO_GENERATION_ENABLED},THEME_STUDIO_DAILY_SPEND_USD=${_THEME_STUDIO_DAILY_SPEND_USD},THEME_STUDIO_GCP_PROJECT_ID=${_THEME_STUDIO_GCP_PROJECT_ID},THEME_STUDIO_VERTEX_LOCATION=${_THEME_STUDIO_VERTEX_LOCATION},THEME_STUDIO_CAPTURE_ENABLED=${_THEME_STUDIO_CAPTURE_ENABLED},THEME_STUDIO_AUTO_QA_ENABLED=${_THEME_STUDIO_AUTO_QA_ENABLED} \
           --set-secrets=DB_PASSWORD=${_DB_PASSWORD_SECRET}:latest,CRON_SECRET=CRON_SECRET:latest,RESEND_API_KEY=RESEND_API_KEY:latest,RESEND_WEBHOOK_SECRET=${_RESEND_WEBHOOK_SECRET_SECRET}:latest,PAYMENT_CRED_KEY=${_PAYMENT_CRED_KEY_SECRET}:latest,RAZORPAY_KEY_ID=${_RAZORPAY_KEY_ID_SECRET}:latest,RAZORPAY_KEY_SECRET=${_RAZORPAY_KEY_SECRET_SECRET}:latest,RAZORPAY_WEBHOOK_SECRET=${_RAZORPAY_WEBHOOK_SECRET_SECRET}:latest,POS_SESSION_SECRET=${_POS_SESSION_SECRET_SECRET}:latest
+
+  # 5. Point this environment's capture job at the image built above.
+  #
+  # ★ The job is DERIVED from _SERVICE, like migrate derives its environment
+  # from _DB_NAME: a per-trigger setting that must be remembered is one that
+  # gets forgotten. An environment with no capture job (the staging default)
+  # skips with a message. Order is safe both ways: an older job answers a new
+  # web service through the final-phase path, and a newer job treats a claim
+  # without `qa.phase` as final.
+  - id: capture-deploy
+    name: gcr.io/google.com/cloudsdktool/cloud-sdk
+    entrypoint: bash
+    args:
+      - -c
+      - |
+        set -euo pipefail
+        if [ -f /workspace/superseded ]; then
+          echo "Superseded build — not updating the capture job."
+          exit 0
+        fi
+        case "${_SERVICE}" in
+          storemink-web-prod) JOB=storemink-theme-studio-capture ;;
+          storemink-web-dev) JOB=storemink-theme-studio-capture-dev ;;
+          *)
+            echo "No Theme Studio capture job for ${_SERVICE}; skipping."
+            exit 0
+            ;;
+        esac
+        # `update` changes the image only; the job's env, secrets and limits
+        # (docs/theme-studio-capture-job.md) stay as deployed.
+        gcloud run jobs update "$${JOB}" \
+          --image="$$(cat /workspace/capture-image)" \
+          --region=${_RUN_REGION}
 
 # buildx --push uploads the image directly, so no `images:` block (it would make
 # Cloud Build try to re-push a non-existent local image).

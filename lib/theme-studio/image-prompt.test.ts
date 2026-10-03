@@ -118,6 +118,37 @@ describe("building requests", () => {
     expect(request.prompt).not.toMatch(/\{\{[a-z_]+\}\}/);
   });
 
+  it("bases the anchor on the homepage hero brief when there is one", () => {
+    const lead = {
+      subject: "Five amber bottles against a magenta-to-lime gradient",
+      artDirection: "Vibrant seamless gradient background",
+    };
+    const request = buildAnchorRequest(DIRECTION, undefined, undefined, lead);
+    expect(request.prompt).toContain("in the spirit of its homepage hero");
+    expect(request.prompt).toContain(lead.subject);
+    expect(request.prompt).toContain(lead.artDirection);
+    expect(buildAnchorRequest(DIRECTION).prompt).toContain(
+      "A signature still life for home",
+    );
+  });
+
+  it("lets a brief's background win over the anchor and asks for wordless label art", () => {
+    const request = buildAssetRequest(DIRECTION, "hero", PRODUCT, [
+      ref("anchor"),
+    ]);
+    expect(request.prompt).toContain(
+      "THIS IMAGE's own background colour or gradient takes precedence over the anchor's backdrop",
+    );
+    expect(request.prompt).toContain(
+      "use that instead of the anchor's backdrop",
+    );
+    expect(request.prompt).toContain("wordless label artwork");
+    expect(request.prompt).not.toContain("blank labels only");
+    expect(request.prompt).not.toContain("flat colour field");
+    // Still no lettering of any kind.
+    expect(request.prompt).toContain("Never letters, numbers, words, logos");
+  });
+
   it("an asset takes its ratio and subject from the brief and its composition from code", () => {
     const request = buildAssetRequest(DIRECTION, "product", PRODUCT, [
       ref("anchor"),

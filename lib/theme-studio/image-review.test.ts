@@ -118,6 +118,19 @@ describe("which problems apply", () => {
     expect(system).toContain("when you are unsure, do not report it");
     expect(THEME_IMAGE_PROBLEM_TEXT.text_or_logo).not.toMatch(/a label/);
   });
+
+  it("accepts wordless label artwork, briefed backgrounds and named multipacks", () => {
+    const system = themeImageReviewSystem();
+    expect(system).toContain("wordless label artwork");
+    // A gradient hero must not fail for differing from a white anchor.
+    expect(system).toContain(
+      "A background colour or gradient that the brief asks for is never off_style",
+    );
+    expect(THEME_IMAGE_PROBLEM_TEXT.off_style).not.toMatch(/palette|surfaces/);
+    expect(system).toContain(
+      "A multipack, case, bundle or sampler named in the subject is one product",
+    );
+  });
 });
 
 describe("reading the reviewer's answer", () => {

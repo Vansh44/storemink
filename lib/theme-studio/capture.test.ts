@@ -307,6 +307,36 @@ describe("why an automatic capture failed", () => {
     },
   );
 
+  it.each([
+    ["screenshots", { images: [], screenshots: [{ key: "390:home" }] }],
+    ["catalog pictures", { images: [{ slot: "preview" }], screenshots: [] }],
+  ])(
+    "fails a job that answers a layout check with %s as outdated, not invalid evidence",
+    async (_label, answer) => {
+      vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
+      const writes = finishDb({
+        ...lastAttempt,
+        attemptCount: 1,
+        phase: "layout",
+      });
+      expect(
+        await finishThemeStudioCapture({
+          captureId: input.versionId,
+          leaseToken: actor.id,
+          images: answer.images as never,
+          qa: {
+            buildId: "current-build",
+            evidence: {},
+            screenshots: answer.screenshots as never,
+          },
+        }),
+      ).toEqual({ status: "failed", errorCode: "capture_job_outdated" });
+      expect(writes).not.toContainEqual(
+        expect.objectContaining({ status: "queued" }),
+      );
+    },
+  );
+
   it("reports a missing QA payload as invalid evidence, not a build change", async () => {
     vi.stubEnv("THEME_STUDIO_BUILD_ID", "current-build");
     finishDb({ ...lastAttempt, origin: "run", editDetail: {} });

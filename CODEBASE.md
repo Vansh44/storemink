@@ -2137,6 +2137,12 @@ wholesip/
 │                              # runtime-only. Cloud Build owns the complete Cloud Run env,
 │                              # including default-on Mink + fail-closed invitation substitutions.
 │                              # Build linux/amd64 (Cloud Build or --platform).
+│                              # ★ SINCE 2026-10-04 ALSO capture-build (parallel with
+│                              # build-push) and capture-deploy (after deploy): the Theme
+│                              # Studio capture job is released WITH the web service. It was
+│                              # deployed by hand and drifted — prod ran a 1 Oct job against
+│                              # 3 Oct code, so every automatic QA run failed first try. The
+│                              # job is derived from _SERVICE (prod/dev); others skip.
 │                              # ★★ FOUR STEPS SINCE 2026-09-09: build-push → tip-check →
 │                              # migrate → deploy. `migrate` is what removed the laptop
 │                              # release ritual and the need for anyone to hold the prod
@@ -5871,6 +5877,25 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     summaries no longer claim artwork is complete merely because only catalog
     placeholders are counted. Operator-only and no merchant workflow changes:
     no Help Centre migration.
+    **Theme Studio QA and image robustness (2026-10-04):** diagnosed from the
+    Bubble project in production. (1) The capture job is now built and deployed
+    by `cloudbuild.yaml` with the web service, and a job that answers a layout
+    check with catalog pictures or QA screenshots fails at once as
+    `capture_job_outdated` (redeploy it) instead of `qa_report_invalid`. (2) A
+    revision keeps a finished image when it renames a slot without changing
+    its brief (subject, art direction, aspect, purpose), and keeps a product
+    photo when the same product sits under an unchanged product brief;
+    `carryOverSlotImages` takes both briefs. Prompt `theme-studio-v22` also
+    tells revisions to keep slot ids (`stableAssetIds`; v21 requests are
+    unchanged). Bubble's version 6 had lost four byte-identical images this way.
+    (3) Image prompt `theme-studio-image-v3`: a brief's own background colour
+    or gradient wins over the anchor's backdrop, while the anchor still sets
+    light, lens, grade and materials; packaging carries wordless label artwork
+    instead of blank labels; the anchor follows the homepage hero brief
+    (`anchorLeadBrief`); and a multipack, case or sampler is never the product
+    SET reference (`isMultiItemProduct`, `leaderFirst`). Reviewer
+    `theme-studio-image-review-v6` accepts briefed backgrounds, wordless label
+    art and named multipacks. Operator-only: no Help Centre update.
     **Theme Studio design variety (2026-10-03):** prompt `theme-studio-v21`
     uses intent schema 2 with closed `designDirection` (seven native directions)
     and `paletteFamily` (light, dark, colour-field, tinted-neutral). Legacy intent

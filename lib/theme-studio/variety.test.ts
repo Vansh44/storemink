@@ -548,3 +548,40 @@ it("does not force novelty against reference designs or request another full gen
     repairAttempted: false,
   });
 });
+
+it("asks a v22 revision to keep slot ids, and leaves a v21 request unchanged", async () => {
+  const original = await generate(createFakeModelClient(fakeInput));
+  if (original.kind !== "version") throw new Error("Fixture failed");
+  const intentText = async (promptVersion: string) => {
+    const fake = createFakeModelClient(fakeInput);
+    let text = "";
+    await generate(
+      {
+        provider: "fake",
+        async generate(request, signal) {
+          if (request.stage === "intent" && !text)
+            text = request.content
+              .map((b) => (b.type === "text" ? b.text : ""))
+              .join("");
+          return fake.generate(request, signal);
+        },
+      },
+      {
+        ...input(),
+        promptVersion,
+        messages: [{ kind: "revision", body: "Make it calmer." }],
+        revision: {
+          baseIntent: original.intent,
+          basePackage: original.package,
+        },
+      },
+    );
+    return text;
+  };
+  expect(await intentText("theme-studio-v22")).toContain(
+    "Keep the id of every assetBriefs entry",
+  );
+  expect(await intentText("theme-studio-v21")).not.toContain(
+    "Keep the id of every assetBriefs entry",
+  );
+});

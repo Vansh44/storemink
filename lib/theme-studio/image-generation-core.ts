@@ -62,6 +62,7 @@ export function productSetReferenceSha(
 ): string | null {
   const skip = new Set(excluded);
   const passed = new Set(passedHashes);
+  const usable: { sha: string; multi: boolean }[] = [];
   for (const slot of describeSlots(pkg)) {
     if (slot.kind !== "product" || slot.placeholder || skip.has(slot.id))
       continue;
@@ -70,7 +71,68 @@ export function productSetReferenceSha(
       asset?.sha256 &&
       (asset.source !== "generated" || passed.has(asset.sha256))
     )
-      return asset.sha256;
+      usable.push({
+        sha: asset.sha256,
+        multi: isMultiItemProduct(productText(pkg, slot.path) ?? slot.alt),
+      });
+  }
+  // A single product sets the staging for the range; a multipack does not.
+  return (usable.find((u) => !u.multi) ?? usable[0])?.sha ?? null;
+}
+
+const MULTI_ITEM =
+  /\b(?:\d+\s*-?\s*(?:pack|pk|count|ct|pcs|pieces)|multi-?pack|six-?pack|twelve-?pack|case|crate|bundle|sampler|variety|assorted|gift\s*set|set\s+of|kit|hamper|combo)\b/i;
+
+/**
+ * Whether a product is a multipack, case, bundle or sampler. ★ Such a product
+ * must never be the SET reference: every later product copies SET's setup, so
+ * a six-pack carrier as SET turned single bottles into six-pack shots and a
+ * 12-pack sampler into a copy of the six-pack (Bubble, 2026-10-03).
+ */
+export function isMultiItemProduct(text: string): boolean {
+  return MULTI_ITEM.test(text);
+}
+
+function productText(pkg: ThemePackageV2, path: string): string | null {
+  const product = pkg.definition.preset.sampleData?.products.find(
+    (p) => p.image_url === path,
+  );
+  return product ? `${product.name} ${product.description}` : null;
+}
+
+/** Single products first, so the leader (and SET) is never a multipack. Stable,
+ *  so the original order holds within each group. */
+export function leaderFirst<T extends { brief: { subject: string } }>(
+  products: readonly T[],
+): T[] {
+  return [
+    ...products.filter((p) => !isMultiItemProduct(p.brief.subject)),
+    ...products.filter((p) => isMultiItemProduct(p.brief.subject)),
+  ];
+}
+
+/**
+ * The brief the anchor takes its look from: the hero image that appears first
+ * on the homepage, else any hero slot with a brief. Null when there is none.
+ */
+export function anchorLeadBrief(
+  pkg: ThemePackageV2,
+  intent: ThemeIntent,
+): { subject: string; artDirection: string } | null {
+  const briefs = new Map(intent.assetBriefs.map((b) => [b.id, b]));
+  const heroes = new Set(
+    pkg.assets.filter((a) => a.kind === "hero").map((a) => a.id),
+  );
+  const home = pkg.definition.preset.pages.find((p) => !p.slug);
+  const onHome = [
+    ...JSON.stringify(home?.sections ?? []).matchAll(
+      /theme-asset:\/\/([a-z0-9-]+)/g,
+    ),
+  ].map((m) => m[1]);
+  for (const id of [...onHome, ...heroes]) {
+    const brief = heroes.has(id) ? briefs.get(id) : undefined;
+    if (brief?.subject)
+      return { subject: brief.subject, artDirection: brief.artDirection ?? "" };
   }
   return null;
 }
