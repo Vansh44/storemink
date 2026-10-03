@@ -17,6 +17,9 @@
   min-height: 100vh;
   background: var(--sm-cream);
   color: var(--sm-ink);
+  /* Safe clearance before hydration; useHeaderFit publishes the bar's actual
+     height after layout and on resize/font changes. */
+  --sm-header-h: 80px;
 
   /* Per-store theming: the brand's primary colour (injected as --brand-primary
      from the store's settings) drives the storefront accent / CTA / link
@@ -98,16 +101,27 @@
   min-width: 0;
 }
 
+@media (max-width: 1024px) {
+  .storefront-root {
+    --sm-header-h: 88px;
+  }
+}
+@media (max-width: 768px) {
+  .storefront-root {
+    --sm-header-h: 68px;
+  }
+}
+
 /* The "market" header (theme layout.header = "market") is a SOLID, opaque bar
-   pinned with position:fixed at 10vh tall (see Header.module.css) — it takes no
+   pinned with position:fixed (see Header.module.css) — it takes no
    layout space, so every page must reserve its height or content slides under
    it. Reserve it once here on the root wrapper so it holds for EVERY page
    regardless of content: custom pages, empty pages, and the footer's newsletter
    banner (none of which live inside .home-sections). The classic theme keeps
    its transparent header floating over the hero, so it's intentionally excluded.
-   (border-box is global, so the header's total height == its 10vh.) */
+   Use its measured height, not a viewport-height estimate: landscape screens
+   and embedded previews can be much shorter than the bar's controls. */
 .storefront-root.sm-header-market {
-  --sm-header-h: 10vh;
   padding-top: var(--sm-header-h);
 }
 

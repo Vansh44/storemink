@@ -4042,6 +4042,9 @@ wholesip/
 │   ├── product-card-layout-check.mjs # Offline production-CSS card fixtures: five widths,
 │   │                          # five skins, home/shop, both CSS load orders, ordinary and
 │   │                          # long labels/prices. No DB, network or image generation.
+│   ├── storefront-header-layout-check.mjs # Offline header/ticker clearance: four header
+│   │                          # variants, portrait/landscape, server/measured heights and
+│   │                          # both CSS load orders; local Chrome, no network or DB.
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
 │   │                          # the two Theme Studio Gemini models. --dry-run makes no
 │   │                          # request; a live probe sends one FREE countTokens call per
@@ -6625,8 +6628,22 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
         ★ The attribute is written to the DOM, never rendered, so React never
         writes it back, and the fold lands before paint rather than after a
         state round trip.
-        ★ Phones (≤768px) stay plain CSS and are not measured: their row
-        overlaps hit areas on purpose.
+        ★ Phones (≤768px) keep CSS horizontal layout and skip fit compaction:
+        their row overlaps hit areas on purpose. Height is still measured.
+        The same observer publishes the final bar height as `--sm-header-h`
+        on its own `.storefront-root`, including on phones and after font or
+        size changes, and restores the previous inline value on cleanup.
+        Before hydration CSS supplies 80/88/68px desktop/tablet/phone fallbacks.
+        Market headers reserve this height on the root instead of estimating
+        it as 10vh. Non-market section pages whose first rendered section is
+        neither a native hero/carousel nor custom-code hero reserve the height
+        plus a 16–32px gap on `.home-sections`. Thus a leading ticker or text
+        cannot sit behind the logo/actions; existing hero-led origins remain.
+        `scripts/storefront-header-layout-check.mjs` checks production CSS in
+        local Chromium across header variants, viewport sizes, content origins,
+        server/measured clearance and stylesheet load order; fixture screenshots
+        are not live-theme evidence. Presentation only; shopper actions stay the
+        same, so no Help Centre update.
         ★ Nav links are `white-space: nowrap`, so a wrapped link shows up as
         overlap instead of hiding it.
         ★ The header has a 24px `column-gap` above 768px. The market header's

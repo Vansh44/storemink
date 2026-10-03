@@ -10,13 +10,26 @@
   padding: var(--sm-section-gap, clamp(40px, 6vw, 72px)) 0;
 }
 
-/* The header is position:fixed (takes no layout space). The classic theme
-   floats it TRANSPARENT over the page, so sections may start at the top. The
+/* The header is position:fixed (takes no layout space). Hero-led pages can
+   place a transparent header over their imagery. Other leading sections
+   reserve the bar's height plus a breathing gap, so a ticker or heading
+   cannot paint behind the logo and controls. The
    solid "market" header's height is reserved once on .storefront-root
    (.sm-header-market in storefront-theme.css) so it clears EVERY page, not just
    ones with sections — so no per-section clearance is needed here. The base
    .home-sections padding above provides the breathing gap below the bar, and a
-   leading full-bleed hero cancels it (rule below) to sit flush under the bar. */
+   leading full-bleed custom hero cancels it (rule below) to sit flush under the bar. */
+
+.storefront-root:not(.sm-header-market)
+  .home-sections:has(> .home-section:first-child):not(
+    :has(
+      > .home-custom-code:first-child,
+      > .home-section:first-child > .home-hero,
+      > .home-section:first-child > .home-carousel
+    )
+  ) {
+  padding-top: calc(var(--sm-header-h, 68px) + clamp(16px, 2.5vw, 32px));
+}
 
 .home-section {
   width: 100%;
