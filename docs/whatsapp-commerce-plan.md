@@ -45,18 +45,18 @@ never copies any keys.
 
 ## 3. Features the seller gets
 
-| # | Feature | What it does |
-| - | --- | --- |
-| 1 | **Connect WhatsApp** | Dashboard → Channels → WhatsApp, Facebook login, OTP. |
-| 2 | **Order updates** | Customers get "Order confirmed", "Shipped — track here", "Delivered", "Ready for pickup, your code is ABCD" automatically. |
-| 3 | **COD confirmation** | COD orders get "Confirm ✅ / Cancel ❌" buttons → fewer fake orders and returned parcels. |
-| 4 | **Ordering inside WhatsApp** | Customer browses, adds to cart, gives address and pays — all in the chat. The order appears in the dashboard like any other. |
-| 5 | **Product catalogue** | Products sync to WhatsApp automatically, prices and photos always current. |
-| 6 | **Chat inbox in the dashboard** | All customer chats in one place. Staff reply, see the customer's past orders, hand a chat to a teammate. |
-| 7 | **Auto-replies** | Welcome message, "we're closed" message, instant answers to "Where is my order?". Mink AI can answer product questions (section 5). |
-| 8 | **Abandoned cart reminders** | "You left items in your cart" with a link back. |
-| 9 | **Offers / broadcasts** | Send sale and coupon messages — only to customers who agreed. Cost shown before sending. Customers can reply **STOP**. |
-| 10 | **Chat button + QR code** | "Chat with us on WhatsApp" button on the website, and a QR code for the shop counter. |
+| #   | Feature                         | What it does                                                                                                                        |
+| --- | ------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | **Connect WhatsApp**            | Dashboard → Channels → WhatsApp, Facebook login, OTP.                                                                               |
+| 2   | **Order updates**               | Customers get "Order confirmed", "Shipped — track here", "Delivered", "Ready for pickup, your code is ABCD" automatically.          |
+| 3   | **COD confirmation**            | COD orders get "Confirm ✅ / Cancel ❌" buttons → fewer fake orders and returned parcels.                                           |
+| 4   | **Ordering inside WhatsApp**    | Customer browses, adds to cart, gives address and pays — all in the chat. The order appears in the dashboard like any other.        |
+| 5   | **Product catalogue**           | Products sync to WhatsApp automatically, prices and photos always current.                                                          |
+| 6   | **Chat inbox in the dashboard** | All customer chats in one place. Staff reply, see the customer's past orders, hand a chat to a teammate.                            |
+| 7   | **Auto-replies**                | Welcome message, "we're closed" message, instant answers to "Where is my order?". Mink AI can answer product questions (section 5). |
+| 8   | **Abandoned cart reminders**    | "You left items in your cart" with a link back.                                                                                     |
+| 9   | **Offers / broadcasts**         | Send sale and coupon messages — only to customers who agreed. Cost shown before sending. Customers can reply **STOP**.              |
+| 10  | **Chat button + QR code**       | "Chat with us on WhatsApp" button on the website, and a QR code for the shop counter.                                               |
 
 **Bonus:** POS bills sent on WhatsApp instead of printed paper.
 
@@ -137,13 +137,13 @@ Set once by the seller, always the same, instant and free:
 
 ### Layer 2 — Mink AI answers common questions
 
-| Customer asks | Mink does |
-| --- | --- |
-| "Where is my order?" | Looks up **that customer's** order: "Shipped, arriving Thursday, track here" |
-| "Is this in size M?" | Checks stock and replies |
-| "Do you deliver to 110001?" | Checks delivery, shares charge and expected days |
-| "What's your return policy?" | Answers from the store's own policy page |
-| "Any offers right now?" | Lists current offers |
+| Customer asks                | Mink does                                                                    |
+| ---------------------------- | ---------------------------------------------------------------------------- |
+| "Where is my order?"         | Looks up **that customer's** order: "Shipped, arriving Thursday, track here" |
+| "Is this in size M?"         | Checks stock and replies                                                     |
+| "Do you deliver to 110001?"  | Checks delivery, shares charge and expected days                             |
+| "What's your return policy?" | Answers from the store's own policy page                                     |
+| "Any offers right now?"      | Lists current offers                                                         |
 
 ### Layer 3 — A human takes over
 
@@ -186,12 +186,12 @@ Meta charges per message. The price depends on the message type.
 
 ### Meta's prices in India (October 2026)
 
-| Message type | Example | Cost per message |
-| --- | --- | --- |
-| **Utility** | Order confirmed, shipped, delivered, pickup ready, COD confirm | **₹0.115** |
-| **Marketing** | Offers, sales, abandoned-cart reminders, new arrivals | **₹0.86** |
-| **Authentication** | OTP / login codes | **₹0.115** |
-| **Replies** | Customer messages first, shop answers | **Free** |
+| Message type       | Example                                                        | Cost per message |
+| ------------------ | -------------------------------------------------------------- | ---------------- |
+| **Utility**        | Order confirmed, shipped, delivered, pickup ready, COD confirm | **₹0.115**       |
+| **Marketing**      | Offers, sales, abandoned-cart reminders, new arrivals          | **₹0.86**        |
+| **Authentication** | OTP / login codes                                              | **₹0.115**       |
+| **Replies**        | Customer messages first, shop answers                          | **Free**         |
 
 Plus **18% GST**.
 
@@ -207,12 +207,12 @@ Plus **18% GST**.
 
 ### Example monthly bills
 
-| Seller | What they send | Monthly cost |
-| --- | --- | --- |
-| Small shop, 100 orders/month | ~4 updates per order = 400 utility messages | **≈ ₹46** |
-| Medium shop, 1,000 orders/month | 4,000 utility messages | **≈ ₹460** |
-| + an offer to 1,000 customers | 1,000 marketing messages | **+ ≈ ₹863** |
-| + abandoned-cart reminders, 300/month | 300 marketing messages | **+ ≈ ₹259** |
+| Seller                                | What they send                              | Monthly cost |
+| ------------------------------------- | ------------------------------------------- | ------------ |
+| Small shop, 100 orders/month          | ~4 updates per order = 400 utility messages | **≈ ₹46**    |
+| Medium shop, 1,000 orders/month       | 4,000 utility messages                      | **≈ ₹460**   |
+| + an offer to 1,000 customers         | 1,000 marketing messages                    | **+ ≈ ₹863** |
+| + abandoned-cart reminders, 300/month | 300 marketing messages                      | **+ ≈ ₹259** |
 
 (Add 18% GST to each.)
 
@@ -249,11 +249,11 @@ notices them.
 
 ## 8. Build order
 
-| Phase | What | Why first |
-| --- | --- | --- |
-| **Phase 1** | Connect WhatsApp, order updates, COD confirmation, chat button + QR | Biggest value, smallest build |
-| **Phase 2** | Dashboard inbox, catalogue sync, abandoned-cart reminders | Turns WhatsApp into a sales channel |
-| **Phase 3** | Ordering inside WhatsApp, offers/broadcasts, Mink AI replies | Full WhatsApp commerce |
+| Phase       | What                                                                | Why first                           |
+| ----------- | ------------------------------------------------------------------- | ----------------------------------- |
+| **Phase 1** | Connect WhatsApp, order updates, COD confirmation, chat button + QR | Biggest value, smallest build       |
+| **Phase 2** | Dashboard inbox, catalogue sync, abandoned-cart reminders           | Turns WhatsApp into a sales channel |
+| **Phase 3** | Ordering inside WhatsApp, offers/broadcasts, Mink AI replies        | Full WhatsApp commerce              |
 
 ---
 
