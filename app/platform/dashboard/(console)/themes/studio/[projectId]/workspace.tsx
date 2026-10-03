@@ -26,6 +26,10 @@ import type {
   ThemeStudioRunView,
 } from "@/lib/theme-studio/repository";
 import { THEME_IMAGE_PROBLEM_LABEL } from "@/lib/theme-studio/image-history";
+import {
+  MAJOR_AXES,
+  type DistinctnessReport,
+} from "@/lib/theme-studio/fingerprint";
 import { StudioStatusBadge, currentQaFailed, studioDate } from "../studio-ui";
 import { ThemeConversation } from "./conversation";
 
@@ -640,7 +644,8 @@ export function ProjectWorkspace({
                     {v.distinctness.nearestThemeId ? (
                       <p className="mt-1">
                         Closest theme: {v.distinctness.nearestThemeId}.{" "}
-                        {v.distinctness.changedAxes} major design axes differ.
+                        {v.distinctness.changedAxes} of {MAJOR_AXES} major
+                        design axes differ (at least 3 count as distinct).
                       </p>
                     ) : null}
                     {v.distinctness.status === "similar" ? (
@@ -663,7 +668,7 @@ export function ProjectWorkspace({
                     ) : null}
                     {v.distinctness.repairAttempted ? (
                       <p className="mt-1">
-                        One automatic variety correction was attempted.
+                        {varietyCorrectionNote(v.distinctness)}
                       </p>
                     ) : null}
                     <p className="mt-1 text-xs">
@@ -792,4 +797,14 @@ export function ProjectWorkspace({
       </section>
     </div>
   );
+}
+
+/** Whether the one automatic variety correction changed the design. */
+export function varietyCorrectionNote(report: DistinctnessReport): string {
+  const pct = (score: number) => `${Math.round(score * 100)}%`;
+  if (report.beforeScore == null || report.score == null)
+    return "One automatic variety correction was attempted.";
+  return report.score > report.beforeScore
+    ? `One automatic variety correction raised distinctness from ${pct(report.beforeScore)} to ${pct(report.score)}.`
+    : "One automatic variety correction was attempted but did not make the design more distinct, so the original design was kept.";
 }

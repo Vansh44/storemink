@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, and, gt, isNull, sql } from "drizzle-orm";
+import { eq, and, isNull, sql } from "drizzle-orm";
 import { themeStudioRuns } from "@/drizzle/schema";
 import type { Db } from "@/lib/db/client";
 import { THEME_DEFINITIONS } from "@/lib/themes";
@@ -102,11 +102,13 @@ export async function loadVarietyContext(
       and(
         eq(themeStudioRuns.id, runId),
         isNull(themeStudioRuns.varietyContext),
-        // Fenced on the lease like every other worker write: a reclaimed run's
-        // old worker must not freeze a context for the new one.
+        // Fenced exactly as finish() fences a generation run (running + this
+        // worker's lease): a reclaimed run's old worker must not freeze a
+        // context for the new one, and refusing here means finish() will also
+        // settle this run as lost. Expiry alone is not fenced, matching
+        // finish(); a reclaim moves lease_owner, which is what both detect.
         eq(themeStudioRuns.status, "running"),
         eq(themeStudioRuns.leaseOwner, workerId),
-        gt(themeStudioRuns.leaseExpiresAt, sql`now()`),
       ),
     );
   // First writer wins: re-read whatever is stored, ours or a newer owner's.

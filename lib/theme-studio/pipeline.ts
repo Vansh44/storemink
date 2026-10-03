@@ -777,19 +777,36 @@ export function usableVarietyEdits(
   return usable.slice(0, 24);
 }
 
+/** Bound on refused-edit + helper pairings tried in the fallback. */
+const MAX_VARIETY_PAIRINGS = 24;
+
+type VarietyEdit = { path: string; valueJson: string };
+
 /**
- * Apply variety edits, keeping as many as still validate. The whole batch is
- * tried first; if a whole-theme check refuses it (a font without a supported
- * weight, a contrast pair, renderer normalisation) each edit is tried on its
- * own, repeating while any lands so an edit that only validates after another
- * still gets its turn. Returns null when nothing usable remains.
+ * Apply variety edits, keeping the usable part of a correction.
+ *
+ * The whole batch is tried first. If a whole-theme check refuses it (a font
+ * without a supported weight, a contrast pair, renderer normalisation), the
+ * fallback keeps only units that make a visible design difference:
+ *
+ *  - an edit that validates alone AND changes the theme's fingerprint;
+ *  - a refused edit together with ONE fingerprint-neutral helper that makes it
+ *    validate (a font with the lighter weight it needs).
+ *
+ * ★ A neutral edit is never kept on its own. It is usually the supporting half
+ * of a pair, and applying it without its partner (a lighter heading weight with
+ * the old font) produces a look nobody chose — one the distinctness gate cannot
+ * see, because weight is not part of the fingerprint.
+ *
+ * ★ Bounded: one validation per edit, at most MAX_VARIETY_PAIRINGS pairings,
+ * then one per kept unit — never repeated passes over the whole set.
  */
 export function applyVarietyEdits(
   base: ThemePackageV2,
-  edits: readonly { path: string; valueJson: string }[],
+  edits: readonly VarietyEdit[],
   paletteFamily: ThemeIntent["paletteFamily"],
 ): ThemePackageV2 | null {
-  const accept = (raw: { path: string; valueJson: string }[], from = base) => {
+  const accept = (raw: VarietyEdit[], from = base) => {
     const repaired = applyTargetedRepair(from, {
       edits: raw,
       unrepairable: [],
@@ -804,18 +821,34 @@ export function applyVarietyEdits(
   };
   const whole = accept([...edits]);
   if (whole) return whole;
-  let current: ThemePackageV2 | null = null;
-  let pending = [...edits];
-  for (let progress = true; progress && pending.length; ) {
-    progress = false;
-    for (const edit of [...pending]) {
-      const next = accept([edit], current ?? base);
-      if (!next) continue;
-      current = next;
-      pending = pending.filter((e) => e !== edit);
-      progress = true;
-    }
+
+  const baseFingerprint = JSON.stringify(themeFingerprint(base.definition));
+  const visible = (pkg: ThemePackageV2) =>
+    JSON.stringify(themeFingerprint(pkg.definition)) !== baseFingerprint;
+  const units: VarietyEdit[][] = [];
+  const neutral: VarietyEdit[] = [];
+  const refused: VarietyEdit[] = [];
+  for (const edit of edits) {
+    const alone = accept([edit]);
+    if (!alone) refused.push(edit);
+    else if (visible(alone)) units.push([edit]);
+    else neutral.push(edit);
   }
+  const helpers = new Set(neutral);
+  let pairings = 0;
+  pairing: for (const edit of refused)
+    for (const helper of helpers) {
+      if (pairings++ >= MAX_VARIETY_PAIRINGS) break pairing;
+      const paired = accept([edit, helper]);
+      if (paired && visible(paired)) {
+        units.push([edit, helper]);
+        helpers.delete(helper);
+        break;
+      }
+    }
+
+  let current: ThemePackageV2 | null = null;
+  for (const unit of units) current = accept(unit, current ?? base) ?? current;
   return current;
 }
 

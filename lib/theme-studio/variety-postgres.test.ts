@@ -108,6 +108,8 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
         hidden = await seed(true, "internal/pending"),
         failed = await seed(true, "operator/failed"),
         unleased = await seed(false),
+        foreign = await seed(false),
+        expired = await seed(false),
         fallback = await seed(true),
         published = await seed(true);
       // A newer private version must not hide a project's latest acceptable one.
@@ -169,6 +171,17 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
         "UPDATE theme_studio_runs SET status='running',attempt_count=1,lease_owner=$2,lease_expires_at=now()+interval '5 minutes' WHERE id=$1",
         [own.runId, workerId],
       );
+      // Expired but not reclaimed: finish() still settles it, so the freeze
+      // must succeed too rather than strand the run with a misleading error.
+      await pg.query(
+        "UPDATE theme_studio_runs SET status='running',attempt_count=1,lease_owner=$2,lease_expires_at=now()-interval '1 minute' WHERE id=$1",
+        [expired.runId, workerId],
+      );
+      // Reclaimed by another worker: finish() would settle this run as lost.
+      await pg.query(
+        "UPDATE theme_studio_runs SET status='running',attempt_count=1,lease_owner=$2,lease_expires_at=now()+interval '5 minutes' WHERE id=$1",
+        [foreign.runId, randomUUID()],
+      );
       await pg.query("SET LOCAL ROLE app_service");
       const db = drizzle(pg, { schema: { ...schema, ...relations } });
       // A worker that does not hold the run's lease cannot freeze its context.
@@ -181,6 +194,26 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
           workerId,
         ),
       ).rejects.toBeInstanceOf(VarietyLeaseLostError);
+      await expect(
+        loadVarietyContext(
+          db,
+          foreign.runId,
+          foreign.projectId,
+          foreign.themeId,
+          workerId,
+        ),
+      ).rejects.toBeInstanceOf(VarietyLeaseLostError);
+      expect(
+        (
+          await loadVarietyContext(
+            db,
+            expired.runId,
+            expired.projectId,
+            expired.themeId,
+            workerId,
+          )
+        ).length,
+      ).toBeGreaterThan(0);
       const frozen = await loadVarietyContext(
         db,
         own.runId,

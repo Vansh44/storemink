@@ -452,6 +452,40 @@ it("keeps the variety edits that validate when a whole-theme check refuses one",
   ).toBeNull();
 });
 
+it("never keeps the supporting half of a refused change on its own", async () => {
+  const original = await generate(createFakeModelClient(fakeInput));
+  if (original.kind !== "version") throw new Error("Fixture failed");
+  const design = "/definition/preset/design";
+  const before = original.package.definition.preset.design;
+  const weight = {
+    path: `${design}/typography/headingWeight`,
+    valueJson: '"regular"',
+  };
+  const body = {
+    path: `${design}/fonts/body`,
+    valueJson: '"var(--font-instrument-serif)"',
+  };
+  // The weight is valid alone but invisible to the fingerprint (a helper
+  // only); the body face is refused even with it (button labels).
+  const repaired = applyVarietyEdits(
+    original.package,
+    [weight, body, { path: `${design}/layout/card`, valueJson: '"overlay"' }],
+    original.intent.paletteFamily,
+  );
+  expect(repaired?.definition.preset.design.layout?.card).toBe("overlay");
+  expect(repaired?.definition.preset.design.typography?.headingWeight).toBe(
+    before.typography?.headingWeight,
+  );
+  expect(repaired?.definition.preset.design.fonts.body).toBe(before.fonts.body);
+  expect(
+    applyVarietyEdits(
+      original.package,
+      [weight, body],
+      original.intent.paletteFamily,
+    ),
+  ).toBeNull();
+});
+
 it("keeps a schema-1 revision on its original contract under the variety prompt", async () => {
   const legacy = await generate(createFakeModelClient(fakeInput), {
     ...input(),

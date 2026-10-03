@@ -1680,8 +1680,9 @@ export async function runThemeStudioWorker(
     try {
       outcome = await execute(run, workerId);
     } catch (error) {
-      // Losing the lease to a reclaim is expected and already safe: finish()
-      // is fenced on the lease, so this run settles as `lost` either way.
+      // Losing the lease to a reclaim is expected and already safe: the
+      // variety freeze uses finish()'s own fence (running + lease owner), so
+      // finish() below finds no row and settles this run as `lost`.
       if (error instanceof VarietyLeaseLostError)
         logWarn("theme studio: run lease lost before start", {
           runId: run.id,
