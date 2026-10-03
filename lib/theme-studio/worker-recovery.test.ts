@@ -3,11 +3,16 @@ import { PgDialect } from "drizzle-orm/pg-core";
 import { themeStudioProjects, themeStudioRuns } from "@/drizzle/schema";
 import { ZERO_USAGE } from "./provider";
 
-const { service, pipeline, event } = vi.hoisted(() => ({
-  service: vi.fn(),
-  pipeline: vi.fn(),
-  event: vi.fn(),
-}));
+const { service, pipeline, event, variety, logs } = vi.hoisted(() => {
+  class VarietyLeaseLostError extends Error {}
+  return {
+    service: vi.fn(),
+    pipeline: vi.fn(),
+    event: vi.fn(),
+    variety: { load: vi.fn(), VarietyLeaseLostError },
+    logs: { error: vi.fn(), warn: vi.fn() },
+  };
+});
 vi.mock("@/lib/db/client", () => ({ withService: service }));
 vi.mock("./repository", () => ({
   recordThemeStudioEvent: event,
@@ -29,12 +34,22 @@ vi.mock("./config", () => ({
 }));
 vi.mock("./visual-qa", () => ({ runThemeStudioVisualQaWorker: vi.fn() }));
 vi.mock("@/lib/observability/logger", () => ({
-  logError: vi.fn(),
+  logError: logs.error,
   logInfo: vi.fn(),
+  logWarn: logs.warn,
+}));
+vi.mock("./variety-context", () => ({
+  loadVarietyContext: variety.load,
+  VarietyLeaseLostError: variety.VarietyLeaseLostError,
 }));
 import { runThemeStudioWorker } from "./worker";
 
-function fixture({ deferrals = 0, cancelled = false, lostLease = false } = {}) {
+function fixture({
+  deferrals = 0,
+  cancelled = false,
+  lostLease = false,
+  promptVersion = "version",
+} = {}) {
   const run = {
     id: "run",
     projectId: "project",
@@ -43,7 +58,7 @@ function fixture({ deferrals = 0, cancelled = false, lostLease = false } = {}) {
     provider: "vertex-gemini",
     modelKey: "gemini-3.8-flash",
     providerModel: "gemini-3.8-flash",
-    promptVersion: "version",
+    promptVersion,
     attemptCount: 3,
     maxAttempts: 3,
     automatic: false,
@@ -184,6 +199,22 @@ describe("rate-limited worker settlement", () => {
     expect(await work()).toMatchObject({ failed: 0, requeued: 0 });
     expect(writes).toHaveLength(0);
     expect(event).not.toHaveBeenCalled();
+  });
+
+  it("treats losing the lease while freezing variety context as expected, not an error", async () => {
+    variety.load.mockRejectedValue(new variety.VarietyLeaseLostError());
+    const { writes } = fixture({
+      lostLease: true,
+      promptVersion: "theme-studio-v21",
+    });
+    expect(await work()).toMatchObject({ failed: 0, requeued: 0 });
+    expect(pipeline).not.toHaveBeenCalled();
+    expect(writes).toHaveLength(0);
+    expect(logs.warn).toHaveBeenCalledWith(
+      "theme studio: run lease lost before start",
+      { runId: "run" },
+    );
+    expect(logs.error).not.toHaveBeenCalled();
   });
 
   it("does not turn authentication failures into capacity retries", async () => {

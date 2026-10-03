@@ -5901,8 +5901,11 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     of seven major axes changed (composition, card, hero, page colour, buttons,
     typography, homepage structure) triggers ONE validated scalar style patch on
     new, non-reference builds, preserving the compiled palette. Unusable edits
-    in that patch are dropped individually rather than discarding the usable
-    ones, and the report keeps the score it started from. No full rewrite or
+    in that patch (an unsupported value, or one a whole-theme check refuses,
+    such as a font without a supported weight) are dropped individually rather
+    than discarding the usable ones, and the report keeps the score it started
+    from. A worker that loses its lease while freezing the context logs a
+    warning, not an error: settlement is already fenced. No full rewrite or
     artwork change; an ineffective,
     refused, truncated or failed optional patch keeps the valid draft and flags
     similarity. Revisions preserve identity; reference-led scores are advisory.

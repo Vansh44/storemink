@@ -25,6 +25,7 @@ import { createFakeModelClient, runFakeProvider } from "./fake-provider";
 import {
   runThemeGeneration,
   usableVarietyEdits,
+  applyVarietyEdits,
   type GenerationInput,
 } from "./pipeline";
 import { STAGE_A_VARIETY_SCHEMA } from "./schemas";
@@ -394,6 +395,61 @@ it("filters unusable variety edits and keeps required style choices non-null", a
     { path: settings[2].path, valueJson: "null" },
   ]);
   expect(usableVarietyEdits({}, settings, pkg)).toEqual([]);
+  // Unsupported or non-scalar values are dropped per edit, not per batch.
+  const card = { ...settings[0], choices: ["classic", "overlay", "framed"] };
+  expect(
+    usableVarietyEdits(
+      {
+        edits: [
+          { path: card.path, valueJson: '"masonry"' },
+          { path: settings[1].path, valueJson: '{"shape":"square"}' },
+          { path: settings[1].path, valueJson: '"square"' },
+        ],
+      },
+      [card, settings[1]],
+      pkg,
+    ),
+  ).toEqual([{ path: settings[1].path, valueJson: '"square"' }]);
+});
+
+it("keeps the variety edits that validate when a whole-theme check refuses one", async () => {
+  const original = await generate(createFakeModelClient(fakeInput));
+  if (original.kind !== "version") throw new Error("Fixture failed");
+  const design = "/definition/preset/design";
+  const edits = [
+    // Faux-bold at the current semibold headings; valid once the weight drops.
+    {
+      path: `${design}/fonts/display`,
+      valueJson: '"var(--font-instrument-serif)"',
+    },
+    { path: `${design}/typography/headingWeight`, valueJson: '"regular"' },
+    // Always refused: semibold button labels in a regular-only body face.
+    {
+      path: `${design}/fonts/body`,
+      valueJson: '"var(--font-instrument-serif)"',
+    },
+    { path: `${design}/layout/card`, valueJson: '"overlay"' },
+  ];
+  const repaired = applyVarietyEdits(
+    original.package,
+    edits,
+    original.intent.paletteFamily,
+  );
+  expect(repaired?.definition.preset.design).toMatchObject({
+    fonts: {
+      display: "var(--font-instrument-serif)",
+      body: original.package.definition.preset.design.fonts.body,
+    },
+    typography: { headingWeight: "regular" },
+    layout: { card: "overlay" },
+  });
+  expect(
+    applyVarietyEdits(
+      original.package,
+      [edits[2]],
+      original.intent.paletteFamily,
+    ),
+  ).toBeNull();
 });
 
 it("keeps a schema-1 revision on its original contract under the variety prompt", async () => {

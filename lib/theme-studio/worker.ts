@@ -11,7 +11,7 @@ import {
   themeStudioVersions,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
-import { logError, logInfo } from "@/lib/observability/logger";
+import { logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { getThemeDefinition, isBundledThemeId } from "@/lib/themes";
 import type {
   ThemeCatalogSize,
@@ -21,7 +21,7 @@ import type {
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
 import { sharedProviderCapacity } from "./provider-capacity-store";
 import { themePromptFeatures } from "./prompt-features";
-import { loadVarietyContext } from "./variety-context";
+import { loadVarietyContext, VarietyLeaseLostError } from "./variety-context";
 import {
   readDistinctnessReport,
   type ExistingThemeFingerprint,
@@ -1680,7 +1680,16 @@ export async function runThemeStudioWorker(
     try {
       outcome = await execute(run, workerId);
     } catch (error) {
-      logError("theme studio: run execution threw", error, { runId: run.id });
+      // Losing the lease to a reclaim is expected and already safe: finish()
+      // is fenced on the lease, so this run settles as `lost` either way.
+      if (error instanceof VarietyLeaseLostError)
+        logWarn("theme studio: run lease lost before start", {
+          runId: run.id,
+        });
+      else
+        logError("theme studio: run execution threw", error, {
+          runId: run.id,
+        });
       outcome =
         run.attemptCount < run.maxAttempts
           ? { kind: "retry", errorCode: "worker_error" }
