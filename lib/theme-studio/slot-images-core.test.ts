@@ -204,6 +204,99 @@ describe("carrying images into a revision", () => {
     expect(carryOverSlotImages(revised, base).carried).toEqual([]);
   });
 
+  /** The same package with one slot renamed everywhere it is referenced. */
+  function renameSlot(
+    pkg: ThemePackageV2,
+    from: string,
+    to: string,
+  ): ThemePackageV2 {
+    const out = JSON.parse(
+      JSON.stringify(pkg)
+        .split(`theme-asset://${from}"`)
+        .join(`theme-asset://${to}"`),
+    ) as ThemePackageV2;
+    out.assets = out.assets.map((a) => (a.id === from ? { ...a, id: to } : a));
+    return out;
+  }
+  const brief = (id: string, subject = "A bowl of fresh berries") => ({
+    id,
+    subject,
+    artDirection: "Soft window light on linen",
+    aspectRatio: "4:3",
+    purpose: "Editorial banner",
+  });
+
+  it("keeps the image of a slot renamed with an unchanged brief", () => {
+    const base = withImage(placeholderPackage(), "slot-1");
+    const revised = renameSlot(placeholderPackage(), "slot-1", "slot-renamed");
+    const kept = carryOverSlotImages(revised, base, {
+      base: [brief("slot-1")],
+      // Whitespace and case are not a different picture.
+      next: [
+        { ...brief("slot-renamed"), subject: " A bowl of  FRESH berries" },
+      ],
+    });
+    expect(kept.carried).toEqual(["slot-renamed"]);
+    expect(kept.value.assets.find((a) => a.id === "slot-renamed")!.sha256).toBe(
+      hex("upload"),
+    );
+  });
+
+  it("draws a new picture when a renamed slot's brief changed", () => {
+    const base = withImage(placeholderPackage(), "slot-1");
+    const revised = renameSlot(placeholderPackage(), "slot-1", "slot-renamed");
+    expect(
+      carryOverSlotImages(revised, base, {
+        base: [brief("slot-1")],
+        next: [brief("slot-renamed", "A bowl of oranges")],
+      }).carried,
+    ).toEqual([]);
+    // Without briefs the original id-only rule applies.
+    expect(carryOverSlotImages(revised, base).carried).toEqual([]);
+  });
+
+  it("never gives one image to two renamed slots", () => {
+    const base = withImage(placeholderPackage(), "slot-1");
+    const revised = renameSlot(
+      renameSlot(placeholderPackage(), "slot-1", "slot-a"),
+      "slot-2",
+      "slot-b",
+    );
+    expect(
+      carryOverSlotImages(revised, base, {
+        base: [brief("slot-1")],
+        next: [brief("slot-a"), brief("slot-b")],
+      }).carried,
+    ).toEqual(["slot-a"]);
+  });
+
+  it("keeps a product photo when the product brief was only renamed", () => {
+    const product =
+      placeholderPackage().definition.preset.sampleData!.products[0];
+    const slot = product.image_url.replace("theme-asset://", "");
+    const base = withImage(
+      renameSlot(placeholderPackage(), slot, `photos--${product.slug}`),
+      `photos--${product.slug}`,
+    );
+    const revised = renameSlot(
+      placeholderPackage(),
+      slot,
+      `catalog--${product.slug}`,
+    );
+    expect(
+      carryOverSlotImages(revised, base, {
+        base: [brief("photos")],
+        next: [brief("catalog")],
+      }).carried,
+    ).toEqual([`catalog--${product.slug}`]);
+    expect(
+      carryOverSlotImages(revised, base, {
+        base: [brief("photos")],
+        next: [brief("catalog", "Bottles on a dark backdrop")],
+      }).carried,
+    ).toEqual([]);
+  });
+
   it("carries nothing from a base with no uploaded images", () => {
     const base = placeholderPackage();
     const revised = placeholderPackage();

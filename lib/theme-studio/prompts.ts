@@ -340,6 +340,7 @@ export function stageARevisionUserText(
   messages: BriefMessage[],
   referenceCount: number,
   variety = false,
+  stableAssetIds = false,
 ): string {
   return [
     "Project facts (set by StoreMink, trusted):",
@@ -349,6 +350,13 @@ export function stageARevisionUserText(
     JSON.stringify(baseIntent),
     "",
     "Return the complete revised intent, not a list of changes. Keep every part of the current intent the revision does not ask to change, and record what you changed as assumptions. Ask a clarifying question only if the revision request is ambiguous in a way that would materially change the result.",
+    // v22+: a brief id is the finished image's identity. Older versions keep
+    // their exact request text (prompt-features.ts).
+    ...(stableAssetIds
+      ? [
+          "Keep the id of every assetBriefs entry whose picture should stay the same, including the product photography brief; reuse ids even when you reword a purpose. A renamed brief throws away its finished image and pays to redraw it. Give a brief a new id only when its subject or art direction should change.",
+        ]
+      : []),
     "",
     ...messages.map((m, index) =>
       fence(

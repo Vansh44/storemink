@@ -11,6 +11,7 @@ it("preserves old paid request shapes and carries capabilities into future promp
     nativeCommerce: false,
     compactInitial: false,
     variety: false,
+    stableAssetIds: false,
   });
   expect(themePromptFeatures("theme-studio-v19")).toEqual({
     targetedRepair: true,
@@ -18,6 +19,7 @@ it("preserves old paid request shapes and carries capabilities into future promp
     nativeCommerce: false,
     compactInitial: false,
     variety: false,
+    stableAssetIds: false,
   });
   expect(themePromptFeatures(THEME_STUDIO_PROMPT_VERSION)).toEqual({
     targetedRepair: true,
@@ -25,8 +27,9 @@ it("preserves old paid request shapes and carries capabilities into future promp
     nativeCommerce: true,
     compactInitial: true,
     variety: true,
+    stableAssetIds: true,
   });
-  expect(themePromptFeatures("theme-studio-v22")).toEqual(
+  expect(themePromptFeatures("theme-studio-v23")).toEqual(
     themePromptFeatures(THEME_STUDIO_PROMPT_VERSION),
   );
   expect(themePromptFeatures("invalid").compactInitial).toBe(false);
@@ -35,4 +38,9 @@ it("preserves old paid request shapes and carries capabilities into future promp
 it("enables variety only for v21 and later", () => {
   expect(themePromptFeatures("theme-studio-v20").variety).toBe(false);
   expect(themePromptFeatures("theme-studio-v21").variety).toBe(true);
+});
+
+it("asks revisions to keep slot ids only from v22, so v21 requests replay unchanged", () => {
+  expect(themePromptFeatures("theme-studio-v21").stableAssetIds).toBe(false);
+  expect(themePromptFeatures("theme-studio-v22").stableAssetIds).toBe(true);
 });

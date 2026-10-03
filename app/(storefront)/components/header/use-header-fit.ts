@@ -17,6 +17,8 @@ import {
 //   React never renders the attribute, so it never writes it back.
 // ★ Every check starts from the full header. Measuring from the current
 //   state would keep a tablet folded after it rotates to landscape.
+// ★ Publish the final bar height to its own storefront root, including on
+//   phones. Leading content and opaque headers use it for vertical clearance.
 
 export const HEADER_COMPACT_ATTR = "data-header-compact";
 const MEASURING_ATTR = "data-header-measuring";
@@ -52,6 +54,17 @@ export function useHeaderFit(
   useLayoutEffect(() => {
     const header = ref.current;
     if (!header) return;
+    const root = header.closest<HTMLElement>(".storefront-root");
+    const previousHeight = root?.style.getPropertyValue("--sm-header-h") ?? "";
+    let publishedHeight = "";
+    const publishHeight = () => {
+      const height = Math.ceil(header.getBoundingClientRect().height);
+      if (!root || height <= 0) return;
+      publishedHeight = `${height}px`;
+      if (root.style.getPropertyValue("--sm-header-h") !== publishedHeight) {
+        root.style.setProperty("--sm-header-h", publishedHeight);
+      }
+    };
 
     const measure = (steps: readonly CompactStep[]) => {
       header.setAttribute(HEADER_COMPACT_ATTR, steps.join(" "));
@@ -89,6 +102,7 @@ export function useHeaderFit(
       // overlaps hit areas on purpose; measuring it would fold nothing new.
       if (window.matchMedia?.(PHONE_QUERY).matches) {
         header.setAttribute(HEADER_COMPACT_ATTR, "");
+        publishHeight();
         return;
       }
       header.setAttribute(MEASURING_ATTR, "");
@@ -96,6 +110,7 @@ export function useHeaderFit(
       header.setAttribute(HEADER_COMPACT_ATTR, steps.join(" "));
       void header.offsetWidth; // settle before transitions return
       header.removeAttribute(MEASURING_ATTR);
+      publishHeight();
     };
     const schedule = () => {
       if (!live) return; // fonts.ready can settle after unmount
@@ -122,6 +137,11 @@ export function useHeaderFit(
       cancelAnimationFrame(frame);
       observer?.disconnect();
       window.removeEventListener("resize", schedule);
+      if (root?.style.getPropertyValue("--sm-header-h") === publishedHeight) {
+        if (previousHeight)
+          root.style.setProperty("--sm-header-h", previousHeight);
+        else root.style.removeProperty("--sm-header-h");
+      }
     };
     // The class names are stable per build; `deps` carry the content.
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -46,7 +46,7 @@ import {
 // shown to the operator and, cleaned, to the image model on a redraw.
 // ---------------------------------------------------------------------------
 
-export const THEME_IMAGE_REVIEW_PROMPT_VERSION = "theme-studio-image-review-v5";
+export const THEME_IMAGE_REVIEW_PROMPT_VERSION = "theme-studio-image-review-v6";
 
 /** The reviewer. Flash, deliberately, not the 3.1 Pro preview: on the same
  *  screenshot at high effort (2026-09-29) Flash described the image and the
@@ -86,7 +86,7 @@ export const THEME_IMAGE_PROBLEM_TEXT: Record<ThemeImageProblem, string> = {
   multiple_subjects:
     "It showed more than one product, where exactly one was asked for.",
   off_style:
-    "It did not match the anchor image's light, palette, surfaces and colour grade.",
+    "It did not match the anchor image's light, lens, colour grade and surface materials.",
   staging_mismatch:
     "It did not match the earlier product shot's backdrop, camera height, framing and scale.",
   poor_crop:
@@ -215,9 +215,9 @@ export function themeImageReviewSystem(): string {
 Report a problem only when you can see it clearly in the CANDIDATE. When the image is acceptable, return an empty list. The problems are:
 ${THEME_IMAGE_PROBLEMS.map((p) => `- ${p}: ${THEME_IMAGE_PROBLEM_TEXT[p]}`).join("\n")}
 
-Report off_style only when an ANCHOR image is supplied, and staging_mismatch only when a SET image is supplied. Report multiple_subjects only for a pack shot. Generated images of objects are expected: do not report an object for looking generated, only for being malformed, and report malformed only for a defect a shopper would notice at a glance (an object melted, fused into another, duplicated or physically impossible) — never for slight asymmetry, a stylised shape, soft focus or a handcrafted irregularity. Report text_or_logo only when you can actually read letters or numbers, or clearly see a brand mark, logo or watermark; when you are unsure, do not report it. Blank labels, tags and swing tickets, stitching, seams, buttons, hardware, embossed or debossed abstract shapes, reflections, faint glaze marks, wood grain and fabric texture are not lettering. Storefront images never carry lettering, even when the subject mentions words, a slogan or a logo: never report wrong_subject because lettering the subject mentions is missing. Storefront images never show people either: when the subject asks for models, a person, hands or someone wearing the product, the correct image shows the product without them, so never report wrong_subject because a person the subject mentions is missing.
+Report off_style only when an ANCHOR image is supplied, and staging_mismatch only when a SET image is supplied. Report multiple_subjects only for a pack shot. Generated images of objects are expected: do not report an object for looking generated, only for being malformed, and report malformed only for a defect a shopper would notice at a glance (an object melted, fused into another, duplicated or physically impossible) — never for slight asymmetry, a stylised shape, soft focus or a handcrafted irregularity. Report text_or_logo only when you can actually read letters or numbers, or clearly see a brand mark, logo or watermark; when you are unsure, do not report it. Blank labels and wordless label artwork (colour blocks, patterns, illustrations, botanical or abstract shapes), tags and swing tickets, stitching, seams, buttons, hardware, embossed or debossed abstract shapes, reflections, faint glaze marks, wood grain and fabric texture are not lettering. Storefront images never carry lettering, even when the subject mentions words, a slogan or a logo: never report wrong_subject because lettering the subject mentions is missing. Storefront images never show people either: when the subject asks for models, a person, hands or someone wearing the product, the correct image shows the product without them, so never report wrong_subject because a person the subject mentions is missing.
 
-For catalogue pack shots, ANCHOR sets the palette, mood and lighting, not a requirement to copy its props, plinths or room composition. When SET is supplied, it takes precedence over ANCHOR and conflicting brief details for backdrop, camera, framing and subject scale. Judge the same photographic setup across different products; their shapes and unfolded poses may differ.
+A background colour or gradient that the brief asks for is never off_style, even when the ANCHOR was shot on a different backdrop: off_style is about light, lens, colour grade and materials. A multipack, case, bundle or sampler named in the subject is one product, so it is not multiple_subjects. For catalogue pack shots, ANCHOR sets the palette, mood and lighting, not a requirement to copy its props, plinths or room composition. When SET is supplied, it takes precedence over ANCHOR and conflicting brief details for backdrop, camera, framing and subject scale. Judge the same photographic setup across different products; their shapes and unfolded poses may differ.
 
 The note is one or two short sentences, at most ${NOTE_MAX} characters, naming what is wrong in plain words (for example "The mug has a printed logo on the side."). Leave it empty when there are no problems.
 

@@ -370,6 +370,7 @@ export async function runThemeGeneration(
         input.messages,
         input.references.length,
         explicitStyles,
+        themePromptFeatures(input.promptVersion).stableAssetIds,
       )
     : stageAUserText(
         input.facts,
@@ -622,10 +623,14 @@ export async function runThemeGeneration(
       prepared.issues,
     );
     if (compiled.package) {
-      // A revision keeps the operator's uploaded images for every slot that
-      // survived with the same shape (slot-images-core.ts).
+      // A revision keeps the images of every slot that survived with the same
+      // shape, including a slot renamed with an unchanged brief
+      // (slot-images-core.ts).
       const kept = input.revision
-        ? carryOverSlotImages(compiled.package, input.revision.basePackage)
+        ? carryOverSlotImages(compiled.package, input.revision.basePackage, {
+            next: intent.assetBriefs,
+            base: input.revision.baseIntent.assetBriefs,
+          })
         : { value: compiled.package, carried: [] as string[] };
       for (const slot of kept.carried) slotAssets.delete(slot);
       let pkg = kept.value;

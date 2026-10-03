@@ -2137,6 +2137,12 @@ wholesip/
 │                              # runtime-only. Cloud Build owns the complete Cloud Run env,
 │                              # including default-on Mink + fail-closed invitation substitutions.
 │                              # Build linux/amd64 (Cloud Build or --platform).
+│                              # ★ SINCE 2026-10-04 ALSO capture-build (parallel with
+│                              # build-push) and capture-deploy (after deploy): the Theme
+│                              # Studio capture job is released WITH the web service. It was
+│                              # deployed by hand and drifted — prod ran a 1 Oct job against
+│                              # 3 Oct code, so every automatic QA run failed first try. The
+│                              # job is derived from _SERVICE (prod/dev); others skip.
 │                              # ★★ FOUR STEPS SINCE 2026-09-09: build-push → tip-check →
 │                              # migrate → deploy. `migrate` is what removed the laptop
 │                              # release ritual and the need for anyone to hold the prod
@@ -4033,6 +4039,12 @@ wholesip/
 │   │                          # --review-from rechecks a saved synthetic tank without redrawing.
 │   ├── theme-studio-renderer-check.mjs # ★ Offline Chromium fixture using production
 │   │                          # CSS: carousel targets/focus and hero crops at five QA widths.
+│   ├── product-card-layout-check.mjs # Offline production-CSS card fixtures: five widths,
+│   │                          # five skins, home/shop, both CSS load orders, ordinary and
+│   │                          # long labels/prices. No DB, network or image generation.
+│   ├── storefront-header-layout-check.mjs # Offline header/ticker clearance: four header
+│   │                          # variants, portrait/landscape, server/measured heights and
+│   │                          # both CSS load orders; local Chrome, no network or DB.
 │   ├── theme-studio-model-check.mjs # ★ Manual ADC/Vertex availability probe for
 │   │                          # the two Theme Studio Gemini models. --dry-run makes no
 │   │                          # request; a live probe sends one FREE countTokens call per
@@ -5871,6 +5883,25 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     summaries no longer claim artwork is complete merely because only catalog
     placeholders are counted. Operator-only and no merchant workflow changes:
     no Help Centre migration.
+    **Theme Studio QA and image robustness (2026-10-04):** diagnosed from the
+    Bubble project in production. (1) The capture job is now built and deployed
+    by `cloudbuild.yaml` with the web service, and a job that answers a layout
+    check with catalog pictures or QA screenshots fails at once as
+    `capture_job_outdated` (redeploy it) instead of `qa_report_invalid`. (2) A
+    revision keeps a finished image when it renames a slot without changing
+    its brief (subject, art direction, aspect, purpose), and keeps a product
+    photo when the same product sits under an unchanged product brief;
+    `carryOverSlotImages` takes both briefs. Prompt `theme-studio-v22` also
+    tells revisions to keep slot ids (`stableAssetIds`; v21 requests are
+    unchanged). Bubble's version 6 had lost four byte-identical images this way.
+    (3) Image prompt `theme-studio-image-v3`: a brief's own background colour
+    or gradient wins over the anchor's backdrop, while the anchor still sets
+    light, lens, grade and materials; packaging carries wordless label artwork
+    instead of blank labels; the anchor follows the homepage hero brief
+    (`anchorLeadBrief`); and a multipack, case or sampler is never the product
+    SET reference (`isMultiItemProduct`, `leaderFirst`). Reviewer
+    `theme-studio-image-review-v6` accepts briefed backgrounds, wordless label
+    art and named multipacks. Operator-only: no Help Centre update.
     **Theme Studio design variety (2026-10-03):** prompt `theme-studio-v21`
     uses intent schema 2 with closed `designDirection` (seven native directions)
     and `paletteFamily` (light, dark, colour-field, tinted-neutral). Legacy intent
@@ -6597,8 +6628,22 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
         ★ The attribute is written to the DOM, never rendered, so React never
         writes it back, and the fold lands before paint rather than after a
         state round trip.
-        ★ Phones (≤768px) stay plain CSS and are not measured: their row
-        overlaps hit areas on purpose.
+        ★ Phones (≤768px) keep CSS horizontal layout and skip fit compaction:
+        their row overlaps hit areas on purpose. Height is still measured.
+        The same observer publishes the final bar height as `--sm-header-h`
+        on its own `.storefront-root`, including on phones and after font or
+        size changes, and restores the previous inline value on cleanup.
+        Before hydration CSS supplies 80/88/68px desktop/tablet/phone fallbacks.
+        Market headers reserve this height on the root instead of estimating
+        it as 10vh. Non-market section pages whose first rendered section is
+        neither a native hero/carousel nor custom-code hero reserve the height
+        plus a 16–32px gap on `.home-sections`. Thus a leading ticker or text
+        cannot sit behind the logo/actions; existing hero-led origins remain.
+        `scripts/storefront-header-layout-check.mjs` checks production CSS in
+        local Chromium across header variants, viewport sizes, content origins,
+        server/measured clearance and stylesheet load order; fixture screenshots
+        are not live-theme evidence. Presentation only; shopper actions stay the
+        same, so no Help Centre update.
         ★ Nav links are `white-space: nowrap`, so a wrapped link shows up as
         overlap instead of hiding it.
         ★ The header has a 24px `column-gap` above 768px. The market header's
@@ -6689,6 +6734,21 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
         builder section type now, §11.)
         All of this is GATED, so the WholeSip fallback and any classic theme keep
         today's shared layout untouched. (Basket is the first grocery theme.)
+        Shared `ShopCard` spacing is width-aware across these skins: the card
+        is an inline-size container, and non-overlay cards with ≤220px of
+        content width use compact body spacing and typography, with a full-width
+        40px-minimum quick-add target. Category pills have explicit 1.25 line
+        height, bounded width and a 6px title gap; long labels wrap without
+        clipping. Starting prices and each base-price/discount pair wrap as
+        groups, and absent stock/offer badges reserve no empty column. Homepage
+        carousel cards stretch to a common bottom edge. Overlay cards retain
+        their full-photo proportions. These shared styles apply to existing
+        themes on deployment without regenerating their packages or images.
+        `scripts/product-card-layout-check.mjs` checks 200 offline Chromium
+        fixtures across five viewport widths, five skins, home/shop surfaces,
+        both CSS load orders, and ordinary/long-label price cases; it checks
+        overflow, pill spacing, content height and quick-add target size. Its
+        optional screenshots are local fixtures, not evidence from a live theme.
         Design derives from the installed preset release at RENDER time. New
         installs are version-pinned in store settings; legacy stores without the
         pin resolve the catalog's current release. - **Newsletter capture**:

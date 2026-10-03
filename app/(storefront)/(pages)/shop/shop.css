@@ -153,6 +153,7 @@
 }
 
 .shop-card {
+  container: product-card / inline-size;
   display: flex;
   flex-direction: column;
   background: var(--shop-surface);
@@ -213,34 +214,21 @@
   flex: 1;
 }
 
-/* .shop-card-cat {
-  font-size: 0.75rem;
-  font-weight: 700;
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
-  color: var(--shop-text);
-  border: 1px solid var(--shop-text);
-  border-radius: 999px;
-  margin: 0 0 -2px;
-} */
 .shop-card-cat {
-  display: inline-flex;
-  align-items: center;
-
+  display: inline-block;
+  max-width: 100%;
   padding: 4px 12px;
-
   font-size: 0.75rem;
   font-weight: 700;
+  line-height: 1.25;
   letter-spacing: 0.07em;
   text-transform: uppercase;
-
+  overflow-wrap: anywhere;
   color: var(--shop-text);
   border: 1px solid var(--shop-text);
   border-radius: 999px;
-
-  margin-bottom: 12px;
+  margin-bottom: 6px;
   width: fit-content;
-  display: inline-block;
   background: var(--shop-surface-alt);
 }
 
@@ -277,7 +265,18 @@
   gap: 7px;
   font-size: 1.05rem;
   font-weight: 700;
+  line-height: 1.25;
   color: var(--shop-text);
+}
+
+/* Keep the starting price and each discount pair together when a narrow
+   card wraps its footer. The quick-add control remains a separate item. */
+.shop-card-current,
+.shop-card-deal {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  white-space: nowrap;
 }
 
 .shop-card-from {

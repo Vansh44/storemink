@@ -584,6 +584,21 @@ export async function finishThemeStudioCapture(input: {
   ) {
     return failNow("capture_job_outdated");
   }
+  // ★ A job built before layout preflight (migration 0148) ignores
+  // `qa.phase` and answers a layout claim with catalog pictures and QA
+  // screenshots. That is the job's age, not the theme: every retry would fail
+  // identically, so fail at once with the code that says to redeploy it. It
+  // used to fall through to qa_report_invalid, which hid a stale production
+  // job behind what read as bad measurements (Bubble, 2026-10-03).
+  if (
+    capture.automatic &&
+    capture.phase === "layout" &&
+    input.images &&
+    !input.error &&
+    (input.images.length > 0 || (input.qa?.screenshots?.length ?? 0) > 0)
+  ) {
+    return failNow("capture_job_outdated");
+  }
   // A missing QA payload is not a build change: it falls through to the
   // evidence validation below and fails as qa_report_invalid.
   if (
@@ -657,8 +672,10 @@ export async function finishThemeStudioCapture(input: {
   if (layout) {
     // Layout evidence is deliberately separate from publication acceptance:
     // no catalog screenshots, no new version and no passing acceptance row.
+    // Unreachable for an automatic layout claim (refused above as an
+    // outdated job); kept so this branch never stores catalog evidence.
     if (input.images.length || input.qa?.screenshots.length)
-      return failNow("qa_report_invalid");
+      return failNow("capture_job_outdated");
     const evidence = (qaEvidence as { ok: true; value: BrowserEvidence }).value;
     const surfaces = previewPagesFor(pkg).map((page) => page.surface);
     const gates = evaluateBrowserGates(evidence, surfaces);

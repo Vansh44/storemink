@@ -34,6 +34,9 @@ import {
   nearestImageRatio,
   productSetReferenceSha,
   redrawableSlotIds,
+  isMultiItemProduct,
+  leaderFirst,
+  anchorLeadBrief,
   type GeneratableSlot,
 } from "./image-generation-core";
 import {
@@ -372,6 +375,65 @@ describe("product photographs", () => {
       "operator-owned";
     expect(productSetReferenceSha(applied.value, [], [])).toBe(hashes[0]);
   });
+  it("never lets a multipack set the staging for the range", async () => {
+    expect(isMultiItemProduct("Buy 5 Get 1 Free Brew Case")).toBe(true);
+    expect(isMultiItemProduct("The Sunshine Sampler 12-Pack")).toBe(true);
+    expect(isMultiItemProduct("Gift set of three mugs")).toBe(true);
+    expect(isMultiItemProduct("Golden Ginger Fizz Kombucha")).toBe(false);
+    expect(isMultiItemProduct("Speckled stoneware mug")).toBe(false);
+    const slot = (subject: string) => ({ brief: { subject } });
+    expect(
+      leaderFirst([
+        slot("Brew case of 6"),
+        slot("Ginger fizz"),
+        slot("Variety sampler"),
+        slot("Lime can"),
+      ]).map((s) => s.brief.subject),
+    ).toEqual(["Ginger fizz", "Lime can", "Brew case of 6", "Variety sampler"]);
+
+    // A stored multipack photo is skipped for SET when a single exists.
+    const { pkg, intent } = await fixture();
+    const products = generatableSlots(pkg, intent).filter(
+      (s) => s.purpose === "product",
+    );
+    const first = pkg.definition.preset.sampleData!.products.find(
+      (p) => p.image_url === `theme-asset://${products[0].slotId}`,
+    )!;
+    first.name = "Six-pack starter bundle";
+    const hashes = products.map((_, i) => String(i + 1).repeat(64));
+    const applied = applyGeneratedImages(
+      pkg,
+      products.map((slot, i) => ({
+        slotId: slot.slotId,
+        sha256: hashes[i],
+        width: slot.target.width,
+        height: slot.target.height,
+      })),
+      2,
+      "fake",
+    );
+    if (!applied.ok) throw new Error(applied.error);
+    expect(productSetReferenceSha(applied.value, [], hashes)).toBe(hashes[1]);
+    // With only multipacks reusable, one is still better than none.
+    expect(
+      productSetReferenceSha(
+        applied.value,
+        products.slice(1).map((p) => p.slotId),
+        hashes,
+      ),
+    ).toBe(hashes[0]);
+  });
+
+  it("takes the anchor's look from the homepage hero brief", async () => {
+    const { pkg, intent } = await fixture();
+    const lead = anchorLeadBrief(pkg, intent);
+    const hero = pkg.assets.find((a) => a.kind === "hero")!;
+    expect(lead).not.toBeNull();
+    expect(intent.assetBriefs.map((b) => b.subject)).toContain(lead!.subject);
+    expect(pkg.assets.find((a) => a.id === hero.id)?.kind).toBe("hero");
+    expect(anchorLeadBrief(pkg, { ...intent, assetBriefs: [] })).toBeNull();
+  });
+
   it("gives every product its own slot, made from the range's photography brief", async () => {
     const { pkg } = await fixture();
     const products = pkg.definition.preset.sampleData!.products;
@@ -909,6 +971,8 @@ function scriptedReviewer(
 
 const HERO = "The store's own products in use";
 const ANCHOR = "A signature still life";
+/** The hero's own review: the anchor's text now quotes the hero brief too. */
+const isHero = (text: string) => text.includes(HERO) && !text.includes(ANCHOR);
 
 /** The stored crop the fake image client would produce for a request. */
 async function cropOf(request: ThemeImageRequest, slot: GeneratableSlot) {
@@ -1012,7 +1076,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         reviewer: scriptedReviewer((text, attempt) => {
           if (text.includes(`Subject: ${products[0].brief.subject}`))
             return ["poor_crop"];
-          if (text.includes(HERO))
+          if (isHero(text))
             return attempt === 1 ? ["off_style"] : ["off_style", "poor_crop"];
           return [];
         }),
@@ -1067,7 +1131,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       imageCost + result.telemetry.reviewCostMicroUsd,
     );
     expect(result.telemetry.reviewPromptVersion).toBe(
-      "theme-studio-image-review-v5",
+      "theme-studio-image-review-v6",
     );
   });
 
@@ -1080,7 +1144,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         pkg,
         intent,
         reviewer: scriptedReviewer((text, attempt) =>
-          text.includes(HERO) && attempt === 1 ? ["text_or_logo"] : [],
+          isHero(text) && attempt === 1 ? ["text_or_logo"] : [],
         ),
       },
       new AbortController().signal,
@@ -1106,9 +1170,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       {
         pkg,
         intent,
-        reviewer: scriptedReviewer((text) =>
-          text.includes(HERO) ? ["person"] : [],
-        ),
+        reviewer: scriptedReviewer((text) => (isHero(text) ? ["person"] : [])),
       },
       new AbortController().signal,
     );
@@ -1135,7 +1197,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         pkg,
         intent,
         reviewer: scriptedReviewer((text) =>
-          text.includes(HERO) ? ["poor_crop"] : [],
+          isHero(text) ? ["poor_crop"] : [],
         ),
       },
       new AbortController().signal,
@@ -1166,7 +1228,7 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
         pkg,
         intent,
         reviewer: scriptedReviewer((text, attempt) =>
-          text.includes(HERO) ? [attempt === 1 ? "off_style" : "person"] : [],
+          isHero(text) ? [attempt === 1 ? "off_style" : "person"] : [],
         ),
       },
       new AbortController().signal,
@@ -1344,9 +1406,12 @@ describe("reviewing each image", { timeout: IMAGE_RUN_TIMEOUT_MS }, () => {
       const product = pkg.definition.preset.sampleData!.products.find(
         (p) => p.image_url === `theme-asset://${slotId}`,
       );
-      const needle = product ? `Subject: ${product.name}.` : HERO;
+      const text = (r: StructuredRequest) =>
+        (r.content[0] as { text: string }).text;
       return reviews.find((r) =>
-        (r.content[0] as { text: string }).text.includes(needle),
+        product
+          ? text(r).includes(`Subject: ${product.name}.`)
+          : isHero(text(r)),
       )!;
     };
     const anchorReview = reviews.find((r) =>

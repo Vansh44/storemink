@@ -85,6 +85,15 @@ gcloud builds submit jobs/theme-studio-capture \
 
 ## Deploy the job
 
+**Since 2026-10-04 Cloud Build does this on every web deploy** (`capture-build`
+and `capture-deploy` in `cloudbuild.yaml`): the image is built from this folder,
+tagged like the web image (`theme-studio-capture:prod` / `:dev`) and the
+environment's job is pointed at it by digest with `gcloud run jobs update`,
+which changes only the image. The commands below remain for creating a job or
+changing its settings. Before this, the job was deployed by hand and drifted:
+production ran a 1 Oct image against 3 Oct code until a manual redeploy on
+2026-10-04 (`sha256:fb1212e2…`).
+
 ```bash
 gcloud run jobs deploy storemink-theme-studio-capture \
   --project storemink-prod --region asia-south1 \
