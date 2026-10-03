@@ -254,12 +254,24 @@ describe("Gemini on Vertex client", () => {
     expect((await client.generate(request, signal())).kind).toBe(
       "invalid_json",
     );
-    state.next = () =>
-      Promise.resolve(response({ candidates: [{ finishReason: "OTHER" }] }));
-    expect(await client.generate(request, signal())).toMatchObject({
-      kind: "error",
-      code: "provider_unavailable",
-    });
+    // An answer that did not finish normally is re-asked (invalid_json),
+    // never a terminal "no provider" error, and keeps its paid usage.
+    for (const finish of ["OTHER", "LANGUAGE", "FINISH_REASON_UNSPECIFIED"]) {
+      state.next = () =>
+        Promise.resolve(
+          response({
+            candidates: [
+              { finishReason: finish, content: { parts: [{ text: "{}" }] } },
+            ],
+          }),
+        );
+      const result = await client.generate(request, signal());
+      expect(result.kind).toBe("invalid_json");
+    }
+    state.next = () => Promise.resolve(response({ candidates: [] }));
+    expect((await client.generate(request, signal())).kind).toBe(
+      "invalid_json",
+    );
   });
 
   it("classifies provider errors into the closed vocabulary", async () => {

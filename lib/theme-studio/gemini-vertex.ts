@@ -329,7 +329,22 @@ export function createVertexModelClient(
       }
       if (finish === "MAX_TOKENS") return { kind: "truncated", usage };
       if (finish !== "STOP") {
-        return { kind: "error", code: "provider_unavailable", usage };
+        // ★ The model ANSWERED (and was paid for) but did not finish normally:
+        // OTHER, LANGUAGE, FINISH_REASON_UNSPECIFIED, a missing candidate.
+        // This used to be a terminal `provider_unavailable` — "No provider was
+        // available for this run" after three minutes of paid thinking
+        // (production, 2026-10-03, run 927acb04) — and nothing recorded which
+        // reason it was. It is an answer that cannot be trusted as complete,
+        // which is what `invalid_json` means to every caller: the generation
+        // pipeline re-asks within its bounded repair attempts instead of
+        // ending the run. The reason is a closed enum, never response text.
+        logWarn("theme_studio.unexpected_finish_reason", {
+          stage: request.stage,
+          model: request.modelKey,
+          finishReason: finish ?? "none",
+          candidates: response.candidates?.length ?? 0,
+        });
+        return { kind: "invalid_json", usage };
       }
 
       const text = (candidate?.content?.parts ?? [])

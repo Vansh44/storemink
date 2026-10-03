@@ -4,6 +4,8 @@ const mocks = vi.hoisted(() => ({
   connect: vi.fn(),
   end: vi.fn(async () => undefined),
   drizzle: vi.fn(() => ({ scope: "db" })),
+  on: vi.fn(),
+  logWarn: vi.fn(),
 }));
 
 vi.mock("server-only", () => ({}));
@@ -11,12 +13,14 @@ vi.mock("pg", () => ({
   Pool: class {
     connect = mocks.connect;
     end = mocks.end;
+    on = mocks.on;
   },
 }));
 vi.mock("drizzle-orm/node-postgres", () => ({
   drizzle: mocks.drizzle,
 }));
 vi.mock("./pg-types", () => ({ postgresStringTimestampTypes: {} }));
+vi.mock("@/lib/observability/logger", () => ({ logWarn: mocks.logWarn }));
 
 import { closePool, withService } from "./client";
 
@@ -27,6 +31,25 @@ function client(query: (sql: string) => Promise<unknown>) {
 beforeEach(async () => {
   await closePool();
   vi.clearAllMocks();
+});
+
+describe("idle pooled connections", () => {
+  it("logs a dropped idle connection instead of leaving it uncaught", async () => {
+    mocks.connect.mockResolvedValue(client(async () => ({})));
+    await withService(async () => undefined);
+    const [event, handler] = mocks.on.mock.calls[0] as unknown as [
+      string,
+      (error: Error) => void,
+    ];
+    expect(event).toBe("error");
+    expect(() =>
+      handler(new Error("Connection terminated unexpectedly")),
+    ).not.toThrow();
+    expect(mocks.logWarn).toHaveBeenCalledWith("db.idle_client_error", {
+      code: null,
+      message: "Connection terminated unexpectedly",
+    });
+  });
 });
 
 describe("database scope connection recovery", () => {
