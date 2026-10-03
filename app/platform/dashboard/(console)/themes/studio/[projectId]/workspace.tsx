@@ -627,6 +627,51 @@ export function ProjectWorkspace({
                     </div>
                   ) : null}
                 </div>
+                {v.distinctness ? (
+                  <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+                    <p className="font-medium">
+                      Design distinctness:{" "}
+                      {v.distinctness.score === null
+                        ? "not compared"
+                        : `${Math.round(v.distinctness.score * 100)}%`}
+                      {v.designDirection ? ` · ${v.designDirection}` : ""}
+                      {v.paletteFamily ? ` · ${v.paletteFamily}` : ""}
+                    </p>
+                    {v.distinctness.nearestThemeId ? (
+                      <p className="mt-1">
+                        Closest theme: {v.distinctness.nearestThemeId}.{" "}
+                        {v.distinctness.changedAxes} major design axes differ.
+                      </p>
+                    ) : null}
+                    {v.distinctness.status === "similar" ? (
+                      <p className="mt-1 text-amber-800">
+                        This design still resembles the catalogue. Review its
+                        composition before publishing.
+                      </p>
+                    ) : null}
+                    {v.distinctness.status === "reference-led" ? (
+                      <p className="mt-1">
+                        Reference design takes priority; distinctness is
+                        advisory.
+                      </p>
+                    ) : null}
+                    {v.distinctness.sharedAttributes.length ? (
+                      <p className="mt-1">
+                        Shared choices:{" "}
+                        {v.distinctness.sharedAttributes.join(", ")}.
+                      </p>
+                    ) : null}
+                    {v.distinctness.repairAttempted ? (
+                      <p className="mt-1">
+                        One automatic variety correction was attempted.
+                      </p>
+                    ) : null}
+                    <p className="mt-1 text-xs">
+                      This compares theme settings and structure; acceptance and
+                      visual QA remain separate.
+                    </p>
+                  </div>
+                ) : null}
                 {v.qaStatus === "failed" &&
                 (v.qaFindings?.length ||
                   v.qaDiagnosis ||

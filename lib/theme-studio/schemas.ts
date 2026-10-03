@@ -19,6 +19,8 @@ import {
 } from "@/lib/themes/buttons";
 import { MOTION_REVEALS } from "@/lib/themes/motion";
 import { GRID_GAPS, PAGE_WIDTHS, SECTION_GAPS } from "@/lib/themes/page";
+import { DESIGN_DIRECTION_IDS, PALETTE_FAMILIES } from "./design-directions";
+import { REQUIRED_DESIGN_CHOICES } from "./style-choices";
 import {
   THEME_STUDIO_FEATURES,
   THEME_STUDIO_INDUSTRIES,
@@ -192,6 +194,22 @@ export const STAGE_A_ENVELOPE_SCHEMA: Schema = obj({
   declineReason: nullable(str),
   intent: nullable(STAGE_A_INTENT_SCHEMA),
 });
+
+/** Freeze v1 for queued paid requests; new v21 requests use the additive v2 intent. */
+export const STAGE_A_VARIETY_SCHEMA: Schema = (() => {
+  const intent = structuredClone(STAGE_A_INTENT_SCHEMA);
+  const fields = intent.properties as Record<string, Schema>;
+  fields.schemaVersion = { type: "integer", enum: [2] };
+  fields.designDirection = enumOf(DESIGN_DIRECTION_IDS);
+  fields.paletteFamily = enumOf(PALETTE_FAMILIES);
+  intent.required = Object.keys(fields);
+  return obj({
+    decision: enumOf(["proceed", "clarify", "decline"]),
+    questions: strList,
+    declineReason: nullable(str),
+    intent: nullable(intent),
+  });
+})();
 
 const link = obj({ label: str, href: str });
 // A header item nests two levels (a column, then its links) and may carry a
@@ -403,5 +421,42 @@ export const STAGE_B_INITIAL_DRAFT_SCHEMA: Schema = (() => {
   delete (product.properties as Record<string, Schema>).variants;
   product.required = Object.keys(product.properties as object);
   schema.required = Object.keys(properties);
+  return schema;
+})();
+
+export const STAGE_B_VARIETY_DRAFT_SCHEMA: Schema = (() => {
+  const schema = structuredClone(STAGE_B_DRAFT_SCHEMA);
+  const design = (schema.properties as Record<string, Schema>).design
+    .properties as Record<string, Schema>;
+  for (const [group, keys] of Object.entries(REQUIRED_DESIGN_CHOICES)) {
+    const fields = design[group].properties as Record<string, Schema>;
+    for (const key of keys)
+      fields[key] =
+        (fields[key].anyOf as Schema[] | undefined)?.find(
+          (s) => s.type !== "null",
+        ) ?? fields[key];
+  }
+  const section = (
+    ((schema.properties as Record<string, Schema>).pages.items as Schema)
+      .properties as Record<string, Schema>
+  ).sections.items as Schema;
+  const style = (section.properties as Record<string, Schema>).style
+    .properties as Record<string, Schema>;
+  style.padding = enumOf(["sm", "md", "lg"]);
+  style.width = enumOf(["contained", "full"]);
+  return schema;
+})();
+
+export const STAGE_B_VARIETY_INITIAL_SCHEMA: Schema = (() => {
+  const schema = structuredClone(STAGE_B_VARIETY_DRAFT_SCHEMA);
+  const fields = schema.properties as Record<string, Schema>;
+  delete fields.menus;
+  delete fields.features;
+  fields.composition = enumOf(["classic", "editorial", "grocery"]);
+  fields.navigation = enumOf(["simple", "collections"]);
+  const product = fields.products.items as Schema;
+  delete (product.properties as Record<string, Schema>).variants;
+  product.required = Object.keys(product.properties as object);
+  schema.required = Object.keys(fields);
   return schema;
 })();

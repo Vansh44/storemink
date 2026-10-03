@@ -1,4 +1,5 @@
 import "server-only";
+import { readDistinctnessReport, type DistinctnessReport } from "./fingerprint";
 import { IMAGE_CRASH_ATTEMPTS } from "./image-recovery";
 
 import { createHash } from "node:crypto";
@@ -167,6 +168,9 @@ export interface ThemeStudioPackageSummary {
 }
 
 export interface ThemeStudioVersionView {
+  distinctness?: DistinctnessReport | null;
+  designDirection?: string | null;
+  paletteFamily?: string | null;
   packageSummary: ThemeStudioPackageSummary | null;
   id: string;
   versionNumber: number;
@@ -480,6 +484,7 @@ export async function getThemeStudioProject(
         origin: themeStudioVersions.origin,
         editDetail: themeStudioVersions.editDetail,
         intentDigest: themeStudioVersions.intentDigest,
+        distinctnessReport: themeStudioVersions.distinctnessReport,
         intentJson: themeStudioVersions.intentJson,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
@@ -633,6 +638,15 @@ export async function getThemeStudioProject(
             | "run"
             | "asset_edit",
           editedSlots: editedSlots(v.editDetail),
+          distinctness: readDistinctnessReport(v.distinctnessReport),
+          designDirection:
+            typeof intentField(v.intentJson, "designDirection") === "string"
+              ? String(intentField(v.intentJson, "designDirection"))
+              : null,
+          paletteFamily:
+            typeof intentField(v.intentJson, "paletteFamily") === "string"
+              ? String(intentField(v.intentJson, "paletteFamily"))
+              : null,
           intentDigest: v.intentDigest,
           packageDigest: v.packageDigest,
           summary: typeof summary === "string" ? summary : "",
@@ -730,6 +744,7 @@ export async function getThemeStudioVersionPackages(
         id: themeStudioVersions.id,
         versionNumber: themeStudioVersions.versionNumber,
         parentVersionId: themeStudioVersions.parentVersionId,
+        distinctnessReport: themeStudioVersions.distinctnessReport,
         intentJson: themeStudioVersions.intentJson,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
@@ -2060,6 +2075,7 @@ export async function queueThemeStudioImages(
         id: themeStudioVersions.id,
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
+        distinctnessReport: themeStudioVersions.distinctnessReport,
         intentJson: themeStudioVersions.intentJson,
       })
       .from(themeStudioVersions)

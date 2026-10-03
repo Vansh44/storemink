@@ -72,6 +72,18 @@ it("shows visual findings beside passing browser checks and resolves a hidden pa
             intentDigest: "digest",
             packageDigest: "package",
             packageSummary: null,
+            designDirection: "magazine-editorial",
+            paletteFamily: "light",
+            distinctness: {
+              version: 1,
+              score: 0.25,
+              threshold: 0.35,
+              nearestThemeId: "studio",
+              sharedAttributes: ["card", "hero"],
+              changedAxes: 2,
+              status: "similar",
+              repairAttempted: true,
+            },
             summary: "Vanta",
             assumptions: [],
             hasPackage: true,
@@ -93,6 +105,14 @@ it("shows visual findings beside passing browser checks and resolves a hidden pa
     />,
   );
   expect(screen.getByText("Automatic QA needs attention")).toBeTruthy();
+  expect(screen.getByText(/Design distinctness: 25%/)).toBeTruthy();
+  expect(screen.getByText(/Closest theme: studio/)).toBeTruthy();
+  expect(
+    screen.getByText(/This design still resembles the catalogue/),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/One automatic variety correction was attempted/),
+  ).toBeTruthy();
   expect(
     screen.getByText("These findings require a platform renderer fix."),
   ).toBeTruthy();

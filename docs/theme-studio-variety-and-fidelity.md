@@ -2,6 +2,11 @@
 
 **Product requirements + technical requirements**
 
+**Implementation status, 3 October 2026:** Track V (V1–V7) is implemented for
+new v21 runs; the complete live exit criterion is still pending final validation
+of collection-banner guidance (§12). Reference fidelity
+(F1/F2) and renderer additions remain separate pending phases.
+
 |          |                                                                                                                                     |
 | -------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | Status   | Approved by owner 2026-10-03 (decisions in §11)                                                                                     |
@@ -463,3 +468,58 @@ All migrations expand-only (`docs/migrations.md`); durable `verify` asserts stru
 | 2   | Design directions: luxury minimal, bold and loud, magazine / editorial, dense catalogue, soft and natural, playful and colourful, classic and trusted        | Owner, 2026-10-03 | V6 and §T-V6 list exactly these seven; adding or removing one is a code change to `design-directions.ts` and this table |
 | 3   | Fidelity target: median ≥ 85 on the golden reference set after F2; ≥ 92 once Track R items land                                                              | Owner, 2026-10-03 | §8 targets and the F2 exit criterion; the fidelity loop stops repairing at the target (§T-F4)                           |
 | 4   | Track R order follows the capability-gap report from real screenshots, not a fixed list                                                                      | Owner, 2026-10-03 | §9: Track R starts after F2; R1–R5 are a candidate pool ranked by gap counts (§T-F6)                                    |
+
+## 12. Track V implementation record
+
+Intent schema 2 adds the approved direction and palette family; the compatible
+reader still accepts schema 1. Legacy queued requests retain their paid request
+bindings. Explicit style validation covers layout, typography, buttons, page
+rhythm, motion, section bands and native sections' visual settings. New initial
+drafts fill non-visual defaults only. Three alternative structures per industry
+leave room for brief-led adaptation; quick add and ticker are optional choices.
+Native commerce capabilities are options rather than mandatory requirements.
+Dark and colour-field intents must actually colour the page, not just an accent.
+Tinted-neutral excludes near-white pages; white and ivory references use light.
+The unchanged near-white band is relative luminance >0.8 with RGB spread <0.12.
+Both stages describe these family boundaries and the compiler enforces them.
+Both planning and synthesis receive the chosen direction guidance.
+Quiet luxury/editorial directions favour compact collection title/grid openings;
+image-led introductions or briefs needing collection descriptions can choose a
+banner. Category photos do not require banners. These are explicit choices,
+with brief/reference requirements taking priority.
+
+The fingerprint uses weighted scalar differences and ordered section edit
+distance. Comparison includes up to 20 recent other Studio projects, 76 published
+releases and bundled fallback (at most 100 entries). Both stages see five recent
+fingerprints and individual-choice frequencies for the complete snapshot; a
+repair sees the five closest. Distance below 0.35 or fewer than three major
+changed axes triggers one supported-style correction for new builds without
+references. The correction preserves the validated palette and only changes scalar native
+styles. An ineffective or unavailable correction retains the valid draft and
+exposes its similarity. This is an operator quality signal, separate from required
+acceptance and visual quality gates.
+
+Migration 0153 adds `runs.variety_context` to freeze inputs across paid-response
+recovery, and `versions.distinctness_report` so evidence exists before browser QA
+and survives image/capture snapshots. This refines T-D additively: visual QA also
+stores it in `vision_report.distinctness`. Guards protect the frozen context and
+per-version evidence. No new table or event vocabulary is needed. Old versions
+are not changed or retroactively scored.
+
+`scripts/theme-studio-variety-eval.ts` evaluates eight builds/four industries.
+Unit checks cover explicit false/one-column choices, legacy compatibility,
+fingerprint semantics, one repair, preserved content/artwork, ineffective or
+unavailable corrections, and reference priority. Rollback-only PostgreSQL checks
+cover real context recovery, own-project exclusion, immutable evidence and
+operator-only permissions. No merchant-visible change, no Help Centre update.
+
+The last complete HIGH-reasoning Gemini 3.8 Flash batch compiled eight themes
+across four industries: median pairwise distance 0.704, seven non-near-white page
+backgrounds, and all nearest comparisons above 0.35 with at least three changed
+axes. It did not clear the full exit bar because `collectionBanner` was identical
+in all eight. Final banner guidance is implemented and locally tested; its live
+batch awaits approval after automatic review rejected external-provider execution
+and estimated spend. The thresholds remain unchanged. Exact results and the 20
+individual tracked choices are saved in
+[`evals/theme-studio/variety-live-2026-10-03.json`](../evals/theme-studio/variety-live-2026-10-03.json);
+timing, cost and scope are described in `docs/theme-studio-performance.md`.

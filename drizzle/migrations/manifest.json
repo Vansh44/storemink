@@ -6132,6 +6132,36 @@
           }
         ]
       }
+    },
+    {
+      "id": "20261003_0153_theme_studio_variety",
+      "description": "Freeze operator-only catalogue fingerprints and retain per-version distinctness evidence",
+      "file": "sql/20261003_0153_theme_studio_variety.sql",
+      "transaction": true,
+      "requires": ["20261003_0152_demo_store_theme_names"],
+      "verify": {
+        "functions": [
+          "theme_studio_variety_context_guard()",
+          "theme_studio_distinctness_guard()"
+        ],
+        "queries": [
+          {
+            "name": "variety metadata columns exist",
+            "sql": "select (exists (select 1 from information_schema.columns where table_schema='public' and table_name='theme_studio_runs' and column_name='variety_context' and data_type='jsonb') and exists (select 1 from information_schema.columns where table_schema='public' and table_name='theme_studio_versions' and column_name='distinctness_report' and data_type='jsonb'))::text",
+            "equals": "true"
+          },
+          {
+            "name": "variety context guard is active",
+            "sql": "select exists (select 1 from pg_trigger where tgrelid='public.theme_studio_runs'::regclass and tgname='theme_studio_variety_context_guard' and tgenabled='O' and not tgisinternal)::text",
+            "equals": "true"
+          },
+          {
+            "name": "distinctness evidence guard is active",
+            "sql": "select exists (select 1 from pg_trigger where tgrelid='public.theme_studio_versions'::regclass and tgname='theme_studio_distinctness_guard' and tgenabled='O' and not tgisinternal)::text",
+            "equals": "true"
+          }
+        ]
+      }
     }
   ]
 }

@@ -437,6 +437,7 @@ export async function replaceThemeStudioSlotImages(
         },
         parentVersionId: base.id,
         versionNumber,
+        distinctnessReport: base.distinctnessReport,
         intentJson: base.intentJson,
         intentDigest: base.intentDigest,
         packageJson: applied.value,

@@ -1,5 +1,67 @@
 # Theme Studio generation performance
 
+## Design variety, 3 October 2026
+
+The convergence issue came from preset expansion and prompt guidance:
+composition presets supplied the same shop settings, while omitted section
+styles inherited `EMPTY_CONFIG`. Prompt v21 uses explicit style choices instead.
+Navigation and product option expansion remain mechanical; visible decisions
+must be authored and validated. Seven directions, three structures per industry,
+any contrast-safe page colour and a frozen catalogue context guide new builds.
+Both stages receive direction guidance and individual-choice frequencies.
+Supported shopping capabilities are options, not an automatic requirements
+checklist. The declared family must be realised on the page: dark, colour-field
+and tinted-neutral cannot be white pages with differently coloured accents.
+White/ivory briefs and references use the light family.
+
+A weighted nearest-theme distance and a three-axis check trigger at most one
+scalar style correction that preserves the validated palette. It uses HIGH reasoning and the provider's full output
+allowance. A refusal, truncation, invalid patch or provider failure in this
+optional step retains the valid draft with a similarity warning. Acceptance,
+visual QA, artwork review and the existing automatic-QA iteration ceiling remain
+unchanged. References and revisions preserve identity.
+
+`scripts/theme-studio-variety-eval.ts` generates two themes per industry across
+four industries, retains packages for inspection, and reports pairwise distance,
+shared individual settings and page-colour coverage. `--seed-packages=<directory>`
+adds up to 20 earlier compiled designs to reproduce a converged catalogue.
+Live mode returns a failure exit status when the complete eight-case bar is not
+met. Offline mode verifies plumbing only;
+live mode needs `--live --yes --max-usd=N`. `--concurrency=2` allows two cases;
+the spend ceiling is checked before each case, so in-flight cases can finish
+above that estimate. No database or artwork generation occurs. Full-theme time
+still includes artwork and browser/visual QA, beyond text-generation timing.
+
+The last completed live batch used Gemini 3.8 Flash with HIGH reasoning, eight
+synthetic prior designs and four bundled themes as comparison context. All eight
+compiled. Median pairwise distance was **0.704** (target ≥0.45), and **7/8** pages
+were outside the unchanged near-white band (target ≥30%). All eight nearest-theme
+reports cleared the distance/three-axis checks; two used their single optional
+style correction. Text/compiler time ranged from **160–430 seconds**, with a
+median of **278 seconds** and **$1.55 estimated total text spend**.
+
+That batch **did not pass the complete variety exit criterion**: all eight still
+enabled `collectionBanner`, although the other 19 tracked choices varied.
+The final direction guidance now describes `collectionBanner: false` for compact
+luxury/editorial collection openings, and `true` for image-led introductions or
+briefs needing collection descriptions. This is guidance, never a forced switch
+or a rewrite of existing themes. A category photo alone does not require a
+collection banner. The final guidance has local regression coverage, but its live
+eight-case validation is pending: automatic approval review rejected another
+external-provider batch and its estimated $3 spend.
+
+The completed results and individual choices are recorded in
+[`evals/theme-studio/variety-live-2026-10-03.json`](../evals/theme-studio/variety-live-2026-10-03.json).
+Earlier development probes exposed near-white palette labels and repeated
+shopping chrome; neither the thresholds nor the exit criteria were relaxed to
+pass those results. Local validation passed 528 Theme Studio/workspace tests,
+five rollback-only PostgreSQL regression files, TypeScript, ESLint and migration
+checks. These are structural variety checks, not reference-fidelity or full
+storefront quality evidence. Deployment and the unpublished end-to-end benchmark
+remain required before claiming complete-theme latency or visual quality.
+
+No merchant-visible change, no Help Centre update.
+
 ## Vanta diagnosis, 2 October 2026
 
 Read-only production records showed approximately 82 minutes from the initial
@@ -241,7 +303,7 @@ No merchant-visible workflow change, no Help Centre update.
 
 ## Remaining optimisation work, 2 October 2026
 
-New initial drafts use `theme-studio-v20`. The model selects a native classic,
+Legacy v20 drafts use the compact preset path. The model selects a native classic,
 editorial or grocery composition and writes the brand, copy, pages, product
 options and artwork briefs. Mechanical section defaults, working navigation and
 stocked variant combinations are derived mechanically. Registry sample copy,

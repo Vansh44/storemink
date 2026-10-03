@@ -14,6 +14,10 @@ import { studio } from "@/lib/themes/definitions/studio";
 import type { ThemeStudioModelClient } from "./provider";
 import { ZERO_USAGE } from "./provider";
 import { industryStartingPattern } from "./industry-playbooks";
+import {
+  VISIBLE_SECTION_CHOICES,
+  REQUIRED_DESIGN_CHOICES,
+} from "./style-choices";
 
 // ---------------------------------------------------------------------------
 // The Phase 2 provider: deterministic, offline, free.
@@ -472,7 +476,14 @@ export function createFakeModelClient(
             questions: [],
             declineReason: null,
             intent: intent.ok
-              ? intent.value
+              ? request.system?.includes("Design variety, schemaVersion 2")
+                ? {
+                    ...intent.value,
+                    schemaVersion: 2,
+                    designDirection: "magazine-editorial",
+                    paletteFamily: "light",
+                  }
+                : intent.value
               : { schemaVersion: THEME_INTENT_SCHEMA_VERSION },
           },
         };
@@ -480,6 +491,46 @@ export function createFakeModelClient(
       const intent = runFakeProvider(input);
       if (!intent.ok) return { kind: "invalid_json", usage: ZERO_USAGE };
       const draft = fakeDraft(intent.value, input.name);
+      const explicit = request.system?.includes(
+        "This build uses explicit style choices",
+      );
+      if (explicit) {
+        const design = draft.design as Record<string, Record<string, unknown>>;
+        const choices: Record<string, unknown> = {
+          cart: "compact",
+          storefront: "classic",
+          gridColumnsDesktop: 3,
+          cardHoverImage: false,
+          headingCase: "none",
+          primary: "solid",
+          case: "none",
+          tracking: "normal",
+          gridGap: "standard",
+        };
+        for (const [group, keys] of Object.entries(REQUIRED_DESIGN_CHOICES))
+          for (const key of keys)
+            if (design[group][key] == null) design[group][key] = choices[key];
+        for (const page of draft.pages as {
+          sections: {
+            type: string;
+            configJson: string;
+            style: Record<string, unknown>;
+          }[];
+        }[])
+          for (const section of page.sections) {
+            const config = JSON.parse(section.configJson);
+            for (const [key, values] of Object.entries(
+              VISIBLE_SECTION_CHOICES[section.type] ?? {},
+            ))
+              if (config[key] == null)
+                config[key] = key === "height" ? "medium" : values[0];
+            for (const item of config.slides ?? config.tiles ?? [])
+              item.theme ??= "dark";
+            section.configJson = JSON.stringify(config);
+            section.style.padding ??= "md";
+            section.style.width ??= "contained";
+          }
+      }
       if (
         Object.hasOwn(
           (request.schema?.properties ?? {}) as object,
@@ -489,8 +540,10 @@ export function createFakeModelClient(
         draft.composition = "editorial";
         draft.navigation = "collections";
         const design = draft.design as Record<string, unknown>;
-        design.layoutOverridesJson = JSON.stringify(design.layout);
-        delete design.layout;
+        if (!explicit) {
+          design.layoutOverridesJson = JSON.stringify(design.layout);
+          delete design.layout;
+        }
         delete draft.menus;
         delete draft.features;
         for (const product of draft.products as Record<string, unknown>[])

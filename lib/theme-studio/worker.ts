@@ -21,6 +21,12 @@ import type {
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
 import { sharedProviderCapacity } from "./provider-capacity-store";
 import { themePromptFeatures } from "./prompt-features";
+import { loadVarietyContext } from "./variety-context";
+import {
+  readDistinctnessReport,
+  type ExistingThemeFingerprint,
+  type DistinctnessReport,
+} from "./fingerprint";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
 import {
   THEME_STUDIO_LIMITS,
@@ -399,6 +405,7 @@ async function revealAutomaticBase(
 }
 
 type RunInput = {
+  existingThemes?: ExistingThemeFingerprint[];
   project: typeof themeStudioProjects.$inferSelect;
   messages: { kind: "brief" | "revision"; body: string }[];
   references: { bytes: Buffer; sha256: string; createdAt: string }[];
@@ -538,6 +545,16 @@ async function loadRunInput(
     return {
       project,
       messages,
+      ...(themePromptFeatures(run.promptVersion).variety
+        ? {
+            existingThemes: await loadVarietyContext(
+              db,
+              run.id,
+              run.projectId,
+              project.themeId,
+            ),
+          }
+        : {}),
       references: references.sort(
         (a, b) =>
           citedReferenceIds.indexOf(a.id) - citedReferenceIds.indexOf(b.id),
@@ -553,6 +570,7 @@ type Outcome =
   | {
       kind: "images";
       result: ThemeImageRunResult;
+      distinctnessReport?: DistinctnessReport | null;
       intent: ThemeIntent;
       package: ThemePackageV2;
       versionNumber: number;
@@ -609,6 +627,7 @@ async function cancelRequested(runId: string): Promise<boolean> {
 // ── Image runs (Track 3.2) ────────────────────────────────────────────────
 
 type ImageRunInput = {
+  distinctnessReport: DistinctnessReport | null;
   corrections: Record<string, string>;
   intent: ThemeIntent;
   package: ThemePackageV2;
@@ -625,6 +644,7 @@ async function loadImageRunInput(
     }
     const [base] = await db
       .select({
+        distinctnessReport: themeStudioVersions.distinctnessReport,
         correctionBody: sql<
           string | null
         >`(SELECT m.body FROM theme_studio_messages m WHERE m.id=${run.messageId}::uuid AND m.project_id=${run.projectId}::uuid AND EXISTS (SELECT 1 FROM theme_studio_runs r WHERE r.message_id=m.id AND r.automatic))`,
@@ -669,6 +689,7 @@ async function loadImageRunInput(
     }
     return {
       corrections,
+      distinctnessReport: readDistinctnessReport(base.distinctnessReport),
       intent: intent.value,
       package: pkg.value,
       versionNumber: (latest ?? 0) + 1,
@@ -882,6 +903,7 @@ async function executeImages(
     );
     return {
       kind: "images",
+      distinctnessReport: input.distinctnessReport,
       result,
       intent: input.intent,
       package: input.package,
@@ -1013,6 +1035,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
         providerModel: run.providerModel,
         promptVersion: run.promptVersion,
         messages: input.messages,
+        existingThemes: input.existingThemes,
         references: input.references.map((r) => ({
           base64: r.bytes.toString("base64"),
           sha256: r.sha256,
@@ -1298,6 +1321,7 @@ async function finish(
         intentJson: result.intent,
         intentDigest,
         packageJson: result.package,
+        distinctnessReport: result.distinctness ?? null,
         packageDigest,
         ...(automaticQa
           ? {
@@ -1539,6 +1563,7 @@ async function finishImages(
       runId: run.id,
       parentVersionId: run.baseVersionId,
       versionNumber: outcome.versionNumber,
+      distinctnessReport: outcome.distinctnessReport ?? null,
       intentJson: outcome.intent,
       intentDigest,
       packageJson: applied.value,

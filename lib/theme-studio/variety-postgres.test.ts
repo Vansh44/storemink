@@ -1,0 +1,155 @@
+// Opt-in local PostgreSQL check; all fixtures and writes roll back.
+import { expect, it } from "vitest";
+import { randomUUID } from "node:crypto";
+import { Client } from "pg";
+import { drizzle } from "drizzle-orm/node-postgres";
+import * as schema from "@/drizzle/schema";
+import * as relations from "@/drizzle/relations";
+import { loadEnvConfig } from "@next/env";
+import { loadVarietyContext } from "./variety-context";
+import { createFakeModelClient } from "./fake-provider";
+import { runThemeGeneration } from "./pipeline";
+import { digestThemeStudioJson } from "./repository";
+import { measureDistinctness, themeFingerprint } from "./fingerprint";
+
+it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
+  "freezes real catalogue context across reclaims and protects version evidence during QA reveal",
+  async () => {
+    loadEnvConfig(process.cwd(), true, { info() {}, error() {} });
+    const pg = new Client({
+      host: "127.0.0.1",
+      port: 5544,
+      database: "storemink_local",
+      user: "postgres",
+      password: process.env.DB_ADMIN_PASSWORD,
+      connectionTimeoutMillis: 5000,
+    });
+    await pg.connect();
+    try {
+      await pg.query("BEGIN");
+      await pg.query("SET LOCAL lock_timeout='5s'");
+      const facts = {
+        name: "Variety DB",
+        themeId: "variety-db",
+        industries: ["home" as const],
+        catalogSizes: ["small" as const],
+        requiredFeatures: [],
+      };
+      const outcome = await runThemeGeneration(
+        createFakeModelClient({
+          ...facts,
+          brief: "A ceramics shop",
+          referenceCount: 0,
+        }),
+        {
+          facts: { ...facts, baseThemeName: null },
+          compile: {
+            ...facts,
+            baseEngine: null,
+            versionNumber: 1,
+            modelKey: "gemini-3.8-flash",
+            modelLabel: "Gemini 3.8 Flash",
+            referenceDigests: [],
+          },
+          providerModel: "fake",
+          promptVersion: "theme-studio-v21",
+          messages: [{ kind: "brief", body: "A ceramics shop" }],
+          references: [],
+        },
+        new AbortController().signal,
+      );
+      if (outcome.kind !== "version") throw new Error("Fixture failed");
+      const seed = async (withVersion: boolean) => {
+        const projectId = randomUUID(),
+          messageId = randomUUID(),
+          runId = randomUUID(),
+          versionId = randomUUID(),
+          themeId = `variety-${projectId}`;
+        await pg.query(
+          `INSERT INTO theme_studio_projects(id,theme_id,name,status,industries,catalog_sizes,model_key,draft_brief,created_by_email) VALUES($1,$2,'Variety DB','generating','{home}','{small}','gemini-3.8-flash','A ceramics shop','test@example.com')`,
+          [projectId, themeId],
+        );
+        await pg.query(
+          "INSERT INTO theme_studio_messages(id,project_id,kind,body) VALUES($1,$2,'brief','A ceramics shop')",
+          [messageId, projectId],
+        );
+        await pg.query(
+          `INSERT INTO theme_studio_runs(id,project_id,message_id,kind,provider,model_key,provider_model,prompt_version,idempotency_key) VALUES($1,$2,$3,'generate','fake','gemini-3.8-flash','fake','theme-studio-v21',$4)`,
+          [runId, projectId, messageId, `variety_${runId}`],
+        );
+        if (withVersion)
+          await pg.query(
+            `INSERT INTO theme_studio_versions(id,project_id,run_id,version_number,intent_json,intent_digest,package_json,package_digest,visibility,qa_status,distinctness_report) VALUES($1,$2,$3,1,$4,$5,$6,$7,'internal','pending',$8)`,
+            [
+              versionId,
+              projectId,
+              runId,
+              JSON.stringify(outcome.intent),
+              digestThemeStudioJson(outcome.intent),
+              JSON.stringify(outcome.package),
+              digestThemeStudioJson(outcome.package),
+              JSON.stringify(
+                measureDistinctness(outcome.package.definition, []),
+              ),
+            ],
+          );
+        return { projectId, runId, themeId, versionId };
+      };
+      const own = await seed(true),
+        other = await seed(true);
+      await pg.query("SET LOCAL ROLE app_service");
+      const db = drizzle(pg, { schema: { ...schema, ...relations } });
+      const frozen = await loadVarietyContext(
+        db,
+        own.runId,
+        own.projectId,
+        own.themeId,
+      );
+      expect(frozen.some((t) => t.themeId === own.themeId)).toBe(false);
+      expect(
+        frozen.find((t) => t.themeId === other.themeId)?.fingerprint,
+      ).toEqual(themeFingerprint(outcome.package.definition));
+      await pg.query("RESET ROLE");
+      const newer = await seed(true);
+      await pg.query("SET LOCAL ROLE app_service");
+      expect(
+        await loadVarietyContext(db, own.runId, own.projectId, own.themeId),
+      ).toEqual(frozen);
+      expect(frozen.some((t) => t.themeId === newer.themeId)).toBe(false);
+      await pg.query("SAVEPOINT immutable_context");
+      await expect(
+        pg.query(
+          "UPDATE theme_studio_runs SET variety_context='[]' WHERE id=$1",
+          [own.runId],
+        ),
+      ).rejects.toThrow(/immutable/);
+      await pg.query("ROLLBACK TO SAVEPOINT immutable_context");
+      await pg.query("RESET ROLE");
+      await pg.query("SAVEPOINT immutable_evidence");
+      await expect(
+        pg.query(
+          "UPDATE theme_studio_versions SET visibility='operator',qa_status='passed',distinctness_report='{}' WHERE id=$1",
+          [own.versionId],
+        ),
+      ).rejects.toThrow(/immutable/);
+      await pg.query("ROLLBACK TO SAVEPOINT immutable_evidence");
+      await pg.query("SET LOCAL ROLE app_service");
+      await pg.query(
+        "UPDATE theme_studio_versions SET visibility='operator',qa_status='passed' WHERE id=$1",
+        [own.versionId],
+      );
+      await pg.query("RESET ROLE");
+      expect(
+        (
+          await pg.query(
+            "SELECT has_column_privilege('app_user','theme_studio_runs','variety_context','SELECT') AS allowed",
+          )
+        ).rows[0].allowed,
+      ).toBe(false);
+    } finally {
+      await pg.query("ROLLBACK");
+      await pg.end();
+    }
+  },
+  20000,
+);
