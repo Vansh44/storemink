@@ -415,6 +415,7 @@ type RunInput = {
 
 async function loadRunInput(
   run: ClaimedRun,
+  workerId: string,
 ): Promise<RunInput | { errorCode: string } | null> {
   return withService(async (db) => {
     const [project] = await db
@@ -552,6 +553,7 @@ async function loadRunInput(
               run.id,
               run.projectId,
               project.themeId,
+              workerId,
             ),
           }
         : {}),
@@ -927,7 +929,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
   if (config.disabledModels.has(run.modelKey as ThemeStudioModelKey)) {
     return { kind: "failed", errorCode: "model_disabled" };
   }
-  const input = await loadRunInput(run);
+  const input = await loadRunInput(run, workerId);
   if (!input) return { kind: "failed", errorCode: "input_missing" };
   if ("errorCode" in input)
     return { kind: "failed", errorCode: input.errorCode };

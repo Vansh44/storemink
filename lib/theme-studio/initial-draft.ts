@@ -1,6 +1,6 @@
 import { EMPTY_CONFIG } from "@/lib/homepage/section-types";
 import type { ThemeIntent } from "./contracts";
-import { explicitDraftStyleIssues, nonVisualDefaults } from "./style-choices";
+import { nonVisualDefaults } from "./style-choices";
 
 type RecordValue = Record<string, unknown>;
 const record = (v: unknown): v is RecordValue =>
@@ -92,7 +92,8 @@ export function expandInitialDraft(
     return { value: raw, issues: ["Choose simple or collections navigation."] };
   const value = structuredClone(raw);
   const issues: string[] = [];
-  if (explicitStyles) issues.push(...explicitDraftStyleIssues(raw));
+  // Explicit-style completeness is checked once, by the compiler, on the
+  // expanded draft (prepareDraft), so a missing choice is not reported twice.
   const composition =
     NATIVE_COMPOSITIONS[raw.composition as keyof typeof NATIVE_COMPOSITIONS];
   if (record(value.design) && !explicitStyles) {

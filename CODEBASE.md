@@ -5875,7 +5875,9 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     uses intent schema 2 with closed `designDirection` (seven native directions)
     and `paletteFamily` (light, dark, colour-field, tinted-neutral). Legacy intent
     schema 1 remains readable; paid v20 and earlier requests keep their original
-    prompts, schemas and preset expansion. New builds author the full layout,
+    prompts, schemas and preset expansion; a revision of a schema-1 version
+    also keeps the schema-1 contract under v21, because the authoring rules
+    would demand choices its base package never made. New builds author the full layout,
     typography, buttons, width/rhythm, motion and visible section settings;
     missing/invalid choices are compiler repair issues, never a silent premium
     preset. Initial navigation and stocked option combinations are still derived.
@@ -5884,16 +5886,23 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     mandatory capability checklist. Dark/colour-field families must colour the
     page itself; tinted-neutral excludes near-white pages (which belong to light). Both stages receive the chosen direction guidance. Contrast/security/content gates
     remain unchanged and generation stays HIGH with the full output allowance.
-    `variety-context.ts` snapshots up to 20 recent other Studio projects and 76
-    published catalogue releases, with bundled fallback, as at most 100 stripped
-    fingerprints. Migration `20261003_0153_theme_studio_variety` adds frozen
+    `variety-context.ts` snapshots up to 76 published catalogue releases (with
+    the design direction of the Studio version each came from), then up to 20
+    recent other Studio projects, then bundled fallback, as at most 100 stripped
+    fingerprints. Published comes first because the prompt shows only five.
+    Recent work counts only operator-visible versions that did not fail QA,
+    falling back to a project's latest acceptable one. Freezing the context is
+    fenced on the worker's live lease like every other run write. Migration `20261003_0153_theme_studio_variety` adds frozen
     `runs.variety_context` and immutable `versions.distinctness_report`; recovery
     reuses the exact context, so catalogue changes cannot invalidate paid request
     checkpoints. Stage A/B receive five recent fingerprints plus frequencies of
     individual choices across the frozen snapshot; a weighted distance
     measures the nearest complete context entry. Below 0.35 or fewer than three
-    major axes changed triggers ONE validated scalar style patch on new,
-    non-reference builds, preserving the compiled palette. No full rewrite or
+    of seven major axes changed (composition, card, hero, page colour, buttons,
+    typography, homepage structure) triggers ONE validated scalar style patch on
+    new, non-reference builds, preserving the compiled palette. Unusable edits
+    in that patch are dropped individually rather than discarding the usable
+    ones, and the report keeps the score it started from. No full rewrite or
     artwork change; an ineffective,
     refused, truncated or failed optional patch keeps the valid draft and flags
     similarity. Revisions preserve identity; reference-led scores are advisory.

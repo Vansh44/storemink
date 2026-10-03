@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/node-postgres";
 import * as schema from "@/drizzle/schema";
 import * as relations from "@/drizzle/relations";
 import { loadEnvConfig } from "@next/env";
-import { loadVarietyContext } from "./variety-context";
+import { loadVarietyContext, VarietyLeaseLostError } from "./variety-context";
 import { createFakeModelClient } from "./fake-provider";
 import { runThemeGeneration } from "./pipeline";
 import { digestThemeStudioJson } from "./repository";
@@ -59,7 +59,13 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
         new AbortController().signal,
       );
       if (outcome.kind !== "version") throw new Error("Fixture failed");
-      const seed = async (withVersion: boolean) => {
+      const seed = async (
+        withVersion: boolean,
+        visibility:
+          | "operator/passed"
+          | "operator/failed"
+          | "internal/pending" = "operator/passed",
+      ) => {
         const projectId = randomUUID(),
           messageId = randomUUID(),
           runId = randomUUID(),
@@ -79,7 +85,7 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
         );
         if (withVersion)
           await pg.query(
-            `INSERT INTO theme_studio_versions(id,project_id,run_id,version_number,intent_json,intent_digest,package_json,package_digest,visibility,qa_status,distinctness_report) VALUES($1,$2,$3,1,$4,$5,$6,$7,'internal','pending',$8)`,
+            `INSERT INTO theme_studio_versions(id,project_id,run_id,version_number,intent_json,intent_digest,package_json,package_digest,visibility,qa_status,distinctness_report) VALUES($1,$2,$3,1,$4,$5,$6,$7,$9,$10,$8)`,
             [
               versionId,
               projectId,
@@ -91,21 +97,44 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
               JSON.stringify(
                 measureDistinctness(outcome.package.definition, []),
               ),
+              ...visibility.split("/"),
             ],
           );
         return { projectId, runId, themeId, versionId };
       };
-      const own = await seed(true),
-        other = await seed(true);
+      const workerId = randomUUID();
+      const own = await seed(true, "internal/pending"),
+        other = await seed(true),
+        hidden = await seed(true, "internal/pending"),
+        failed = await seed(true, "operator/failed"),
+        unleased = await seed(false);
+      await pg.query(
+        "UPDATE theme_studio_runs SET status='running',attempt_count=1,lease_owner=$2,lease_expires_at=now()+interval '5 minutes' WHERE id=$1",
+        [own.runId, workerId],
+      );
       await pg.query("SET LOCAL ROLE app_service");
       const db = drizzle(pg, { schema: { ...schema, ...relations } });
+      // A worker that does not hold the run's lease cannot freeze its context.
+      await expect(
+        loadVarietyContext(
+          db,
+          unleased.runId,
+          unleased.projectId,
+          unleased.themeId,
+          workerId,
+        ),
+      ).rejects.toBeInstanceOf(VarietyLeaseLostError);
       const frozen = await loadVarietyContext(
         db,
         own.runId,
         own.projectId,
         own.themeId,
+        workerId,
       );
       expect(frozen.some((t) => t.themeId === own.themeId)).toBe(false);
+      // Private intermediates and failed drafts are not designs to avoid.
+      expect(frozen.some((t) => t.themeId === hidden.themeId)).toBe(false);
+      expect(frozen.some((t) => t.themeId === failed.themeId)).toBe(false);
       expect(
         frozen.find((t) => t.themeId === other.themeId)?.fingerprint,
       ).toEqual(themeFingerprint(outcome.package.definition));
@@ -113,7 +142,13 @@ it.skipIf(process.env.THEME_STUDIO_VARIETY_DB_TEST !== "1")(
       const newer = await seed(true);
       await pg.query("SET LOCAL ROLE app_service");
       expect(
-        await loadVarietyContext(db, own.runId, own.projectId, own.themeId),
+        await loadVarietyContext(
+          db,
+          own.runId,
+          own.projectId,
+          own.themeId,
+          workerId,
+        ),
       ).toEqual(frozen);
       expect(frozen.some((t) => t.themeId === newer.themeId)).toBe(false);
       await pg.query("SAVEPOINT immutable_context");

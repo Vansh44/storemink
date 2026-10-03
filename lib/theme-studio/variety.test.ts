@@ -22,7 +22,12 @@ import { explicitDraftStyleIssues } from "./style-choices";
 import { validateThemeIntent } from "./contracts";
 import { catalogueVarietyContext } from "./prompts";
 import { createFakeModelClient, runFakeProvider } from "./fake-provider";
-import { runThemeGeneration, type GenerationInput } from "./pipeline";
+import {
+  runThemeGeneration,
+  usableVarietyEdits,
+  type GenerationInput,
+} from "./pipeline";
+import { STAGE_A_VARIETY_SCHEMA } from "./schemas";
 import {
   ZERO_USAGE,
   type StructuredRequest,
@@ -231,6 +236,7 @@ it.each([
   "remove",
   "provider-error",
   "palette",
+  "mixed",
 ])(
   "makes exactly one bounded variety patch (%s) and keeps the valid theme on ineffective edits",
   async (mode) => {
@@ -273,25 +279,35 @@ it.each([
               edits:
                 mode === "improve"
                   ? edits
-                  : mode === "palette"
+                  : mode === "mixed"
                     ? [
+                        // One unusable edit must not discard the usable ones.
                         {
-                          path: "/definition/preset/design/palette/cream",
-                          valueJson: '"#212121"',
+                          path: "/definition/preset/brand/tagline",
+                          valueJson: '"change copy"',
                         },
+                        { path: edits[0].path, valueJson: "not json" },
+                        ...edits,
                       ]
-                    : mode === "copy"
+                    : mode === "palette"
                       ? [
                           {
-                            path: "/definition/preset/brand/tagline",
-                            valueJson: '"change copy"',
+                            path: "/definition/preset/design/palette/cream",
+                            valueJson: '"#212121"',
                           },
                         ]
-                      : mode === "remove"
-                        ? [{ path: edits[0].path, valueJson: " null " }]
-                        : mode === "invalid"
-                          ? [{ path: edits[0].path, valueJson: '"invented"' }]
-                          : [],
+                      : mode === "copy"
+                        ? [
+                            {
+                              path: "/definition/preset/brand/tagline",
+                              valueJson: '"change copy"',
+                            },
+                          ]
+                        : mode === "remove"
+                          ? [{ path: edits[0].path, valueJson: " null " }]
+                          : mode === "invalid"
+                            ? [{ path: edits[0].path, valueJson: '"invented"' }]
+                            : [],
               unrepairable: [],
             },
           };
@@ -313,9 +329,11 @@ it.each([
     expect(outcome.kind).toBe("version");
     if (outcome.kind !== "version") return;
     expect(outcome.distinctness?.repairAttempted).toBe(true);
-    if (mode === "improve")
+    if (mode === "improve" || mode === "mixed") {
       expect(outcome.distinctness?.score).toBeGreaterThan(0.35);
-    else {
+      // The report keeps the score the correction started from.
+      expect(outcome.distinctness?.beforeScore).toBe(0);
+    } else {
       expect(outcome.distinctness?.status).toBe("similar");
       expect(outcome.package.definition.preset).toEqual(
         original.package.definition.preset,
@@ -323,6 +341,89 @@ it.each([
     }
   },
 );
+
+it("counts a different homepage structure as a major axis", () => {
+  const a = structuredClone(studio);
+  const fp = themeFingerprint(a);
+  const context = [
+    {
+      themeId: "studio",
+      direction: null,
+      fingerprint: { ...fp, sections: ["ticker", "faq_accordion", "video"] },
+    },
+  ];
+  expect(measureDistinctness(a, context).changedAxes).toBe(1);
+  expect(
+    measureDistinctness(a, [{ ...context[0], fingerprint: fp }]).changedAxes,
+  ).toBe(0);
+  expect(
+    readDistinctnessReport({
+      ...measureDistinctness(a, context),
+      changedAxes: 7,
+    }),
+  ).not.toBeNull();
+});
+
+it("filters unusable variety edits and keeps required style choices non-null", async () => {
+  const original = await generate(createFakeModelClient(fakeInput));
+  if (original.kind !== "version") throw new Error("Fixture failed");
+  const pkg = original.package;
+  const settings = [
+    { path: "/definition/preset/design/layout/card" },
+    { path: "/definition/preset/design/buttons/shape" },
+    { path: "/definition/preset/pages/0/sections/0/style/scheme" },
+  ];
+  expect(
+    usableVarietyEdits(
+      {
+        edits: [
+          { path: "/definition/preset/brand/tagline", valueJson: '"x"' },
+          { path: settings[0].path, valueJson: '"overlay"' },
+          { path: settings[0].path, valueJson: '"framed"' },
+          { path: settings[1].path, valueJson: "null" },
+          { path: settings[1].path, valueJson: "{" },
+          { path: settings[2].path, valueJson: "null" },
+          "not an edit",
+        ],
+      },
+      settings,
+      pkg,
+    ),
+  ).toEqual([
+    { path: settings[0].path, valueJson: '"overlay"' },
+    { path: settings[2].path, valueJson: "null" },
+  ]);
+  expect(usableVarietyEdits({}, settings, pkg)).toEqual([]);
+});
+
+it("keeps a schema-1 revision on its original contract under the variety prompt", async () => {
+  const legacy = await generate(createFakeModelClient(fakeInput), {
+    ...input(),
+    promptVersion: "theme-studio-v20",
+  });
+  if (legacy.kind !== "version") throw new Error("Fixture failed");
+  expect(legacy.intent.schemaVersion).toBe(1);
+  const fake = createFakeModelClient(fakeInput);
+  const schemas: unknown[] = [];
+  const outcome = await generate(
+    {
+      provider: "fake",
+      async generate(request, signal) {
+        if (request.stage === "intent") schemas.push(request.schema);
+        return fake.generate(request, signal);
+      },
+    },
+    {
+      ...input(),
+      messages: [{ kind: "revision", body: "Make it calmer." }],
+      revision: { baseIntent: legacy.intent, basePackage: legacy.package },
+    },
+  );
+  expect(schemas.length).toBeGreaterThan(0);
+  expect(schemas).not.toContain(STAGE_A_VARIETY_SCHEMA);
+  expect(outcome.kind).toBe("version");
+  if (outcome.kind === "version") expect(outcome.intent.schemaVersion).toBe(1);
+});
 
 it("does not force novelty against reference designs or request another full generation", async () => {
   const original = await generate(createFakeModelClient(fakeInput));

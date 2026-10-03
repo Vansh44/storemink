@@ -64,6 +64,12 @@ export function fingerprintChoiceValues(
   };
 }
 export const DISTINCTNESS_THRESHOLD = 0.35;
+/** Major axes counted by `changedAxes`: composition, card, hero, page colour,
+ * buttons, typography and homepage structure. */
+export const MAJOR_AXES = 7;
+/** Section-sequence edit distance at which homepage structure counts as a
+ * changed major axis. */
+const STRUCTURE_CHANGE = 0.5;
 const WEIGHTS: Record<keyof ThemeFingerprint, number> = {
   composition: 10,
   card: 10,
@@ -249,6 +255,12 @@ export function measureDistinctness(
       (current.bodyFont !== nearest.fingerprint.bodyFont ||
       current.displayFont !== nearest.fingerprint.displayFont
         ? 1
+        : 0) +
+      // Homepage structure is the heaviest-weighted axis; a substantially
+      // different section sequence is a major change, not a minor one.
+      (sequenceDistance(current.sections, nearest.fingerprint.sections) >=
+      STRUCTURE_CHANGE
+        ? 1
         : 0)
     : 0;
   return {
@@ -291,7 +303,7 @@ export function readDistinctnessReport(
         r.nearestThemeId.length <= 80)) &&
     Number.isInteger(r.changedAxes) &&
     r.changedAxes >= 0 &&
-    r.changedAxes <= 6 &&
+    r.changedAxes <= MAJOR_AXES &&
     ["distinct", "similar", "reference-led", "not-compared"].includes(
       r.status,
     ) &&

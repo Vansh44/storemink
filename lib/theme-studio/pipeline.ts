@@ -62,6 +62,10 @@ import {
   type ExistingThemeFingerprint,
 } from "./fingerprint";
 import { expandInitialDraft } from "./initial-draft";
+import {
+  REQUIRED_DESIGN_CHOICES,
+  VISIBLE_SECTION_CHOICES,
+} from "./style-choices";
 import { themePromptFeatures } from "./prompt-features";
 import {
   applyTargetedRepair,
@@ -244,6 +248,14 @@ export async function runThemeGeneration(
 ): Promise<GenerationOutcome> {
   const telemetry = new Telemetry(input.compile.modelKey);
   const variety = themePromptFeatures(input.promptVersion).variety;
+  // Explicit styles (intent schema 2) apply to new builds and to revisions of
+  // themes that already carry a design direction. A revision of an older
+  // schema-1 theme keeps its original contract: forcing a new direction and
+  // palette family onto it would restyle what the operator did not ask to
+  // change, and could refuse the theme's existing page colour outright.
+  const explicitStyles =
+    variety &&
+    (!input.revision || input.revision.baseIntent.schemaVersion === 2);
   const compare = (pkg: ThemePackageV2) =>
     measureDistinctness(
       pkg.definition,
@@ -357,15 +369,15 @@ export async function runThemeGeneration(
         input.revision.baseIntent,
         input.messages,
         input.references.length,
-        variety,
+        explicitStyles,
       )
     : stageAUserText(
         input.facts,
         input.messages,
         input.references.length,
-        variety,
+        explicitStyles,
       );
-  if (variety)
+  if (explicitStyles)
     baseA += `\n${catalogueVarietyContext(input.facts, input.existingThemes ?? [])}`;
   const images: ThemeStudioContentBlock[] = input.references.flatMap(
     (ref, index) => [
@@ -399,13 +411,15 @@ export async function runThemeGeneration(
         stage: "intent",
         modelKey: input.compile.modelKey,
         providerModel: input.providerModel,
-        system: variety
+        system: explicitStyles
           ? stageAVarietySystemPrompt()
           : stageASystemPrompt(
               themePromptFeatures(input.promptVersion).nativeCommerce,
             ),
         content: [{ type: "text", text: userText }, ...images],
-        schema: variety ? STAGE_A_VARIETY_SCHEMA : STAGE_A_ENVELOPE_SCHEMA,
+        schema: explicitStyles
+          ? STAGE_A_VARIETY_SCHEMA
+          : STAGE_A_ENVELOPE_SCHEMA,
         effort: "high",
       },
       telemetry,
@@ -469,7 +483,7 @@ export async function runThemeGeneration(
       // Every problem in one repair round: reporting them one at a time
       // spends a paid repair per problem and can exhaust the budget.
       const problems = reservedBriefIssues(parsed.value);
-      if (variety && parsed.value.schemaVersion !== 2)
+      if (explicitStyles && parsed.value.schemaVersion !== 2)
         problems.push(
           "Use schemaVersion 2 with explicit designDirection and paletteFamily.",
         );
@@ -509,9 +523,9 @@ export async function runThemeGeneration(
         )
       : undefined,
     compactInitial ? input.messages : undefined,
-    variety,
+    explicitStyles,
   );
-  if (variety)
+  if (explicitStyles)
     baseB += `\n${catalogueVarietyContext(input.facts, input.existingThemes ?? [])}`;
   const placeholders = new Map<string, PlaceholderImage>();
   let previousB: unknown = null;
@@ -533,7 +547,7 @@ export async function runThemeGeneration(
         stage: "draft",
         modelKey: input.compile.modelKey,
         providerModel: input.providerModel,
-        system: variety
+        system: explicitStyles
           ? stageBVarietySystemPrompt(intent, compactInitial)
           : compactInitial
             ? stageBInitialSystemPrompt(intent)
@@ -541,7 +555,7 @@ export async function runThemeGeneration(
                 themePromptFeatures(input.promptVersion).nativeFraming,
               ),
         content: [{ type: "text", text: userText }],
-        schema: variety
+        schema: explicitStyles
           ? compactInitial
             ? STAGE_B_VARIETY_INITIAL_SCHEMA
             : STAGE_B_VARIETY_DRAFT_SCHEMA
@@ -563,7 +577,7 @@ export async function runThemeGeneration(
     }
     previousB = response.value;
     const expanded = compactInitial
-      ? expandInitialDraft(response.value, intent, variety)
+      ? expandInitialDraft(response.value, intent, explicitStyles)
       : { value: response.value, issues: [] };
     if (expanded.issues.length) {
       issuesB = expanded.issues;
@@ -623,6 +637,7 @@ export async function runThemeGeneration(
         !input.revision &&
         !input.references.length
       ) {
+        const beforeScore = distinctness.score;
         const settings = repairTargets(pkg).filter(
           (t) =>
             // Keep the compiled palette and band colours: a novelty patch can
@@ -679,31 +694,15 @@ export async function runThemeGeneration(
         // An optional variety attempt must never discard a valid draft on
         // truncation, refusal or provider failure. Surface the similarity.
         if ("value" in correction) {
-          const raw = correction.value as {
-            edits?: { path?: string; valueJson?: string }[];
-          } | null;
-          const paths = new Set(settings.map((t) => t.path));
-          if (
-            Array.isArray(raw?.edits) &&
-            raw.edits.every(
-              (e) =>
-                e &&
-                typeof e.path === "string" &&
-                paths.has(e.path) &&
-                typeof e.valueJson === "string" &&
-                (() => {
-                  try {
-                    return (
-                      JSON.parse(e.valueJson) !== null ||
-                      e.path.endsWith("/style/scheme")
-                    );
-                  } catch {
-                    return false;
-                  }
-                })(),
-            )
-          ) {
-            const repaired = applyTargetedRepair(pkg, correction.value);
+          // Edits are judged one at a time: one unusable edit (an unknown
+          // path, unparseable JSON, or clearing a required style choice) is
+          // dropped rather than discarding the rest of a paid correction.
+          const edits = usableVarietyEdits(correction.value, settings, pkg);
+          if (edits.length) {
+            const repaired = applyTargetedRepair(pkg, {
+              edits,
+              unrepairable: [],
+            });
             if (
               repaired.ok &&
               !paletteFamilyIssues(
@@ -726,7 +725,7 @@ export async function runThemeGeneration(
         distinctness = {
           ...distinctness,
           repairAttempted: true,
-          beforeScore: compare(kept.value).score,
+          beforeScore,
         };
       }
       return {
@@ -741,4 +740,61 @@ export async function runThemeGeneration(
     issuesB = compiled.issues;
   }
   return fail("invalid_output", { stage: "draft" });
+}
+
+/** A variety correction's edits that can be applied: a supplied scalar path,
+ * a parseable JSON value, and never a null that would clear a style choice the
+ * explicit-style contract requires (a null section scheme means page colours
+ * and is allowed). */
+export function usableVarietyEdits(
+  raw: unknown,
+  settings: readonly { path: string }[],
+  pkg: ThemePackageV2,
+): { path: string; valueJson: string }[] {
+  const edits = isRec(raw) && Array.isArray(raw.edits) ? raw.edits : [];
+  const paths = new Set(settings.map((t) => t.path));
+  const seen = new Set<string>();
+  const usable: { path: string; valueJson: string }[] = [];
+  for (const edit of edits) {
+    if (
+      !isRec(edit) ||
+      typeof edit.path !== "string" ||
+      typeof edit.valueJson !== "string" ||
+      !paths.has(edit.path) ||
+      seen.has(edit.path)
+    )
+      continue;
+    let value: unknown;
+    try {
+      value = JSON.parse(edit.valueJson);
+    } catch {
+      continue;
+    }
+    if (value === null && requiredStylePath(edit.path, pkg)) continue;
+    seen.add(edit.path);
+    usable.push({ path: edit.path, valueJson: edit.valueJson });
+  }
+  return usable.slice(0, 24);
+}
+
+function requiredStylePath(path: string, pkg: ThemePackageV2): boolean {
+  const design = /^\/definition\/preset\/design\/([^/]+)\/([^/]+)$/.exec(path);
+  if (design) {
+    const keys = (REQUIRED_DESIGN_CHOICES as Record<string, readonly string[]>)[
+      design[1]
+    ];
+    return Boolean(keys?.includes(design[2]));
+  }
+  const section =
+    /^\/definition\/preset\/pages\/(\d+)\/sections\/(\d+)\/(config|style)\/([^/]+)$/.exec(
+      path,
+    );
+  if (!section) return false;
+  const type =
+    pkg.definition.preset.pages[Number(section[1])]?.sections[
+      Number(section[2])
+    ]?.type;
+  if (section[3] === "style")
+    return ["padding_y", "width"].includes(section[4]);
+  return Boolean(type && VISIBLE_SECTION_CHOICES[type]?.[section[4]]);
 }
