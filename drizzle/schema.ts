@@ -2381,6 +2381,8 @@ export const themeStudioRuns = pgTable("theme_studio_runs", {
   errorCode: text("error_code"),
   usage: jsonb().default({}).notNull(),
   outcomeDetail: jsonb("outcome_detail").default({}).notNull(),
+  /** Frozen catalogue fingerprints for v21 paid request recovery. */
+  varietyContext: jsonb("variety_context"),
   retryOfRunId: uuid("retry_of_run_id"),
   /** Revise runs only: the version revised and its content address. */
   baseVersionId: uuid("base_version_id"),
@@ -2451,6 +2453,7 @@ export const themeStudioVersions = pgTable("theme_studio_versions", {
   versionNumber: integer("version_number").notNull(),
   intentJson: jsonb("intent_json").notNull(),
   intentDigest: text("intent_digest").notNull(),
+  distinctnessReport: jsonb("distinctness_report"),
   packageJson: jsonb("package_json"),
   packageDigest: text("package_digest"),
   /** Internal versions are withheld from the operator until Track 5 settles. */

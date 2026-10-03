@@ -197,7 +197,15 @@ see `docs/theme-studio-reliability.md`.
 
 Since Phase 3 a run can call a paid Gemini model on Vertex AI. Each run shows
 its tokens and estimated cost, and a per-operator ceiling on estimated spend in
-any 24 hours refuses new runs once reached. A model that asks for details
+any 24 hours refuses new runs once reached. New v21 builds choose a direction,
+palette family and native styles explicitly. Their version card shows **Design
+distinctness**: the distance to the closest catalogue or recent Studio design,
+shared choices, and whether a bounded correction was attempted. A similarity
+warning calls for composition review; the score does not replace acceptance or
+visual QA. References take priority over novelty. Image updates retain the
+comparison, and older versions have no score.
+
+A model that asks for details
 leaves the project **blocked** until the operator answers in the workspace.
 Every image in a generated version is a marked placeholder, so a version is a
 draft to review, never something to publish. Record:

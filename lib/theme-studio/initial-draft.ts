@@ -1,5 +1,6 @@
 import { EMPTY_CONFIG } from "@/lib/homepage/section-types";
 import type { ThemeIntent } from "./contracts";
+import { nonVisualDefaults } from "./style-choices";
 
 type RecordValue = Record<string, unknown>;
 const record = (v: unknown): v is RecordValue =>
@@ -69,6 +70,7 @@ export const NATIVE_COMPOSITIONS = {
 export function expandInitialDraft(
   raw: unknown,
   intent: ThemeIntent,
+  explicitStyles = false,
 ): {
   value: unknown;
   issues: string[];
@@ -90,9 +92,11 @@ export function expandInitialDraft(
     return { value: raw, issues: ["Choose simple or collections navigation."] };
   const value = structuredClone(raw);
   const issues: string[] = [];
+  // Explicit-style completeness is checked once, by the compiler, on the
+  // expanded draft (prepareDraft), so a missing choice is not reported twice.
   const composition =
     NATIVE_COMPOSITIONS[raw.composition as keyof typeof NATIVE_COMPOSITIONS];
-  if (record(value.design)) {
+  if (record(value.design) && !explicitStyles) {
     let chosen: RecordValue = {};
     try {
       const parsed = JSON.parse(String(value.design.layoutOverridesJson));
@@ -162,8 +166,14 @@ export function expandInitialDraft(
             issues.push(
               `pages[${pageIndex}].sections[${sectionIndex}].configJson: rich_text requires a nonempty html string with original paragraphs. Put content in html, not body, text or markdown.`,
             );
+          const empty = mechanicalDefaults(defaults);
           const expanded = {
-            ...mechanicalDefaults(defaults),
+            ...(explicitStyles
+              ? nonVisualDefaults(
+                  section.type as keyof typeof EMPTY_CONFIG,
+                  empty,
+                )
+              : empty),
             ...config,
           } as RecordValue;
           // These source/ID defaults are fixed because demo IDs are assigned later.
@@ -178,6 +188,7 @@ export function expandInitialDraft(
           )
             expanded.source = "all";
           if (
+            !explicitStyles &&
             (section.type === "hero" || section.type === "hero_carousel") &&
             config.height === undefined
           )

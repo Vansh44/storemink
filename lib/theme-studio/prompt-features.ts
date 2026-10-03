@@ -1,6 +1,6 @@
 /** Persisted versions keep their request shape. Future prompt revisions inherit
  * these introduced capabilities rather than silently reverting to legacy calls. */
-export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v20";
+export const THEME_STUDIO_PROMPT_VERSION = "theme-studio-v21";
 
 export function themePromptFeatures(version: string) {
   const revision = Number(/^theme-studio-v(\d+)$/.exec(version)?.[1] ?? 0);
@@ -9,5 +9,6 @@ export function themePromptFeatures(version: string) {
     nativeFraming: revision >= 19,
     nativeCommerce: revision >= 20,
     compactInitial: revision >= 20,
+    variety: revision >= 21,
   };
 }

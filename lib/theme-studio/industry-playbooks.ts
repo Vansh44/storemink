@@ -8,6 +8,7 @@ import type { ThemeIndustry } from "@/lib/themes/meta";
 export interface IndustryPlaybook {
   pageStructure: readonly string[];
   homeSections: readonly string[];
+  structures: readonly { name: string; sections: readonly string[] }[];
   colourFamilies: readonly string[];
   imageStyle: string;
   defaults: readonly string[];
@@ -26,6 +27,29 @@ const commerce = (
     "Cart keeps totals and checkout action visually dominant",
   ],
   homeSections,
+  structures: [
+    { name: "discovery", sections: homeSections.filter((s) => s !== "ticker") },
+    {
+      name: "catalogue-first",
+      sections: [
+        "shop_by_category",
+        "featured_products",
+        "promo_banner",
+        "usp_bar",
+        "faq_accordion",
+      ],
+    },
+    {
+      name: "story-first",
+      sections: [
+        "media_text",
+        ...(homeSections.includes("gallery") ? ["gallery"] : ["tile_grid"]),
+        "featured_products",
+        "testimonials",
+        "newsletter",
+      ],
+    },
+  ],
   colourFamilies,
   imageStyle,
   defaults,
@@ -332,7 +356,16 @@ export function industryStartingPattern(industries: readonly ThemeIndustry[]): {
 
 export function industryPlaybookPrompt(
   industries: readonly ThemeIndustry[],
+  variety = false,
 ): string {
   const { industry, playbook } = industryStartingPattern(industries);
-  return JSON.stringify({ industry, ...playbook }, null, 2);
+  const { structures, ...legacy } = playbook;
+  if (!variety) return JSON.stringify({ industry, ...legacy }, null, 2);
+  const guidance = {
+    pageStructure: legacy.pageStructure,
+    colourFamilies: legacy.colourFamilies,
+    imageStyle: legacy.imageStyle,
+    defaults: legacy.defaults,
+  };
+  return JSON.stringify({ industry, ...guidance, structures }, null, 2);
 }

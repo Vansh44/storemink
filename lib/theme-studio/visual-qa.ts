@@ -1,4 +1,5 @@
 import "server-only";
+import { readDistinctnessReport } from "./fingerprint";
 
 import { randomUUID } from "node:crypto";
 import { and, count, eq, gt, inArray, like, sql } from "drizzle-orm";
@@ -262,6 +263,7 @@ type ClaimedQa = QaRow & {
   projectName: string;
   modelKey: ThemeStudioModelKey;
   packageJson: unknown;
+  distinctnessReport: unknown;
   screenshotAssets: { id: string; bytes: Buffer }[];
 };
 
@@ -392,7 +394,10 @@ async function claimQa(db: Db, workerId: string): Promise<ClaimedQa | null> {
     return null;
   }
   const [version] = await db
-    .select({ packageJson: themeStudioVersions.packageJson })
+    .select({
+      packageJson: themeStudioVersions.packageJson,
+      distinctnessReport: themeStudioVersions.distinctnessReport,
+    })
     .from(themeStudioVersions)
     .where(eq(themeStudioVersions.id, next.versionId))
     .limit(1);
@@ -424,6 +429,7 @@ async function claimQa(db: Db, workerId: string): Promise<ClaimedQa | null> {
     projectName: project.name,
     modelKey: project.modelKey as ThemeStudioModelKey,
     packageJson: version.packageJson,
+    distinctnessReport: version.distinctnessReport,
     screenshotAssets: ordered,
   };
 }
@@ -698,8 +704,10 @@ async function settleQa(
       evaluated.report?.verdict === "pass" &&
       !evaluated.report.repairs?.length &&
       scorecardClearsBar(evaluated.report.scores, evaluated.report.rejections);
+    const distinctness = readDistinctnessReport(qa.distinctnessReport);
     const report = {
       phase,
+      ...(distinctness ? { distinctness } : {}),
       progress: qaProgress(gates, evaluated.report),
       promptVersion: VISUAL_QA_PROMPT_VERSION,
       usage: evaluated.usage,

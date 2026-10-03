@@ -3329,8 +3329,11 @@ wholesip/
 │   │                          # (deterministic, versioned, untrusted input fenced),
 │   │                          # compiler.ts (draft → ThemePackageV2; the server owns id,
 │   │                          # engine, release, assets; URLs/hrefs/sources refused),
-│   │                          # initial-draft.ts (v20 native compositions, section defaults,
+│   │                          # initial-draft.ts (legacy v20 presets; v21 explicit styles,
 │   │                          # catalogue-derived navigation and option combinations),
+│   │                          # design-directions.ts/style-choices.ts (seven directions,
+│   │                          # explicit visible choices), fingerprint.ts/variety-context.ts
+│   │                          # (bounded catalogue comparison + frozen run context),
 │   │                          # placeholders.ts (solid WebP per image slot), pipeline.ts
 │   │                          # (Stage A → B, ≤2 repairs each, pure over the client),
 │   │                          # rate-limit-backoff.ts (the 429 wait: bounded, jittered,
@@ -5619,7 +5622,7 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     toggles. No merchant action changes and no Help Centre update.
     Diagnosis and verification: `docs/theme-studio-performance.md`.
     **Compact initial drafts, shared capacity and capture profiling (2026-10-02):**
-    new initial `theme-studio-v20` and later drafts use the compact schema. The model
+    initial `theme-studio-v20` drafts use the legacy compact schema. The model
     chooses a classic/editorial/grocery native composition and writes original
     copy, design tokens, pages, asset references and product options.
     Planning describes actual native predictive search, variant-safe quick add,
@@ -5763,7 +5766,8 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     stores later paid output once and is recoverable through explicit retry ancestry.
     Unknown-usage timeouts/cancellations after transport remain journalled because
     they may have been billed. `prompt-features.ts` centralizes capability thresholds
-    (targeted repair/native framing from v19; compact/native commerce from v20),
+    (targeted repair/native framing from v19; compact/native commerce from v20;
+    explicit styles and catalogue variety from v21),
     preserving old requests and carrying features into future prompt revisions.
     The migration runner's `scripts/db-migration-guards.mjs` locks the run table
     and refuses initial 0147 application while unfinished legacy image work exists,
@@ -5867,6 +5871,61 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     summaries no longer claim artwork is complete merely because only catalog
     placeholders are counted. Operator-only and no merchant workflow changes:
     no Help Centre migration.
+    **Theme Studio design variety (2026-10-03):** prompt `theme-studio-v21`
+    uses intent schema 2 with closed `designDirection` (seven native directions)
+    and `paletteFamily` (light, dark, colour-field, tinted-neutral). Legacy intent
+    schema 1 remains readable; paid v20 and earlier requests keep their original
+    prompts, schemas and preset expansion; a revision of a schema-1 version
+    also keeps the schema-1 contract under v21, because the authoring rules
+    would demand choices its base package never made. New builds author the full layout,
+    typography, buttons, width/rhythm, motion and visible section settings;
+    missing/invalid choices are compiler repair issues, never a silent premium
+    preset. Initial navigation and stocked option combinations are still derived.
+    Industry playbooks offer three structures rather than one default sequence;
+    ticker, quick add and shopping chrome are deliberate choices rather than a
+    mandatory capability checklist. Dark/colour-field families must colour the
+    page itself; tinted-neutral excludes near-white pages (which belong to light). Both stages receive the chosen direction guidance. Contrast/security/content gates
+    remain unchanged and generation stays HIGH with the full output allowance.
+    `variety-context.ts` snapshots up to 76 published catalogue releases (with
+    the design direction of the Studio version each came from), then up to 20
+    recent other Studio projects, then bundled fallback, as at most 100 stripped
+    fingerprints. Published comes first because the prompt shows only five.
+    Recent work counts only operator-visible versions that did not fail QA,
+    falling back to a project's latest acceptable one. Freezing the context is
+    fenced on the worker's live lease like every other run write. Migration `20261003_0153_theme_studio_variety` adds frozen
+    `runs.variety_context` and immutable `versions.distinctness_report`; recovery
+    reuses the exact context, so catalogue changes cannot invalidate paid request
+    checkpoints. Stage A/B receive five recent fingerprints plus frequencies of
+    individual choices across the frozen snapshot; a weighted distance
+    measures the nearest complete context entry. Below 0.35 or fewer than three
+    of seven major axes changed (composition, card, hero, page colour, buttons,
+    typography, homepage structure) triggers ONE validated scalar style patch on
+    new, non-reference builds, preserving the compiled palette. Unusable edits
+    in that patch (an unsupported value, or one a whole-theme check refuses)
+    are dropped rather than discarding the usable ones. The bounded fallback
+    keeps only edits that visibly change the design, or a refused edit paired
+    with the one supporting edit it needs (a font with a lighter weight); a
+    supporting edit is never kept alone. The report keeps the score it started
+    from, and the workspace says whether the correction helped. The context
+    freeze uses finish()'s own lease fence, so a worker that loses the run
+    logs a warning and settles it as lost. No full rewrite or
+    artwork change; an ineffective,
+    refused, truncated or failed optional patch keeps the valid draft and flags
+    similarity. Revisions preserve identity; reference-led scores are advisory.
+    Image edits and captures copy comparison evidence; visual QA includes it in
+    `vision_report.distinctness`. The workspace shows score, nearest theme,
+    shared choices and correction status separately from acceptance/visual QA.
+    Existing versions are not retroactively scored or redesigned. Evaluation:
+    `scripts/theme-studio-variety-eval.ts` (eight builds/four industries, offline
+    plumbing or bounded paid live mode; no DB/artwork writes). The completed
+    structural batch is saved in `evals/theme-studio/variety-live-2026-10-03.json`:
+    eight compiled, median distance 0.704, 7/8 non-near-white, but one repeated
+    collection-banner setting. Final quiet-direction banner guidance is locally
+    tested; complete live acceptance remains pending, not claimed passed. Reference specs,
+    screenshot fidelity scoring and renderer additions remain later tracks in
+    `docs/theme-studio-variety-and-fidelity.md`. Operator-only change: no
+    merchant-visible change, no Help Centre update.
+
     **Theme Studio concurrency and capture recovery (2026-09-29).** The
     dedicated run route awaits two independently leased generation/image runs
     and one visual-QA run concurrently; it waits for all lanes even if one

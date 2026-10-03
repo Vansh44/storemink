@@ -1,4 +1,6 @@
 import { sanitizeMenusForSave } from "@/lib/menus";
+import { explicitDraftStyleIssues } from "./style-choices";
+import { paletteFamilyIssues } from "./fingerprint";
 import type { PageSectionItem } from "@/lib/sections/registry";
 import type {
   ThemeCatalogSize,
@@ -732,6 +734,8 @@ export function prepareDraft(
       issues: ["The draft must be a JSON object."],
     };
   }
+  if (intent.schemaVersion === 2)
+    issues.push(...explicitDraftStyleIssues(draftInput));
   const known = new Set<string>([
     ...intent.assetBriefs.map((b) => b.id),
     ...Object.keys(SYSTEM_SLOTS),
@@ -740,6 +744,10 @@ export function prepareDraft(
   const used = new Set<string>(Object.keys(SYSTEM_SLOTS));
   const productSlots = new Map<string, ProductSlot>();
   const design = buildDesign(draftInput.design, issues);
+  if (intent.schemaVersion === 2 && design)
+    issues.push(
+      ...paletteFamilyIssues(intent.paletteFamily, design.palette.cream),
+    );
   const pages = buildPages(draftInput.pages, known, used, issues);
   const catalogue = buildCatalogue(
     draftInput,

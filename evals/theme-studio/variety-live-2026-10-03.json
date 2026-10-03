@@ -1,0 +1,544 @@
+{
+  "date": "2026-10-03",
+  "purpose": "Last completed structural-variety batch, before the final collection-banner direction guidance",
+  "model": "gemini-3.8-flash",
+  "reasoning": "high",
+  "promptVersion": "theme-studio-v21",
+  "seed": {
+    "syntheticPreviousThemes": 8,
+    "bundledThemes": 4
+  },
+  "scope": "Text planning, synthesis, compilation and optional style correction; no artwork, browser acceptance or visual QA",
+  "live": true,
+  "completed": 8,
+  "successful": 8,
+  "medianPairwise": 0.703525641025641,
+  "identicalSettings": ["collectionBanner"],
+  "identicalFingerprintFields": [],
+  "nonNearWhiteShare": 0.875,
+  "exitCriteriaMet": false,
+  "estimatedUsd": 1.550887,
+  "durationMs": {
+    "minimum": 160013,
+    "median": 278191,
+    "maximum": 430220
+  },
+  "finalGuidanceValidatedLive": false,
+  "followup": "Compact collection openings are now explicit direction guidance; the final paid live batch awaits approval after automatic review rejected external-provider execution and estimated spend.",
+  "rows": [
+    {
+      "id": "fashion-a",
+      "industry": "clothing",
+      "kind": "version",
+      "direction": "bold-and-loud",
+      "paletteFamily": "dark",
+      "durationMs": 201771,
+      "estimatedUsd": 0.180041,
+      "repairs": {
+        "intent": 0,
+        "draft": 1
+      },
+      "repairReasons": [
+        {
+          "stage": "draft",
+          "attempt": 1,
+          "issues": [
+            "products[9].options: \"Black / Silver\" can't contain \"/\" — it separates option values in a variant's name.",
+            "Muted labels on sand chips (the delivery pill) is hard to read (1.02:1, needs 4.5:1)."
+          ]
+        }
+      ],
+      "distinctness": {
+        "version": 1,
+        "score": 0.49,
+        "threshold": 0.35,
+        "nearestThemeId": "seed-eval-fashion-a",
+        "sharedAttributes": [
+          "pageColour",
+          "accentHue",
+          "bodyFont",
+          "displayFont",
+          "width",
+          "shape",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 4,
+        "status": "distinct",
+        "repairAttempted": false
+      },
+      "choices": {
+        "card": "overlay",
+        "gridColumnsMobile": "1",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "false",
+        "stickyAddToCart": "true",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "tight",
+        "categoryDisplay": "cards",
+        "categoryLayout": "grid",
+        "primaryButton": "solid",
+        "secondaryButton": "outline",
+        "buttonShape": "square",
+        "pageWidth": "wide",
+        "pageColour": "near-black",
+        "motion": "fade",
+        "bodyFont": "var(--font-inter)",
+        "displayFont": "var(--font-space-grotesk)",
+        "hero": "hero:banner:large",
+        "newsletter": "dark/center"
+      }
+    },
+    {
+      "id": "fashion-b",
+      "industry": "clothing",
+      "kind": "version",
+      "direction": "magazine-editorial",
+      "paletteFamily": "tinted-neutral",
+      "durationMs": 305490,
+      "estimatedUsd": 0.229518,
+      "repairs": {
+        "intent": 0,
+        "draft": 1
+      },
+      "repairReasons": [
+        {
+          "stage": "draft",
+          "attempt": 1,
+          "issues": [
+            "products[4].options: \"XS/S\" can't contain \"/\" — it separates option values in a variant's name.",
+            "Muted labels on sand chips (the delivery pill) is hard to read (4.24:1, needs 4.5:1).",
+            "Ringed buttons in the Brand scheme are hard to read (2.37:1, needs 4.5:1)."
+          ]
+        }
+      ],
+      "distinctness": {
+        "version": 1,
+        "score": 0.519,
+        "threshold": 0.35,
+        "nearestThemeId": "seed-eval-home-a",
+        "sharedAttributes": [
+          "composition",
+          "card",
+          "accentHue",
+          "bodyFont",
+          "width",
+          "heading",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 4,
+        "status": "distinct",
+        "repairAttempted": false
+      },
+      "choices": {
+        "card": "overlay",
+        "gridColumnsMobile": "1",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "false",
+        "stickyAddToCart": "false",
+        "cardHoverImage": "false",
+        "collectionBanner": "true",
+        "gridGap": "roomy",
+        "categoryDisplay": "cards",
+        "categoryLayout": "grid",
+        "primaryButton": "solid",
+        "secondaryButton": "text",
+        "buttonShape": "square",
+        "pageWidth": "wide",
+        "pageColour": "colour:0",
+        "motion": "fade",
+        "bodyFont": "var(--font-jost)",
+        "displayFont": "var(--font-instrument-serif)",
+        "hero": "hero_carousel::medium",
+        "newsletter": "light/center"
+      }
+    },
+    {
+      "id": "beauty-a",
+      "industry": "beauty",
+      "kind": "version",
+      "direction": "soft-and-natural",
+      "paletteFamily": "tinted-neutral",
+      "durationMs": 160013,
+      "estimatedUsd": 0.120274,
+      "repairs": {
+        "intent": 0,
+        "draft": 0
+      },
+      "repairReasons": [],
+      "distinctness": {
+        "version": 1,
+        "score": 0.375,
+        "threshold": 0.35,
+        "nearestThemeId": "seed-eval-food-b",
+        "sharedAttributes": [
+          "composition",
+          "card",
+          "hero",
+          "accentHue",
+          "displayFont",
+          "width",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 3,
+        "status": "distinct",
+        "repairAttempted": false
+      },
+      "choices": {
+        "card": "framed",
+        "gridColumnsMobile": "2",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "true",
+        "stickyAddToCart": "true",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "standard",
+        "categoryDisplay": "circles",
+        "categoryLayout": "scroll",
+        "primaryButton": "solid",
+        "secondaryButton": "outline",
+        "buttonShape": "rounded",
+        "pageWidth": "standard",
+        "pageColour": "colour:1",
+        "motion": "none",
+        "bodyFont": "var(--font-outfit)",
+        "displayFont": "var(--font-fraunces)",
+        "hero": "hero:split:large",
+        "newsletter": "light/center"
+      }
+    },
+    {
+      "id": "beauty-b",
+      "industry": "beauty",
+      "kind": "version",
+      "direction": "luxury-minimal",
+      "paletteFamily": "light",
+      "durationMs": 164183,
+      "estimatedUsd": 0.105674,
+      "repairs": {
+        "intent": 0,
+        "draft": 0
+      },
+      "repairReasons": [],
+      "distinctness": {
+        "version": 1,
+        "score": 0.399,
+        "threshold": 0.35,
+        "nearestThemeId": "seed-eval-beauty-b",
+        "sharedAttributes": [
+          "pageColour",
+          "accentHue",
+          "bodyFont",
+          "displayFont",
+          "buttons",
+          "width",
+          "shape",
+          "heading",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 3,
+        "status": "distinct",
+        "repairAttempted": false
+      },
+      "choices": {
+        "card": "framed",
+        "gridColumnsMobile": "1",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "false",
+        "stickyAddToCart": "false",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "roomy",
+        "categoryDisplay": "cards",
+        "categoryLayout": "grid",
+        "primaryButton": "outline",
+        "secondaryButton": "text",
+        "buttonShape": "square",
+        "pageWidth": "wide",
+        "pageColour": "near-white",
+        "motion": "none",
+        "bodyFont": "var(--font-jost)",
+        "displayFont": "var(--font-instrument-serif)",
+        "hero": "hero:banner:large",
+        "newsletter": "light/center"
+      }
+    },
+    {
+      "id": "home-a",
+      "industry": "home",
+      "kind": "version",
+      "direction": "magazine-editorial",
+      "paletteFamily": "tinted-neutral",
+      "durationMs": 296700,
+      "estimatedUsd": 0.208225,
+      "repairs": {
+        "intent": 0,
+        "draft": 1
+      },
+      "repairReasons": [
+        {
+          "stage": "draft",
+          "attempt": 4,
+          "issues": [
+            "Draft resembles an existing catalogue design; make one bounded style correction."
+          ]
+        }
+      ],
+      "distinctness": {
+        "version": 1,
+        "score": 0.507,
+        "threshold": 0.35,
+        "nearestThemeId": "seed-eval-home-a",
+        "sharedAttributes": [
+          "accentHue",
+          "bodyFont",
+          "displayFont",
+          "buttons",
+          "width",
+          "grid",
+          "heading",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 4,
+        "status": "distinct",
+        "repairAttempted": true,
+        "beforeScore": 0.389
+      },
+      "choices": {
+        "card": "classic",
+        "gridColumnsMobile": "1",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "false",
+        "stickyAddToCart": "false",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "roomy",
+        "categoryDisplay": "cards",
+        "categoryLayout": "grid",
+        "primaryButton": "outline",
+        "secondaryButton": "text",
+        "buttonShape": "square",
+        "pageWidth": "wide",
+        "pageColour": "neutral-light",
+        "motion": "fade",
+        "bodyFont": "var(--font-jost)",
+        "displayFont": "var(--font-fraunces)",
+        "hero": "hero:split:screen",
+        "newsletter": "light/center"
+      }
+    },
+    {
+      "id": "home-b",
+      "industry": "home",
+      "kind": "version",
+      "direction": "magazine-editorial",
+      "paletteFamily": "tinted-neutral",
+      "durationMs": 430220,
+      "estimatedUsd": 0.28156,
+      "repairs": {
+        "intent": 0,
+        "draft": 1
+      },
+      "repairReasons": [
+        {
+          "stage": "draft",
+          "attempt": 4,
+          "issues": [
+            "Draft resembles an existing catalogue design; make one bounded style correction."
+          ]
+        }
+      ],
+      "distinctness": {
+        "version": 1,
+        "score": 0.402,
+        "threshold": 0.35,
+        "nearestThemeId": "eval-fashion-b",
+        "sharedAttributes": [
+          "composition",
+          "card",
+          "accentHue",
+          "bodyFont",
+          "displayFont",
+          "width",
+          "shape",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 3,
+        "status": "distinct",
+        "repairAttempted": true,
+        "beforeScore": 0.277
+      },
+      "choices": {
+        "card": "overlay",
+        "gridColumnsMobile": "1",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "false",
+        "stickyAddToCart": "false",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "roomy",
+        "categoryDisplay": "cards",
+        "categoryLayout": "grid",
+        "primaryButton": "outline",
+        "secondaryButton": "text",
+        "buttonShape": "square",
+        "pageWidth": "wide",
+        "pageColour": "neutral-light",
+        "motion": "fade",
+        "bodyFont": "var(--font-jost)",
+        "displayFont": "var(--font-instrument-serif)",
+        "hero": "hero:banner:large",
+        "newsletter": "light/center"
+      }
+    },
+    {
+      "id": "food-a",
+      "industry": "food-and-drink",
+      "kind": "version",
+      "direction": "playful-and-colourful",
+      "paletteFamily": "colour-field",
+      "durationMs": 259682,
+      "estimatedUsd": 0.197552,
+      "repairs": {
+        "intent": 0,
+        "draft": 1
+      },
+      "repairReasons": [
+        {
+          "stage": "draft",
+          "attempt": 1,
+          "issues": [
+            "Ringed and text buttons (the accent) on the page background is hard to read (3.89:1, needs 4.5:1).",
+            "Ringed buttons in the Soft scheme are hard to read (3.58:1, needs 4.5:1).",
+            "Ringed buttons in the Tinted scheme are hard to read (4.25:1, needs 4.5:1).",
+            "Muted text in the Brand scheme is hard to read (3.60:1, needs 4.5:1).",
+            "Ringed buttons in the Dark scheme are hard to read (3.21:1, needs 4.5:1)."
+          ]
+        }
+      ],
+      "distinctness": {
+        "version": 1,
+        "score": 0.391,
+        "threshold": 0.35,
+        "nearestThemeId": "seed-eval-food-a",
+        "sharedAttributes": [
+          "card",
+          "pageColour",
+          "accentHue",
+          "bodyFont",
+          "displayFont",
+          "width",
+          "shape",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 3,
+        "status": "distinct",
+        "repairAttempted": false
+      },
+      "choices": {
+        "card": "quick_add",
+        "gridColumnsMobile": "2",
+        "gridColumnsDesktop": "4",
+        "shopFilters": "false",
+        "stickyAddToCart": "true",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "standard",
+        "categoryDisplay": "circles",
+        "categoryLayout": "scroll",
+        "primaryButton": "solid",
+        "secondaryButton": "outline",
+        "buttonShape": "pill",
+        "pageWidth": "standard",
+        "pageColour": "tinted:0",
+        "motion": "rise",
+        "bodyFont": "var(--font-outfit)",
+        "displayFont": "var(--font-fraunces)",
+        "hero": "hero:split:large",
+        "newsletter": "light/center"
+      }
+    },
+    {
+      "id": "food-b",
+      "industry": "food-and-drink",
+      "kind": "version",
+      "direction": "soft-and-natural",
+      "paletteFamily": "tinted-neutral",
+      "durationMs": 297219,
+      "estimatedUsd": 0.228043,
+      "repairs": {
+        "intent": 0,
+        "draft": 1
+      },
+      "repairReasons": [
+        {
+          "stage": "draft",
+          "attempt": 1,
+          "issues": [
+            "Ringed and text buttons (the accent) on the page background is hard to read (3.64:1, needs 4.5:1).",
+            "Ringed and text buttons (the accent) on cards is hard to read (4.37:1, needs 4.5:1).",
+            "Ringed buttons in the Soft scheme are hard to read (3.08:1, needs 4.5:1).",
+            "Ringed buttons in the Tinted scheme are hard to read (4.25:1, needs 4.5:1)."
+          ]
+        }
+      ],
+      "distinctness": {
+        "version": 1,
+        "score": 0.365,
+        "threshold": 0.35,
+        "nearestThemeId": "eval-beauty-a",
+        "sharedAttributes": [
+          "composition",
+          "hero",
+          "sections",
+          "accentHue",
+          "displayFont",
+          "width",
+          "shape",
+          "heading",
+          "motion",
+          "category",
+          "newsletter"
+        ],
+        "changedAxes": 4,
+        "status": "distinct",
+        "repairAttempted": false
+      },
+      "choices": {
+        "card": "classic",
+        "gridColumnsMobile": "1",
+        "gridColumnsDesktop": "3",
+        "shopFilters": "false",
+        "stickyAddToCart": "false",
+        "cardHoverImage": "true",
+        "collectionBanner": "true",
+        "gridGap": "roomy",
+        "categoryDisplay": "circles",
+        "categoryLayout": "scroll",
+        "primaryButton": "solid",
+        "secondaryButton": "solid",
+        "buttonShape": "rounded",
+        "pageWidth": "standard",
+        "pageColour": "colour:0",
+        "motion": "none",
+        "bodyFont": "var(--font-inter)",
+        "displayFont": "var(--font-fraunces)",
+        "hero": "hero:split:large",
+        "newsletter": "light/center"
+      }
+    }
+  ]
+}

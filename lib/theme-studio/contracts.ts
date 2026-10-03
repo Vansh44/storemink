@@ -19,8 +19,15 @@ import { cleanPage } from "@/lib/themes/page";
 import { cleanTypography } from "@/lib/themes/typography";
 import { parseThemeStudioModelKey, type ThemeStudioModelKey } from "./models";
 import { resolveOptionRows } from "@/lib/products/options";
+import {
+  DESIGN_DIRECTION_IDS,
+  PALETTE_FAMILIES,
+  type DesignDirection,
+  type PaletteFamily,
+} from "./design-directions";
 
 export const THEME_INTENT_SCHEMA_VERSION = 1 as const;
+export const THEME_VARIETY_INTENT_SCHEMA_VERSION = 2 as const;
 export const THEME_PACKAGE_SCHEMA_VERSION = 2 as const;
 
 export const THEME_STUDIO_VIEWPORTS = {
@@ -117,7 +124,11 @@ export interface ThemeCapabilityGap {
 }
 
 export interface ThemeIntent {
-  schemaVersion: typeof THEME_INTENT_SCHEMA_VERSION;
+  schemaVersion:
+    | typeof THEME_INTENT_SCHEMA_VERSION
+    | typeof THEME_VARIETY_INTENT_SCHEMA_VERSION;
+  designDirection?: DesignDirection;
+  paletteFamily?: PaletteFamily;
   summary: string;
   audiences: string[];
   industries: ThemeIndustry[];
@@ -273,6 +284,8 @@ const GAP_CODES: readonly ThemeCapabilityGapCode[] = [
 
 const ROOT_INTENT_KEYS = [
   "schemaVersion",
+  "designDirection",
+  "paletteFamily",
   "summary",
   "audiences",
   "industries",
@@ -519,9 +532,30 @@ export function validateThemeIntent(
   if (!isRecord(input))
     return { ok: false, issues: ["Theme intent must be an object."] };
   rejectUnknownKeys(input, ROOT_INTENT_KEYS, "Theme intent", issues);
-  if (input.schemaVersion !== THEME_INTENT_SCHEMA_VERSION) {
-    issues.push(`schemaVersion must be ${THEME_INTENT_SCHEMA_VERSION}.`);
+  if (
+    input.schemaVersion !== THEME_INTENT_SCHEMA_VERSION &&
+    input.schemaVersion !== THEME_VARIETY_INTENT_SCHEMA_VERSION
+  ) {
+    issues.push("schemaVersion must be 1 or 2.");
   }
+  const designDirection =
+    input.schemaVersion === 2 || input.designDirection !== undefined
+      ? enumValue(
+          input.designDirection,
+          DESIGN_DIRECTION_IDS,
+          "designDirection",
+          issues,
+        )
+      : undefined;
+  const paletteFamily =
+    input.schemaVersion === 2 || input.paletteFamily !== undefined
+      ? enumValue(
+          input.paletteFamily,
+          PALETTE_FAMILIES,
+          "paletteFamily",
+          issues,
+        )
+      : undefined;
 
   const summary = requiredString(input.summary, "summary", issues, 1_000);
   const audiences = stringList(input.audiences, "audiences", issues, {
@@ -927,7 +961,9 @@ export function validateThemeIntent(
   return {
     ok: true,
     value: {
-      schemaVersion: THEME_INTENT_SCHEMA_VERSION,
+      schemaVersion: input.schemaVersion as ThemeIntent["schemaVersion"],
+      ...(designDirection ? { designDirection } : {}),
+      ...(paletteFamily ? { paletteFamily } : {}),
       summary,
       audiences,
       industries,
@@ -1962,9 +1998,13 @@ function parsePackageAssets(
 export const THEME_INTENT_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
-  required: ROOT_INTENT_KEYS,
+  required: ROOT_INTENT_KEYS.filter(
+    (key) => key !== "designDirection" && key !== "paletteFamily",
+  ),
   properties: {
-    schemaVersion: { type: "integer", const: THEME_INTENT_SCHEMA_VERSION },
+    schemaVersion: { type: "integer", enum: [1, 2] },
+    designDirection: { type: "string", enum: DESIGN_DIRECTION_IDS },
+    paletteFamily: { type: "string", enum: PALETTE_FAMILIES },
     summary: { type: "string", maxLength: 1_000 },
     audiences: {
       type: "array",

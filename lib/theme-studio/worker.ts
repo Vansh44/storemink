@@ -11,7 +11,7 @@ import {
   themeStudioVersions,
 } from "@/drizzle/schema";
 import { withService, type Db } from "@/lib/db/client";
-import { logError, logInfo } from "@/lib/observability/logger";
+import { logError, logInfo, logWarn } from "@/lib/observability/logger";
 import { getThemeDefinition, isBundledThemeId } from "@/lib/themes";
 import type {
   ThemeCatalogSize,
@@ -21,6 +21,12 @@ import type {
 import { createVertexModelClient, getVertexConfig } from "./gemini-vertex";
 import { sharedProviderCapacity } from "./provider-capacity-store";
 import { themePromptFeatures } from "./prompt-features";
+import { loadVarietyContext, VarietyLeaseLostError } from "./variety-context";
+import {
+  readDistinctnessReport,
+  type ExistingThemeFingerprint,
+  type DistinctnessReport,
+} from "./fingerprint";
 import { getThemeStudioConfig, type ThemeStudioProvider } from "./config";
 import {
   THEME_STUDIO_LIMITS,
@@ -399,6 +405,7 @@ async function revealAutomaticBase(
 }
 
 type RunInput = {
+  existingThemes?: ExistingThemeFingerprint[];
   project: typeof themeStudioProjects.$inferSelect;
   messages: { kind: "brief" | "revision"; body: string }[];
   references: { bytes: Buffer; sha256: string; createdAt: string }[];
@@ -408,6 +415,7 @@ type RunInput = {
 
 async function loadRunInput(
   run: ClaimedRun,
+  workerId: string,
 ): Promise<RunInput | { errorCode: string } | null> {
   return withService(async (db) => {
     const [project] = await db
@@ -538,6 +546,17 @@ async function loadRunInput(
     return {
       project,
       messages,
+      ...(themePromptFeatures(run.promptVersion).variety
+        ? {
+            existingThemes: await loadVarietyContext(
+              db,
+              run.id,
+              run.projectId,
+              project.themeId,
+              workerId,
+            ),
+          }
+        : {}),
       references: references.sort(
         (a, b) =>
           citedReferenceIds.indexOf(a.id) - citedReferenceIds.indexOf(b.id),
@@ -553,6 +572,7 @@ type Outcome =
   | {
       kind: "images";
       result: ThemeImageRunResult;
+      distinctnessReport?: DistinctnessReport | null;
       intent: ThemeIntent;
       package: ThemePackageV2;
       versionNumber: number;
@@ -609,6 +629,7 @@ async function cancelRequested(runId: string): Promise<boolean> {
 // ── Image runs (Track 3.2) ────────────────────────────────────────────────
 
 type ImageRunInput = {
+  distinctnessReport: DistinctnessReport | null;
   corrections: Record<string, string>;
   intent: ThemeIntent;
   package: ThemePackageV2;
@@ -625,6 +646,7 @@ async function loadImageRunInput(
     }
     const [base] = await db
       .select({
+        distinctnessReport: themeStudioVersions.distinctnessReport,
         correctionBody: sql<
           string | null
         >`(SELECT m.body FROM theme_studio_messages m WHERE m.id=${run.messageId}::uuid AND m.project_id=${run.projectId}::uuid AND EXISTS (SELECT 1 FROM theme_studio_runs r WHERE r.message_id=m.id AND r.automatic))`,
@@ -669,6 +691,7 @@ async function loadImageRunInput(
     }
     return {
       corrections,
+      distinctnessReport: readDistinctnessReport(base.distinctnessReport),
       intent: intent.value,
       package: pkg.value,
       versionNumber: (latest ?? 0) + 1,
@@ -882,6 +905,7 @@ async function executeImages(
     );
     return {
       kind: "images",
+      distinctnessReport: input.distinctnessReport,
       result,
       intent: input.intent,
       package: input.package,
@@ -905,7 +929,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
   if (config.disabledModels.has(run.modelKey as ThemeStudioModelKey)) {
     return { kind: "failed", errorCode: "model_disabled" };
   }
-  const input = await loadRunInput(run);
+  const input = await loadRunInput(run, workerId);
   if (!input) return { kind: "failed", errorCode: "input_missing" };
   if ("errorCode" in input)
     return { kind: "failed", errorCode: input.errorCode };
@@ -1013,6 +1037,7 @@ async function execute(run: ClaimedRun, workerId: string): Promise<Outcome> {
         providerModel: run.providerModel,
         promptVersion: run.promptVersion,
         messages: input.messages,
+        existingThemes: input.existingThemes,
         references: input.references.map((r) => ({
           base64: r.bytes.toString("base64"),
           sha256: r.sha256,
@@ -1298,6 +1323,7 @@ async function finish(
         intentJson: result.intent,
         intentDigest,
         packageJson: result.package,
+        distinctnessReport: result.distinctness ?? null,
         packageDigest,
         ...(automaticQa
           ? {
@@ -1539,6 +1565,7 @@ async function finishImages(
       runId: run.id,
       parentVersionId: run.baseVersionId,
       versionNumber: outcome.versionNumber,
+      distinctnessReport: outcome.distinctnessReport ?? null,
       intentJson: outcome.intent,
       intentDigest,
       packageJson: applied.value,
@@ -1653,7 +1680,17 @@ export async function runThemeStudioWorker(
     try {
       outcome = await execute(run, workerId);
     } catch (error) {
-      logError("theme studio: run execution threw", error, { runId: run.id });
+      // Losing the lease to a reclaim is expected and already safe: the
+      // variety freeze uses finish()'s own fence (running + lease owner), so
+      // finish() below finds no row and settles this run as `lost`.
+      if (error instanceof VarietyLeaseLostError)
+        logWarn("theme studio: run lease lost before start", {
+          runId: run.id,
+        });
+      else
+        logError("theme studio: run execution threw", error, {
+          runId: run.id,
+        });
       outcome =
         run.attemptCount < run.maxAttempts
           ? { kind: "retry", errorCode: "worker_error" }

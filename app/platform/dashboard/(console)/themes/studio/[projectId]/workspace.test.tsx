@@ -18,7 +18,7 @@ vi.mock("@/app/actions/theme-studio-actions", () => ({
   reviseThemeStudioVersionAction: vi.fn(),
   submitThemeStudioDetailsAction: vi.fn(),
 }));
-import { ProjectWorkspace } from "./workspace";
+import { ProjectWorkspace, varietyCorrectionNote } from "./workspace";
 
 const project: ThemeStudioProjectDetail = {
   id: "p",
@@ -72,6 +72,19 @@ it("shows visual findings beside passing browser checks and resolves a hidden pa
             intentDigest: "digest",
             packageDigest: "package",
             packageSummary: null,
+            designDirection: "magazine-editorial",
+            paletteFamily: "light",
+            distinctness: {
+              version: 1,
+              score: 0.25,
+              threshold: 0.35,
+              nearestThemeId: "studio",
+              sharedAttributes: ["card", "hero"],
+              changedAxes: 2,
+              status: "similar",
+              repairAttempted: true,
+              beforeScore: 0.25,
+            },
             summary: "Vanta",
             assumptions: [],
             hasPackage: true,
@@ -93,6 +106,15 @@ it("shows visual findings beside passing browser checks and resolves a hidden pa
     />,
   );
   expect(screen.getByText("Automatic QA needs attention")).toBeTruthy();
+  expect(screen.getByText(/Design distinctness: 25%/)).toBeTruthy();
+  expect(screen.getByText(/Closest theme: studio/)).toBeTruthy();
+  expect(
+    screen.getByText(/This design still resembles the catalogue/),
+  ).toBeTruthy();
+  expect(
+    screen.getByText(/did not make the design more distinct/),
+  ).toBeTruthy();
+  expect(screen.getByText(/2 of 7 major/)).toBeTruthy();
   expect(
     screen.getByText("These findings require a platform renderer fix."),
   ).toBeTruthy();
@@ -187,3 +209,23 @@ it.each(["revise", "images"] as const)(
     expect(screen.queryByRole("button", { name: "Retry" })).toBeNull();
   },
 );
+
+it("says whether the automatic variety correction changed the design", () => {
+  const report = {
+    version: 1 as const,
+    score: 0.41,
+    threshold: 0.35,
+    nearestThemeId: "studio",
+    sharedAttributes: [],
+    changedAxes: 3,
+    status: "distinct" as const,
+    repairAttempted: true,
+  };
+  expect(varietyCorrectionNote({ ...report, beforeScore: 0.12 })).toBe(
+    "One automatic variety correction raised distinctness from 12% to 41%.",
+  );
+  // Reports stored before beforeScore existed keep the neutral wording.
+  expect(varietyCorrectionNote(report)).toBe(
+    "One automatic variety correction was attempted.",
+  );
+});

@@ -625,6 +625,7 @@ export async function finishThemeStudioCapture(input: {
       .select({
         packageJson: themeStudioVersions.packageJson,
         packageDigest: themeStudioVersions.packageDigest,
+        distinctnessReport: themeStudioVersions.distinctnessReport,
         intentJson: themeStudioVersions.intentJson,
         intentDigest: themeStudioVersions.intentDigest,
         origin: themeStudioVersions.origin,
@@ -985,6 +986,7 @@ export async function finishThemeStudioCapture(input: {
           },
           parentVersionId: held.versionId,
           versionNumber,
+          distinctnessReport: version.distinctnessReport,
           intentJson: version.intentJson,
           intentDigest: version.intentDigest,
           packageJson: applied.value,
