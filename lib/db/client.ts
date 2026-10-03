@@ -19,6 +19,7 @@ import { Pool, type PoolClient } from "pg";
 import * as schema from "../../drizzle/schema";
 import * as relations from "../../drizzle/relations";
 import { postgresStringTimestampTypes } from "./pg-types";
+import { logWarn } from "@/lib/observability/logger";
 
 const fullSchema = { ...schema, ...relations };
 export type Db = NodePgDatabase<typeof fullSchema>;
@@ -46,6 +47,18 @@ function getPool(): Pool {
       // Cloud SQL Auth Proxy — a dropped idle socket surfaces as ECONNRESET on
       // its next use.
       keepAlive: true,
+    });
+    // ★ An IDLE pooled connection the server or socket drops is emitted on
+    // the pool. With no listener Node reports it as an uncaughtException
+    // (production, 2026-10-03: two idle Cloud SQL sockets mid Theme Studio
+    // run). pg already discards that client and opens a fresh one on the next
+    // acquire, so this is a log line, not a failure — and it must not be able
+    // to crash a script or worker that has no framework handler.
+    _pool.on("error", (error) => {
+      logWarn("db.idle_client_error", {
+        code: (error as { code?: unknown }).code ?? null,
+        message: error.message,
+      });
     });
   }
   return _pool;

@@ -5740,6 +5740,19 @@ Promise((r) => setTimeout(r, 300)); })`) instead of re-running the suite
     completion and the checkpoint commit can still repeat that call, and a
     provider timeout may omit billed usage; this is not provider exactly-once
     execution. Historical runs without checkpoints cannot recover lost memory.
+    **Unexpected finish reasons are re-asked, not fatal (2026-10-03).** A
+    production Stage A run (six screenshots, HIGH thinking) answered after
+    three paid minutes with a finish reason other than `STOP`, and the run
+    ended as "No provider was available" (`provider_unavailable`) with nothing
+    logged to say why. `gemini-vertex.ts` now returns `invalid_json` for any
+    finish that is not `STOP`, `MAX_TOKENS` or a refusal (`OTHER`, `LANGUAGE`,
+    `FINISH_REASON_UNSPECIFIED`, no candidate), so the pipeline re-asks within
+    its bounded repair attempts, and logs
+    `theme_studio.unexpected_finish_reason` with the enum only. The same run
+    showed two idle Cloud SQL sockets dropping as an `uncaughtException`
+    because the pg pool had no `error` listener; `lib/db/client.ts` now logs
+    `db.idle_client_error` instead (pg already discards that client).
+    Operator-only: no Help Centre update.
     **Recovery review corrections (2026-10-02; migration 0150):** run-deadline
     aborts during image review keep paid, prepared candidates explicitly
     `unreviewed` for partial version settlement, without consuming reviewer-outage
